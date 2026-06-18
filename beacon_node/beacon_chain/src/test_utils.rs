@@ -2378,6 +2378,21 @@ where
         slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
     ) -> HarnessSyncContributions<E> {
+        // Resolve the committee for aggregator selection using the same relative committee as the
+        // messages. Selecting from `current_sync_committee` unconditionally would pick an
+        // aggregator outside the verifying committee at sync committee period boundaries (where
+        // `Next` is used), causing `AggregatorNotInCommittee`.
+        let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+            RelativeSyncCommittee::Current => state
+                .current_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+            RelativeSyncCommittee::Next => state
+                .next_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+        };
+
         let sync_messages =
             self.make_sync_committee_messages(state, block_hash, slot, relative_sync_committee);
 
@@ -2387,10 +2402,7 @@ where
             .map(|(subnet_id, committee_messages)| {
                 // If there are any sync messages in this committee, create an aggregate.
                 if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
-                    let sync_committee: Arc<SyncCommittee<E>> = state
-                        .current_sync_committee()
-                        .expect("should be called on altair beacon state")
-                        .clone();
+                    let sync_committee = sync_committee.clone();
 
                     let aggregator_index = sync_committee
                         .get_subcommittee_pubkeys(subnet_id)
@@ -3459,14 +3471,24 @@ where
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
             && new_state.current_sync_committee().is_ok()
         {
+            // A sync message for `slot` is verified against the committee of `epoch(slot + 1)`
+            // (see `BeaconChain::sync_committee_at_next_slot`), so we must sign with `Next` only
+            // when `slot + 1` crosses into a new sync committee period, not for the whole first
+            // epoch of the period.
+            let slots_per_epoch = E::slots_per_epoch();
+            let crosses_period = slot
+                .epoch(slots_per_epoch)
+                .sync_committee_period(&self.spec)
+                .unwrap()
+                != (slot + 1)
+                    .epoch(slots_per_epoch)
+                    .sync_committee_period(&self.spec)
+                    .unwrap();
             self.sync_committee_sign_block(
                 &new_state,
                 block_hash.into(),
                 slot,
-                if (slot + 1).epoch(E::slots_per_epoch())
-                    % self.spec.epochs_per_sync_committee_period
-                    == 0
-                {
+                if crosses_period {
                     RelativeSyncCommittee::Next
                 } else {
                     RelativeSyncCommittee::Current

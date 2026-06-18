@@ -3,7 +3,8 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
     test_utils::{
-        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
+        fork_name_from_env, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
@@ -366,6 +367,12 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
+    // We don't run these test for post-Gloas forks beacause of the FcU changes that were
+    // applied in the gloas. Gloas adopted tests can be found in gloas_re_org_test.rs.
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
     let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -518,25 +525,7 @@ pub async fn proposer_boost_re_org_test(
         .collect::<Vec<_>>();
 
     // Produce block B and process it halfway through the slot.
-    // When B is expected to remain canonical (no re-org), capture its Gloas payload envelope so we
-    // can reveal B's execution payload to fork choice below. Without this, B's payload status stays
-    // `Empty`/`Pending` and the forkchoiceUpdated head hash falls back to B's parent rather than B's
-    // own execution block hash. We skip this when B will be re-orged, since the execution layer
-    // must never be told about a block that is about to be re-orged away.
-    let is_gloas = harness
-        .chain
-        .spec
-        .fork_name_at_slot::<E>(slot_b)
-        .gloas_enabled();
-    let reveal_block_b_payload = is_gloas && !should_re_org;
-    let (block_b, block_b_envelope, mut state_b) = if reveal_block_b_payload {
-        harness
-            .make_block_with_envelope(state_a.clone(), slot_b)
-            .await
-    } else {
-        let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
-        (block_b, None, state_b)
-    };
+    let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
@@ -550,14 +539,6 @@ pub async fn proposer_boost_re_org_test(
         None,
     );
     harness.process_block_result(block_b.clone()).await.unwrap();
-
-    // Reveal B's execution payload so fork choice marks the payload as received and the
-    // forkchoiceUpdated head hash references B's own execution block hash.
-    if let Some(block_b_envelope) = block_b_envelope {
-        harness
-            .process_envelope(block_b_root, block_b_envelope, &state_b, state_b_root)
-            .await;
-    }
 
     // Add attestations to block B.
     let (block_b_head_votes, _) = harness.make_attestations_with_limit(
@@ -613,42 +594,21 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let is_gloas = harness
-        .chain
-        .spec
-        .fork_name_at_slot::<E>(slot_c)
-        .gloas_enabled();
+    let (unsigned_block_type, _) = tester
+        .client
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
+        .await
+        .unwrap();
 
-    let (block_c, block_c_blobs) = if is_gloas {
-        let (response, _) = tester
-            .client
-            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
-            .await
-            .unwrap();
-        (
-            Arc::new(harness.sign_beacon_block(response.data, &state_b)),
-            None,
-        )
-    } else {
-        let (unsigned_block_type, _) = tester
-            .client
-            .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
-            .await
-            .unwrap();
-
-        let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
-            ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
-                unsigned_block_contents_c.deconstruct()
-            }
-            ProduceBlockV3Response::Blinded(_) => {
-                panic!("Should not be a blinded block");
-            }
-        };
-        (
-            Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b)),
-            block_c_blobs,
-        )
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
+        ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
+            unsigned_block_contents_c.deconstruct()
+        }
+        ProduceBlockV3Response::Blinded(_) => {
+            panic!("Should not be a blinded block");
+        }
     };
+    let block_c = Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b));
 
     if should_re_org {
         // Block C should build on A.
@@ -671,29 +631,20 @@ pub async fn proposer_boost_re_org_test(
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
 
-    // Post-Gloas the execution payload is decoupled from the beacon block: the payload hash
-    // lives in the execution payload bid, and the payload timestamp is derived from the slot.
-    let exec_block_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
-        if is_gloas {
-            block
-                .body()
-                .signed_execution_payload_bid()
-                .unwrap()
-                .message
-                .block_hash
-        } else {
-            block.execution_payload().unwrap().block_hash()
-        }
-    };
+    let block_a_exec_hash = block_a
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
+    let block_b_exec_hash = block_b
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
 
-    let block_a_exec_hash = exec_block_hash(block_a.0.message());
-    let block_b_exec_hash = exec_block_hash(block_b.0.message());
-
-    let block_c_timestamp = if is_gloas {
-        harness.chain.slot_clock.start_of(slot_c).unwrap().as_secs()
-    } else {
-        block_c.message().execution_payload().unwrap().timestamp()
-    };
+    let block_c_timestamp = block_c.message().execution_payload().unwrap().timestamp();
 
     // If we re-orged then no fork choice update for B should have been sent.
     assert_eq!(

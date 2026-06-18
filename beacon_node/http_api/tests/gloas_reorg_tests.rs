@@ -240,6 +240,151 @@ pub async fn proposer_boost_re_org_parent_empty() {
     })
     .await;
 }
+
+// Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
+// configured.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_zero_weight() {
+    proposer_boost_re_org_test(ReOrgTest {
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
+        ..Default::default()
+    })
+    .await;
+}
+
+// Since Fulu, proposer shuffling is stable across epoch boundaries, so re-orgs of the last block
+// in an epoch are permitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
+        should_re_org: true,
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary_skip1() {
+    // Proposing a block on a boundary after a skip will change the set of expected withdrawals
+    // sent in the payload attributes.
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(2 * E::slots_per_epoch() - 2),
+        head_distance: 2,
+        should_re_org: false,
+        expect_withdrawals_change_on_epoch: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary_skip32() {
+    // Propose a block at 64 after a whole epoch of skipped slots.
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
+        head_distance: E::slots_per_epoch() + 1,
+        should_re_org: false,
+        expect_withdrawals_change_on_epoch: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_slot_after_epoch_boundary() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(33),
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_bad_ffg() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(64 + 22),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_no_finality() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(96),
+        percent_parent_votes: 100,
+        percent_skip_full_votes: 0,
+        percent_head_votes: 100,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_finality() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(129),
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_parent_distance() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 2),
+        parent_distance: 2,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_head_distance() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 3),
+        head_distance: 2,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_very_unhealthy() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
+        parent_distance: 2,
+        head_distance: 2,
+        percent_parent_votes: 10,
+        percent_skip_full_votes: 10,
+        percent_head_votes: 10,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// The head block is late but still receives 30% of the committee vote, making it strong enough
+/// that we do not re-org it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_head_too_strong() {
+    proposer_boost_re_org_test(ReOrgTest {
+        percent_skip_full_votes: 70,
+        percent_head_votes: 30,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
@@ -757,11 +902,16 @@ pub async fn proposer_boost_re_org_test(
     };
     let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
     assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);
-    assert!(!expected_withdrawals.is_empty());
-
-    if should_re_org
-        || expect_withdrawals_change_on_epoch
-            && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
+    // The validator withdrawal sweep is positional: it scans a rotating window of
+    // `max_validators_per_withdrawals_sweep` validators starting at `next_withdrawal_validator_index`.
+    // For a given proposal slot that window can legitimately contain no withdrawal-eligible
+    // validators (with empty partial/builder withdrawal queues), so an empty withdrawals list is
+    // valid. Withdrawal correctness is covered by the equality check above; we only assert the
+    // re-org/epoch-boundary withdrawals change when there are withdrawals to compare.
+    if !expected_withdrawals.is_empty()
+        && (should_re_org
+            || expect_withdrawals_change_on_epoch
+                && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch()))
     {
         assert_ne!(expected_withdrawals, pre_advance_withdrawals);
     }
