@@ -367,9 +367,9 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // We don't run these test for post-Gloas forks beacause of the FcU changes that were
-    // applied in the gloas. Gloas adopted tests can be found in gloas_re_org_test.rs.
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+    // We don't run these test for post-Gloas forks because of the FcU changes that were
+    // applied in the gloas. Gloas adopted tests can be found in `gloas_re_org_test.rs`
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
 
