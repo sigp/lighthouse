@@ -12,7 +12,6 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
-use fixed_bytes::FixedBytesExtended;
 use ssz_types::Bitfield;
 use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};
@@ -52,7 +51,6 @@ async fn get_harness<E: EthSpec>(
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::zero(),
                 (1..last_slot_of_epoch.as_u64())
                     .map(Slot::new)
                     .collect::<Vec<_>>()
@@ -1014,7 +1012,7 @@ async fn block_replayer_peeking_state_roots() {
     let block_replayer = BlockReplayer::new(parent_state, &harness.chain.spec)
         .state_root_iter(state_root_iter.into_iter())
         .no_signature_verification()
-        .apply_blocks(vec![target_block], vec![], None)
+        .apply_blocks(vec![target_block], None)
         .unwrap();
 
     assert_eq!(

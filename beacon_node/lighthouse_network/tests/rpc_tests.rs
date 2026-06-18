@@ -139,16 +139,10 @@ fn test_tcp_status_rpc() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            debug!("Receiver Received");
-                            receiver.send_response(
-                                peer_id,
-                                inbound_request_id,
-                                rpc_response.clone(),
-                            );
-                        }
+                    } if request_type == rpc_request => {
+                        // send the response
+                        debug!("Receiver Received");
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
                     }
                     _ => {} // Ignore other events
                 }
@@ -269,34 +263,33 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
-                            for i in 0..messages_to_send {
-                                // Send first third of responses as base blocks,
-                                // second as altair and third as bellatrix.
-                                let rpc_response = if i < 2 {
-                                    rpc_response_base.clone()
-                                } else if i < 4 {
-                                    rpc_response_altair.clone()
-                                } else {
-                                    rpc_response_bellatrix_small.clone()
-                                };
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                            }
-                            // send the stream termination
+                    } if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
+                        for i in 0..messages_to_send {
+                            // Send first third of responses as base blocks,
+                            // second as altair and third as bellatrix.
+                            let rpc_response = if i < 2 {
+                                rpc_response_base.clone()
+                            } else if i < 4 {
+                                rpc_response_altair.clone()
+                            } else {
+                                rpc_response_bellatrix_small.clone()
+                            };
                             receiver.send_response(
                                 peer_id,
                                 inbound_request_id,
-                                Response::BlocksByRange(None),
+                                rpc_response.clone(),
                             );
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlocksByRange(None),
+                        );
                     }
+
                     _ => {} // Ignore other events
                 }
             }
@@ -404,26 +397,24 @@ fn test_blobs_by_range_chunked_rpc() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
-                            for _ in 0..messages_to_send {
-                                // Send first third of responses as base blocks,
-                                // second as altair and third as bellatrix.
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                            }
-                            // send the stream termination
+                    } if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
+                        for _ in 0..messages_to_send {
+                            // Send first third of responses as base blocks,
+                            // second as altair and third as bellatrix.
                             receiver.send_response(
                                 peer_id,
                                 inbound_request_id,
-                                Response::BlobsByRange(None),
+                                rpc_response.clone(),
                             );
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlobsByRange(None),
+                        );
                     }
                     _ => {} // Ignore other events
                 }
@@ -512,25 +503,23 @@ fn test_tcp_blocks_by_range_over_limit() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
-                            for _ in 0..messages_to_send {
-                                let rpc_response = rpc_response_bellatrix_large.clone();
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                            }
-                            // send the stream termination
+                    } if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
+                        for _ in 0..messages_to_send {
+                            let rpc_response = rpc_response_bellatrix_large.clone();
                             receiver.send_response(
                                 peer_id,
                                 inbound_request_id,
-                                Response::BlocksByRange(None),
+                                rpc_response.clone(),
                             );
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlocksByRange(None),
+                        );
                     }
                     _ => {} // Ignore other events
                 }
@@ -650,12 +639,10 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                             request_type,
                         },
                         _,
-                    )) => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
-                            message_info = Some((peer_id, inbound_request_id));
-                        }
+                    )) if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
+                        message_info = Some((peer_id, inbound_request_id));
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
                     _ => continue,
@@ -770,25 +757,23 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
+                    } if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
 
-                            for _ in 1..=messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                            }
-                            // send the stream termination
+                        for _ in 1..=messages_to_send {
                             receiver.send_response(
                                 peer_id,
                                 inbound_request_id,
-                                Response::BlocksByRange(None),
+                                rpc_response.clone(),
                             );
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlocksByRange(None),
+                        );
                     }
                     _ => {} // Ignore other events
                 }
@@ -917,31 +902,29 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            debug!("Receiver got request");
+                    } if request_type == rpc_request => {
+                        // send the response
+                        debug!("Receiver got request");
 
-                            for i in 0..messages_to_send {
-                                // Send equal base, altair and bellatrix blocks
-                                let rpc_response = if i < 2 {
-                                    rpc_response_base.clone()
-                                } else if i < 4 {
-                                    rpc_response_altair.clone()
-                                } else {
-                                    rpc_response_bellatrix_small.clone()
-                                };
-                                receiver.send_response(peer_id, inbound_request_id, rpc_response);
-                                debug!("Sending message");
-                            }
-                            // send the stream termination
-                            receiver.send_response(
-                                peer_id,
-                                inbound_request_id,
-                                Response::BlocksByRange(None),
-                            );
-                            debug!("Send stream term");
+                        for i in 0..messages_to_send {
+                            // Send equal base, altair and bellatrix blocks
+                            let rpc_response = if i < 2 {
+                                rpc_response_base.clone()
+                            } else if i < 4 {
+                                rpc_response_altair.clone()
+                            } else {
+                                rpc_response_bellatrix_small.clone()
+                            };
+                            receiver.send_response(peer_id, inbound_request_id, rpc_response);
+                            debug!("Sending message");
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::BlocksByRange(None),
+                        );
+                        debug!("Send stream term");
                     }
                     _ => {} // Ignore other events
                 }
@@ -1099,27 +1082,25 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
                         peer_id,
                         inbound_request_id,
                         request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            info!("Receiver got request");
+                    } if request_type == rpc_request => {
+                        // send the response
+                        info!("Receiver got request");
 
-                            for _ in 0..messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                                info!("Sending message");
-                            }
-                            // send the stream termination
+                        for _ in 0..messages_to_send {
                             receiver.send_response(
                                 peer_id,
                                 inbound_request_id,
-                                Response::DataColumnsByRoot(None),
+                                rpc_response.clone(),
                             );
-                            info!("Send stream term");
+                            info!("Sending message");
                         }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::DataColumnsByRoot(None),
+                        );
+                        info!("Send stream term");
                     }
                     e => {
                         info!(?e, "Got event");
@@ -1425,12 +1406,10 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                             request_type,
                         },
                         _,
-                    )) => {
-                        if request_type == rpc_request {
-                            // send the response
-                            warn!("Receiver got request");
-                            message_info = Some((peer_id, inbound_request_id));
-                        }
+                    )) if request_type == rpc_request => {
+                        // send the response
+                        warn!("Receiver got request");
+                        message_info = Some((peer_id, inbound_request_id));
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
                     _ => continue,

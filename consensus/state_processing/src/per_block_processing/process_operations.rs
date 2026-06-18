@@ -8,6 +8,7 @@ use crate::per_block_processing::builder::{
     convert_validator_index_to_builder_index, is_builder_index,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
+use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use bls::{PublicKeyBytes, SignatureBytes};
 use ssz_types::FixedVector;
@@ -547,7 +548,8 @@ fn process_builder_voluntary_exit<E: EthSpec>(
     let builder_index =
         convert_validator_index_to_builder_index(signed_exit.message.validator_index);
 
-    let builder = state
+    // Verify builder is known
+    state
         .builders()?
         .get(builder_index as usize)
         .cloned()
@@ -556,8 +558,7 @@ fn process_builder_voluntary_exit<E: EthSpec>(
         )))?;
 
     // Verify the builder is active
-    let finalized_epoch = state.finalized_checkpoint().epoch;
-    if !builder.is_active_at_finalized_epoch(finalized_epoch, spec) {
+    if !state.is_active_builder(builder_index, spec)? {
         return Err(BlockOperationError::invalid(ExitInvalid::NotActive(
             signed_exit.message.validator_index,
         )));
@@ -571,22 +572,17 @@ fn process_builder_voluntary_exit<E: EthSpec>(
         ));
     }
 
-    // Verify signature (using EIP-7044 domain: capella_fork_version for Deneb+)
     if verify_signatures.is_true() {
-        let pubkey = builder.pubkey;
-        let domain = spec.compute_domain(
-            Domain::VoluntaryExit,
-            spec.capella_fork_version,
-            state.genesis_validators_root(),
+        verify!(
+            exit_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_exit,
+                spec
+            )?
+            .verify(),
+            ExitInvalid::BadSignature
         );
-        let message = signed_exit.message.signing_root(domain);
-        // TODO(gloas): use builder pubkey cache once available
-        let bls_pubkey = pubkey
-            .decompress()
-            .map_err(|_| BlockOperationError::invalid(ExitInvalid::BadSignature))?;
-        if !signed_exit.signature.verify(&bls_pubkey, message) {
-            return Err(BlockOperationError::invalid(ExitInvalid::BadSignature));
-        }
     }
 
     // Initiate builder exit
@@ -884,8 +880,11 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in deposit_requests {
-        // Set deposit receipt start index
-        if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
+        // Set deposit receipt start index if pre-Fulu.
+        // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+        if !state.fork_name_unchecked().fulu_enabled()
+            && state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index
+        {
             *state.deposit_requests_start_index_mut()? = request.index
         }
         let slot = state.slot();
@@ -920,25 +919,24 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
 /// Check if there is a pending deposit for a new validator with the given pubkey.
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-fn is_pending_validator<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn is_pending_validator<'a>(
+    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
     pubkey: &PublicKeyBytes,
     spec: &ChainSpec,
-) -> Result<bool, BlockProcessingError> {
-    for deposit in state.pending_deposits()?.iter() {
-        if deposit.pubkey == *pubkey {
-            let deposit_data = DepositData {
-                pubkey: deposit.pubkey,
-                withdrawal_credentials: deposit.withdrawal_credentials,
-                amount: deposit.amount,
-                signature: deposit.signature.clone(),
-            };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
+) -> bool {
+    pending_deposits.into_iter().any(|deposit| {
+        deposit.pubkey == *pubkey
+            && is_valid_deposit_signature(
+                &DepositData {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    amount: deposit.amount,
+                    signature: deposit.signature.clone(),
+                },
+                spec,
+            )
+            .is_ok()
+    })
 }
 
 pub fn process_deposit_request_post_gloas<E: EthSpec>(
@@ -968,7 +966,7 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
     if is_builder
         || (has_builder_prefix
             && !is_validator
-            && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+            && !is_pending_validator(state.pending_deposits()?, &deposit_request.pubkey, spec))
     {
         // Apply builder deposits immediately
         apply_deposit_for_builder(
@@ -1007,7 +1005,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
     signature: SignatureBytes,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<(), BeaconStateError> {
+) -> Result<Option<BuilderIndex>, BeaconStateError> {
     match builder_index_opt {
         None => {
             // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
@@ -1018,13 +1016,16 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 signature,
             };
             if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                state.add_builder_to_registry(
+                let builder_index = state.add_builder_to_registry(
                     pubkey,
                     withdrawal_credentials,
                     amount,
                     slot,
                     spec,
                 )?;
+                Ok(Some(builder_index))
+            } else {
+                Ok(None)
             }
         }
         Some(builder_index) => {
@@ -1034,9 +1035,9 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
                 .balance
                 .safe_add_assign(amount)?;
+            Ok(Some(builder_index))
         }
     }
-    Ok(())
 }
 
 // Make sure to build the pubkey cache before calling this function

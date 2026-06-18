@@ -17,7 +17,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot, StatePayloadStatus,
+    Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -101,26 +101,13 @@ pub enum ExecutionStatus {
 }
 
 /// Represents the status of an execution payload post-Gloas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
     Empty = 0,
     Full = 1,
     Pending = 2,
-}
-
-impl PayloadStatus {
-    /// Convert a `PayloadStatus` into the equivalent `StatePayloadStatus`.
-    ///
-    /// This maps `Empty` onto `StatePayloadStatus::Pending` because empty and pending fork choice
-    /// nodes correspond to the exact same state.
-    pub fn as_state_payload_status(self) -> StatePayloadStatus {
-        match self {
-            Self::Empty | Self::Pending => StatePayloadStatus::Pending,
-            Self::Full => StatePayloadStatus::Full,
-        }
-    }
 }
 
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
@@ -255,6 +242,8 @@ pub struct Block {
     pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
     pub proposer_index: Option<u64>,
+    /// Whether the block's execution payload envelope has been received. Always `false` pre-Gloas.
+    pub payload_received: bool,
 }
 
 impl Block {
@@ -398,10 +387,6 @@ pub enum DoNotReOrg {
     MissingHeadFinalizedCheckpoint,
     ParentDistance,
     HeadDistance,
-    ShufflingUnstable,
-    DisallowedOffset {
-        offset: u64,
-    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -426,10 +411,6 @@ impl std::fmt::Display for DoNotReOrg {
             Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
-            Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
-            Self::DisallowedOffset { offset } => {
-                write!(f, "re-orgs disabled at offset {offset}")
-            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -475,31 +456,6 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
-/// New-type for disallowed re-org slots.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DisallowedReOrgOffsets {
-    // Vecs are faster than hashmaps for small numbers of items.
-    offsets: Vec<u64>,
-}
-
-impl Default for DisallowedReOrgOffsets {
-    fn default() -> Self {
-        DisallowedReOrgOffsets { offsets: vec![0] }
-    }
-}
-
-impl DisallowedReOrgOffsets {
-    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
-        for &offset in &offsets {
-            if offset >= E::slots_per_epoch() {
-                return Err(Error::InvalidEpochOffset(offset));
-            }
-        }
-        Ok(Self { offsets })
-    }
-}
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -527,6 +483,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
+            children: Vec::with_capacity(1),
         };
 
         let block = Block {
@@ -547,6 +504,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash,
             execution_payload_block_hash,
             proposer_index: Some(proposer_index),
+            payload_received: false,
         };
 
         proto_array
@@ -653,6 +611,9 @@ impl ProtoArrayForkChoice {
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
+        v29.ptc_participation
+            .set(ptc_index, true)
+            .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
         Ok(())
     }
@@ -733,7 +694,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -742,7 +702,6 @@ impl ProtoArrayForkChoice {
             justified_balances,
             re_org_head_threshold,
             re_org_parent_threshold,
-            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -764,15 +723,14 @@ impl ProtoArrayForkChoice {
             .into());
         }
 
-        // Spec: `is_parent_strong`. Use payload-aware weight matching the
-        // payload path the head node is on from its parent.
-        let parent_payload_status = info.head_node.get_parent_payload_status();
-        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
+        // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
+        // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
+        let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-        let parent_strong = parent_weight > re_org_parent_weight_threshold;
+        let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
         if !parent_strong {
             return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight,
+                parent_weight: parent_pending_weight,
                 re_org_parent_weight_threshold,
             }
             .into());
@@ -793,7 +751,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -830,18 +787,6 @@ impl ProtoArrayForkChoice {
         let parent_slot_ok = parent_slot + 1 == head_slot;
         if !parent_slot_ok {
             return Err(DoNotReOrg::ParentDistance.into());
-        }
-
-        // Check shuffling stability.
-        let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
-        if !shuffling_stable {
-            return Err(DoNotReOrg::ShufflingUnstable.into());
-        }
-
-        // Check allowed slot offsets.
-        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
-        if disallowed_offsets.offsets.contains(&offset) {
-            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.
@@ -1016,7 +961,64 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
+            payload_received: block.payload_received().unwrap_or(false),
         })
+    }
+
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+        current_slot: Slot,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: parent_payload_status,
+        };
+        self.proto_array
+            .should_build_on_full::<E>(&fc_node, proto_node, current_slot)
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    /// Returns whether the proposer should extend the parent's execution payload chain.
+    ///
+    /// This checks timeliness, data availability, and proposer boost conditions per the spec.
+    pub fn should_extend_payload<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        proposer_boost_root: Hash256,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: proto_node.get_parent_payload_status(),
+        };
+        self.proto_array
+            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .map_err(|e| format!("{e:?}"))
     }
 
     /// Returns the `block.execution_status` field, if the block is present.
@@ -1036,6 +1038,24 @@ impl ProtoArrayForkChoice {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
             .unwrap_or(false)
+    }
+
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        self.proto_array.get_canonical_payload_status::<E>(
+            *block_root,
+            current_slot,
+            proposer_boost_root,
+            &self.balances,
+            spec,
+        )
     }
 
     /// Returns the weight of a given block.
@@ -1366,6 +1386,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1394,6 +1415,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1530,6 +1552,7 @@ mod test_compute_deltas {
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
                         proposer_index: Some(0),
+                        payload_received: false,
                     },
                     Slot::from(block.slot),
                     &spec,

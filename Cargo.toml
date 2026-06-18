@@ -43,7 +43,6 @@ members = [
     "common/system_health",
     "common/target_check",
     "common/task_executor",
-    "common/test_random_derive",
     "common/tracing_samplers",
     "common/validator_dir",
     "common/warp_utils",
@@ -130,7 +129,7 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.10", features = ["libp2p"] }
+discv5 = { version = "0.11", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
@@ -155,7 +154,7 @@ fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
 graffiti_file = { path = "validator_client/graffiti_file" }
-hashlink = "0.9.0"
+hashlink = "0.11"
 health_metrics = { path = "common/health_metrics" }
 hex = "0.4"
 http_api = { path = "beacon_node/http_api" }
@@ -164,7 +163,7 @@ initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.14"
 kzg = { path = "crypto/kzg" }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub", "gossipsub-partial-messages"] }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
@@ -173,7 +172,6 @@ lockfile = { path = "common/lockfile" }
 log = "0.4"
 logging = { path = "common/logging" }
 logroller = "0.1.8"
-lru = "0.12"
 lru_cache = { path = "common/lru_cache" }
 malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
@@ -202,6 +200,7 @@ proto_array = { path = "consensus/proto_array" }
 quote = "1"
 r2d2 = "0.8"
 rand = "0.9.0"
+rand_xorshift = "0.4.0"
 rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
@@ -278,10 +277,5 @@ inherits = "release"
 debug = true
 
 [patch.crates-io]
-quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "87c4ccb9bb2af494de375f5f6c62850badd26304" }
 # Temporary patch until the axum migration is complete
 warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
-
-[patch."https://github.com/libp2p/rust-libp2p.git"]
-libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }

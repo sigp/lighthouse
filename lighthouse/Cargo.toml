@@ -37,6 +37,8 @@ beacon-node-redb = ["store/redb"]
 console-subscriber = ["console-subscriber/default"]
 # Force the use of the system memory allocator rather than jemalloc.
 sysmalloc = ["malloc_utils/sysmalloc"]
+# Enable jemalloc heap profiling support.
+jemalloc-profiling = ["malloc_utils/jemalloc-profiling"]
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }

@@ -11,7 +11,6 @@ use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{AppRequestId, Id};
 use lighthouse_network::{NetworkGlobals, PeerId};
-use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
@@ -22,12 +21,12 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
+use types::{ForkName, Hash256, MinimalEthSpec as E, SignedExecutionPayloadEnvelope, Slot};
 
 mod lookups;
 mod range;
 
-type T = Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 /// This test utility enables integration testing of Lighthouse sync components.
 ///
@@ -72,13 +71,16 @@ struct TestRig {
     network_globals: Arc<NetworkGlobals<E>>,
     /// Beacon chain harness
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    /// `rng` for generating test blocks and blobs.
     rng_08: rand_chacha_03::ChaCha20Rng,
-    rng: ChaCha20Rng,
+    unstructured: arbitrary::Unstructured<'static>,
     fork_name: ForkName,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
     network_blocks_by_root: HashMap<Hash256, RangeSyncBlock<E>>,
     network_blocks_by_slot: HashMap<Slot, RangeSyncBlock<E>>,
+    /// Gloas execution payload envelopes keyed by block root, populated during `build_chain`
+    /// from the external harness store. The rig serves these when a lookup issues a
+    /// `PayloadEnvelopesByRoot` request.
+    network_envelopes_by_root: HashMap<Hash256, Arc<SignedExecutionPayloadEnvelope<E>>>,
     penalties: Vec<ReportedPenalty>,
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
@@ -148,13 +150,13 @@ pub fn init_tracing() {
     INIT_TRACING.call_once(|| {
         if std::env::var(CI_LOGGER_DIR_ENV_VAR).is_ok() {
             // Enable logging to log files for each test and each fork.
-            tracing_subscriber::registry()
+            let _ = tracing_subscriber::registry()
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_ansi(false)
                         .with_writer(CILogWriter),
                 )
-                .init();
+                .try_init();
         }
     });
 }

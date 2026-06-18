@@ -132,13 +132,8 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                                         results.push((*root, Ok(None)));
                                     }
                                 }
-                                Err(_) => {
-                                    results.push((
-                                        *root,
-                                        Err(BeaconChainError::EnvelopeStreamerError(
-                                            Error::BlockMissingFromForkChoice,
-                                        )),
-                                    ));
+                                Err(e) => {
+                                    results.push((*root, Err(e)));
                                 }
                             }
                         } else {

@@ -102,10 +102,8 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
 
-    for (KeystoreJsonStr(keystore), password) in request
-        .keystores
-        .into_iter()
-        .zip(request.passwords.into_iter())
+    for (KeystoreJsonStr(keystore), password) in
+        request.keystores.into_iter().zip(request.passwords)
     {
         let pubkey_str = keystore.pubkey().to_string();
 

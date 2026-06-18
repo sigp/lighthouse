@@ -174,6 +174,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload envelope has not been seen yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
+    /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
+    UnknownPayloadEnvelope { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -514,11 +522,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .inspect(|verified_aggregate| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -615,6 +618,18 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             return Err(Error::CommitteeIndexNonZero(
                 attestation.data().index as usize,
             ));
+        }
+
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
         }
 
         // Check the attestation target root is consistent with the head root.
@@ -928,6 +943,16 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             ));
         }
 
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled() && attestation.data.index == 1 && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
+        }
+
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
 
@@ -971,11 +996,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation, subnet_id, chain)
-            .inspect(|verified_unaggregated| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -1033,7 +1053,8 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         let (committee_opt, committees_per_slot) = chain.with_committee_cache(
             attestation.data.target.root,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
+            |cached_shuffling, _| {
+                let committee_cache = cached_shuffling.committee_cache.as_ref();
                 let committee_opt = committee_cache
                     .get_beacon_committee(attestation.data.slot, attestation.committee_index)
                     .map(|beacon_committee| beacon_committee.committee.to_vec());
@@ -1584,7 +1605,8 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+    chain.with_committee_cache(target.root, attestation_epoch, |cached_shuffling, _| {
+        let committee_cache = cached_shuffling.committee_cache.as_ref();
         let committees_per_slot = committee_cache.committees_per_slot();
 
         Ok(committee_cache

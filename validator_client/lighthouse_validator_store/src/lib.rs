@@ -21,11 +21,13 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
     ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
-    FullPayload, Graffiti, Hash256, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
+    FullPayload, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -1030,7 +1032,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
             // Collect successfully signed attestations and log errors.
             let mut signed_attestations = Vec::with_capacity(attestations.len());
-            for (result, att) in results.into_iter().zip(attestations.into_iter()) {
+            for (result, att) in results.into_iter().zip(attestations) {
                 match result {
                     Ok(()) => {
                         signed_attestations.push((
@@ -1423,6 +1425,37 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             })
     }
 
+    async fn sign_payload_attestation(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        data: PayloadAttestationData,
+    ) -> Result<PayloadAttestationMessage, Error> {
+        let signing_context =
+            self.signing_context(Domain::PTCAttester, data.slot.epoch(E::slots_per_epoch()));
+
+        let validator_index = self
+            .validator_index(&validator_pubkey)
+            .ok_or(ValidatorStoreError::UnknownPubkey(validator_pubkey))?;
+
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::PayloadAttestationData(&data),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        })
+    }
+
     /// Sign an `ExecutionPayloadEnvelope` for Gloas (local building).
     /// The proposer acts as the builder and signs with the BeaconBuilder domain.
     async fn sign_execution_payload_envelope(
@@ -1432,7 +1465,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
         let signing_context = self.signing_context(
             Domain::BeaconBuilder,
-            envelope.slot.epoch(E::slots_per_epoch()),
+            envelope.slot().epoch(E::slots_per_epoch()),
         );
 
         // Execution payload envelope signing is not slashable, bypass doppelganger protection.
@@ -1450,6 +1483,34 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
         Ok(SignedExecutionPayloadEnvelope {
             message: envelope,
+            signature,
+        })
+    }
+
+    async fn sign_proposer_preferences(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        preferences: ProposerPreferences,
+    ) -> Result<SignedProposerPreferences, Error> {
+        let signing_context = self.signing_context(
+            Domain::ProposerPreferences,
+            preferences.proposal_slot.epoch(E::slots_per_epoch()),
+        );
+
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::ProposerPreferences(&preferences),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedProposerPreferences {
+            message: preferences,
             signature,
         })
     }

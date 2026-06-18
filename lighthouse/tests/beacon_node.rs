@@ -1,9 +1,5 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
-    DisallowedReOrgOffsets,
-};
+use beacon_node::beacon_chain::chain_config::DEFAULT_SYNC_TOLERANCE_EPOCHS;
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2344,19 +2340,12 @@ fn ensure_panic_on_failed_launch() {
 fn enable_proposer_re_orgs_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_head_threshold,
-                Some(DEFAULT_RE_ORG_HEAD_THRESHOLD)
-            );
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization,
-                DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-            );
-            assert_eq!(
-                config.chain.re_org_cutoff(Duration::from_secs(12)),
-                Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
-            );
+        .with_config_and_spec::<MainnetEthSpec, _>(|config, spec| {
+            assert!(!config.chain.disable_proposer_reorg);
+            assert_eq!(spec.reorg_head_weight_threshold, 20);
+            assert_eq!(spec.reorg_parent_weight_threshold, 160);
+            assert_eq!(spec.reorg_max_epochs_since_finalization, 2);
+            assert_eq!(spec.proposer_reorg_cutoff_bps, 1667);
         });
 }
 
@@ -2365,84 +2354,15 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.chain.re_org_head_threshold, None);
-            assert_eq!(config.chain.re_org_parent_threshold, None)
-        });
+        // When --disable-proposer-reorg is used, the field in ChainConfig should become true
+        .with_config(|config| assert!(config.chain.disable_proposer_reorg));
 }
 
 #[test]
-fn proposer_re_org_parent_threshold() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-parent-threshold", Some("90"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
-}
-
-#[test]
-fn proposer_re_org_head_threshold() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-threshold", Some("90"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold.unwrap().0, 90));
-}
-
-#[test]
-fn proposer_re_org_max_epochs_since_finalization() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization.as_u64(),
-                8
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_cutoff() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-cutoff", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_cutoff(Duration::from_secs(12)),
-                Duration::from_millis(500)
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_disallowed_offsets_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![0]).unwrap()
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_disallowed_offsets_override() {
+fn proposer_re_org_disallowed_offsets_deprecated() {
+    // The deprecated flag should be accepted but have no effect.
     CommandLineTest::new()
         .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![1, 2, 3]).unwrap()
-            )
-        });
-}
-
-#[test]
-#[should_panic]
-fn proposer_re_org_disallowed_offsets_invalid() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 
@@ -2863,4 +2783,118 @@ fn invalid_block_roots_default_mainnet() {
         .with_config(|config| {
             assert!(config.chain.invalid_block_roots.is_empty());
         })
+}
+
+#[test]
+fn enable_mplex_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_true() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_false() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_no_value() {
+    CommandLineTest::new()
+        .flag("enable-mplex", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn partial_columns() {
+    CommandLineTest::new()
+        .flag("enable-partial-columns", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+    // And disabled by default on mainnet:
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        })
+}
+
+#[test]
+fn partial_columns_no_value() {
+    // Passing the flag without a value should enable partial columns.
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_default_hoodi() {
+    CommandLineTest::new()
+        .flag("network", Some("hoodi"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_default_sepolia() {
+    CommandLineTest::new()
+        .flag("network", Some("sepolia"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_false_overrides_hoodi_default() {
+    CommandLineTest::new()
+        .flag("network", Some("hoodi"))
+        .flag("enable-partial-columns", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_false_on_mainnet() {
+    CommandLineTest::new()
+        .flag("enable-partial-columns", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        });
 }
