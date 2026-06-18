@@ -121,8 +121,8 @@ impl ActiveRequestsPerPeer {
         Self { count_by_peer }
     }
 
-    fn at_concurrency_limit(&self, peer_id: &PeerId) -> bool {
-        self.count_by_peer.get(peer_id).copied().unwrap_or(0) >= MAX_CONCURRENT_REQUESTS
+    fn get(&self, peer_id: &PeerId) -> usize {
+        self.count_by_peer.get(peer_id).copied().unwrap_or(0)
     }
 }
 
@@ -565,10 +565,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
-                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    blocks_by_range_per_peer.at_concurrency_limit(peer),
                     // If contains -> 1 (order after), not contains -> 0 (order first)
                     peers_to_deprioritize.contains(peer),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    blocks_by_range_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -726,20 +726,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 })
                 .map(|peer| {
                     (
-                        // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                        data_columns_by_range_per_peer.at_concurrency_limit(peer),
                         // If contains -> 1 (order after), not contains -> 0 (order first)
                         peers_to_deprioritize.contains(peer),
-                        // Spread columns within this round: a peer already assigned a column here
-                        // counts as 1 so we prefer peers not yet picked.
-                        columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
+                        // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                        data_columns_by_range_per_peer.get(peer)
+                            + if columns_to_request_by_peer.contains_key(peer) {
+                                1
+                            } else {
+                                0
+                            }
+                            >= MAX_CONCURRENT_REQUESTS,
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
                     )
                 })
                 .min()
-                .map(|(_, _, _, _, peer)| *peer)
+                .map(|(_, _, _, peer)| *peer)
             else {
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
@@ -865,7 +868,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|peer| {
                 (
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    blocks_by_root_per_peer.at_concurrency_limit(peer),
+                    blocks_by_root_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -986,7 +989,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|peer| {
                 (
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    payload_envelopes_by_root_per_peer.at_concurrency_limit(peer),
+                    payload_envelopes_by_root_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
                     rand::random::<u32>(),
                     peer,
                 )
