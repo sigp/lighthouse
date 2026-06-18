@@ -415,6 +415,10 @@ pub async fn proposer_boost_re_org_test(
 
     let spec = test_spec::<E>();
 
+    if !spec.is_gloas_scheduled() {
+        return;
+    }
+
     // Ensure there are enough validators to have `ATTESTERS_PER_SLOT`.
     assert!(ATTESTERS_PER_SLOT >= E::ptc_size());
     let validator_count = E::slots_per_epoch() as usize * ATTESTERS_PER_SLOT;
