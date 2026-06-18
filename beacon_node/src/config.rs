@@ -1,13 +1,13 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -112,10 +112,8 @@ pub fn get_config<E: EthSpec>(
         .config_name
         .as_ref()
         .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
-    let user_disable_partial_columns = parse_flag(cli_args, "disable-partial-columns");
-    let user_enable_partial_columns = parse_flag(cli_args, "enable-partial-columns");
-    let enable_partial_columns = !user_disable_partial_columns
-        && (user_enable_partial_columns || default_partial_columns_enabled);
+    let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
+        .unwrap_or(default_partial_columns_enabled);
 
     if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
@@ -771,19 +769,10 @@ pub fn get_config<E: EthSpec>(
         warn!("The proposer-reorg-parent-threshold flag is deprecated");
     }
 
-    if let Some(disallowed_offsets_str) =
-        clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+    if clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        .is_some()
     {
-        let disallowed_offsets = disallowed_offsets_str
-            .split(',')
-            .map(|s| {
-                s.parse()
-                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
-            })
-            .collect::<Result<Vec<u64>, _>>()?;
-        client_config.chain.re_org_disallowed_offsets =
-            DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
-                .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
+        warn!("The proposer-reorg-disallowed-offsets flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
@@ -1443,8 +1432,8 @@ pub fn set_network_config(
         config.disable_quic_support = true;
     }
 
-    if parse_flag(cli_args, "enable-mplex") {
-        config.enable_mplex = true;
+    if let Some(enable_mplex) = parse_optional(cli_args, "enable-mplex")? {
+        config.enable_mplex = enable_mplex;
     }
 
     if parse_flag(cli_args, "disable-upnp") {

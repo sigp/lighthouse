@@ -2393,12 +2393,12 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        // Only append the HTTP URL request if the graffiti_policy is to AppendClientVersions
-        // If PreserveUserGraffiti (default), then the HTTP URL request does not contain graffiti_policy
+        // Only append the HTTP URL request if the graffiti_policy is PreserveUserGraffiti
+        // If AppendClientVersions (default), then we do not modify the HTTP URL request
         // so that the default case is compliant to the spec
-        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+        if let Some(GraffitiPolicy::PreserveUserGraffiti) = graffiti_policy {
             path.query_pairs_mut()
-                .append_pair("graffiti_policy", "AppendClientVersions");
+                .append_pair("graffiti_policy", "PreserveUserGraffiti");
         }
 
         Ok(path)
@@ -2600,9 +2600,12 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+        // Only append the HTTP URL request if the graffiti_policy is PreserveUserGraffiti
+        // If AppendClientVersions (default), then we do not modify the HTTP URL request
+        // so that the default case is compliant to the spec
+        if let Some(GraffitiPolicy::PreserveUserGraffiti) = graffiti_policy {
             path.query_pairs_mut()
-                .append_pair("graffiti_policy", "AppendClientVersions");
+                .append_pair("graffiti_policy", "PreserveUserGraffiti");
         }
 
         Ok(path)

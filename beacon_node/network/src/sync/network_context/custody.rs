@@ -13,7 +13,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
-use types::{DataColumnSidecar, Hash256, data::ColumnIndex};
+use types::{DataColumnSidecar, Hash256, Slot, data::ColumnIndex};
 use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
@@ -22,6 +22,7 @@ const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
+    block_slot: Slot,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
     column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
@@ -62,6 +63,7 @@ pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSideca
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
         block_root: Hash256,
+        block_slot: Slot,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
@@ -73,6 +75,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         );
         Self {
             block_root,
+            block_slot,
             custody_id,
             column_requests: HashMap::from_iter(
                 column_indices
@@ -365,7 +368,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         // We draw from the total set of peers, but prioritize those peers who we have
         // received an attestation or a block from (`lookup_peers`), as the `lookup_peers` may take
         // time to build up and we are likely to not find any column peers initially.
-        let custodial_peers = cx.get_custodial_peers(column_index);
+        let custodial_peers = cx.get_custodial_peers(column_index, self.block_slot);
         let mut prioritized_peers = custodial_peers
             .iter()
             .filter(|peer| {

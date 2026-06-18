@@ -156,6 +156,11 @@ pub enum SyncMessage<E: EthSpec> {
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
 
+    /// A peer has sent a payload-present attestation (`index == 1`) for a block whose execution
+    /// payload envelope we have not seen. This triggers the manager to fetch the payload envelope
+    /// for `block_root` via `ExecutionPayloadEnvelopesByRoot`.
+    UnknownPayloadEnvelopeFromAttestation(PeerId, Hash256),
+
     /// A peer has disconnected.
     Disconnect(PeerId),
 
@@ -260,6 +265,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// may forward us thousands of a attestations, each one triggering an individual event. Only
     /// one event is useful, the rest generating log noise and wasted cycles
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
+    /// Debounce duplicated `UnknownPayloadEnvelopeFromAttestation` for the same root/peer tuple,
+    /// for the same reason as `notified_unknown_roots`: a peer may forward many payload-present
+    /// attestations for a block whose execution payload envelope we have not yet seen.
+    notified_unknown_payload_roots: LRUTimeCache<(PeerId, Hash256)>,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -318,6 +327,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
+            notified_unknown_payload_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
         }
@@ -893,6 +905,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.notified_unknown_roots.insert((peer_id, block_root));
                     debug!(?block_root, ?peer_id, "Received unknown block hash message");
                     self.handle_unknown_block_root(peer_id, block_root);
+                }
+            }
+            SyncMessage::UnknownPayloadEnvelopeFromAttestation(peer_id, block_root) => {
+                if !self
+                    .notified_unknown_payload_roots
+                    .contains(&(peer_id, block_root))
+                {
+                    self.notified_unknown_payload_roots
+                        .insert((peer_id, block_root));
+                    // TODO(gloas): trigger a payload-envelope lookup for `block_root` via
+                    // `ExecutionPayloadEnvelopesByRoot`. Wired up in the gloas lookup-sync PR (#9155).
+                    debug!(
+                        ?block_root,
+                        ?peer_id,
+                        "Received unknown payload envelope from attestation"
+                    );
                 }
             }
             SyncMessage::Disconnect(peer_id) => {

@@ -22,10 +22,10 @@ use lighthouse_network::{
 };
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{future::Future, num::NonZeroUsize};
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
 use types::{ChainSpec, EthSpec};
@@ -294,7 +294,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         beacon_processor_send: Some(beacon_processor_send),
         sse_logging_components: None,
         historical_committee_cache: Arc::new(HistoricalCommitteeCache::new(
-            NonZeroUsize::new(http_config.historical_committee_cache_size).unwrap(),
+            http_config.historical_committee_cache_size,
         )),
     });
 
