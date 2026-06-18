@@ -256,7 +256,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 let peer_to_request = self.select_column_peer(
                     cx,
                     &data_columns_by_root_per_peer,
-                    &columns_to_request_by_peer,
                     &lookup_peers,
                     *column_index,
                     &random_state,
@@ -362,7 +361,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &self,
         cx: &mut SyncNetworkContext<T>,
         data_columns_by_root_per_peer: &ActiveRequestsPerPeer,
-        columns_to_request_by_peer: &HashMap<PeerId, Vec<ColumnIndex>>,
         lookup_peers: &HashSet<PeerId>,
         column_index: ColumnIndex,
         random_state: &RandomState,
@@ -385,10 +383,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     if lookup_peers.contains(peer) { 0 } else { 1 },
                     // De-prioritize peers that we have already attempted to download from
                     self.peer_attempts.get(peer).copied().unwrap_or(0),
-                    // Spread columns within this round: the precomputed concurrency map is taken
-                    // once before the loop, so count a peer already assigned a column here as 1 to
-                    // prefer peers not yet picked.
-                    columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                     // The hash ensures consistent peer ordering within this request
                     // to avoid fragmentation while varying selection across different requests.
                     random_state.hash_one(peer),
@@ -400,7 +394,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         prioritized_peers
             .first()
-            .map(|(_, _, _, _, _, peer_id)| *peer_id)
+            .map(|(_, _, _, _, peer_id)| *peer_id)
     }
 }
 
