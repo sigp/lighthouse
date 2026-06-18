@@ -174,6 +174,10 @@ pub struct ProtoNode {
 }
 
 impl ProtoNode {
+    pub fn is_gloas(&self) -> bool {
+        self.as_v29().is_ok()
+    }
+
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
