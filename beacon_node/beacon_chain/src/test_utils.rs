@@ -43,6 +43,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
+use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -752,10 +753,36 @@ pub type HarnessSingleAttestations<E> = Vec<(
     Option<SignedAggregateAndProof<E>>,
 )>;
 
+pub type HarnessPayloadAttestationMessages = Vec<PayloadAttestationMessage>;
+
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
     Option<SignedContributionAndProof<E>>,
 )>;
+
+fn pack_payload_attestation_vote(
+    available_ptc_validators: &[(usize, usize, usize)],
+    requested_weight: usize,
+) -> Option<Vec<usize>> {
+    let mut packs = vec![None::<Vec<usize>>; requested_weight.checked_add(1)?];
+    packs[0] = Some(vec![]);
+
+    for (offset, (_, weight, _)) in available_ptc_validators.iter().enumerate() {
+        if *weight > requested_weight {
+            continue;
+        }
+
+        for weight_so_far in (0..=requested_weight - *weight).rev() {
+            if packs[weight_so_far].is_some() && packs[weight_so_far + *weight].is_none() {
+                let mut pack = packs[weight_so_far].as_ref()?.clone();
+                pack.push(offset);
+                packs[weight_so_far + *weight] = Some(pack);
+            }
+        }
+    }
+
+    packs.pop().flatten()
+}
 
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
@@ -1165,8 +1192,32 @@ where
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
         &self,
+        state: BeaconState<E>,
+        slot: Slot,
+    ) -> (
+        SignedBlockContentsTuple<E>,
+        Option<SignedExecutionPayloadEnvelope<E>>,
+        BeaconState<E>,
+    ) {
+        let parent_payload_status = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status();
+        self.make_block_with_envelope_on(state, slot, parent_payload_status)
+            .await
+    }
+
+    /// Returns a newly created block built with the given parent payload status,
+    /// signed by the proposer for the given slot, along with the execution
+    /// payload envelope (for Gloas) and the post-block state.
+    ///
+    /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
+    pub async fn make_block_with_envelope_on(
+        &self,
         mut state: BeaconState<E>,
         slot: Slot,
+        parent_payload_status: PayloadStatus,
     ) -> (
         SignedBlockContentsTuple<E>,
         Option<SignedExecutionPayloadEnvelope<E>>,
@@ -1189,15 +1240,21 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-            // Load the parent's payload envelope and status from the cached head.
-            // TODO(gloas): we may want to pass these as arguments to support cases where we build
-            // on alternate chains to the head.
-            let (parent_payload_status, parent_envelope) = {
-                let head = self.chain.canonical_head.cached_head();
-                (
-                    head.head_payload_status(),
-                    head.snapshot.execution_envelope.clone(),
-                )
+            let parent_envelope = if parent_payload_status == PayloadStatus::Full {
+                let parent_root = if state.slot() > 0 {
+                    *state
+                        .get_block_root(state.slot() - 1)
+                        .expect("should get parent block root")
+                } else {
+                    state.latest_block_header().canonical_root()
+                };
+                self.chain
+                    .store
+                    .get_payload_envelope(&parent_root)
+                    .expect("should load parent payload envelope")
+                    .map(Arc::new)
+            } else {
+                None
             };
 
             let (block, post_block_state, _consensus_block_value) = self
@@ -2151,6 +2208,169 @@ where
         )
     }
 
+    pub fn make_payload_attestation_message(
+        &self,
+        validator_index: usize,
+        data: PayloadAttestationData,
+        fork: &Fork,
+    ) -> PayloadAttestationMessage {
+        let epoch = data.slot.epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::PTCAttester,
+            fork,
+            self.chain.genesis_validators_root,
+        );
+        let signing_root = data.signing_root(domain);
+        let signature = self.validator_keypairs[validator_index]
+            .sk
+            .sign(signing_root);
+
+        PayloadAttestationMessage {
+            validator_index: validator_index as u64,
+            data,
+            signature,
+        }
+    }
+
+    pub fn make_payload_attestation_messages(
+        &self,
+        state: &BeaconState<E>,
+        beacon_block_root: Hash256,
+        slot: Slot,
+        votes: Vec<PayloadAttestationVote>,
+    ) -> (HarnessPayloadAttestationMessages, Vec<usize>) {
+        let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        self.make_payload_attestation_messages_with_opts(
+            &self.get_all_validators(),
+            state,
+            beacon_block_root,
+            slot,
+            MakePayloadAttestationOptions { votes, fork },
+        )
+    }
+
+    pub fn make_payload_attestation_messages_with_opts(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        beacon_block_root: Hash256,
+        slot: Slot,
+        opts: MakePayloadAttestationOptions,
+    ) -> (HarnessPayloadAttestationMessages, Vec<usize>) {
+        let MakePayloadAttestationOptions { votes, fork } = opts;
+        let ptc = state
+            .get_ptc(slot, &self.spec)
+            .expect("should get payload timeliness committee");
+
+        debug!("PTC is {:?}", ptc.0.to_vec());
+
+        let attesting_validators = attesting_validators.iter().copied().collect::<HashSet<_>>();
+        let mut ptc_weights = HashMap::new();
+        let mut ptc_validator_order = vec![];
+        for validator_index in ptc
+            .0
+            .iter()
+            .copied()
+            .filter(|validator_index| attesting_validators.contains(validator_index))
+        {
+            if let Some(weight) = ptc_weights.get_mut(&validator_index) {
+                *weight += 1;
+            } else {
+                ptc_weights.insert(validator_index, 1usize);
+                ptc_validator_order.push(validator_index);
+            }
+        }
+
+        let mut available_ptc_validators = ptc_validator_order
+            .into_iter()
+            .enumerate()
+            .map(|(order, validator_index)| {
+                let weight = ptc_weights[&validator_index];
+                (validator_index, weight, order)
+            })
+            .collect::<Vec<_>>();
+        available_ptc_validators.sort_by(|(_, weight_a, order_a), (_, weight_b, order_b)| {
+            weight_b.cmp(weight_a).then(order_a.cmp(order_b))
+        });
+
+        let mut messages = Vec::new();
+        let mut attesters = Vec::new();
+
+        for vote in votes {
+            let data = PayloadAttestationData {
+                beacon_block_root,
+                slot,
+                payload_present: vote.payload_present,
+                blob_data_available: vote.blob_data_available,
+            };
+
+            let Some(packed_validator_offsets) =
+                pack_payload_attestation_vote(&available_ptc_validators, vote.validator_count)
+            else {
+                let available_weights = available_ptc_validators
+                    .iter()
+                    .map(|(validator_index, weight, _)| (*validator_index, *weight))
+                    .collect::<Vec<_>>();
+                panic!(
+                    "requested packing couldn't be formed for payload attestation vote {vote:?}; \
+                     requested PTC weight {}, available PTC weights {:?}",
+                    vote.validator_count, available_weights
+                );
+            };
+
+            for &offset in &packed_validator_offsets {
+                let validator_index = available_ptc_validators[offset].0;
+                messages.push(self.make_payload_attestation_message(
+                    validator_index,
+                    data.clone(),
+                    &fork,
+                ));
+                attesters.push(validator_index);
+            }
+
+            for offset in packed_validator_offsets.into_iter().rev() {
+                available_ptc_validators.remove(offset);
+            }
+        }
+
+        (messages, attesters)
+    }
+
+    pub fn import_payload_attestation_message(
+        &self,
+        message: PayloadAttestationMessage,
+    ) -> Result<(), PayloadAttestationImportError> {
+        let verified = self
+            .chain
+            .verify_payload_attestation_message_for_gossip(message)
+            .map_err(PayloadAttestationImportError::Verification)?;
+
+        self.chain
+            .apply_payload_attestation_to_fork_choice(
+                verified.indexed_payload_attestation(),
+                verified.ptc(),
+            )
+            .map_err(|e| PayloadAttestationImportError::ForkChoice(Box::new(e)))?;
+
+        self.chain
+            .add_payload_attestation_to_pool(&verified)
+            .map_err(|e| PayloadAttestationImportError::Pool(Box::new(e)))?;
+
+        Ok(())
+    }
+
+    pub fn import_payload_attestation_messages(
+        &self,
+        messages: impl IntoIterator<Item = PayloadAttestationMessage>,
+    ) -> Result<(), PayloadAttestationImportError> {
+        for message in messages {
+            self.import_payload_attestation_message(message)?;
+        }
+
+        Ok(())
+    }
+
     pub fn make_sync_contributions(
         &self,
         state: &BeaconState<E>,
@@ -2158,6 +2378,21 @@ where
         slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
     ) -> HarnessSyncContributions<E> {
+        // Resolve the committee for aggregator selection using the same relative committee as the
+        // messages. Selecting from `current_sync_committee` unconditionally would pick an
+        // aggregator outside the verifying committee at sync committee period boundaries (where
+        // `Next` is used), causing `AggregatorNotInCommittee`.
+        let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+            RelativeSyncCommittee::Current => state
+                .current_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+            RelativeSyncCommittee::Next => state
+                .next_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+        };
+
         let sync_messages =
             self.make_sync_committee_messages(state, block_hash, slot, relative_sync_committee);
 
@@ -2167,10 +2402,7 @@ where
             .map(|(subnet_id, committee_messages)| {
                 // If there are any sync messages in this committee, create an aggregate.
                 if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
-                    let sync_committee: Arc<SyncCommittee<E>> = state
-                        .current_sync_committee()
-                        .expect("should be called on altair beacon state")
-                        .clone();
+                    let sync_committee = sync_committee.clone();
 
                     let aggregator_index = sync_committee
                         .get_subcommittee_pubkeys(subnet_id)
@@ -3239,14 +3471,24 @@ where
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
             && new_state.current_sync_committee().is_ok()
         {
+            // A sync message for `slot` is verified against the committee of `epoch(slot + 1)`
+            // (see `BeaconChain::sync_committee_at_next_slot`), so we must sign with `Next` only
+            // when `slot + 1` crosses into a new sync committee period, not for the whole first
+            // epoch of the period.
+            let slots_per_epoch = E::slots_per_epoch();
+            let crosses_period = slot
+                .epoch(slots_per_epoch)
+                .sync_committee_period(&self.spec)
+                .unwrap()
+                != (slot + 1)
+                    .epoch(slots_per_epoch)
+                    .sync_committee_period(&self.spec)
+                    .unwrap();
             self.sync_committee_sign_block(
                 &new_state,
                 block_hash.into(),
                 slot,
-                if (slot + 1).epoch(E::slots_per_epoch())
-                    % self.spec.epochs_per_sync_committee_period
-                    == 0
-                {
+                if crosses_period {
                     RelativeSyncCommittee::Next
                 } else {
                     RelativeSyncCommittee::Current
@@ -3804,6 +4046,28 @@ pub struct MakeAttestationOptions {
     pub fork: Fork,
     /// Override post-Gloas regular attestation payload-present encoding.
     pub payload_present_override: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PayloadAttestationVote {
+    /// Amount of PTC weight to produce messages for this vote.
+    pub validator_count: usize,
+    pub payload_present: bool,
+    pub blob_data_available: bool,
+}
+
+pub struct MakePayloadAttestationOptions {
+    /// Vote groups to produce. Each group becomes `validator_count` individual messages.
+    pub votes: Vec<PayloadAttestationVote>,
+    /// Fork to use for signing payload attestation messages.
+    pub fork: Fork,
+}
+
+#[derive(Debug)]
+pub enum PayloadAttestationImportError {
+    Verification(crate::payload_attestation_verification::Error),
+    ForkChoice(Box<BeaconChainError>),
+    Pool(Box<BeaconChainError>),
 }
 
 pub enum NumBlobs {

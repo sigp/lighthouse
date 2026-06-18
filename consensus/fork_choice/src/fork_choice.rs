@@ -894,22 +894,29 @@ where
         // Update unrealized justified/finalized checkpoints.
         let block_epoch = block.slot().epoch(E::slots_per_epoch());
 
-        // If the parent checkpoints are already at the same epoch as the block being imported,
-        // it's impossible for the unrealized checkpoints to differ from the parent's. This
-        // holds true because:
+        // If the block has no slashings and the parent checkpoints are already at the same epoch as
+        // the block being imported, it's impossible for the unrealized checkpoints to differ from
+        // the parent's. This holds true because:
         //
         // 1. A child block cannot have lower FFG checkpoints than its parent.
         // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
         // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
         //
+        // Slashings are excluded from this optimization because they can reduce unslashed
+        // participation in the child state and therefore lower the child's unrealized checkpoints.
+        //
         // This is an optimization. It should reduce the amount of times we run
         // `process_justification_and_finalization` by approximately 1/3rd when the chain is
         // performing optimally.
+        let has_slashings = !block.body().proposer_slashings().is_empty()
+            || block.body().attester_slashings_len() > 0;
         let parent_checkpoints = parent_block
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)
             .filter(|(parent_justified, parent_finalized)| {
-                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
+                !has_slashings
+                    && parent_justified.epoch == block_epoch
+                    && parent_finalized.epoch.saturating_add(1u64) == block_epoch
             });
 
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
