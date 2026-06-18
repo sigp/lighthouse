@@ -11,9 +11,6 @@ pub enum CorsError {
 
     #[error("CORS origins string cannot be empty")]
     EmptyOriginsString,
-
-    #[error("No valid CORS origins found after parsing")]
-    NoValidOrigins,
 }
 
 /// A validated CORS origin
@@ -113,10 +110,6 @@ impl CorsConfig {
             .map(|s| s.trim().parse::<Origin>())
             .collect::<Result<Vec<_>, _>>()?;
 
-        if origins.is_empty() {
-            return Err(CorsError::NoValidOrigins);
-        }
-
         Ok(origins)
     }
 
@@ -124,7 +117,8 @@ impl CorsConfig {
     pub fn into_layer(self) -> Result<CorsLayer, CorsError> {
         let origins = self.parse_origins()?;
 
-        // If any origin is wildcard, allow all origins.
+        // If any origin is the wildcard `*`, allow all origins, even when the
+        // list also contains explicit origins.
         if origins.iter().any(|o| matches!(o, Origin::Any)) {
             return Ok(CorsLayer::new().allow_origin(tower_http::cors::Any));
         }

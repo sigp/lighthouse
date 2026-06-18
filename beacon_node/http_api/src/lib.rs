@@ -3514,14 +3514,18 @@ pub async fn serve<T: BeaconChainTypes>(
 
     let mut server_builder = Server::builder().router(axum_router).address(address);
 
+    let tls_enabled = config.tls_config.is_some();
     if let Some(tls_config) = config.tls_config {
         server_builder = server_builder.with_tls(tls_config);
-        info!("HTTP API is being served over TLS");
     }
 
     let server = server_builder.build().await?;
 
     let (address, server) = server.serve_with_shutdown(shutdown).await?;
+
+    if tls_enabled {
+        info!("HTTP API is being served over TLS");
+    }
 
     info!(
         listen_address = %address,

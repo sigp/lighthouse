@@ -219,7 +219,6 @@ pub fn build_response_v3<T: BeaconChainTypes>(
             data: block_contents,
         })
         .into_response())
-        .map(|res| res.into_response())
         .map(|res| add_consensus_version_header(res, fork_name))
         .map(|res| add_execution_payload_blinded_header(res, execution_payload_blinded))
         .map(|res| add_execution_payload_value_header(res, execution_payload_value))
