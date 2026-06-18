@@ -383,6 +383,12 @@ impl FastConfirmationRule {
         Ok(())
     }
 
+    /// Slot of the most recent per-slot FCR update (`update_fast_confirmation_variables`), used to
+    /// sample per-slot metrics exactly once per slot.
+    pub fn last_update_slot(&self) -> Option<Slot> {
+        self.last_update_slot
+    }
+
     // -----------------------------------------------------------------------
     // Spec: update_fast_confirmation_variables
     // -----------------------------------------------------------------------
@@ -781,7 +787,7 @@ impl FastConfirmationRule {
             let score = *precomputed_scores
                 .get(root)
                 .ok_or(Error::MissingPrecomputedScore(*root))?;
-            if !self.is_one_confirmed_with_score::<E>(
+            if let Some(not_confirmed) = self.one_confirmed_check::<E>(
                 &self.previous_balance_source,
                 *root,
                 score,
@@ -790,7 +796,10 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                return Ok(Some("unconfirmed_block"));
+                if let Some(ratio) = not_confirmed.support_ratio {
+                    metrics::observe(&metrics::FCR_UNCONFIRMED_SUPPORT_RATIO, ratio);
+                }
+                return Ok(Some(not_confirmed.reason));
             }
         }
         Ok(None)
@@ -1444,13 +1453,46 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<bool, Error> {
+        Ok(self
+            .one_confirmed_check::<E>(
+                balance_source,
+                block_root,
+                attestation_score,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )?
+            .is_none())
+    }
+
+    /// Like `is_one_confirmed_with_score` but returns `None` when the block is one-confirmed,
+    /// otherwise the revert reason and (for the below-threshold case) the
+    /// `support / safety_threshold` ratio used by the `unconfirmed_block` diagnostic histogram.
+    #[allow(clippy::too_many_arguments)]
+    fn one_confirmed_check<E: EthSpec>(
+        &self,
+        balance_source: &BalanceSourceData,
+        block_root: Hash256,
+        attestation_score: u64,
+        current_slot: Slot,
+        proto_array: &ProtoArray,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> Result<Option<NotOneConfirmed>, Error> {
         if self.is_optimistic_or_invalid(block_root, proto_array) {
-            return Ok(false);
+            return Ok(Some(NotOneConfirmed {
+                reason: "unconfirmed_optimistic",
+                support_ratio: None,
+            }));
         }
 
         let block_slot = self.block_slot(block_root, proto_array)?;
         let Some(parent_root) = self.parent_root(block_root, proto_array) else {
-            return Ok(false);
+            return Ok(Some(NotOneConfirmed {
+                reason: "unconfirmed_missing_parent",
+                support_ratio: None,
+            }));
         };
         let parent_slot = self.block_slot(parent_root, proto_array)?;
 
@@ -1489,8 +1531,27 @@ impl FastConfirmationRule {
             0
         };
 
-        Ok(support > safety_threshold)
+        if support > safety_threshold {
+            Ok(None)
+        } else {
+            // The ratio is meaningless when the threshold underflow-guards to 0.
+            let support_ratio =
+                (safety_threshold > 0).then(|| support as f64 / safety_threshold as f64);
+            Ok(Some(NotOneConfirmed {
+                reason: "unconfirmed_below_threshold",
+                support_ratio,
+            }))
+        }
     }
+}
+
+/// Outcome of a failed one-confirmed check (see `one_confirmed_check`).
+struct NotOneConfirmed {
+    /// Revert reason tag, surfaced as the `FCR_REVERT_TO_FINALIZED` label.
+    reason: &'static str,
+    /// `support / safety_threshold`; `None` for the optimistic/missing-parent cases or when the
+    /// threshold is 0.
+    support_ratio: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------

@@ -763,6 +763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             if let Some(fcr_head_state) = fcr_head_state.as_ref() {
+                let fcr_update_slot_before = fcr.last_update_slot();
                 if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
                     head_root,
                     &finalized_cp,
@@ -811,6 +812,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             &fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS,
                             delay as i64,
                         );
+                        // Sample the delay into the histogram only on the first recompute that
+                        // advanced the FCR per-slot update, so the many block-import recomputes
+                        // within a slot don't bias the distribution.
+                        if fcr.last_update_slot() != fcr_update_slot_before {
+                            metrics::observe(
+                                &fcr_metrics::FCR_SETTLED_CONFIRMATION_DELAY_SLOTS,
+                                delay as f64,
+                            );
+                        }
 
                         // Emit a `fast_confirmation` event on every FCR run, regardless of
                         // whether the confirmed block changed (beacon-APIs#616). `block`/`slot`
