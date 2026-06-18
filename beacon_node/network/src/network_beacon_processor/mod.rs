@@ -917,7 +917,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        if !self.chain.config.disable_get_blobs {
+        if self.chain.config.disable_get_blobs {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
