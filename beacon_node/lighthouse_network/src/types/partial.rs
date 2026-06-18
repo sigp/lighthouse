@@ -32,9 +32,25 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         header_sent_set: HeaderSentSet,
         requests: CellBitmap<E>,
     ) -> Self {
-        // For consistency, we always set the request bit for available cells. The spec allows both,
-        // but it is nicer to ensure that a bit once set does not disappear in future messages.
-        // This union also ensures that the bitmap lengths match.
+        // Always set the request bit for available cells.
+        //
+        // Gossipsub applys certain optimisations to avoid sending redundant messages. This
+        // requires that we stay consistent with our metadata. Gossipsub uses the `Metadata` trait
+        // impl below to determine whether it can perform these optimisations.
+        //
+        // If we request a cell and then receive it, un-setting the request bit in the next
+        // published message may cause issues:
+        // Gossipsub tries to avoid the impact of application race conditions by checking newly
+        // published metadata against previously published metadata. This no longer functions
+        // correctly if request bits are unset between calls, as Gossipsub will consider a message
+        // with new requests as new info to be propagated, possibly overwriting previous messages
+        // with more cells (but fewer request bits). This is because gossipsub will see that both
+        // metadata have some bits that are not set in the other metadata and therefore cannot
+        // decide which actually carries more data. By always setting request bits for available
+        // cells, we avoid this issue, as requests will never be unset between calls.
+        //
+        // In other words, gossipsub relies on the fact that metadata is additive. The request bit
+        // is, therefore, to be seen as a "request if not available" bit.
         let requests = requests.union(&partial_column.sidecar.cells_present_bitmap);
 
         let metadata = PartialDataColumnPartsMetadata::<E> {
