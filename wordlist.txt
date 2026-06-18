@@ -45,6 +45,7 @@ Fusaka
 Geth
 GiB
 Gitcoin
+Gloas
 Gnosis
 Goerli
 Grafana
