@@ -1319,9 +1319,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 }
 
-                // Treat local blobs as fetched if get_blobs is disabled
-                let local_blobs = merge_result.local_blobs || self.chain.config.disable_get_blobs;
-
                 if !merge_result.updated_partials.is_empty() {
                     let header = verified_header.into_header();
                     let messages = merge_result
@@ -1330,7 +1327,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         .map(|partial| {
                             let column = partial.into_inner();
                             let present_cells = &column.sidecar.cells_present_bitmap;
-                            let request_cells = if local_blobs {
+                            let request_cells = if merge_result.local_blobs {
                                 // Request all cells that are not available locally.
                                 let mut all_one = present_cells.clone_zeroed();
                                 all_one.not_inplace();
