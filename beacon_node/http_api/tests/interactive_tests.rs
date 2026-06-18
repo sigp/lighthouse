@@ -373,7 +373,7 @@ pub async fn proposer_boost_re_org_test(
         return;
     }
 
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let spec = test_spec::<E>();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
