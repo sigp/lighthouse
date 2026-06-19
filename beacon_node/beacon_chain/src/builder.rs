@@ -908,6 +908,7 @@ where
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;
+        let disable_get_blobs = self.chain_config.disable_get_blobs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -1043,6 +1044,7 @@ where
                     custody_context.clone(),
                     self.spec.clone(),
                     enable_partial_columns,
+                    disable_get_blobs,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),

@@ -13,6 +13,9 @@ use types::data::{ColumnIndex, PartialDataColumnHeader};
 pub struct PartialDataColumnAssembler<E: EthSpec> {
     /// Cache of assemblies keyed by block root
     assemblies: RwLock<LruCache<Hash256, PartialAssembly<E>>>,
+    /// Whether getBlobs is disabled. If so, always set `has_local_blobs` to true, as we will never
+    /// retrieve blobs from the EL and therefore should immediately request cells from the network.
+    disable_get_blobs: bool,
 }
 
 /// Tracks partial columns being assembled for a single block
@@ -43,9 +46,10 @@ pub struct PartialMergeResult<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize, disable_get_blobs: bool) -> Self {
         Self {
             assemblies: RwLock::new(LruCache::new(capacity)),
+            disable_get_blobs,
         }
     }
 
@@ -60,7 +64,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         let assembly = PartialAssembly {
             header,
-            has_local_blobs: false,
+            has_local_blobs: self.disable_get_blobs,
             columns: HashMap::new(),
         };
 
@@ -82,7 +86,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .entry(block_root)
             .or_insert_with(|| PartialAssembly {
                 header: header.clone(),
-                has_local_blobs: false,
+                has_local_blobs: self.disable_get_blobs,
                 columns: HashMap::new(),
             });
 
@@ -174,7 +178,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     signed_block_header: fulu.signed_block_header.clone(),
                     kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
                 }),
-                has_local_blobs: false,
+                has_local_blobs: self.disable_get_blobs,
                 columns: Default::default(),
             });
         let prev = assembly
@@ -367,7 +371,7 @@ mod tests {
     }
 
     fn make_assembler() -> PartialDataColumnAssembler<E> {
-        PartialDataColumnAssembler::new(16)
+        PartialDataColumnAssembler::new(16, false)
     }
 
     // -- init and get_header tests --

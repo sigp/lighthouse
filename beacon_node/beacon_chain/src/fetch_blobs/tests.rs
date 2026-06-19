@@ -344,7 +344,7 @@ fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlob
     let test_runtime = TestRuntime::default();
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let kzg = get_kzg(&spec);
-    let partial_assembler = PartialDataColumnAssembler::new(32);
+    let partial_assembler = PartialDataColumnAssembler::new(32, false);
 
     let mut mock_adapter = MockFetchBlobsBeaconAdapter::default();
     mock_adapter.expect_spec().return_const(spec.clone());
