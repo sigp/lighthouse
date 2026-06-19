@@ -2039,4 +2039,40 @@ mod tests {
         assert!(queued.is_empty());
         assert_eq!(dequeued, vec![1, 2, 3]);
     }
+
+    #[test]
+    fn dequeue_attestations_out_of_order() {
+        // The enqueue path (`on_attestation`) pushes in arrival order and never
+        // sorts, so a future-slot vote can sit ahead of a same-slot vote.
+        let mut queued = vec![
+            QueuedAttestation {
+                slot: Slot::new(4),
+                attesting_indices: vec![],
+                block_root: Hash256::zero(),
+                target_epoch: Epoch::new(0),
+                payload_present: true,
+            },
+            QueuedAttestation {
+                slot: Slot::new(3),
+                attesting_indices: vec![],
+                block_root: Hash256::zero(),
+                target_epoch: Epoch::new(0),
+                payload_present: true,
+            },
+        ];
+
+        // At slot 4, the slot-3 vote is due (3 < 4) and must be released.
+        let dequeued = dequeue_attestations(Slot::new(4), &mut queued);
+
+        assert_eq!(
+            get_slots(&dequeued),
+            vec![3],
+            "slot-3 vote must be dequeued at slot 4"
+        );
+        assert_eq!(
+            get_slots(&queued),
+            vec![4],
+            "only the not-yet-due slot-4 vote should remain"
+        );
+    }
 }
