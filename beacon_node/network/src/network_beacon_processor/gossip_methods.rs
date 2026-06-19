@@ -33,7 +33,7 @@ use beacon_chain::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{
     Client, GossipTopic, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage,
-    ReportSource,
+    PubsubPartialMessage, ReportSource,
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -937,9 +937,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(mut column) => {
                     let header = column.sidecar.header.take();
                     if let Some(header) = header {
+                        // Requesting cells is irrelevant as all cells are available, simply clone
+                        // the `cells_present_bitmap`.
+                        let request_cells = column.sidecar.cells_present_bitmap.clone();
                         self.send_network_message(NetworkMessage::PublishPartialColumns {
-                            columns: vec![Arc::new(column)],
-                            header: Arc::new(header),
+                            messages: vec![PubsubPartialMessage::DataColumnFulu {
+                                column: Arc::new(column),
+                                request_cells,
+                                header: Arc::new(header),
+                            }],
                         });
                     } else {
                         crit!("Converting from full to partial yielded headerless partial")
@@ -1077,8 +1083,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
                 // We want to publish immediately when this finishes
                 let publish_blobs = true;
-                self.fetch_engine_blobs_and_publish(header.into_header(), block_root, publish_blobs)
-                    .await
+                let header = header.into_header();
+                self.fetch_engine_blobs_and_publish_full(header.clone(), block_root, publish_blobs)
+                    .await;
+                self.publish_partial_data_columns(header, block_root).await;
             }
         }
     }
@@ -1311,28 +1319,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 }
 
-                let only_send_completed_partials =
-                    merge_result.local_blobs || self.chain.config.disable_get_blobs;
-                let columns = merge_result
-                    .updated_partials
-                    .into_iter()
-                    .map(|partial| partial.into_inner())
-                    .filter(|partial| {
-                        !only_send_completed_partials || partial.sidecar.is_complete()
-                    })
-                    .collect::<Vec<_>>();
-
-                if !columns.is_empty() {
-                    if only_send_completed_partials {
-                        debug!(
-                            block = %block_root,
-                            "Not publishing incomplete partials before getBlobs"
-                        );
-                    }
-                    self.send_network_message(NetworkMessage::PublishPartialColumns {
-                        columns,
-                        header: verified_header.into_header(),
-                    });
+                if !merge_result.updated_partials.is_empty() {
+                    let header = verified_header.into_header();
+                    let messages = merge_result
+                        .updated_partials
+                        .into_iter()
+                        .map(|partial| {
+                            let column = partial.into_inner();
+                            let present_cells = &column.sidecar.cells_present_bitmap;
+                            let request_cells = if merge_result.local_blobs {
+                                // Request all cells that are not available locally.
+                                let mut all_one = present_cells.clone_zeroed();
+                                all_one.not_inplace();
+                                all_one
+                            } else {
+                                // Do not request cells if we don't know the local blobs yet.
+                                present_cells.clone_zeroed()
+                            };
+                            PubsubPartialMessage::DataColumnFulu {
+                                column,
+                                request_cells,
+                                header: header.clone(),
+                            }
+                        })
+                        .collect();
+                    self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
                 }
                 Ok(avail)
             }
@@ -1803,8 +1814,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 if let Ok(header) = PartialDataColumnHeader::try_from(block_clone.as_ref()) {
+                    let header = Arc::new(header);
                     self_clone
-                        .fetch_engine_blobs_and_publish(Arc::new(header), block_root, publish_blobs)
+                        .fetch_engine_blobs_and_publish_full(
+                            header.clone(),
+                            block_root,
+                            publish_blobs,
+                        )
+                        .await;
+                    self_clone
+                        .publish_partial_data_columns(header, block_root)
                         .await
                 }
             }
