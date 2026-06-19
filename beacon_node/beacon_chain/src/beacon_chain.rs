@@ -20,6 +20,7 @@ use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataColumnReconstructionResult as DataColumnReconstructionResultV1,
+    verify_columns_against_block,
 };
 
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -3029,12 +3030,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // 2. In some non-canonical chain at a slot that has been finalized already.
                 //
                 // In the case of (1), there's no need to re-import and later blocks in this
-                // segement might be useful.
+                // segment might be useful.
+                // This changes slightly post-gloas because the finalized block can be
+                // imported without its corresponding envelope. If the block we are processing is
+                // the finalized block then we still add it to the filtered chain segment so that
+                // its envelope can be processed.
                 //
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    if is_envelope_relevant
+                        && self
+                            .canonical_head
+                            .cached_head()
+                            .finalized_checkpoint()
+                            .root
+                            == block_root
+                    {
+                        filtered_chain_segment.push((block_root, block));
+                    }
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
@@ -3118,6 +3134,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
+
+            // Here, we are special casing the checkpoint sync block's envelope processing.
+            // Post-gloas, if the first filtered block is the checkpoint block, range
+            // sync may still need to process its envelope so that the first post-checkpoint
+            // child can resolve its parent payload status.
+            // The block is an anchor, so there won't be a parent present in fork choice,
+            // so we need to avoid processing it.
+            if matches!(blocks.first(), Some((root, _)) if *root == self
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .root)
+            {
+                let (block_root, block) = blocks.remove(0);
+                let block_slot = block.slot();
+
+                if let RangeSyncBlock::Gloas {
+                    block,
+                    envelope: Some(envelope),
+                } = block
+                {
+                    let chain = self.clone();
+                    if let Err(error) = async move {
+                        verify_columns_against_block(&chain.kzg, &block, &envelope.columns)
+                            .map_err(BlockError::AvailabilityCheck)?;
+
+                        self.process_range_sync_envelope(envelope, block_root, block)
+                            .await
+                            .map_err(BlockError::from)?;
+
+                        Ok::<(), BlockError>(())
+                    }
+                    .await
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error,
+                        };
+                    }
+                }
+                imported_blocks.push((block_root, block_slot));
+            }
 
             // Extract envelopes before passing blocks to signature verification.
             let envelopes: Vec<_> = blocks
