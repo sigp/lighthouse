@@ -246,6 +246,7 @@ pub fn test_da_checker<E: EthSpec>(
         custody_context,
         spec,
         true,
+        false,
     )
     .expect("should initialise data availability checker")
 }
