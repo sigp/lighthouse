@@ -1,12 +1,14 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
+use eth2::types::ProposerData;
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, ForkName, ProposerPreferences};
+use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -66,6 +68,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         let executor = self.executor.clone();
 
         let interval_fut = async move {
+            let mut published_preferences: HashMap<Epoch, Hash256> = HashMap::new();
+
             loop {
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock");
@@ -73,29 +77,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                     continue;
                 };
 
-                if !self
-                    .chain_spec
-                    .fork_name_at_slot::<S::E>(current_slot)
-                    .gloas_enabled()
-                {
-                    let duration_to_next_epoch = self
-                        .slot_clock
-                        .duration_to_next_epoch(S::E::slots_per_epoch())
-                        .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
-                    sleep(duration_to_next_epoch).await;
-                    continue;
-                }
-
                 let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-                let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(current_slot);
-                self.publish_proposer_preferences(current_epoch, fork_name)
+
+                self.poll_and_publish_preferences(current_epoch, &mut published_preferences)
                     .await;
 
-                let duration_to_next_epoch = self
+                let duration_to_next_slot = self
                     .slot_clock
-                    .duration_to_next_epoch(S::E::slots_per_epoch())
-                    .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
-                sleep(duration_to_next_epoch).await;
+                    .duration_to_next_slot()
+                    .unwrap_or(slot_duration);
+                sleep(duration_to_next_slot).await;
             }
         };
 
@@ -103,15 +94,57 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         Ok(())
     }
 
-    async fn publish_proposer_preferences(&self, current_epoch: Epoch, fork_name: ForkName) {
-        let (dependent_root, duties) = {
-            let proposers = self.duties_service.proposers.read();
-            match proposers.get(&current_epoch) {
-                Some((root, duties)) => (*root, duties.clone()),
-                None => return,
+    /// Publish proposer preferences for `current_epoch` and `current_epoch + 1`.
+    /// Will only publish preferences for a given epoch once per dependent root.
+    async fn poll_and_publish_preferences(
+        &self,
+        current_epoch: Epoch,
+        published_preferences: &mut HashMap<Epoch, Hash256>,
+    ) {
+        for (epoch, fork_name) in [
+            (
+                current_epoch,
+                self.chain_spec.fork_name_at_epoch(current_epoch),
+            ),
+            (
+                current_epoch + 1,
+                self.chain_spec.fork_name_at_epoch(current_epoch + 1),
+            ),
+        ] {
+            if !fork_name.gloas_enabled() {
+                continue;
             }
-        };
 
+            let (dependent_root, duties) = {
+                let proposers = self.duties_service.proposers.read();
+                match proposers.get(&epoch) {
+                    Some((root, duties)) => (*root, duties.clone()),
+                    None => continue,
+                }
+            };
+
+            if published_preferences.get(&epoch) == Some(&dependent_root) {
+                continue;
+            }
+
+            if self
+                .publish_proposer_preferences(epoch, fork_name, dependent_root, duties)
+                .await
+            {
+                published_preferences.insert(epoch, dependent_root);
+            }
+        }
+
+        published_preferences.retain(|epoch, _| *epoch >= current_epoch);
+    }
+
+    async fn publish_proposer_preferences(
+        &self,
+        epoch: Epoch,
+        fork_name: ForkName,
+        dependent_root: Hash256,
+        duties: Vec<ProposerData>,
+    ) -> bool {
         let preferences_to_sign: Vec<_> = {
             let mut result = vec![];
             for duty in &duties {
@@ -144,11 +177,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         };
 
         if preferences_to_sign.is_empty() {
-            return;
+            return false;
         }
 
         debug!(
-            %current_epoch,
+            %epoch,
             count = preferences_to_sign.len(),
             "Signing proposer preferences"
         );
@@ -172,7 +205,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         }
 
         if signed.is_empty() {
-            return;
+            return false;
         }
 
         let count = signed.len();
@@ -213,17 +246,19 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         match result {
             Ok(()) => {
                 info!(
-                    %current_epoch,
+                    %epoch,
                     %count,
                     "Successfully published proposer preferences"
                 );
+                true
             }
             Err(e) => {
                 error!(
                     error = %e,
-                    %current_epoch,
+                    %epoch,
                     "Failed to publish proposer preferences"
                 );
+                false
             }
         }
     }
