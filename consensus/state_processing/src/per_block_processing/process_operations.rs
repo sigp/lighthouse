@@ -418,7 +418,12 @@ pub fn process_proposer_slashings<E: EthSpec>(
                         .builder_pending_payments_mut()?
                         .get_mut(index)
                         .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(index))?;
-                    *payment = BuilderPendingPayment::default();
+
+                    if payment.proposer_index
+                        == proposer_slashing.signed_header_1.message.proposer_index
+                    {
+                        *payment = BuilderPendingPayment::default();
+                    }
                 }
             }
 

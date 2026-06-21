@@ -799,6 +799,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
                 amount,
                 builder_index,
             },
+            proposer_index: block.proposer_index(),
         };
 
         let payment_index = E::SlotsPerEpoch::to_usize()
