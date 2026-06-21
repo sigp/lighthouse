@@ -1031,12 +1031,21 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
             }
         }
         Some(builder_index) => {
-            state
+            let current_epoch = state.current_epoch();
+            let builder = state
                 .builders_mut()?
                 .get_mut(builder_index as usize)
-                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
-                .balance
-                .safe_add_assign(amount)?;
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?;
+
+            // Increase balance by deposit amount
+            builder.balance.safe_add_assign(amount)?;
+
+            // If exited, reset the withdrawable epoch
+            if builder.withdrawable_epoch != spec.far_future_epoch {
+                builder.withdrawable_epoch =
+                    current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
+            }
+
             Ok(Some(builder_index))
         }
     }
