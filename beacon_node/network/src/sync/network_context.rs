@@ -699,7 +699,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         peers_to_deprioritize.contains(peer),
                         // Prefer peers with less overall requests
                         // Also account for requests that are not yet issued tracked in peer_id_to_request_map
-                        // We batch requests to the same peer, so count existance in the
+                        // We batch requests to the same peer, so count existence in the
                         // `columns_to_request_by_peer` as a single 1 request.
                         active_request_count_by_peer.get(peer).copied().unwrap_or(0)
                             + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),

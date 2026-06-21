@@ -1212,7 +1212,7 @@ fn process_single_dummy_effective_balance_update(
     state_ctxt: &StateContext,
 ) -> Result<(), Error> {
     // Populate the effective balance cache with the current effective balance. This will be
-    // overriden when `process_single_effective_balance_update` is called.
+    // overridden when `process_single_effective_balance_update` is called.
     let is_active_next_epoch = validator.is_active_at(state_ctxt.next_epoch);
     let temporary_effective_balance = validator.effective_balance;
     next_epoch_cache.update_effective_balance(
