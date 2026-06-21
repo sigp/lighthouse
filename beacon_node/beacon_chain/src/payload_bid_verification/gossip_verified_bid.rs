@@ -14,7 +14,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot,
+    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 /// Verify that an execution payload bid is consistent with the current chain state
@@ -62,6 +62,14 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
     if !is_active_builder {
         return Err(PayloadBidError::InvalidBuilder { builder_index });
+    }
+
+    let builder_version = head_state.get_builder(builder_index)?.version;
+    if builder_version != PAYLOAD_BUILDER_VERSION {
+        return Err(PayloadBidError::InvalidBuilderVersion {
+            builder_index,
+            version: builder_version,
+        });
     }
 
     if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {

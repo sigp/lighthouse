@@ -30,6 +30,8 @@ pub enum PayloadBidError {
     BuilderAlreadySeen { builder_index: u64, slot: Slot },
     /// Builder is not valid/active for the given epoch
     InvalidBuilder { builder_index: u64 },
+    /// The builder's version is not `PAYLOAD_BUILDER_VERSION`.
+    InvalidBuilderVersion { builder_index: u64, version: u8 },
     /// The bid value is lower than the currently cached bid.
     BidValueBelowCached {
         cached_value: u64,

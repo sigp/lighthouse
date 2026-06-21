@@ -4021,10 +4021,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
+                | PayloadBidError::InvalidBuilderVersion { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
-                | PayloadBidError::BidNotDescendantOfParent { .. },
+                | PayloadBidError::BidNotDescendantOfParent { .. }
                 | PayloadBidError::InvalidPrevRandao { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);

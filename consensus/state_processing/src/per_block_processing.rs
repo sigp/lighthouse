@@ -11,7 +11,10 @@ use signature_sets::{
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
-use types::{consts::gloas::BUILDER_INDEX_SELF_BUILD, *};
+use types::{
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
+    *,
+};
 
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
@@ -696,6 +699,16 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         block_verify!(
             state.is_active_builder(builder_index, spec)?,
             ExecutionPayloadBidInvalid::BuilderNotActive(builder_index).into()
+        );
+
+        // Verify that the builder is a payload builder
+        block_verify!(
+            builder.version == PAYLOAD_BUILDER_VERSION,
+            ExecutionPayloadBidInvalid::InvalidBuilderVersion {
+                builder_index,
+                version: builder.version,
+            }
+            .into()
         );
 
         // Verify that the builder has funds to cover the bid

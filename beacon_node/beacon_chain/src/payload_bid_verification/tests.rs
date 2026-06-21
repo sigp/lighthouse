@@ -16,6 +16,7 @@ use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
@@ -86,6 +87,7 @@ impl TestContext {
             state
                 .add_builder_to_registry(
                     PublicKeyBytes::from(keypair.pk.clone()),
+                    PAYLOAD_BUILDER_VERSION,
                     creds,
                     BUILDER_BALANCE,
                     Slot::new(0),
@@ -117,6 +119,7 @@ impl TestContext {
         let inactive_builder_index = state
             .add_builder_to_registry(
                 PublicKeyBytes::from(inactive_keypair.pk.clone()),
+                PAYLOAD_BUILDER_VERSION,
                 inactive_creds,
                 BUILDER_BALANCE,
                 Slot::new(E::slots_per_epoch()),

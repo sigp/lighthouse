@@ -527,6 +527,8 @@ pub enum ExecutionPayloadBidInvalid {
     BadSignature,
     /// The builder is not active.
     BuilderNotActive(u64),
+    /// The builder's version is not `PAYLOAD_BUILDER_VERSION`.
+    InvalidBuilderVersion { builder_index: u64, version: u8 },
     /// The builder has insufficient balance to cover the bid
     InsufficientBalance {
         builder_index: u64,

@@ -970,11 +970,18 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
             && !is_validator
             && !is_pending_validator(state.pending_deposits()?, &deposit_request.pubkey, spec))
     {
-        // Apply builder deposits immediately
+        // Apply builder deposits immediately. The builder version is taken from the
+        // withdrawal credentials prefix byte (spec: `process_builder_deposit_request`).
+        let version = *deposit_request
+            .withdrawal_credentials
+            .as_slice()
+            .first()
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
         apply_deposit_for_builder(
             state,
             builder_index,
             deposit_request.pubkey,
+            version,
             deposit_request.withdrawal_credentials,
             deposit_request.amount,
             deposit_request.signature.clone(),
@@ -1002,6 +1009,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
     state: &mut BeaconState<E>,
     builder_index_opt: Option<BuilderIndex>,
     pubkey: PublicKeyBytes,
+    version: u8,
     withdrawal_credentials: Hash256,
     amount: u64,
     signature: SignatureBytes,
@@ -1020,6 +1028,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
             if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
                 let builder_index = state.add_builder_to_registry(
                     pubkey,
+                    version,
                     withdrawal_credentials,
                     amount,
                     slot,

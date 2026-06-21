@@ -10,7 +10,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -208,6 +209,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             state,
             builder_index,
             deposit.pubkey,
+            PAYLOAD_BUILDER_VERSION,
             deposit.withdrawal_credentials,
             deposit.amount,
             deposit.signature.clone(),
