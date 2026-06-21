@@ -158,6 +158,14 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             });
         }
 
+        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
+        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        if signed_bid.message.prev_randao
+            != *head_state.get_randao_mix(current_slot.epoch(T::EthSpec::slots_per_epoch()))?
+        {
+            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
+        }
+
         // TODO(gloas) reprocess bids whose parent_block_root becomes canonical after a reorg.
         let head_root = cached_head.head_block_root();
         if !fork_choice.is_descendant(bid_parent_block_root, head_root) {

@@ -397,7 +397,9 @@ pub fn process_proposer_slashings<E: EthSpec>(
 
             // [New in Gloas:EIP7732]
             // Remove the BuilderPendingPayment corresponding to this proposal
-            // if it is still in the 2-epoch window.
+            // if it is still in the 2-epoch window. Only clear it when the slashed validator is
+            // the proposer associated with the payment; otherwise an unrelated same-slot
+            // equivocation could grief an honest proposer's payment.
             if state.fork_name_unchecked().gloas_enabled() {
                 let slot = proposer_slashing.signed_header_1.message.slot;
                 let proposal_epoch = slot.epoch(E::slots_per_epoch());

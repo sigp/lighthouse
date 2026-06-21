@@ -1631,9 +1631,10 @@ where
 
     /// Returns whether the proposer should extend the execution payload chain of the given block.
     pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        let current_slot = self.fc_store.get_current_slot();
         let proposer_boost_root = self.fc_store.proposer_boost_root();
         self.proto_array
-            .should_extend_payload::<E>(block_root, proposer_boost_root)
+            .should_extend_payload::<E>(block_root, current_slot, proposer_boost_root)
             .map_err(Error::ProtoArrayStringError)
     }
 

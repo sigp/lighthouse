@@ -59,6 +59,8 @@ pub enum PayloadBidError {
         max_blobs_per_block: usize,
         blob_kzg_commitments_len: usize,
     },
+    /// The bids prev randao value is invalid
+    InvalidPrevRandao { slot: Slot },
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Internal error
