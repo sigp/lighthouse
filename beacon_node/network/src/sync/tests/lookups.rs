@@ -2397,6 +2397,21 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
 }
 
 #[tokio::test]
+/// A lookup that loses its only peer while still waiting to download the block must not report
+/// itself as awaiting an event, else `drop_lookups_without_peers` skips it and it gets stuck.
+/// Regression for the "Notify the devs a sync lookup is stuck" report.
+async fn peerless_lookup_awaiting_download_is_not_awaiting_event() {
+    let mut r = TestRig::default();
+    r.build_chain_and_trigger_last_block(1).await;
+    r.disconnect_all_peers();
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::Disconnected))
+        .await;
+    let lookup = &r.active_single_lookups()[0];
+    assert_eq!(lookup.peers.len(), 0);
+    assert!(!lookup.is_awaiting_event);
+}
+
+#[tokio::test]
 /// Assert that when creating multiple lookups their parent-child relation is discovered and we add
 /// peers recursively from child to parent.
 async fn lookups_form_chain() {
