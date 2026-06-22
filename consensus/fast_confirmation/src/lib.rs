@@ -298,11 +298,7 @@ impl FastConfirmationRule {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Top-level entry point: on_fast_confirmation
-    // -----------------------------------------------------------------------
-
-    /// Spec: `on_fast_confirmation(fcr_store)`.
+    /// Top-level entry point. Spec: `on_fast_confirmation(fcr_store)`.
     ///
     /// Called after head selection, while the fork-choice read lock is held.
     /// All parameters are borrowed from fork choice. The `state` is used to
@@ -362,10 +358,6 @@ impl FastConfirmationRule {
         self.last_update_slot
     }
 
-    // -----------------------------------------------------------------------
-    // Spec: update_fast_confirmation_variables
-    // -----------------------------------------------------------------------
-
     /// Spec: `update_fast_confirmation_variables`.
     fn update_fast_confirmation_variables<E: EthSpec>(
         &mut self,
@@ -400,10 +392,7 @@ impl FastConfirmationRule {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Spec: get_latest_confirmed
-    // -----------------------------------------------------------------------
-
+    /// Spec: get_latest_confirmed
     #[allow(clippy::too_many_arguments)]
     pub fn get_latest_confirmed<E: EthSpec>(
         &self,
@@ -419,36 +408,33 @@ impl FastConfirmationRule {
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
         let mut confirmed_root = self.confirmed_root;
 
-        // Revert to finalized if the confirmed block is older than the previous epoch, is off
-        // the canonical chain, or (at an epoch start) its chain can't be re-confirmed.
-        let confirmed_epoch_too_old = self
+        // Revert to finalized block if either of the following is true:
+        let should_revert_to_finalized_reason = if self
             .block_epoch::<E>(confirmed_root, proto_array)?
             .saturating_add(1u64)
-            < current_epoch;
-        let confirmed_not_ancestor = !self.is_ancestor(head_root, confirmed_root, proto_array)?;
-        // Only run the (expensive) chain-safety check when the cheap conditions above didn't
-        // already trigger a revert, and only at an epoch start. `Some(reason)` means the
-        // confirmed chain can no longer be re-confirmed (with the specific cause).
-        let chain_unsafe_reason =
-            if !confirmed_epoch_too_old && !confirmed_not_ancestor && is_epoch_start {
-                self.is_confirmed_chain_safe::<E>(
-                    confirmed_root,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )?
-            } else {
-                None
-            };
-        let revert_reason = if confirmed_epoch_too_old {
+            < current_epoch
+        {
+            // 1) the latest confirmed block's epoch is older than the previous epoch,
             Some("epoch_too_old")
-        } else if confirmed_not_ancestor {
+        } else if !self.is_ancestor(head_root, confirmed_root, proto_array)? {
+            // 2) the latest confirmed block does not belong to the canonical chain,
             Some("not_ancestor")
+        } else if is_epoch_start
+            && let Some(chain_unsafe_reason) = self.is_confirmed_chain_safe::<E>(
+                // 3) the confirmed chain starting from the current epoch observed justified
+                //    checkpoint cannot be re-confirmed at the start of the current epoch.
+                confirmed_root,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )?
+        {
+            Some(chain_unsafe_reason)
         } else {
-            chain_unsafe_reason
+            None
         };
-        if let Some(reason) = revert_reason {
+        if let Some(reason) = should_revert_to_finalized_reason {
             debug!(
                 prev_confirmed = %confirmed_root,
                 finalized = %finalized_checkpoint.root,
@@ -460,17 +446,19 @@ impl FastConfirmationRule {
             metrics::inc_counter_vec(&metrics::FCR_REVERT_TO_FINALIZED, &[reason]);
         }
 
-        // At an epoch start, restart from the current-epoch observed justified checkpoint when
-        // its block is in the previous epoch, equals the head's unrealized justification, and
-        // is newer than the confirmed block.
+        // Restart the confirmation chain if each of the following conditions are true:
+        // 1) it is the start of the current epoch,
         let observed_jcp = self.current_epoch_observed_justified_checkpoint;
         let observed_justified_block_slot = self.block_slot(observed_jcp.root, proto_array)?;
+        // 2) epoch of fcr_store.current_epoch_observed_justified_checkpoint.root equals to the previous epoch,
         let is_observed_justified_block_epoch_ok = observed_justified_block_slot
             .epoch(E::slots_per_epoch())
             .saturating_add(1u64)
             == current_epoch;
+        // 3) fcr_store.current_epoch_observed_justified_checkpoint equals to unrealized justification of the head,
         let is_head_unrealized_justified_ok =
             observed_jcp == self.unrealized_justification_of(head_root, proto_array)?;
+        // 4) confirmed block is older than the block of fcr_store.current_epoch_observed_justified_checkpoint.
         let is_confirmed_block_stale =
             self.block_slot(confirmed_root, proto_array)? < observed_justified_block_slot;
         if is_epoch_start
@@ -489,7 +477,7 @@ impl FastConfirmationRule {
         }
         let pre_advance_root = confirmed_root;
 
-        // Attempt to advance the confirmed block to a descendant.
+        // Attempt to further advance the latest confirmed block
         if self
             .block_epoch::<E>(confirmed_root, proto_array)?
             .saturating_add(1u64)
@@ -512,15 +500,12 @@ impl FastConfirmationRule {
         Ok(confirmed_root)
     }
 
-    // -----------------------------------------------------------------------
-    // Spec: find_latest_confirmed_descendant
-    //
-    // DIVERGENCE: The spec calls `is_one_confirmed` per block, which calls
-    // `get_attestation_score` each time — O(B × V × depth). We precompute
-    // all scores once via `precompute_chain_attestation_scores` and use
-    // `is_one_confirmed_with_score` per block instead — O(V × depth + B).
-    // -----------------------------------------------------------------------
-
+    /// Spec: find_latest_confirmed_descendant
+    ///
+    /// DIVERGENCE: The spec calls `is_one_confirmed` per block, which calls
+    /// `get_attestation_score` each time — O(B × V × depth). We precompute
+    /// all scores once via `precompute_chain_attestation_scores` and use
+    /// `is_one_confirmed_with_score` per block instead — O(V × depth + B).
     #[allow(clippy::too_many_arguments)]
     fn find_latest_confirmed_descendant<E: EthSpec>(
         &self,
@@ -696,17 +681,10 @@ impl FastConfirmationRule {
         Ok(confirmed_root)
     }
 
-    // -----------------------------------------------------------------------
-    // Spec: is_one_confirmed
-    // -----------------------------------------------------------------------
-
-    // -----------------------------------------------------------------------
-    // Spec: is_confirmed_chain_safe
-    //
-    // DIVERGENCE: Same optimization as find_latest_confirmed_descendant —
-    // precomputes scores once and uses `is_one_confirmed_with_score`.
-    // -----------------------------------------------------------------------
-
+    /// Spec: is_confirmed_chain_safe
+    ///
+    /// DIVERGENCE: Same optimization as find_latest_confirmed_descendant —
+    /// precomputes scores once and uses `is_one_confirmed_with_score`.
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
