@@ -10,7 +10,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use tracing::{debug, warn};
-use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, Slot};
+use types::{
+    ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, SignedExecutionPayloadBid, Slot,
+};
 
 /// A delay before making the CGC change effective to the data availability checker.
 pub const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
@@ -584,6 +586,13 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
     /// See `Self::data_columns_required_for_epoch`
     pub fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
+    }
+
+    pub fn data_columns_required_for_bid(
+        &self,
+        bid: &SignedExecutionPayloadBid<T::EthSpec>,
+    ) -> bool {
+        bid.num_blobs_expected() > 0 && self.data_columns_required_for_epoch(bid.epoch())
     }
 
     /// The data availability boundary for custodying columns. It will just be the

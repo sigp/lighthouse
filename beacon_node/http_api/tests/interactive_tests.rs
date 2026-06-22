@@ -1262,8 +1262,7 @@ async fn lighthouse_restart_custody_backfill() {
     let max_cgc = spec.number_of_custody_groups;
 
     let num_blocks = 2 * E::slots_per_epoch();
-
-    let custody_context = harness.chain.data_availability_checker.custody_context();
+    let custody_context = &harness.chain.custody_context;
 
     harness.advance_slot();
     harness

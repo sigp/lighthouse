@@ -143,7 +143,6 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         envelope: Option<AvailableEnvelope<E>>,
     ) -> Result<Self, String> {
-        // TODO: add verification with custody context
         if let Some(envelope) = envelope.as_ref() {
             let execution_bid = &block
                 .message()

@@ -17,20 +17,22 @@
 //!      ExecutedEnvelope
 //!
 //! ```
-
+use crate::data_availability_checker::AvailabilityCheckError;
+use crate::{
+    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, CustodyContext,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+};
 use state_processing::envelope_processing::EnvelopeProcessingError;
+use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
-};
-
-use crate::{
-    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationError, PayloadVerificationOutcome,
+    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -47,11 +49,51 @@ pub struct AvailableEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
-    pub fn new(
+    /// Constructs an `AvailableEnvelope` from an envelope and custody column data.
+    ///
+    /// This function validates that:
+    /// - Columns are not provided when not required
+    /// - Required custody columns are present in the expected quantity
+    /// - Required custody columns match the expected sampling indices for the bid's epoch
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `UnnecessaryCustodyColumns`: Columns are provided but not required
+    /// - `MissingCustodyColumns`: Required custody columns are missing or incomplete
+    pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-    ) -> Self {
-        Self { envelope, columns }
+        bid: &SignedExecutionPayloadBid<E>,
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        if custody_context.data_columns_required_for_bid(bid) {
+            let columns_expected = custody_context.num_of_data_columns_to_sample(bid.epoch());
+            match columns.len().cmp(&columns_expected) {
+                Ordering::Less => Err(AvailabilityCheckError::MissingCustodyColumns),
+                Ordering::Greater => Err(AvailabilityCheckError::UnnecessaryCustodyColumns),
+                Ordering::Equal => {
+                    let mut column_indices = custody_context
+                        .sampling_columns_for_epoch(bid.epoch())
+                        .iter()
+                        .collect::<HashSet<_>>();
+                    for column in &columns {
+                        column_indices.remove(column.index());
+                    }
+
+                    if !column_indices.is_empty() {
+                        return Err(AvailabilityCheckError::MissingCustodyColumns);
+                    }
+
+                    Ok(Self { envelope, columns })
+                }
+            }
+        } else if columns.is_empty() {
+            Ok(Self { envelope, columns })
+        } else {
+            Err(AvailabilityCheckError::UnnecessaryCustodyColumns)
+        }
     }
 
     pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {

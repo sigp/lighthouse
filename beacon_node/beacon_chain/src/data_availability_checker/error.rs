@@ -25,6 +25,7 @@ pub enum Error {
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
     InvalidAvailableBlockData,
+    UnnecessaryCustodyColumns,
     InvalidVariant,
 }
 
@@ -51,6 +52,7 @@ impl Error {
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
             | Error::InvalidAvailableBlockData
+            | Error::UnnecessaryCustodyColumns
             | Error::InvalidVariant => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }

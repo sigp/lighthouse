@@ -1,3 +1,4 @@
+use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::payload_envelope_verification::AvailableEnvelope;
 use beacon_chain::{
     BeaconChainTypes,
@@ -81,6 +82,13 @@ pub enum CouplingError {
     },
     BlobPeerFailure(String),
     EnvelopePeerFailure(String),
+    AvailabilityCheckError(AvailabilityCheckError),
+}
+
+impl From<AvailabilityCheckError> for CouplingError {
+    fn from(e: AvailabilityCheckError) -> Self {
+        CouplingError::AvailabilityCheckError(e)
+    }
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -493,22 +501,30 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             } else {
                 vec![]
             };
-            let range_sync_block =
-                if let Some(envelopes_by_block_root) = envelopes_by_block_root.as_mut() {
-                    let envelope = envelopes_by_block_root.remove(&block_root);
-                    let available_envelope =
-                        envelope.map(|env| AvailableEnvelope::new(env, custody_columns));
+            let range_sync_block = if let Some(envelopes_by_block_root) =
+                envelopes_by_block_root.as_mut()
+            {
+                let envelope = envelopes_by_block_root.remove(&block_root);
+                let bid = block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    // this really should never fail
+                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
+                let available_envelope = envelope
+                    .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
+                    .transpose()?;
 
-                    RangeSyncBlock::new_gloas(block, available_envelope)
-                        .map_err(CouplingError::EnvelopePeerFailure)?
-                } else if custody_columns.is_empty() {
-                    RangeSyncBlock::new(block, AvailableBlockData::NoData, custody_context)
-                        .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
-                } else {
-                    let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                    RangeSyncBlock::new(block, block_data, custody_context)
-                        .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
-                };
+                RangeSyncBlock::new_gloas(block, available_envelope)
+                    .map_err(CouplingError::EnvelopePeerFailure)?
+            } else if custody_columns.is_empty() {
+                RangeSyncBlock::new(block, AvailableBlockData::NoData, custody_context)
+                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+            } else {
+                let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
+                RangeSyncBlock::new(block, block_data, custody_context)
+                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+            };
             range_sync_blocks.push(range_sync_block);
         }
 

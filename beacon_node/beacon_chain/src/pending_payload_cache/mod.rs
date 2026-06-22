@@ -174,7 +174,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         &self,
         executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let epoch = executed_envelope.envelope.epoch();
         let beacon_block_root = executed_envelope.envelope.beacon_block_root();
         let bid = self
             .get_bid(&beacon_block_root)
@@ -185,17 +184,15 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
-        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
-
         pending_components.span.in_scope(|| {
             debug!(
                 component = "executed envelope",
-                status = pending_components.status_str(num_expected_columns),
+                status = pending_components.status_str(&self.custody_context),
                 "Component added to data availability checker"
             );
         });
 
-        self.check_availability(beacon_block_root, pending_components, num_expected_columns)
+        self.check_availability(beacon_block_root, pending_components)
     }
 
     /// Inserts a bid into the pending payload cache.
@@ -274,19 +271,15 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-
-        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
-
         pending_components.span.in_scope(|| {
             debug!(
                 component = "data_columns",
-                status = pending_components.status_str(num_expected_columns),
+                status = pending_components.status_str(&self.custody_context),
                 "Component added to data availability checker"
             );
         });
 
-        self.check_availability(block_root, pending_components, num_expected_columns)
+        self.check_availability(block_root, pending_components)
     }
 
     #[instrument(skip_all, level = "debug")]
@@ -380,9 +373,10 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         &self,
         block_root: Hash256,
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
-        num_expected_columns: usize,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_envelope) = pending_components.make_available(num_expected_columns)? {
+        if let Some(available_envelope) =
+            pending_components.make_available(&self.custody_context)?
+        {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.availability_cache.write().get_mut(&block_root) {

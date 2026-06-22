@@ -3164,19 +3164,22 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let is_gloas = block.fork_name_unchecked().gloas_enabled();
         // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
         // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
         // handles both shapes.
         let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
-            return if is_gloas {
+            return if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| AvailableEnvelope::new(envelope, vec![]));
+                    .map(|envelope| {
+                        AvailableEnvelope::new(envelope, vec![], bid, &self.chain.custody_context)
+                    })
+                    .transpose()
+                    .unwrap();
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 RangeSyncBlock::new(
@@ -3197,13 +3200,22 @@ where
                 .unwrap()
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
-            if is_gloas {
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| AvailableEnvelope::new(envelope, custody_columns));
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            custody_columns,
+                            bid,
+                            &self.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
@@ -3227,7 +3239,7 @@ where
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RangeSyncBlock<E>, BlockError> {
-        if block.fork_name_unchecked().gloas_enabled() {
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             let columns = blob_items
                 .map(|_| generate_data_column_sidecars_from_block(&block, &self.spec))
                 .unwrap_or_default();
@@ -3236,7 +3248,11 @@ where
                 .get_payload_envelope(&block.canonical_root())
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
                 .map(Arc::new)
-                .map(|envelope| AvailableEnvelope::new(envelope, columns));
+                .map(|envelope| {
+                    AvailableEnvelope::new(envelope, columns, bid, &self.chain.custody_context)
+                })
+                .transpose()
+                .unwrap();
             return RangeSyncBlock::new_gloas(block, envelope).map_err(BlockError::InternalError);
         }
 
