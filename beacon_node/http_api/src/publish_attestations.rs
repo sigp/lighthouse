@@ -189,6 +189,46 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                                 PublishAttestationResult::Reprocessing(rx)
                             }
                         }
+                        Err(Error::Validation(AttestationError::UnknownPayloadEnvelope {
+                            beacon_block_root,
+                        })) => {
+                            if !allow_reprocess {
+                                return PublishAttestationResult::Failure(Error::ReprocessDisabled);
+                            };
+                            // Re-process once the block's payload envelope is seen (Gloas).
+                            let (tx, rx) = oneshot::channel();
+                            let reprocess_chain = chain.clone();
+                            let reprocess_network_tx = network_tx.clone();
+                            let reprocess_fn = move || {
+                                let result = verify_and_publish_attestation(
+                                    &reprocess_chain,
+                                    &attestation,
+                                    seen_timestamp,
+                                    &reprocess_network_tx,
+                                );
+                                // Ignore failure on the oneshot that reports the result. This
+                                // shouldn't happen unless some catastrophe befalls the waiting
+                                // thread which causes it to drop.
+                                let _ = tx.send(result);
+                            };
+                            let reprocess_msg = ReprocessQueueMessage::UnknownPayloadUnaggregate(
+                                QueuedUnaggregate {
+                                    beacon_block_root,
+                                    process_fn: Box::new(reprocess_fn),
+                                },
+                            );
+                            if task_spawner
+                                .try_send(WorkEvent {
+                                    drop_during_sync: false,
+                                    work: Work::Reprocess(reprocess_msg),
+                                })
+                                .is_err()
+                            {
+                                PublishAttestationResult::Failure(Error::ReprocessFull)
+                            } else {
+                                PublishAttestationResult::Reprocessing(rx)
+                            }
+                        }
                         Err(Error::Validation(AttestationError::PriorAttestationKnown {
                             ..
                         })) => PublishAttestationResult::AlreadyKnown,

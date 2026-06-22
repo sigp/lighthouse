@@ -30,7 +30,7 @@ use types::{
 
 use crate::{
     BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationOutcome,
+    PayloadVerificationError, PayloadVerificationOutcome,
 };
 
 pub mod execution_pending_envelope;
@@ -40,7 +40,7 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
@@ -52,6 +52,10 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         columns: DataColumnSidecarList<E>,
     ) -> Self {
         Self { envelope, columns }
+    }
+
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
@@ -155,15 +159,23 @@ pub enum EnvelopeError {
         latest_finalized_slot: Slot,
     },
     /// Some Beacon Chain Error
-    BeaconChainError(Arc<BeaconChainError>),
+    BeaconChainError(Box<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from importing the envelope.
-    ImportError(BlockError),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
+    /// The envelope's beacon block was not present in fork choice at import time.
+    ///
+    /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
+    /// block may simply not have arrived yet), this is raised during import where the block is
+    /// expected to already be present, so it indicates an internal inconsistency.
+    BlockRootNotInForkChoice(Hash256),
+    /// An internal error occurred while importing the envelope (e.g. updating fork choice).
+    InternalError(String),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -172,9 +184,31 @@ impl std::fmt::Display for EnvelopeError {
     }
 }
 
+impl EnvelopeError {
+    pub fn penalize_peer(&self) -> bool {
+        match self {
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. }
+            | EnvelopeError::BlockRootNotInForkChoice(_)
+            | EnvelopeError::InternalError(_) => false,
+        }
+    }
+}
+
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(e))
+        EnvelopeError::BeaconChainError(Box::new(e))
     }
 }
 
@@ -192,7 +226,24 @@ impl From<BeaconStateError> for EnvelopeError {
 
 impl From<DBError> for EnvelopeError {
     fn from(e: DBError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
+        EnvelopeError::BeaconChainError(Box::new(BeaconChainError::DBError(e)))
+    }
+}
+
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        BlockError::EnvelopeError(Box::new(e))
+    }
+}
+
+impl From<PayloadVerificationError> for EnvelopeError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                EnvelopeError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => EnvelopeError::BeaconChainError(e),
+        }
     }
 }
 

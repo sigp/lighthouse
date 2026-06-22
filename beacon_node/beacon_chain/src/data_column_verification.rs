@@ -1220,7 +1220,16 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
                 header,
             };
         }
-        Err(MissingCellsError::UnexpectedError(e)) => todo!("handle unexpected error {:?}", e),
+        Err(MissingCellsError::UnexpectedError(e)) => {
+            return PartialColumnVerificationResult::ErrWithValidHeader {
+                err: GossipDataColumnError::InternalError(format!(
+                    "An unexpected error occurred while validating partial data columns: {:?}",
+                    e
+                ))
+                .into(),
+                header,
+            };
+        }
     };
 
     // We do not have to check block related data here, as we create the verifiable column from

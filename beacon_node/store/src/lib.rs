@@ -46,7 +46,7 @@ pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 pub type RawEntryIter<'a> =
     Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 
-pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
+pub trait KeyValueStore: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -177,7 +177,7 @@ pub enum KeyValueStoreOp {
     DeleteKey(DBColumn, Vec<u8>),
 }
 
-pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
+pub trait ItemStore: KeyValueStore + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column();
@@ -493,7 +493,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn exists() {
-        let store = MemoryStore::<MinimalEthSpec>::open();
+        let store = MemoryStore::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

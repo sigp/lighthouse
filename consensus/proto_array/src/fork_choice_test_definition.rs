@@ -124,6 +124,15 @@ pub enum Operation {
         #[serde(default)]
         proposer_boost_root: Option<Hash256>,
     },
+    /// Assert the result of `should_build_on_full` for the parent `block_root`, where
+    /// `parent_payload_status` is the status the proposer would build on and `proposal_slot`
+    /// is the slot being proposed.
+    AssertShouldBuildOnFull {
+        block_root: Hash256,
+        parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
+        expected: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +153,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
             let mut spec = MainnetEthSpec::default_spec();
-            spec.proposer_score_boost = Some(50);
+            spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
             spec
@@ -321,6 +330,7 @@ impl ForkChoiceTestDefinition {
                         execution_payload_parent_hash,
                         execution_payload_block_hash,
                         proposer_index: Some(0),
+                        payload_received: false,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)
@@ -556,7 +566,11 @@ impl ForkChoiceTestDefinition {
                     node_v29.payload_data_availability_votes =
                         BitVector::from_bytes(smallvec::smallvec![fill; 64])
                             .expect("valid 512-bit bitvector");
-                    // Per spec, is_payload_timely/is_payload_data_available require
+                    // Mark all PTC members as having participated.
+                    node_v29.ptc_participation =
+                        BitVector::from_bytes(smallvec::smallvec![0xFF; 64])
+                            .expect("valid 512-bit bitvector");
+                    // Per spec, payload_timeliness/payload_data_availability require
                     // the payload to be in payload_states (payload_received).
                     node_v29.payload_received = is_timely || is_data_available;
                 }
@@ -599,6 +613,30 @@ impl ForkChoiceTestDefinition {
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertShouldBuildOnFull {
+                    block_root,
+                    parent_payload_status,
+                    proposal_slot,
+                    expected,
+                } => {
+                    let actual = fork_choice
+                        .should_build_on_full::<MainnetEthSpec>(
+                            &block_root,
+                            parent_payload_status,
+                            proposal_slot,
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "should_build_on_full op at index {} returned error: {}",
+                                op_index, e
+                            )
+                        });
+                    assert_eq!(
+                        actual, expected,
+                        "should_build_on_full mismatch at op index {}",
                         op_index
                     );
                 }
