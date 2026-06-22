@@ -200,6 +200,11 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
+      --disable-proposer-duties-v2
+          Fetch proposer duties using the v1 beacon node endpoint instead of v2.
+          The v1 endpoint reports an incorrect dependent root which causes
+          spurious proposer duty re-org warnings. Only enable this flag if your
+          beacon node does not serve the v2 proposer duties endpoint.
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing

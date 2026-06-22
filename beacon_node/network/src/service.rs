@@ -19,7 +19,7 @@ use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{
-    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, PubsubPartialMessage, ReportSource, Response, Subnet,
     rpc::{GoodbyeReason, RpcErrorResponse},
 };
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
@@ -39,8 +39,8 @@ use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, PartialDataColumn, PartialDataColumnHeader, Slot, SubnetId,
-    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
+    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -85,8 +85,7 @@ pub enum NetworkMessage<E: EthSpec> {
     Publish { messages: Vec<PubsubMessage<E>> },
     /// Publish partial data column sidecars via the partial gossipsub protocol.
     PublishPartialColumns {
-        columns: Vec<Arc<PartialDataColumn<E>>>,
-        header: Arc<PartialDataColumnHeader<E>>,
+        messages: Vec<PubsubPartialMessage<E>>,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
@@ -683,8 +682,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 );
                 self.libp2p.publish(messages);
             }
-            NetworkMessage::PublishPartialColumns { columns, header } => {
-                self.libp2p.publish_partial(columns, header);
+            NetworkMessage::PublishPartialColumns { messages } => {
+                self.libp2p.publish_partial(messages);
             }
             NetworkMessage::ReportPeer {
                 peer_id,
