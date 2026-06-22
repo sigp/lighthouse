@@ -602,7 +602,9 @@ mod tests {
             "precondition: test block must not be imported into fork choice yet"
         );
 
-        let sampling_columns = chain.sampling_columns_for_epoch(block.epoch());
+        let sampling_columns = chain
+            .custody_context
+            .sampling_columns_for_epoch(block.epoch());
         let data_columns = generate_data_column_sidecars_from_block(&block, &chain.spec)
             .into_iter()
             .filter(|column| sampling_columns.contains(column.index()))

@@ -791,7 +791,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let available_columns = self.chain.custody_columns_for_epoch(None);
+        let available_columns = self.chain.custody_context.custody_columns_for_epoch(None);
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             let indices_to_retrieve = data_column_ids_by_root
@@ -1802,6 +1802,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
         let available_columns = self
             .chain
+            .custody_context
             .custody_columns_for_epoch(Some(request_start_epoch));
 
         let indices_to_retrieve = req

@@ -43,7 +43,10 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let mut random_sidecar = DataColumnSidecarGloas::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.slot = slot;
-            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            random_sidecar.index = harness
+                .chain
+                .custody_context
+                .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
             let mut bid = SignedExecutionPayloadBid::<E>::empty();
@@ -58,7 +61,10 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.signed_block_header.message.slot = slot;
-            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            random_sidecar.index = harness
+                .chain
+                .custody_context
+                .sampling_columns_for_epoch(epoch)[0];
             DataColumnSidecar::Fulu(random_sidecar)
         }
     };

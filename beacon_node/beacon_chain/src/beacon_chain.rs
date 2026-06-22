@@ -3316,8 +3316,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Check if we have custody of this column
-        let sampling_columns =
-            self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
+        let sampling_columns = self
+            .custody_context
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
         let verified_partial = if sampling_columns.contains(&partial.index) {
             KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
         } else {
@@ -7477,7 +7478,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Some(StoreOp::PutBlobs(block_root, blobs))
             }
             AvailableBlockData::DataColumns(mut data_columns) => {
-                let columns_to_custody = self.custody_columns_for_epoch(Some(
+                let columns_to_custody = self.custody_context.custody_columns_for_epoch(Some(
                     block_slot.epoch(T::EthSpec::slots_per_epoch()),
                 ));
                 // Supernodes need to persist all sampled custody columns
@@ -7522,23 +7523,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // return in ascending slot order
         roots.reverse();
         roots
-    }
-
-    /// Returns a list of column indices that should be sampled for a given epoch.
-    /// Used for data availability sampling in PeerDAS.
-    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
-        // TODO: remove?
-        self.custody_context.sampling_columns_for_epoch(epoch)
-    }
-
-    /// Returns a list of column indices that the node is expected to custody for a given epoch.
-    /// i.e. the node must have validated and persisted the column samples and should be able to
-    /// serve them to peers.
-    ///
-    /// If epoch is `None`, this function computes the custody columns at head.
-    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
-        // TODO: remove?
-        self.custody_context.custody_columns_for_epoch(epoch_opt)
     }
 }
 

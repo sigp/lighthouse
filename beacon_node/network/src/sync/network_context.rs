@@ -591,6 +591,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
             let column_indexes = self
                 .chain
+                .custody_context
                 .sampling_columns_for_epoch(epoch)
                 .iter()
                 .cloned()
@@ -696,7 +697,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
+                    self.chain
+                        .custody_context
+                        .sampling_columns_for_epoch(epoch)
+                        .to_vec(),
                 )
             }),
             payloads_req_id,
@@ -1111,6 +1115,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Include only the blob indexes not yet imported (received through gossip)
         let mut custody_indexes_to_fetch = self
             .chain
+            .custody_context
             .sampling_columns_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
             .iter()
             .copied()
@@ -1737,6 +1742,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let columns_by_range_peers_to_request = {
             let column_indexes = self
                 .chain
+                .custody_context
                 .sampling_columns_for_epoch(batch_id.epoch)
                 .iter()
                 .cloned()

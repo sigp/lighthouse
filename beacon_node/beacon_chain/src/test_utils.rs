@@ -3258,7 +3258,7 @@ where
 
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
-            let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
+            let sampling_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
 
             if blob_items.is_some_and(|(kzg_proofs, _)| !kzg_proofs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -4000,6 +4000,7 @@ where
         let custody_columns = custody_columns_opt.unwrap_or_else(|| {
             let epoch = block.slot().epoch(E::slots_per_epoch());
             self.chain
+                .custody_context
                 .sampling_columns_for_epoch(epoch)
                 .iter()
                 .copied()

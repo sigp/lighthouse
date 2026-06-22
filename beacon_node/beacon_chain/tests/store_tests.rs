@@ -5291,6 +5291,7 @@ async fn test_custody_column_filtering_regular_node() {
     // Get custody columns for this epoch - regular nodes only store a subset
     let expected_custody_columns: HashSet<_> = harness
         .chain
+        .custody_context
         .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
         .iter()
         .copied()
