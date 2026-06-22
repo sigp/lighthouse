@@ -549,7 +549,7 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
-    pub fn find_latest_confirmed_descendant<E: EthSpec>(
+    fn find_latest_confirmed_descendant<E: EthSpec>(
         &self,
         latest_confirmed_root: Hash256,
         head_root: Hash256,
@@ -1559,12 +1559,12 @@ struct NotOneConfirmed {
 // ---------------------------------------------------------------------------
 
 /// Spec: `is_start_slot_at_epoch`.
-pub fn is_start_slot_at_epoch<E: EthSpec>(slot: Slot) -> bool {
+fn is_start_slot_at_epoch<E: EthSpec>(slot: Slot) -> bool {
     slot.as_u64().is_multiple_of(E::slots_per_epoch())
 }
 
 /// Spec: `is_full_validator_set_covered`.
-pub fn is_full_validator_set_covered<E: EthSpec>(start_slot: Slot, end_slot: Slot) -> bool {
+fn is_full_validator_set_covered<E: EthSpec>(start_slot: Slot, end_slot: Slot) -> bool {
     let spe = E::slots_per_epoch();
     let start_full_epoch = start_slot.as_u64().div_ceil(spe);
     let end_full_epoch = end_slot.as_u64().saturating_add(1) / spe;
@@ -1576,13 +1576,13 @@ pub fn is_full_validator_set_covered<E: EthSpec>(start_slot: Slot, end_slot: Slo
 /// Spec uses ceiling division: `(estimate + 999) // 1000`. The function exists to
 /// conservatively over-estimate committee weight; flooring would under-estimate and
 /// weaken the safety threshold.
-pub fn adjust_committee_weight_estimate_to_ensure_safety(estimate: u64) -> u64 {
+fn adjust_committee_weight_estimate_to_ensure_safety(estimate: u64) -> u64 {
     let ceil = estimate.saturating_add(999) / 1000;
     ceil.saturating_mul(1000u64.saturating_add(COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR))
 }
 
 /// Spec: `estimate_committee_weight_between_slots`.
-pub fn estimate_committee_weight_between_slots<E: EthSpec>(
+fn estimate_committee_weight_between_slots<E: EthSpec>(
     total_active_balance: u64,
     start_slot: Slot,
     end_slot: Slot,

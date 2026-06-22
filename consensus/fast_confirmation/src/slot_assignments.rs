@@ -37,7 +37,7 @@ pub(crate) struct SlotAssignments {
 }
 
 /// Number of epoch columns in the slot assignment table.
-pub(crate) const NUM_EPOCH_COLUMNS: usize = 3;
+const NUM_EPOCH_COLUMNS: usize = 3;
 
 /// Sentinel value for unset slot assignments. Using `u64::MAX` instead of `Slot(0)`
 /// avoids ambiguity with genesis slot 0 and allows hard error detection on read.
@@ -53,7 +53,7 @@ impl SlotAssignments {
     }
 
     /// Get the assigned slot for a validator in a given column (0, 1, or 2).
-    pub(crate) fn get(&self, val_idx: usize, col: usize) -> Option<Slot> {
+    fn get(&self, val_idx: usize, col: usize) -> Option<Slot> {
         self.slots.get(val_idx * NUM_EPOCH_COLUMNS + col).copied()
     }
 

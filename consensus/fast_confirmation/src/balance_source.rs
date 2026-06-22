@@ -1,8 +1,7 @@
 //! Per-checkpoint snapshot of validator balances used by the Fast Confirmation Rule.
 
-use crate::Error;
 use tracing::{debug, debug_span};
-use types::{BeaconState, Checkpoint, Epoch, EthSpec, RelativeEpoch};
+use types::{BeaconState, Checkpoint, Epoch, EthSpec};
 
 /// Snapshot of a checkpoint state's balances and committee assignments.
 ///
@@ -22,36 +21,16 @@ pub struct BalanceSourceData {
 /// Active-validator balances for a single epoch, produced by
 /// [`BalanceSourceData::build_for_epochs`].
 #[derive(Default)]
-pub struct EpochBalances {
+pub(crate) struct EpochBalances {
     /// Per-validator effective balance; `0` for validators not active at the epoch.
-    pub effective_balances: Vec<u64>,
+    pub(crate) effective_balances: Vec<u64>,
     /// Sum of `effective_balances` over validators active at the epoch.
-    pub total_active_balance: u64,
+    pub(crate) total_active_balance: u64,
 }
 
 impl BalanceSourceData {
-    /// Build a `BalanceSourceData` from a beacon state.
-    ///
-    /// Extracts effective balances and committee slot assignments for the given epoch.
-    /// The committee cache for `relative_epoch` must already be built on `state`.
-    pub fn from_state<E: EthSpec>(
-        state: &BeaconState<E>,
-        checkpoint: Checkpoint,
-        relative_epoch: RelativeEpoch,
-    ) -> Result<Self, Error> {
-        let epoch = relative_epoch.into_epoch(state.current_epoch());
-        let (slashed, mut per_epoch) = Self::build_for_epochs(state, &[epoch]);
-        let eb = per_epoch.pop().unwrap_or_default();
-        Ok(Self::from_parts(
-            checkpoint,
-            eb.effective_balances,
-            eb.total_active_balance,
-            slashed,
-        ))
-    }
-
     /// Assemble a `BalanceSourceData` from already-computed parts (see `build_for_epochs`).
-    pub fn from_parts(
+    pub(crate) fn from_parts(
         checkpoint: Checkpoint,
         effective_balances: Vec<u64>,
         total_active_balance: u64,
@@ -81,7 +60,7 @@ impl BalanceSourceData {
     /// each source separately: effective balance is counted for active validators regardless of
     /// slashed status (matching the spec's `get_total_active_balance`), and `slashed` is recorded
     /// for the separate slashed-filtering used by `get_block_support_between_slots`.
-    pub fn build_for_epochs<E: EthSpec>(
+    pub(crate) fn build_for_epochs<E: EthSpec>(
         state: &BeaconState<E>,
         epochs: &[Epoch],
     ) -> (Vec<bool>, Vec<EpochBalances>) {
