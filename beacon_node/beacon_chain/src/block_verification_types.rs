@@ -111,7 +111,9 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 .filter(|columns| !columns.is_empty()),
         }
     }
+}
 
+impl<E: EthSpec> RangeSyncBlock<E> {
     /// Constructs a `RangeSyncBlock` from a block and availability data (pre-Gloas).
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
