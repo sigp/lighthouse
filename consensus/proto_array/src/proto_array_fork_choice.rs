@@ -409,7 +409,7 @@ impl std::fmt::Display for DoNotReOrg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::MissingHeadOrParentNode => write!(f, "unknown head or parent"),
-                        Self::ParentDistance => write!(f, "parent too far from head"),
+            Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
             Self::DisallowedOffset { offset } => {
@@ -2312,15 +2312,12 @@ mod test_proposer_head {
     use fixed_bytes::FixedBytesExtended;
     use types::MainnetEthSpec;
 
-    fn genesis_setup(
-        store_finalized_checkpoint: Checkpoint,
-    ) -> ProtoArrayForkChoice {
+    fn genesis_setup(store_finalized_checkpoint: Checkpoint) -> ProtoArrayForkChoice {
         let spec = MainnetEthSpec::default_spec();
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
         let state_root = Hash256::from_low_u64_be(0);
-        let shuffling_id =
-            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let execution_status = ExecutionStatus::irrelevant();
         let genesis_checkpoint = Checkpoint {
             epoch: genesis_epoch,
@@ -2353,8 +2350,7 @@ mod test_proposer_head {
         unrealized_finalized: Option<Checkpoint>,
     ) {
         let spec = MainnetEthSpec::default_spec();
-        let shuffling_id =
-            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let checkpoint = Checkpoint {
             epoch: Epoch::new(0),
             root: Hash256::from_low_u64_be(1),
@@ -2399,22 +2395,14 @@ mod test_proposer_head {
             epoch: Epoch::new(0),
             root: genesis_root,
         });
-        add_child(
-            &mut fc, 33, 2, 1,
-            parent_justified,
-            parent_justified,
-        );
+        add_child(&mut fc, 33, 2, 1, parent_justified, parent_justified);
 
         // Head claims fresh finalization (epoch 5), store is stale (epoch 0).
         let head_fresh_finalized = Some(Checkpoint {
             epoch: Epoch::new(5),
             root: genesis_root,
         });
-        add_child(
-            &mut fc, 34, 3, 2,
-            parent_justified,
-            head_fresh_finalized,
-        );
+        add_child(&mut fc, 34, 3, 2, parent_justified, head_fresh_finalized);
 
         let result = fc.get_proposer_head_info::<MainnetEthSpec>(
             Slot::new(35),
@@ -2454,14 +2442,22 @@ mod test_proposer_head {
 
         // Parent and head share justification but differ on finalized checkpoint.
         add_child(
-            &mut fc, 33, 2, 1, shared_justified,
+            &mut fc,
+            33,
+            2,
+            1,
+            shared_justified,
             Some(Checkpoint {
                 epoch: Epoch::new(0),
                 root: genesis_root,
             }),
         );
         add_child(
-            &mut fc, 34, 3, 2, shared_justified,
+            &mut fc,
+            34,
+            3,
+            2,
+            shared_justified,
             Some(Checkpoint {
                 epoch: Epoch::new(1),
                 root: Hash256::from_low_u64_be(99),
