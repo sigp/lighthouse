@@ -235,7 +235,7 @@ async fn produces_attestations() {
 
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
-            let available_block = range_sync_block.into_available_block();
+            let (available_block, _envelope) = range_sync_block.into_available_block().unwrap();
 
             // For Gloas non-same-slot attestations, the early attester cache returns None.
             let is_same_slot_attestation = slot == block_slot;
@@ -300,12 +300,13 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let available_block = harness
+    let (available_block, _envelope) = harness
         .build_range_sync_block_from_store_blobs(
             Some(head.beacon_block_root),
             head.beacon_block.clone(),
         )
-        .into_available_block();
+        .into_available_block()
+        .unwrap();
 
     harness
         .chain

@@ -52,6 +52,7 @@ use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+    verify_columns_against_block,
 };
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
@@ -652,14 +653,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     )?;
 
     let mut available_blocks = Vec::with_capacity(chain_segment.len());
+    let mut envelopes = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block = block.into_available_block();
+        let (available_block, envelope) = block.into_available_block()?;
         available_blocks.push(available_block.clone());
+        envelopes.push(envelope);
         signature_verified_blocks.push(SignatureVerifiedBlock {
             block: MaybeAvailableBlock::Available(available_block),
             block_root,
@@ -667,11 +670,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             consensus_context,
         });
     }
-    // TODO(gloas) When implementing range and backfill sync for gloas
-    // we need a batch verify kzg function in the new da checker as well.
+
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
+
+    for (available_block, maybe_envelope) in available_blocks.iter().zip(envelopes.iter()) {
+        if let Some(envelope) = maybe_envelope {
+            verify_columns_against_block(&chain.kzg, available_block.block(), &envelope.columns)?;
+        }
+    }
 
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -1341,10 +1349,13 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
+        let header = self.signed_block_header();
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(header.clone(), e))?;
 
-        let available_block = self.into_available_block();
+        let (available_block, _envelope) = self.into_available_block().map_err(|e| {
+            BlockSlashInfo::SignatureNotChecked(header.clone(), BlockError::AvailabilityCheck(e))
+        })?;
         chain
             .data_availability_checker
             .verify_kzg_for_available_block(&available_block)

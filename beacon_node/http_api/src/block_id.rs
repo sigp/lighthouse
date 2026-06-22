@@ -533,7 +533,8 @@ mod tests {
     use super::*;
     use beacon_chain::{
         PayloadVerificationStatus,
-        block_verification_types::{AvailableBlockData, RangeSyncBlock},
+        block_verification_types::AvailableBlockData,
+        data_availability_checker::AvailableBlock,
         test_utils::{
             BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
             generate_data_column_sidecars_from_block,
@@ -611,20 +612,15 @@ mod tests {
             "precondition: {fork_name:?} test block must produce data columns"
         );
 
-        let available_block = RangeSyncBlock::new(
+        let available_block = AvailableBlock::new(
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
             &chain.data_availability_checker,
             chain.spec.clone(),
         )
-        .unwrap()
-        .into_available_block();
+        .unwrap();
 
         let current_slot = harness.get_current_slot();
-        let cached_head = chain.canonical_head.cached_head();
-        let canonical_head_proposer_index = chain
-            .canonical_head_proposer_index(current_slot, &cached_head)
-            .unwrap();
 
         chain
             .canonical_head
@@ -636,7 +632,6 @@ mod tests {
                 Duration::ZERO,
                 &post_state,
                 PayloadVerificationStatus::Verified,
-                canonical_head_proposer_index,
                 &chain.spec,
             )
             .unwrap();

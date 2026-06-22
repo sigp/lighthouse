@@ -1970,6 +1970,176 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
     );
 }
 
+/// [New in Gloas]: An unaggregated attestation claiming payload-present (`data.index == 1`) for a
+/// block whose payload envelope has not yet been seen (`payload_received == false`) must be
+/// rejected with `UnknownPayloadEnvelope`, so it can be parked for re-processing once the envelope
+/// arrives.
+#[tokio::test]
+async fn gloas_unaggregated_attestation_unknown_payload_envelope() {
+    if !test_spec::<E>()
+        .fork_name_at_epoch(Epoch::new(0))
+        .gloas_enabled()
+    {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Build some chain depth. `extend_chain` imports each block's payload envelope, so every block
+    // produced so far has `payload_received == true`.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Produce one more block but do NOT import its payload envelope, leaving the head block with
+    // `payload_received == false`.
+    let head = harness.chain.head_snapshot();
+    let block_slot = head.beacon_block.slot() + 1;
+    let ((signed_block, blobs), _envelope, _post_state) = harness
+        .make_block_with_envelope(head.beacon_state.clone(), block_slot)
+        .await;
+    let block_root = signed_block.canonical_root();
+    harness
+        .process_block(block_slot, block_root, (signed_block, blobs))
+        .await
+        .expect("payload-less block should import");
+
+    // The block should be the head, and its payload envelope should not be recorded.
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .expect("block should be in fork choice")
+            .payload_received,
+        "block should not have its payload envelope recorded"
+    );
+
+    // Advance a slot so the attestation slot is later than the (payload-less) head block's slot,
+    // which avoids the same-slot `index == 0` requirement.
+    harness.advance_slot();
+
+    // Produce a valid attestation for the head block, then claim payload-present (`index == 1`).
+    // The gloas payload-envelope check runs before signature verification, so mutating the index
+    // is sufficient to exercise the arm.
+    let (mut attestation, _attester_sk, subnet_id) =
+        get_valid_unaggregated_attestation(&harness.chain);
+    assert_eq!(
+        attestation.data.beacon_block_root, block_root,
+        "attestation should be for the payload-less head block"
+    );
+    attestation.data.index = 1;
+
+    let result = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+    assert!(
+        matches!(
+            result,
+            Err(AttnError::UnknownPayloadEnvelope { beacon_block_root })
+                if beacon_block_root == block_root
+        ),
+        "gloas: payload-present attestation for a block with an unseen payload envelope should be \
+         rejected with UnknownPayloadEnvelope, got {:?}",
+        result.err()
+    );
+}
+
+/// [New in Gloas]: The aggregate counterpart of
+/// `gloas_unaggregated_attestation_unknown_payload_envelope`. An aggregate claiming payload-present
+/// (`data.index == 1`) for a block whose payload envelope has not been seen must be rejected with
+/// `UnknownPayloadEnvelope`.
+#[tokio::test]
+async fn gloas_aggregated_attestation_unknown_payload_envelope() {
+    // Skip unless running with the gloas fork, before paying for harness setup.
+    if !test_spec::<E>()
+        .fork_name_at_epoch(Epoch::new(0))
+        .gloas_enabled()
+    {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Build some chain depth. `extend_chain` imports each block's payload envelope, so every block
+    // produced so far has `payload_received == true`.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Produce one more block but do NOT import its payload envelope, leaving the head block with
+    // `payload_received == false`.
+    let head = harness.chain.head_snapshot();
+    let block_slot = head.beacon_block.slot() + 1;
+    let ((signed_block, blobs), _envelope, _post_state) = harness
+        .make_block_with_envelope(head.beacon_state.clone(), block_slot)
+        .await;
+    let block_root = signed_block.canonical_root();
+    harness
+        .process_block(block_slot, block_root, (signed_block, blobs))
+        .await
+        .expect("payload-less block should import");
+
+    // Advance a slot so the attestation slot is later than the (payload-less) head block's slot,
+    // which avoids the same-slot `index == 0` requirement.
+    harness.advance_slot();
+
+    let head = harness.chain.head_snapshot();
+    let current_slot = harness.chain.slot().expect("should get slot");
+
+    // Build a valid aggregate for the head block, then claim payload-present (`index == 1`). The
+    // gloas payload-envelope check runs before signature verification, so mutating the index is
+    // sufficient to exercise the arm.
+    let (valid_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
+    assert_eq!(
+        valid_attestation.data.beacon_block_root, block_root,
+        "attestation should be for the payload-less head block"
+    );
+    let committee = head
+        .beacon_state
+        .get_beacon_committee(current_slot, valid_attestation.committee_index)
+        .expect("should get committee");
+    let fork_name = harness
+        .spec
+        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+    let aggregate_attestation =
+        single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
+            .unwrap();
+    let (mut valid_aggregate, _, _) =
+        get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
+
+    valid_aggregate
+        .as_electra_mut()
+        .unwrap()
+        .message
+        .aggregate
+        .data
+        .index = 1;
+
+    let result = harness
+        .chain
+        .verify_aggregated_attestation_for_gossip(&valid_aggregate);
+    assert!(
+        matches!(
+            result,
+            Err(AttnError::UnknownPayloadEnvelope { beacon_block_root })
+                if beacon_block_root == block_root
+        ),
+        "gloas: payload-present aggregate for a block with an unseen payload envelope should be \
+         rejected with UnknownPayloadEnvelope, got {:?}",
+        result.err()
+    );
+}
+
 /// Regression test: a SingleAttestation with a huge bogus attester_index must not be forwarded to
 /// the slasher. Previously the slasher received the IndexedAttestation before committee-membership
 /// validation, causing an OOM when the slasher tried to allocate based on the untrusted index.

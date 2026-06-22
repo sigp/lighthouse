@@ -40,7 +40,7 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
@@ -52,6 +52,10 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         columns: DataColumnSidecarList<E>,
     ) -> Self {
         Self { envelope, columns }
+    }
+
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
@@ -177,6 +181,28 @@ pub enum EnvelopeError {
 impl std::fmt::Display for EnvelopeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl EnvelopeError {
+    pub fn penalize_peer(&self) -> bool {
+        match self {
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. }
+            | EnvelopeError::BlockRootNotInForkChoice(_)
+            | EnvelopeError::InternalError(_) => false,
+        }
     }
 }
 

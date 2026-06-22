@@ -24,22 +24,27 @@ use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, PayloadEnvelopesByRangeRequest,
+};
+use lighthouse_network::rpc::{
+    BlocksByRangeRequest, GoodbyeReason, MAX_CONCURRENT_REQUESTS, RPCError, RequestType,
+};
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
-    ActiveRequests, BlobsByRangeRequestItems, BlocksByRangeRequestItems, BlocksByRootRequestItems,
-    DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
-    PayloadEnvelopesByRootRequestItems,
+    ActiveRequestItems, ActiveRequests, BlobsByRangeRequestItems, BlocksByRangeRequestItems,
+    BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
+    PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -96,6 +101,30 @@ pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 /// Duration = latest seen timestamp of all received data columns
 pub type CustodyByRootResult<T> =
     Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
+
+/// Per-peer count of active requests for a single protocol, to keep peer selection within
+/// `MAX_CONCURRENT_REQUESTS` concurrent requests per protocol ID.
+struct ActiveRequestsPerPeer {
+    count_by_peer: HashMap<PeerId, usize>,
+}
+
+impl ActiveRequestsPerPeer {
+    fn new<K, T>(requests: &ActiveRequests<K, T>) -> Self
+    where
+        K: Copy + Eq + std::hash::Hash + std::fmt::Display,
+        T: ActiveRequestItems,
+    {
+        let mut count_by_peer = HashMap::<PeerId, usize>::new();
+        for peer_id in requests.iter_request_peers() {
+            *count_by_peer.entry(peer_id).or_default() += 1;
+        }
+        Self { count_by_peer }
+    }
+
+    fn at_concurrency_limit(&self, peer_id: &PeerId) -> bool {
+        self.count_by_peer.get(peer_id).copied().unwrap_or(0) >= MAX_CONCURRENT_REQUESTS
+    }
+}
 
 #[derive(Debug)]
 #[allow(private_interfaces)]
@@ -217,6 +246,11 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A mapping of active DataColumnsByRange requests
     data_columns_by_range_requests:
         ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
+    /// A mapping of active PayloadEnvelopesByRange requests
+    payload_envelopes_by_range_requests: ActiveRequests<
+        PayloadEnvelopesByRangeRequestId,
+        PayloadEnvelopesByRangeRequestItems<T::EthSpec>,
+    >,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -253,6 +287,10 @@ pub enum RangeBlockComponent<E: EthSpec> {
     CustodyColumns(
         DataColumnsByRangeRequestId,
         RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>,
+    ),
+    PayloadEnvelope(
+        PayloadEnvelopesByRangeRequestId,
+        RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
     ),
 }
 
@@ -302,6 +340,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_range_requests: ActiveRequests::new("blocks_by_range"),
             blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
+            payload_envelopes_by_range_requests: ActiveRequests::new("payload_envelopes_by_range"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
             custody_backfill_data_column_batch_requests: FnvHashMap::default(),
@@ -334,6 +373,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
+            payload_envelopes_by_range_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -369,18 +409,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .active_requests_of_peer(peer_id)
             .into_iter()
             .map(|req_id| SyncRequestId::DataColumnsByRange(*req_id));
+        let payload_envelope_by_range_ids = payload_envelopes_by_range_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::PayloadEnvelopesByRange(*req_id));
         blocks_by_root_ids
             .chain(payload_envelopes_by_root_ids)
             .chain(data_column_by_root_ids)
             .chain(blocks_by_range_ids)
             .chain(blobs_by_range_ids)
             .chain(data_column_by_range_ids)
+            .chain(payload_envelope_by_range_ids)
             .collect()
     }
 
-    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex, block_slot: Slot) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index)
+            .custody_peers_for_column(column_index, block_slot)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -421,45 +466,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    fn active_request_count_by_peer(&self) -> HashMap<PeerId, usize> {
-        let Self {
-            network_send: _,
-            request_id: _,
-            blocks_by_root_requests,
-            payload_envelopes_by_root_requests,
-            data_columns_by_root_requests,
-            blocks_by_range_requests,
-            blobs_by_range_requests,
-            data_columns_by_range_requests,
-            // custody_by_root_requests is a meta request of data_columns_by_root_requests
-            custody_by_root_requests: _,
-            // components_by_range_requests is a meta request of various _by_range requests
-            components_by_range_requests: _,
-            custody_backfill_data_column_batch_requests: _,
-            execution_engine_state: _,
-            network_beacon_processor: _,
-            chain: _,
-            fork_context: _,
-            // Don't use a fallback match. We want to be sure that all requests are considered when
-            // adding new ones
-        } = self;
-
-        let mut active_request_count_by_peer = HashMap::<PeerId, usize>::new();
-
-        for peer_id in blocks_by_root_requests
-            .iter_request_peers()
-            .chain(payload_envelopes_by_root_requests.iter_request_peers())
-            .chain(data_columns_by_root_requests.iter_request_peers())
-            .chain(blocks_by_range_requests.iter_request_peers())
-            .chain(blobs_by_range_requests.iter_request_peers())
-            .chain(data_columns_by_range_requests.iter_request_peers())
-        {
-            *active_request_count_by_peer.entry(peer_id).or_default() += 1;
-        }
-
-        active_request_count_by_peer
-    }
-
     /// Retries only the specified failed columns by requesting them again.
     ///
     /// Note: This function doesn't retry the whole batch, but retries specific requests within
@@ -486,8 +492,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Err("request id not present".to_string());
         };
 
-        let active_request_count_by_peer = self.active_request_count_by_peer();
-
         debug!(
             ?failed_columns,
             ?id,
@@ -497,12 +501,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
-            .select_columns_by_range_peers_to_request(
-                failed_columns,
-                peers,
-                active_request_count_by_peer,
-                peers_to_deprioritize,
-            )
+            .select_columns_by_range_peers_to_request(failed_columns, peers, peers_to_deprioritize)
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
@@ -560,7 +559,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             column_peers = column_peers.len()
         );
         let _guard = range_request_span.clone().entered();
-        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let blocks_by_range_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_range_requests);
 
         let Some(block_peer) = block_peers
             .iter()
@@ -568,8 +567,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (
                     // If contains -> 1 (order after), not contains -> 0 (order first)
                     peers_to_deprioritize.contains(peer),
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    blocks_by_range_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -585,24 +584,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Attempt to find all required custody peers before sending any request or creating an ID
-        let columns_by_range_peers_to_request =
-            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
-                let column_indexes = self
-                    .chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .cloned()
-                    .collect();
-                Some(self.select_columns_by_range_peers_to_request(
-                    &column_indexes,
-                    column_peers,
-                    active_request_count_by_peer,
-                    peers_to_deprioritize,
-                )?)
-            } else {
-                None
-            };
+        let columns_by_range_peers_to_request = if matches!(
+            batch_type,
+            ByRangeRequestType::BlocksAndColumns | ByRangeRequestType::BlocksAndEnvelopesAndColumns
+        ) {
+            let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+            let column_indexes = self
+                .chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .cloned()
+                .collect();
+            Some(self.select_columns_by_range_peers_to_request(
+                &column_indexes,
+                column_peers,
+                peers_to_deprioritize,
+            )?)
+        } else {
+            None
+        };
 
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
@@ -666,6 +666,29 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .transpose()?;
 
+        let payloads_req_id =
+            if matches!(batch_type, ByRangeRequestType::BlocksAndEnvelopesAndColumns) {
+                Some(self.send_payload_envelopes_by_range_request(
+                    // Peer selection: for a given peer, the count of sent blocks_by_range requests
+                    // equals the count of sent payloads_by_range requests. So we are under the
+                    // concurrency limit for payloads_by_range requests
+                    block_peer,
+                    PayloadEnvelopesByRangeRequest {
+                        start_slot: *request.start_slot(),
+                        count: *request.count(),
+                    },
+                    id,
+                    new_range_request_span!(
+                        self,
+                        "outgoing_envelopes_by_range",
+                        range_request_span.clone(),
+                        block_peer
+                    ),
+                )?)
+            } else {
+                None
+            };
+
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
@@ -676,6 +699,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
+            payloads_req_id,
             range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
@@ -687,10 +711,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         custody_indexes: &HashSet<ColumnIndex>,
         peers: &HashSet<PeerId>,
-        active_request_count_by_peer: HashMap<PeerId, usize>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let data_columns_by_range_per_peer =
+            ActiveRequestsPerPeer::new(&self.data_columns_by_range_requests);
 
         for column_index in custody_indexes {
             // Strictly consider peers that are custodials of this column AND are part of this
@@ -706,12 +731,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     (
                         // If contains -> 1 (order after), not contains -> 0 (order first)
                         peers_to_deprioritize.contains(peer),
-                        // Prefer peers with less overall requests
-                        // Also account for requests that are not yet issued tracked in peer_id_to_request_map
-                        // We batch requests to the same peer, so count existance in the
-                        // `columns_to_request_by_peer` as a single 1 request.
-                        active_request_count_by_peer.get(peer).copied().unwrap_or(0)
-                            + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
+                        // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                        // Note: do not account for to-be-sent requests on
+                        // `data_columns_by_range_by_peer` as we always send at most one request
+                        data_columns_by_range_per_peer.at_concurrency_limit(peer),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
@@ -778,6 +801,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                             })
                     })
                 }
+                RangeBlockComponent::PayloadEnvelope(req_id, resp) => {
+                    resp.and_then(|(envelopes, _)| {
+                        request
+                            .add_payload_envelopes(req_id, envelopes)
+                            .map_err(|e| {
+                                RpcResponseError::BlockComponentCouplingError(
+                                    CouplingError::InternalError(e),
+                                )
+                            })
+                    })
+                }
             }
         } {
             entry.remove();
@@ -826,14 +860,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
-        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
                 (
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    blocks_by_root_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -946,13 +980,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ));
         }
 
-        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let payload_envelopes_by_root_per_peer =
+            ActiveRequestsPerPeer::new(&self.payload_envelopes_by_root_requests);
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
                 (
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    payload_envelopes_by_root_per_peer.at_concurrency_limit(peer),
                     rand::random::<u32>(),
                     peer,
                 )
@@ -1106,6 +1142,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
+            block_slot,
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,
@@ -1269,6 +1306,43 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok((id, requested_columns))
     }
 
+    fn send_payload_envelopes_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: PayloadEnvelopesByRangeRequest,
+        parent_request_id: ComponentsByRangeRequestId,
+        request_span: Span,
+    ) -> Result<PayloadEnvelopesByRangeRequestId, RpcRequestSendError> {
+        let id = PayloadEnvelopesByRangeRequestId {
+            id: self.next_id(),
+            parent_request_id,
+        };
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: RequestType::PayloadEnvelopesByRange(request.clone()),
+            app_request_id: AppRequestId::Sync(SyncRequestId::PayloadEnvelopesByRange(id)),
+        })
+        .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
+
+        debug!(
+            method = "PayloadEnvelopesByRange",
+            slots = request.count,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
+        );
+
+        self.payload_envelopes_by_range_requests.insert(
+            id,
+            peer_id,
+            false,
+            PayloadEnvelopesByRangeRequestItems::new(request),
+            request_span,
+        );
+        Ok(id)
+    }
+
     pub fn is_execution_engine_online(&self) -> bool {
         self.execution_engine_state == EngineState::Online
     }
@@ -1349,7 +1423,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        if self
+        if self.chain.spec.fork_name_at_epoch(epoch).gloas_enabled() {
+            // TODO(gloas): Not precise and we can be post-gloas and not require columns
+            ByRangeRequestType::BlocksAndEnvelopesAndColumns
+        } else if self
             .chain
             .data_availability_checker
             .data_columns_required_for_epoch(epoch)
@@ -1481,6 +1558,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
         let resp = self
             .data_columns_by_range_requests
+            .on_response(id, rpc_event);
+        self.on_rpc_response_result(resp, peer_id)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>>> {
+        let resp = self
+            .payload_envelopes_by_range_requests
             .on_response(id, rpc_event);
         self.on_rpc_response_result(resp, peer_id)
     }
@@ -1648,7 +1738,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
-        let active_request_count_by_peer = self.active_request_count_by_peer();
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request = {
             let column_indexes = self
@@ -1661,7 +1750,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.select_columns_by_range_peers_to_request(
                 &column_indexes,
                 peers,
-                active_request_count_by_peer,
                 peers_to_deprioritize,
             )?
         };

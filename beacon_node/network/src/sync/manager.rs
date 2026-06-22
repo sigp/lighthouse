@@ -57,7 +57,8 @@ use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
@@ -154,6 +155,11 @@ pub enum SyncMessage<E: EthSpec> {
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
+
+    /// A peer has sent a payload-present attestation (`index == 1`) for a block whose execution
+    /// payload envelope we have not seen. This triggers the manager to fetch the payload envelope
+    /// for `block_root` via `ExecutionPayloadEnvelopesByRoot`.
+    UnknownPayloadEnvelopeFromAttestation(PeerId, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -259,6 +265,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// may forward us thousands of a attestations, each one triggering an individual event. Only
     /// one event is useful, the rest generating log noise and wasted cycles
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
+    /// Debounce duplicated `UnknownPayloadEnvelopeFromAttestation` for the same root/peer tuple,
+    /// for the same reason as `notified_unknown_roots`: a peer may forward many payload-present
+    /// attestations for a block whose execution payload envelope we have not yet seen.
+    notified_unknown_payload_roots: LRUTimeCache<(PeerId, Hash256)>,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -317,6 +327,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
+            notified_unknown_payload_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
         }
@@ -504,6 +517,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => self
+                .on_payload_envelopes_by_range_response(req_id, peer_id, RpcEvent::RPCError(error)),
         }
     }
 
@@ -892,6 +907,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.handle_unknown_block_root(peer_id, block_root);
                 }
             }
+            SyncMessage::UnknownPayloadEnvelopeFromAttestation(peer_id, block_root) => {
+                if !self
+                    .notified_unknown_payload_roots
+                    .contains(&(peer_id, block_root))
+                {
+                    self.notified_unknown_payload_roots
+                        .insert((peer_id, block_root));
+                    // TODO(gloas): trigger a payload-envelope lookup for `block_root` via
+                    // `ExecutionPayloadEnvelopesByRoot`. Wired up in the gloas lookup-sync PR (#9155).
+                    debug!(
+                        ?block_root,
+                        ?peer_id,
+                        "Received unknown payload envelope from attestation"
+                    );
+                }
+            }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(%peer_id, "Received disconnected message");
                 self.peer_disconnect(&peer_id);
@@ -1160,6 +1191,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     RpcEvent::from_chunk(envelope, seen_timestamp),
                 ),
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => {
+                self.on_payload_envelopes_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(envelope, seen_timestamp),
+                );
+            }
             _ => {
                 crit!(%peer_id, "bad request id for payload envelope");
             }
@@ -1211,6 +1249,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }),
                 &mut self.network,
             )
+        }
+    }
+
+    fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .on_payload_envelopes_by_range_response(id, peer_id, envelope)
+        {
+            self.on_range_components_response(
+                id.parent_request_id,
+                peer_id,
+                RangeBlockComponent::PayloadEnvelope(id, resp),
+            );
         }
     }
 

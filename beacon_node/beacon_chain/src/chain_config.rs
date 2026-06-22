@@ -1,5 +1,4 @@
 use crate::custody_context::NodeCustodyType;
-pub use proto_array::DisallowedReOrgOffsets;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
@@ -36,11 +35,6 @@ pub struct ChainConfig {
     pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Additional epoch offsets at which re-orging block proposals are not permitted.
-    ///
-    /// By default this list is empty, but it can be useful for reacting to network conditions, e.g.
-    /// slow gossip of re-org blocks at slot 1 in the epoch.
-    pub re_org_disallowed_offsets: DisallowedReOrgOffsets,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -123,7 +117,6 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,

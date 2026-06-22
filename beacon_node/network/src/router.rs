@@ -352,10 +352,8 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::PayloadEnvelopesByRoot(envelope) => {
                 self.on_payload_envelopes_by_root_response(peer_id, app_request_id, envelope);
             }
-            // TODO(EIP-7732): implement outgoing payload envelopes by range responses
-            // once sync manager requests them.
-            Response::PayloadEnvelopesByRange(_) => {
-                debug!("Requesting envelopes by range not supported yet");
+            Response::PayloadEnvelopesByRange(envelope) => {
+                self.on_payload_envelopes_by_range_response(peer_id, app_request_id, envelope);
             }
             // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
             // so receiving a response is unexpected. Drop it without crashing.
@@ -790,6 +788,29 @@ impl<T: BeaconChainTypes> Router<T> {
             AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
             other => {
                 crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
+                return;
+            }
+        };
+
+        self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope,
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
+        });
+    }
+
+    /// Handle a `PayloadEnvelopesByRange` response from the peer.
+    pub fn on_payload_envelopes_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match app_request_id {
+            AppRequestId::Sync(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRange response on incorrect request");
                 return;
             }
         };
