@@ -942,7 +942,7 @@ mod test {
             generate_data_column_indices_rand_order::<E>(),
             slot_clock,
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         ));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec)

@@ -953,7 +953,7 @@ where
                 ordered_custody_column_indices,
                 slot_clock.clone(),
                 complete_blob_backfill,
-                &self.spec,
+                self.spec.clone(),
             )
         } else {
             (
@@ -962,7 +962,7 @@ where
                     ordered_custody_column_indices,
                     slot_clock.clone(),
                     complete_blob_backfill,
-                    &self.spec,
+                    self.spec.clone(),
                 ),
                 None,
             )

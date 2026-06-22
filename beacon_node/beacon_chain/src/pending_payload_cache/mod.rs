@@ -555,7 +555,7 @@ mod data_availability_checker_tests {
             generate_data_column_indices_rand_order::<E>(),
             slot_clock,
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         ));
         let cache = Arc::new(
             PendingPayloadCache::<T>::new(kzg, custody_context, spec.clone())
@@ -580,7 +580,7 @@ mod data_availability_checker_tests {
         let epoch = bid.message.slot.epoch(E::slots_per_epoch());
         let sampling = cache
             .custody_context()
-            .sampling_columns_for_epoch(epoch, &cache.spec);
+            .sampling_columns_for_epoch(epoch, &spec);
         let custody = columns
             .into_iter()
             .filter(|c| sampling.contains(c.index()))

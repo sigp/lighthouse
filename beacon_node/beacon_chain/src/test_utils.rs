@@ -239,7 +239,7 @@ pub fn test_da_checker<E: EthSpec>(
         ordered_custody_column_indices,
         slot_clock.clone(),
         complete_blob_backfill,
-        &spec,
+        spec.clone(),
     ));
     DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
         .expect("should initialise data availability checker")

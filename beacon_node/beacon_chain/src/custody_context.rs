@@ -272,9 +272,9 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         ordered_custody_column_indices: Vec<ColumnIndex>,
         slot_clock: T::SlotClock,
         complete_blob_backfill: bool,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Self {
-        let cgc_override = node_custody_type.get_custody_count_override(spec);
+        let cgc_override = node_custody_type.get_custody_count_override(&spec);
         // If there's no override, we initialise `validator_custody_count` to 0. This has been the
         // existing behaviour and we maintain this for now to avoid a semantic schema change until
         // a later release.
@@ -284,7 +284,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             ordered_custody_column_indices,
             slot_clock,
             complete_blob_backfill,
-            spec: Arc::new(spec.clone()),
+            spec,
         }
     }
 
@@ -309,7 +309,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         ordered_custody_column_indices: Vec<ColumnIndex>,
         slot_clock: T::SlotClock,
         complete_blob_backfill: bool,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> (Self, Option<CustodyCountChanged>) {
         let CustodyContextSsz {
             mut validator_custody_at_head,
@@ -319,7 +319,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
 
         let mut custody_count_changed = None;
 
-        if let Some(cgc_from_cli) = node_custody_type.get_custody_count_override(spec) {
+        if let Some(cgc_from_cli) = node_custody_type.get_custody_count_override(&spec) {
             debug!(
                 ?node_custody_type,
                 persisted_custody_count = validator_custody_at_head,
@@ -377,7 +377,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             ordered_custody_column_indices,
             slot_clock,
             complete_blob_backfill,
-            spec: Arc::new(spec.clone()),
+            spec,
         };
 
         (custody_context, custody_count_changed)
@@ -655,7 +655,7 @@ mod tests {
     }
 
     fn setup_custody_context(
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
         head_epoch: Epoch,
         epoch_and_cgc_tuples: Vec<(Epoch, u64)>,
     ) -> CustodyContext<T> {
@@ -672,7 +672,7 @@ mod tests {
             NodeCustodyType::Fullnode,
             head_epoch,
             generate_data_column_indices_rand_order::<E>(),
-            testing_slot_clock(spec),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             spec,
         );
@@ -702,7 +702,7 @@ mod tests {
         target_node_custody_type: NodeCustodyType,
         expected_new_cgc: u64,
         head_epoch: Epoch,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) {
         let ssz_context = CustodyContextSsz {
             validator_custody_at_head: persisted_cgc,
@@ -717,14 +717,14 @@ mod tests {
                 target_node_custody_type,
                 head_epoch,
                 generate_data_column_indices_rand_order::<E>(),
-                testing_slot_clock(spec),
+                testing_slot_clock(&spec),
                 complete_blob_backfill,
-                spec,
+                spec.clone(),
             );
 
         // Verify CGC increased
         assert_eq!(
-            custody_context.custody_group_count_at_head(spec),
+            custody_context.custody_group_count_at_head(&spec),
             expected_new_cgc,
             "cgc should increase from {} to {}",
             persisted_cgc,
@@ -757,13 +757,13 @@ mod tests {
 
         // Verify custody_group_count_at_epoch returns correct values
         assert_eq!(
-            custody_context.custody_group_count_at_epoch(head_epoch, spec),
+            custody_context.custody_group_count_at_epoch(head_epoch, &spec),
             persisted_cgc,
             "current epoch should still use old cgc ({})",
             persisted_cgc
         );
         assert_eq!(
-            custody_context.custody_group_count_at_epoch(head_epoch + 1, spec),
+            custody_context.custody_group_count_at_epoch(head_epoch + 1, &spec),
             expected_new_cgc,
             "next epoch should use new cgc ({})",
             expected_new_cgc
@@ -776,7 +776,7 @@ mod tests {
         persisted_cgc: u64,
         target_node_custody_type: NodeCustodyType,
         head_epoch: Epoch,
-        spec: &ChainSpec,
+        spec: Arc<ChainSpec>,
     ) {
         let ssz_context = CustodyContextSsz {
             validator_custody_at_head: persisted_cgc,
@@ -791,14 +791,14 @@ mod tests {
                 target_node_custody_type,
                 head_epoch,
                 generate_data_column_indices_rand_order::<E>(),
-                testing_slot_clock(spec),
+                testing_slot_clock(&spec),
                 complete_blob_backfill,
-                spec,
+                spec.clone(),
             );
 
         // Verify CGC stays at persisted value (no reduction)
         assert_eq!(
-            custody_context.custody_group_count_at_head(spec),
+            custody_context.custody_group_count_at_head(&spec),
             persisted_cgc,
             "cgc should remain at {} (reduction not supported)",
             persisted_cgc
@@ -813,14 +813,14 @@ mod tests {
 
     #[test]
     fn no_validators_supernode_default() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         assert_eq!(
             custody_context.custody_group_count_at_head(&spec),
@@ -834,14 +834,14 @@ mod tests {
 
     #[test]
     fn no_validators_semi_supernode_default() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::SemiSupernode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         assert_eq!(
             custody_context.custody_group_count_at_head(&spec),
@@ -855,14 +855,14 @@ mod tests {
 
     #[test]
     fn no_validators_fullnode_default() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         assert_eq!(
             custody_context.custody_group_count_at_head(&spec),
@@ -877,14 +877,14 @@ mod tests {
 
     #[test]
     fn register_single_validator_should_update_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -908,14 +908,14 @@ mod tests {
 
     #[test]
     fn register_multiple_validators_should_update_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -952,14 +952,14 @@ mod tests {
 
     #[test]
     fn register_validators_should_not_update_cgc_for_supernode() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
 
@@ -997,14 +997,14 @@ mod tests {
 
     #[test]
     fn cgc_change_should_be_effective_to_sampling_after_delay() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let current_slot = Slot::new(10);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -1035,14 +1035,14 @@ mod tests {
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
@@ -1084,14 +1084,14 @@ mod tests {
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_no_validators_fullnode() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<T>::new(
@@ -1171,7 +1171,7 @@ mod tests {
             ordered_custody_column_indices,
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
 
         assert_eq!(
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_no_validators_supernode() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<T>::new(
@@ -1190,7 +1190,7 @@ mod tests {
             ordered_custody_column_indices,
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
 
         assert_eq!(
@@ -1201,7 +1201,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_with_validators_should_match_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<T>::new(
@@ -1209,7 +1209,7 @@ mod tests {
             ordered_custody_column_indices,
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let val_custody_units = 10;
 
@@ -1230,7 +1230,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_specific_epoch_uses_epoch_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<T>::new(
@@ -1238,7 +1238,7 @@ mod tests {
             ordered_custody_column_indices,
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
         let test_epoch = Epoch::new(5);
 
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn restore_from_persisted_fullnode_no_validators() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let ssz_context = CustodyContextSsz {
             validator_custody_at_head: 0, // no validators
@@ -1268,7 +1268,7 @@ mod tests {
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
 
         assert_eq!(
@@ -1282,7 +1282,7 @@ mod tests {
     /// CGC should increase and trigger backfill via CustodyCountChanged.
     #[test]
     fn restore_fullnode_then_switch_to_supernode_increases_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let head_epoch = Epoch::new(10);
         let supernode_cgc = spec.number_of_custody_groups;
 
@@ -1291,7 +1291,7 @@ mod tests {
             NodeCustodyType::Supernode,
             supernode_cgc,
             head_epoch,
-            &spec,
+            spec,
         );
     }
 
@@ -1299,7 +1299,7 @@ mod tests {
     /// Semi-supernode can exceed 64 when validator effective balance increases CGC.
     #[test]
     fn restore_semi_supernode_with_validators_can_exceed_64() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let complete_blob_backfill = false;
         let semi_supernode_cgc = spec.number_of_custody_groups / 2; // 64
         let custody_context = CustodyContext::<T>::new(
@@ -1307,7 +1307,7 @@ mod tests {
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
 
         // Verify initial CGC is 64 (semi-supernode)
@@ -1356,14 +1356,14 @@ mod tests {
     /// CGC reduction is not supported - persisted value is retained.
     #[test]
     fn restore_supernode_then_switch_to_fullnode_uses_persisted() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let supernode_cgc = spec.number_of_custody_groups;
 
         assert_custody_type_switch_unchanged_cgc(
             supernode_cgc,
             NodeCustodyType::Fullnode,
             Epoch::new(0),
-            &spec,
+            spec,
         );
     }
 
@@ -1371,7 +1371,7 @@ mod tests {
     /// CGC reduction is not supported - persisted value is retained.
     #[test]
     fn restore_supernode_then_switch_to_semi_supernode_keeps_supernode_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let supernode_cgc = spec.number_of_custody_groups;
         let head_epoch = Epoch::new(10);
 
@@ -1379,7 +1379,7 @@ mod tests {
             supernode_cgc,
             NodeCustodyType::SemiSupernode,
             head_epoch,
-            &spec,
+            spec,
         );
     }
 
@@ -1387,7 +1387,7 @@ mod tests {
     /// CGC should increase and trigger backfill via CustodyCountChanged.
     #[test]
     fn restore_fullnode_with_validators_then_switch_to_semi_supernode() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let persisted_cgc = 32u64;
         let semi_supernode_cgc = spec.number_of_custody_groups / 2;
         let head_epoch = Epoch::new(10);
@@ -1397,7 +1397,7 @@ mod tests {
             NodeCustodyType::SemiSupernode,
             semi_supernode_cgc,
             head_epoch,
-            &spec,
+            spec,
         );
     }
 
@@ -1405,7 +1405,7 @@ mod tests {
     /// CGC should increase and trigger backfill via CustodyCountChanged.
     #[test]
     fn restore_semi_supernode_then_switch_to_supernode() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let semi_supernode_cgc = spec.number_of_custody_groups / 2;
         let supernode_cgc = spec.number_of_custody_groups;
         let head_epoch = Epoch::new(10);
@@ -1415,7 +1415,7 @@ mod tests {
             NodeCustodyType::Supernode,
             supernode_cgc,
             head_epoch,
-            &spec,
+            spec,
         );
     }
 
@@ -1423,7 +1423,7 @@ mod tests {
     /// CGC should increase and trigger backfill via CustodyCountChanged.
     #[test]
     fn restore_with_cli_flag_increases_cgc_from_nonzero() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let persisted_cgc = 32u64;
         let supernode_cgc = spec.number_of_custody_groups;
         let head_epoch = Epoch::new(10);
@@ -1433,13 +1433,13 @@ mod tests {
             NodeCustodyType::Supernode,
             supernode_cgc,
             head_epoch,
-            &spec,
+            spec,
         );
     }
 
     #[test]
     fn restore_with_validator_custody_history_across_epochs() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let initial_cgc = 8u64;
         let increased_cgc = 16u64;
         let final_cgc = 32u64;
@@ -1462,7 +1462,7 @@ mod tests {
             generate_data_column_indices_rand_order::<E>(),
             testing_slot_clock(&spec),
             complete_blob_backfill,
-            &spec,
+            spec.clone(),
         );
 
         // Verify head uses latest value
@@ -1503,14 +1503,14 @@ mod tests {
 
     #[test]
     fn backfill_single_cgc_increase_updates_past_epochs() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let final_cgc = 32u64;
         let default_cgc = spec.custody_requirement;
 
         // Setup: Node restart after validators were registered, causing CGC increase to 32 at epoch 20
         let head_epoch = Epoch::new(20);
         let epoch_and_cgc_tuples = vec![(head_epoch, final_cgc)];
-        let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
+        let custody_context = setup_custody_context(spec.clone(), head_epoch, epoch_and_cgc_tuples);
         assert_eq!(
             custody_context.custody_group_count_at_epoch(Epoch::new(15), &spec),
             default_cgc,
@@ -1540,7 +1540,7 @@ mod tests {
 
     #[test]
     fn backfill_with_multiple_cgc_increases_prunes_map_correctly() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let initial_cgc = 8u64;
         let mid_cgc = 16u64;
         let final_cgc = 32u64;
@@ -1552,7 +1552,7 @@ mod tests {
             (Epoch::new(10), mid_cgc),
             (head_epoch, final_cgc),
         ];
-        let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
+        let custody_context = setup_custody_context(spec.clone(), head_epoch, epoch_and_cgc_tuples);
 
         // Backfill to epoch 15 (between the two CGC increases)
         complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(15), final_cgc);
@@ -1576,7 +1576,7 @@ mod tests {
 
     #[test]
     fn attempt_backfill_with_invalid_cgc() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let initial_cgc = 8u64;
         let mid_cgc = 16u64;
         let final_cgc = 32u64;
@@ -1588,7 +1588,7 @@ mod tests {
             (Epoch::new(10), mid_cgc),
             (head_epoch, final_cgc),
         ];
-        let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
+        let custody_context = setup_custody_context(spec.clone(), head_epoch, epoch_and_cgc_tuples);
 
         // Backfill to epoch 15 (between the two CGC increases)
         complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(15), final_cgc);
@@ -1628,7 +1628,7 @@ mod tests {
 
     #[test]
     fn reset_validator_custody_requirements() {
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let minimum_cgc = 4u64;
         let initial_cgc = 8u64;
         let mid_cgc = 16u64;
@@ -1641,7 +1641,7 @@ mod tests {
             (Epoch::new(10), mid_cgc),
             (head_epoch, final_cgc),
         ];
-        let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
+        let custody_context = setup_custody_context(spec.clone(), head_epoch, epoch_and_cgc_tuples);
 
         // Backfill from epoch 20 to 9
         complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(9), final_cgc);
