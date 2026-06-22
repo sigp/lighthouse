@@ -2415,10 +2415,10 @@ async fn import_gloas_block_without_envelope(
     (block, envelope, block_root)
 }
 
-/// A relevant envelope (payload not yet received) lets an already-imported block back through
-/// `filter_chain_segment` so it can be re-processed with its envelope.
+/// Retrying a range-sync batch can provide the envelope for a block that was previously imported
+/// without one. The duplicate block should be allowed through far enough to import the envelope.
 #[tokio::test]
-async fn filter_chain_segment_keeps_imported_block_with_relevant_envelope() {
+async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_block() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return;
@@ -2432,26 +2432,66 @@ async fn filter_chain_segment_keeps_imported_block_with_relevant_envelope() {
         .mock_execution_layer()
         .build();
 
-    let (block, envelope, _) = import_gloas_block_without_envelope(&harness).await;
+    let (block, envelope, block_root) = import_gloas_block_without_envelope(&harness).await;
+    let block_slot = block.slot();
+
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&block_root),
+        "payload should start missing"
+    );
+    assert!(
+        harness
+            .chain
+            .store
+            .get_payload_envelope(&block_root)
+            .expect("should read envelope from store")
+            .is_none(),
+        "envelope should start missing from the store"
+    );
 
     let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
 
-    let Ok(filtered) = harness.chain.filter_chain_segment(segment) else {
-        panic!("filter should succeed");
+    let result = harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    let ChainSegmentResult::Successful { imported_blocks } = result else {
+        panic!("range sync should succeed");
     };
 
     assert_eq!(
-        filtered.len(),
-        1,
-        "block with a relevant envelope should not be filtered as a duplicate"
+        imported_blocks,
+        vec![(block_root, block_slot)],
+        "the duplicate block should be reported as processed"
+    );
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&block_root),
+        "range sync should mark the payload as received"
+    );
+    assert!(
+        harness
+            .chain
+            .store
+            .get_payload_envelope(&block_root)
+            .expect("should read envelope from store")
+            .is_some(),
+        "range sync should persist the envelope"
     );
 }
 
-/// Once the payload has been received the envelope is no longer relevant, so an already-imported
-/// block is filtered out of the segment as a duplicate.
+/// Once the payload has been received, retrying the same block and envelope is a no-op.
 #[tokio::test]
-async fn filter_chain_segment_drops_imported_block_when_payload_received() {
+async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_received() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return;
@@ -2477,13 +2517,18 @@ async fn filter_chain_segment_drops_imported_block_when_payload_received() {
     let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
 
-    let Ok(filtered) = harness.chain.filter_chain_segment(segment) else {
-        panic!("filter should succeed");
+    let result = harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    let ChainSegmentResult::Successful { imported_blocks } = result else {
+        panic!("range sync should succeed");
     };
 
     assert!(
-        filtered.is_empty(),
-        "block whose payload was already received should be filtered as a duplicate"
+        imported_blocks.is_empty(),
+        "block whose payload was already received should be ignored as a duplicate"
     );
 }
 
