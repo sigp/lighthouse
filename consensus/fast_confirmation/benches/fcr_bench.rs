@@ -93,6 +93,7 @@ fn build_chain(num_validators: usize) -> BenchData {
             execution_payload_parent_hash: None,
             execution_payload_block_hash: None,
             proposer_index: Some(0),
+            payload_received: false,
         };
 
         fc.process_block::<E>(block, slot, &spec, Duration::from_secs(0))

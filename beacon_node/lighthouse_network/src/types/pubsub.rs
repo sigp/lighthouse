@@ -7,10 +7,10 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, DataColumnSidecar,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, CellBitmap, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnSidecar,
-    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnHeader,
+    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
@@ -54,6 +54,24 @@ pub enum PubsubMessage<E: EthSpec> {
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
     LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+}
+
+/// A message published via the partial gossipsub protocol.
+#[derive(Debug, Clone)]
+pub enum PubsubPartialMessage<E: EthSpec> {
+    /// A partial data column sidecar from the Fulu fork.
+    DataColumnFulu {
+        /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
+        /// asks for data within it.
+        column: Arc<PartialDataColumn<E>>,
+        /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
+        /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
+        /// requested to conserve bandwidth.
+        request_cells: CellBitmap<E>,
+        /// The header associated with the column above. This is set separately here, as the column
+        /// to be published does not contain the header - it is stored without.
+        header: Arc<PartialDataColumnHeader<E>>,
+    },
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression

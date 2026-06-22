@@ -196,7 +196,7 @@ pub enum WhenSlotSkipped {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
     MissingComponents(Slot, Hash256),
-    Imported(Hash256),
+    Imported(Slot, Hash256),
 }
 
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
@@ -204,7 +204,7 @@ impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<SignedBeaconBlockHash, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash.into()),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash.into()),
             _ => Err(()),
         }
     }
@@ -215,7 +215,7 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<Hash256, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash),
             _ => Err(()),
         }
     }
@@ -3159,9 +3159,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     Ok(status) => {
                         match status {
-                            AvailabilityProcessingStatus::Imported(block_root) => {
+                            AvailabilityProcessingStatus::Imported(slot, block_root) => {
                                 // The block was imported successfully.
-                                imported_blocks.push((block_root, block_slot));
+                                imported_blocks.push((block_root, slot));
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(
@@ -3808,10 +3808,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify and import the block.
         match import_block.await {
             // The block was successfully verified and imported. Yay.
-            Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
+            Ok(status @ AvailabilityProcessingStatus::Imported(slot, block_root)) => {
                 debug!(
                     ?block_root,
-                    %block_slot,
+                    %slot,
                     source = %block_source,
                     "Beacon block imported"
                 );
@@ -4149,6 +4149,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_outcome,
         } = *block;
 
+        let slot = block.slot();
         let BlockImportData {
             block_root,
             state,
@@ -4183,7 +4184,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await??
         };
 
-        Ok(AvailabilityProcessingStatus::Imported(block_root))
+        Ok(AvailabilityProcessingStatus::Imported(slot, block_root))
     }
 
     /// Accepts a fully-verified and available block and imports it into the chain without performing any
@@ -5137,7 +5138,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
-    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
@@ -5167,6 +5167,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
+
+        // We don't need to override fork choice updates for Gloas.
+        if info.head_node.is_gloas() {
+            return Ok(*canonical_forkchoice_params);
+        }
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
@@ -5301,9 +5306,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
-        // TODO(gloas): V29 nodes don't carry execution_status, so this returns
-        // None for post-Gloas re-orgs. Need to source the EL block hash from
-        // the bid's block_hash instead. Re-org is disabled for Gloas for now.
+        // This only works pre-Gloas, but we don't run this code for Gloas anyway.
         let parent_head_hash = info
             .parent_node
             .execution_status()
@@ -6340,8 +6343,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     let canonical_fcu_params = cached_head.forkchoice_update_parameters();
-                    let fcu_params =
-                        chain.overridden_forkchoice_update_params(canonical_fcu_params)?;
+                    let fcu_params = if chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(head_slot)
+                        .gloas_enabled()
+                    {
+                        canonical_fcu_params
+                    } else {
+                        chain.overridden_forkchoice_update_params(canonical_fcu_params)?
+                    };
                     let pre_payload_attributes = chain.get_pre_payload_attributes(
                         prepare_slot,
                         fcu_params.head_root,
