@@ -65,7 +65,6 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
-use crate::payload_envelope_verification::check_envelope_relevancy;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -3002,19 +3001,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            // If the envelope is relevant we skip the duplicate import check in
-            // `check_block_relevancy`. A verification error or an already-received payload
-            // both leave the envelope irrelevant.
-            let is_envelope_relevant = block
-                .as_envelope()
-                .and_then(|envelope| {
-                    check_envelope_relevancy(block.as_block(), envelope, self).ok()
-                })
-                .unwrap_or(false);
+            // The envelope needs import only if it's a Gloas block with an envelope and
+            // the envelope isn't already in fork choice.
+            let range_sync_envelope_needs_import = matches!(
+                block,
+                RangeSyncBlock::Gloas {
+                    envelope: Some(_),
+                    ..
+                }
+            ) && !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&block_root);
 
-            match check_block_relevancy(block.as_block(), block_root, is_envelope_relevant, self) {
+            match check_block_relevancy(block.as_block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
+                Err(BlockError::DuplicateFullyImported(_)) if range_sync_envelope_needs_import => {
+                    filtered_chain_segment.push((block_root, block));
+                }
                 // If the block is already known, simply ignore this block.
                 //
                 // Note that `check_block_relevancy` is incapable of returning
@@ -3040,7 +3045,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
-                    if is_envelope_relevant
+                    if range_sync_envelope_needs_import
                         && self
                             .canonical_head
                             .cached_head()

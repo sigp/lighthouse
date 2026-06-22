@@ -12,7 +12,7 @@ use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedExecutionPayloadEnvelope, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
@@ -112,17 +112,6 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         }
     }
 
-    pub fn as_envelope(&self) -> Option<&SignedExecutionPayloadEnvelope<E>> {
-        match self {
-            RangeSyncBlock::Base(_) => None,
-            RangeSyncBlock::Gloas { envelope, .. } => {
-                envelope.as_ref().map(|e| e.envelope().as_ref())
-            }
-        }
-    }
-}
-
-impl<E: EthSpec> RangeSyncBlock<E> {
     /// Constructs a `RangeSyncBlock` from a block and availability data (pre-Gloas).
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
