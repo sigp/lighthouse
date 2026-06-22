@@ -32,8 +32,8 @@ use types::{
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
     BeaconState, BlindedPayload, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest,
     Deposit, DepositRequest, ExecutionPayload, ForkVersionDecode, FullPayload, PayloadAttestation,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -65,7 +65,7 @@ pub struct VoluntaryExitChurn {
 /// Newtype for testing execution payload bids.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecutionPayloadBidBlock<E: EthSpec> {
-    block: BeaconBlock<E>,
+    signed_bid: SignedExecutionPayloadBid<E>,
 }
 
 /// Newtype for testing parent execution payload processing.
@@ -538,16 +538,15 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
     }
 
     fn filename() -> String {
-        "block.ssz_snappy".into()
+        "execution_payload_bid.ssz_snappy".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         fork_name.gloas_enabled()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file_with(path, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
-            .map(|block| ExecutionPayloadBidBlock { block })
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path).map(|signed_bid| ExecutionPayloadBidBlock { signed_bid })
     }
 
     fn apply_to(
@@ -556,7 +555,7 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_execution_payload_bid(state, self.block.to_ref(), VerifySignatures::True, spec)?;
+        process_execution_payload_bid(state, &self.signed_bid, VerifySignatures::True, spec)?;
         Ok(())
     }
 }

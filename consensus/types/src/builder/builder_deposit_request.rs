@@ -5,10 +5,7 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
-use crate::{
-    Address, BeaconStateError, ChainSpec, DepositMessage, Domain, SignedRoot, core::Hash256,
-    fork::ForkName,
-};
+use crate::{ChainSpec, DepositMessage, Domain, SignedRoot, core::Hash256, fork::ForkName};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]

@@ -819,7 +819,7 @@ where
             .get_block(&block.parent_root())
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
 
-        // If the block builds on a full payload envelope, the envelope must be known. 
+        // If the block builds on a full payload envelope, the envelope must be known.
         if let Some(parent_block_hash) = parent_block.execution_payload_block_hash {
             let builds_on_full = block
                 .body()

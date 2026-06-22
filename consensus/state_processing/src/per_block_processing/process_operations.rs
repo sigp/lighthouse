@@ -4,11 +4,7 @@ use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
-use crate::per_block_processing::builder::{
-    convert_validator_index_to_builder_index, is_builder_index,
-};
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
-use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use bls::{PublicKeyBytes, SignatureBytes};
 use ssz_types::FixedVector;

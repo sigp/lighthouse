@@ -192,7 +192,8 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
-            process_execution_payload_bid(state, block, verify_signatures, spec)?;
+            let signed_bid = block.body().signed_execution_payload_bid()?;
+            process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
                 withdrawals::capella_electra::process_withdrawals::<E, Payload>(
@@ -671,15 +672,13 @@ pub fn settle_builder_payment<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
+pub fn process_execution_payload_bid<E: EthSpec>(
     state: &mut BeaconState<E>,
-    block: BeaconBlockRef<'_, E, Payload>,
+    signed_bid: &SignedExecutionPayloadBid<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify the bid signature
-    let signed_bid = block.body().signed_execution_payload_bid()?;
-
     let bid = &signed_bid.message;
     let amount = bid.value;
     let builder_index = bid.builder_index;
@@ -754,10 +753,10 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
     // Verify that the bid is for the current slot
     block_verify!(
-        bid.slot == block.slot(),
+        bid.slot == state.slot(),
         ExecutionPayloadBidInvalid::SlotMismatch {
             bid_slot: bid.slot,
-            block_slot: block.slot(),
+            block_slot: state.slot(),
         }
         .into()
     );
@@ -773,10 +772,11 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         .into()
     );
 
+    let expected_parent_root = *state.get_block_root(state.slot().safe_sub(1)?)?;
     block_verify!(
-        bid.parent_block_root == block.parent_root(),
+        bid.parent_block_root == expected_parent_root,
         ExecutionPayloadBidInvalid::ParentBlockRootMismatch {
-            block_parent_root: block.parent_root(),
+            block_parent_root: expected_parent_root,
             bid_parent_root: bid.parent_block_root,
         }
         .into()
@@ -794,6 +794,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
     // Record the pending payment if there is some payment
     if amount > 0 {
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         let pending_payment = BuilderPendingPayment {
             weight: 0,
             withdrawal: BuilderPendingWithdrawal {
@@ -801,7 +802,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
                 amount,
                 builder_index,
             },
-            proposer_index: block.proposer_index(),
+            proposer_index,
         };
 
         let payment_index = E::SlotsPerEpoch::to_usize()
