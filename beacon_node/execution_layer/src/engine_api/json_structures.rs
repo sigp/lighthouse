@@ -1,12 +1,15 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, Encode, TryFromIter};
+use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::data::BlobsList;
-use types::execution::{ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests};
+use types::execution::{
+    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
+};
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
 
@@ -483,28 +486,13 @@ pub struct JsonExecutionRequests(pub Vec<String>);
 
 impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
     fn from(requests: ExecutionRequests<E>) -> Self {
-        let mut result = Vec::new();
-        if !requests.deposits.is_empty() {
-            result.push(format!(
-                "0x{:02x}{}",
-                RequestType::Deposit.to_u8(),
-                hex::encode(requests.deposits.as_ssz_bytes())
-            ));
-        }
-        if !requests.withdrawals.is_empty() {
-            result.push(format!(
-                "0x{:02x}{}",
-                RequestType::Withdrawal.to_u8(),
-                hex::encode(requests.withdrawals.as_ssz_bytes())
-            ));
-        }
-        if !requests.consolidations.is_empty() {
-            result.push(format!(
-                "0x{:02x}{}",
-                RequestType::Consolidation.to_u8(),
-                hex::encode(requests.consolidations.as_ssz_bytes())
-            ));
-        }
+        // Each element is a `RequestType`-prefixed, SSZ-encoded request list (EIP-7685).
+        // The Gloas variant additionally emits builder deposit/exit requests.
+        let result = requests
+            .get_execution_requests_list()
+            .into_iter()
+            .map(|bytes| format!("0x{}", hex::encode(bytes)))
+            .collect();
         JsonExecutionRequests(result)
     }
 }
@@ -513,7 +501,15 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let mut requests = ExecutionRequests::default();
+        let mut deposits = DepositRequests::<E>::default();
+        let mut withdrawals = WithdrawalRequests::<E>::default();
+        let mut consolidations = ConsolidationRequests::<E>::default();
+        let mut builder_deposits = BuilderDepositRequests::<E>::default();
+        let mut builder_exits = BuilderExitRequests::<E>::default();
+        // [New in Gloas:EIP8282] The presence of builder requests determines the variant: the
+        // EIP-7685 list is fork-agnostic, so we only know it is Gloas-shaped once a builder
+        // request type appears.
+        let mut has_builder_requests = false;
         let mut prev_prefix: Option<RequestType> = None;
         for (i, request) in value.0.into_iter().enumerate() {
             // hex string
@@ -540,8 +536,8 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 
             match current_prefix {
                 RequestType::Deposit => {
-                    requests.deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes)
-                        .map_err(|e| {
+                    deposits =
+                        DepositRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
                             RequestsError::DecodeError(format!(
                                 "Failed to decode DepositRequest from EL: {:?}",
                                 e
@@ -549,26 +545,64 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
                         })?;
                 }
                 RequestType::Withdrawal => {
-                    requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(request_bytes)
-                        .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
+                    withdrawals =
+                        WithdrawalRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
+                            RequestsError::DecodeError(format!(
+                                "Failed to decode WithdrawalRequest from EL: {:?}",
+                                e
+                            ))
+                        })?;
                 }
                 RequestType::Consolidation => {
-                    requests.consolidations =
-                        ConsolidationRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
+                    consolidations = ConsolidationRequests::<E>::from_ssz_bytes(request_bytes)
+                        .map_err(|e| {
                             RequestsError::DecodeError(format!(
                                 "Failed to decode ConsolidationRequest from EL: {:?}",
                                 e
                             ))
                         })?;
                 }
+                RequestType::BuilderDeposit => {
+                    builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_bytes)
+                        .map_err(|e| {
+                        RequestsError::DecodeError(format!(
+                            "Failed to decode BuilderDepositRequest from EL: {:?}",
+                            e
+                        ))
+                    })?;
+                    has_builder_requests = true;
+                }
+                RequestType::BuilderExit => {
+                    builder_exits = BuilderExitRequests::<E>::from_ssz_bytes(request_bytes)
+                        .map_err(|e| {
+                            RequestsError::DecodeError(format!(
+                                "Failed to decode BuilderExitRequest from EL: {:?}",
+                                e
+                            ))
+                        })?;
+                    has_builder_requests = true;
+                }
             }
         }
-        Ok(requests)
+
+        // Without any builder requests the list is indistinguishable from a pre-Gloas one, so we
+        // produce the Electra-shaped variant. Consumers that require the Gloas variant lift it
+        // (carrying empty builder lists) at their boundary.
+        if has_builder_requests {
+            Ok(ExecutionRequests::Gloas(ExecutionRequestsGloas {
+                deposits,
+                withdrawals,
+                consolidations,
+                builder_deposits,
+                builder_exits,
+            }))
+        } else {
+            Ok(ExecutionRequests::Electra(ExecutionRequestsElectra {
+                deposits,
+                withdrawals,
+                consolidations,
+            }))
+        }
     }
 }
 

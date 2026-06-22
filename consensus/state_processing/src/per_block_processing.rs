@@ -564,7 +564,7 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
     if bid_parent_block_hash != parent_bid.block_hash {
         // Parent was EMPTY -- no execution requests expected
         block_verify!(
-            *requests == ExecutionRequests::default(),
+            *requests == ExecutionRequestsGloas::default(),
             BlockProcessingError::NonEmptyParentExecutionRequests
         );
         return Ok(());
@@ -591,7 +591,7 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
 /// 3. Updates `execution_payload_availability` and `latest_block_hash`
 pub fn apply_parent_execution_payload<E: EthSpec>(
     state: &mut BeaconState<E>,
-    requests: &ExecutionRequests<E>,
+    requests: &ExecutionRequestsGloas<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let parent_bid = state.latest_execution_payload_bid()?.clone();
@@ -599,9 +599,11 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
     // Process execution requests from the parent's payload
-    process_operations::process_deposit_requests_post_gloas(state, &requests.deposits, spec)?;
+    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
     process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
     process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
+    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
+    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
 
     // Queue the builder payment
     if parent_epoch == state.current_epoch() {

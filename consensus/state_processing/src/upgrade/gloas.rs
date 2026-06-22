@@ -10,8 +10,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, consts::gloas::PAYLOAD_BUILDER_VERSION,
-    is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
+    consts::gloas::PAYLOAD_BUILDER_VERSION, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -80,7 +80,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
-            execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella

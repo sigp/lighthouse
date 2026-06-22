@@ -54,11 +54,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         )?;
     } else if state.fork_name_unchecked().electra_enabled() {
         state.update_pubkey_cache()?;
-        process_deposit_requests_pre_gloas(
-            state,
-            &block_body.execution_requests()?.deposits,
-            spec,
-        )?;
+        process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
         process_consolidation_requests(
             state,
@@ -528,73 +524,11 @@ pub fn process_exits<E: EthSpec>(
             .into_with_index(i));
         }
 
-        // [New in Gloas:EIP7732]
-        if state.fork_name_unchecked().gloas_enabled()
-            && is_builder_index(exit.message.validator_index)
-        {
-            process_builder_voluntary_exit(state, exit, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))?;
-            continue;
-        }
-
         verify_exit(state, Some(current_epoch), exit, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
-    Ok(())
-}
-
-/// Process a builder voluntary exit. [New in Gloas:EIP7732]
-fn process_builder_voluntary_exit<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    signed_exit: &SignedVoluntaryExit,
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<(), BlockOperationError<ExitInvalid>> {
-    let builder_index =
-        convert_validator_index_to_builder_index(signed_exit.message.validator_index);
-
-    // Verify builder is known
-    state
-        .builders()?
-        .get(builder_index as usize)
-        .cloned()
-        .ok_or(BlockOperationError::invalid(ExitInvalid::ValidatorUnknown(
-            signed_exit.message.validator_index,
-        )))?;
-
-    // Verify the builder is active
-    if !state.is_active_builder(builder_index, spec)? {
-        return Err(BlockOperationError::invalid(ExitInvalid::NotActive(
-            signed_exit.message.validator_index,
-        )));
-    }
-
-    // Only exit builder if it has no pending withdrawals in the queue
-    let pending_balance = state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
-    if pending_balance != 0 {
-        return Err(BlockOperationError::invalid(
-            ExitInvalid::PendingWithdrawalInQueue(signed_exit.message.validator_index),
-        ));
-    }
-
-    if verify_signatures.is_true() {
-        verify!(
-            exit_signature_set(
-                state,
-                |i| get_pubkey_from_state(state, i),
-                signed_exit,
-                spec
-            )?
-            .verify(),
-            ExitInvalid::BadSignature
-        );
-    }
-
-    // Initiate builder exit
-    initiate_builder_exit(state, builder_index, spec)?;
-
     Ok(())
 }
 
@@ -881,7 +815,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
+pub fn process_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
@@ -911,14 +845,105 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_post_gloas<E: EthSpec>(
+pub fn process_builder_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    deposit_requests: &[DepositRequest],
+    builder_deposit_requests: &[BuilderDepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    for request in deposit_requests {
-        process_deposit_request_post_gloas(state, request, spec)?;
+    for builder_deposit_request in builder_deposit_requests {
+        process_builder_deposit_request(state, builder_deposit_request, spec)?;
     }
+
+    Ok(())
+}
+
+fn process_builder_deposit_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_deposit_request: &BuilderDepositRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let builder_index = state
+        .builders()?
+        .iter()
+        .position(|builder| builder.pubkey == builder_deposit_request.pubkey);
+
+    match builder_index {
+        None => {
+            if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
+                let version = builder_deposit_request
+                    .version()
+                    .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
+                let slot = state.slot();
+                state.add_builder_to_registry(
+                    builder_deposit_request.pubkey,
+                    version,
+                    builder_deposit_request.withdrawal_credentials,
+                    builder_deposit_request.amount,
+                    slot,
+                    spec,
+                )?;
+            }
+        }
+        Some(builder_index) => {
+            let current_epoch = state.current_epoch();
+            let builder = state
+                .builders_mut()?
+                .get_mut(builder_index)
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index as u64))?;
+
+            builder
+                .balance
+                .safe_add_assign(builder_deposit_request.amount)?;
+
+            if builder.withdrawable_epoch != spec.far_future_epoch {
+                builder.withdrawable_epoch =
+                    current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn process_builder_exit_requests<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_exit_requests: &[BuilderExitRequest],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for builder_exit_request in builder_exit_requests {
+        process_builder_exit_request(state, builder_exit_request, spec)?;
+    }
+
+    Ok(())
+}
+
+fn process_builder_exit_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_exit_request: &BuilderExitRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let Some(builder_index) = state
+        .builders()?
+        .iter()
+        .position(|builder| builder.pubkey == builder_exit_request.pubkey)
+        .map(|i| i as u64)
+    else {
+        return Ok(());
+    };
+
+    if !state.is_active_builder(builder_index, spec)? {
+        return Ok(());
+    }
+
+    if state.get_builder(builder_index)?.execution_address != builder_exit_request.source_address {
+        return Ok(());
+    }
+
+    if state.get_pending_balance_to_withdraw_for_builder(builder_index)? != 0 {
+        return Ok(());
+    }
+
+    initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
 }
@@ -944,69 +969,6 @@ pub fn is_pending_validator<'a>(
             )
             .is_ok()
     })
-}
-
-pub fn process_deposit_request_post_gloas<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    deposit_request: &DepositRequest,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7732]
-    // Regardless of the withdrawal credentials prefix, if a builder/validator
-    // already exists with this pubkey, apply the deposit to their balance
-    // TODO(gloas): this could be more efficient in the builder case, see:
-    // https://github.com/sigp/lighthouse/issues/8783
-    let builder_index = state
-        .builders()?
-        .iter()
-        .enumerate()
-        .find(|(_, builder)| builder.pubkey == deposit_request.pubkey)
-        .map(|(i, _)| i as u64);
-    let is_builder = builder_index.is_some();
-
-    let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
-    let is_validator = validator_index.is_some();
-
-    let has_builder_prefix =
-        is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
-
-    if is_builder
-        || (has_builder_prefix
-            && !is_validator
-            && !is_pending_validator(state.pending_deposits()?, &deposit_request.pubkey, spec))
-    {
-        // Apply builder deposits immediately. The builder version is taken from the
-        // withdrawal credentials prefix byte (spec: `process_builder_deposit_request`).
-        let version = *deposit_request
-            .withdrawal_credentials
-            .as_slice()
-            .first()
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
-        apply_deposit_for_builder(
-            state,
-            builder_index,
-            deposit_request.pubkey,
-            version,
-            deposit_request.withdrawal_credentials,
-            deposit_request.amount,
-            deposit_request.signature.clone(),
-            state.slot(),
-            spec,
-        )?;
-        return Ok(());
-    }
-
-    // Add validator deposits to the queue
-    let slot = state.slot();
-    state.pending_deposits_mut()?.push(PendingDeposit {
-        pubkey: deposit_request.pubkey,
-        withdrawal_credentials: deposit_request.withdrawal_credentials,
-        amount: deposit_request.amount,
-        signature: deposit_request.signature.clone(),
-        slot,
-    })?;
-
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

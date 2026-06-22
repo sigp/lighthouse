@@ -118,14 +118,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
         };
         Ok(ProvenancedPayload::Builder(

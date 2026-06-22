@@ -137,6 +137,19 @@ fn operations_consolidations() {
 }
 
 #[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn operations_builder_deposit_requests() {
+    OperationsHandler::<MinimalEthSpec, BuilderDepositRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, BuilderDepositRequest>::default().run();
+}
+
+#[test]
+fn operations_builder_exit_requests() {
+    OperationsHandler::<MinimalEthSpec, BuilderExitRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, BuilderExitRequest>::default().run();
+}
+
+#[test]
 fn operations_bls_to_execution_change() {
     OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();
     OperationsHandler::<MainnetEthSpec, SignedBlsToExecutionChange>::default().run();
