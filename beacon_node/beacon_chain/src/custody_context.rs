@@ -4,7 +4,6 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
-use std::marker::PhantomData;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -261,8 +260,6 @@ pub struct CustodyContext<T: BeaconChainTypes> {
     complete_blob_backfill: bool,
     #[educe(Debug(ignore))]
     spec: Arc<ChainSpec>,
-    #[educe(Debug(ignore))]
-    _phantom_data: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> CustodyContext<T> {
@@ -288,7 +285,6 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             slot_clock,
             complete_blob_backfill,
             spec: Arc::new(spec.clone()),
-            _phantom_data: PhantomData,
         }
     }
 
@@ -382,7 +378,6 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             slot_clock,
             complete_blob_backfill,
             spec: Arc::new(spec.clone()),
-            _phantom_data: PhantomData,
         };
 
         (custody_context, custody_count_changed)

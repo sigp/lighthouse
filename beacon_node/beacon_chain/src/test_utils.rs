@@ -241,7 +241,7 @@ pub fn test_da_checker<E: EthSpec>(
         complete_blob_backfill,
         &spec,
     ));
-    DataAvailabilityChecker::new(slot_clock, kzg, custody_context, spec, true, false)
+    DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
         .expect("should initialise data availability checker")
 }
 

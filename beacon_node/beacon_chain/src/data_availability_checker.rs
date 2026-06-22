@@ -77,9 +77,7 @@ const OVERFLOW_LRU_CAPACITY: usize = 32;
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
-    slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -114,7 +112,6 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
-        slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
@@ -137,15 +134,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         Ok(Self {
             partial_assembler,
             availability_cache: Arc::new(inner),
-            slot_clock,
             kzg,
-            custody_context,
             spec,
         })
     }
 
     pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
-        &self.custody_context
+        self.availability_cache.custody_context()
     }
 
     pub fn partial_assembler(&self) -> Option<&Arc<PartialDataColumnAssembler<T::EthSpec>>> {
@@ -348,7 +343,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // a new epoch.
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
-            .custody_context
+            .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -388,7 +383,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
-            .custody_context
+            .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec);
         let custody_columns = data_columns
             .into_iter()
@@ -884,7 +879,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
 
                 let mut column_indices = da_checker
-                    .custody_context
+                    .custody_context()
                     .sampling_columns_for_epoch(block.epoch(), &spec)
                     .iter()
                     .collect::<HashSet<_>>();
@@ -1045,7 +1040,7 @@ mod test {
         let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -1132,7 +1127,7 @@ mod test {
         let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -1280,7 +1275,7 @@ mod test {
         let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // Set custody requirement to 65 columns (enough to trigger reconstruction)
         let epoch = Epoch::new(1);
@@ -1374,11 +1369,11 @@ mod test {
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
-            slot_clock.clone(),
+            slot_clock,
             complete_blob_backfill,
             &spec,
         ));
-        DataAvailabilityChecker::new(slot_clock, kzg, custody_context, spec, true, false)
+        DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
             .expect("should initialise data availability checker")
     }
 }

@@ -434,6 +434,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+        &self.custody_context
+    }
+
     /// Puts the KZG verified blobs into the availability cache as pending components.
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
