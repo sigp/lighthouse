@@ -1428,17 +1428,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ByRangeRequestType::BlocksAndEnvelopesAndColumns
         } else if self
             .chain
-            .data_availability_checker
-            .custody_context()
+            .custody_context
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
-        } else if self
-            .chain
-            .data_availability_checker
-            .custody_context()
-            .blobs_required_for_epoch(epoch)
-        {
+        } else if self.chain.custody_context.blobs_required_for_epoch(epoch) {
             ByRangeRequestType::BlocksAndBlobs
         } else {
             ByRangeRequestType::Blocks

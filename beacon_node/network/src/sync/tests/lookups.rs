@@ -1612,8 +1612,7 @@ impl TestRig {
     fn custody_columns(&self) -> &[ColumnIndex] {
         self.harness
             .chain
-            .data_availability_checker
-            .custody_context()
+            .custody_context
             .custody_columns_for_epoch(None, &self.harness.spec)
     }
 

@@ -29,7 +29,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect()
         };
 
-        let custody_context = self.data_availability_checker.custody_context();
+        let custody_context = self.custody_context.clone();
 
         let ctx = InvariantContext {
             fork_choice_blocks,

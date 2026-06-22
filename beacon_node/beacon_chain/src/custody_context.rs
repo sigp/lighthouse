@@ -585,6 +585,14 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
     pub fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
     }
+
+    /// The data availability boundary for custodying columns. It will just be the
+    /// regular data availability boundary unless we are near the Fulu fork epoch.
+    pub fn column_data_availability_boundary(&self) -> Option<Epoch> {
+        let da_boundary = self.data_availability_boundary()?;
+        let fulu_epoch = self.spec.fulu_fork_epoch?;
+        Some(da_boundary.max(fulu_epoch))
+    }
 }
 
 /// Indicates that the custody group count (CGC) has increased.

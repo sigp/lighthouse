@@ -1040,6 +1040,7 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            custody_context: custody_context.clone(),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
                     self.kzg.clone(),
@@ -1051,12 +1052,8 @@ where
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             pending_payload_cache: Arc::new(
-                PendingPayloadCache::new(
-                    self.kzg.clone(),
-                    custody_context.clone(),
-                    self.spec.clone(),
-                )
-                .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
+                PendingPayloadCache::new(self.kzg.clone(), custody_context, self.spec.clone())
+                    .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
@@ -1127,7 +1124,9 @@ where
         }
 
         // Prune blobs older than the blob data availability boundary in the background.
-        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+        if let Some(data_availability_boundary) =
+            beacon_chain.custody_context.data_availability_boundary()
+        {
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);

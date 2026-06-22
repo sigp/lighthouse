@@ -4878,7 +4878,10 @@ async fn test_column_da_boundary() {
 
     // The column da boundary should be the fulu fork epoch
     assert_eq!(
-        harness.chain.column_data_availability_boundary(),
+        harness
+            .chain
+            .custody_context
+            .column_data_availability_boundary(),
         Some(fulu_fork_epoch)
     );
 }
@@ -5374,8 +5377,6 @@ async fn test_missing_columns_after_cgc_change() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5397,7 +5398,11 @@ async fn test_missing_columns_after_cgc_change() {
     let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
+    harness.chain.custody_context.register_validators(
+        vec![(1, 32_000_000_000 * 9)],
+        cgc_change_slot,
+        &spec,
+    );
 
     harness.advance_slot();
     harness
@@ -5444,8 +5449,6 @@ async fn test_safely_backfill_data_column_custody_info() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5461,7 +5464,11 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+    harness.chain.custody_context.register_validators(
+        vec![(1, 32_000_000_000 * 16)],
+        cgc_change_slot,
+        &spec,
+    );
 
     let epoch_after_increase =
         (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());

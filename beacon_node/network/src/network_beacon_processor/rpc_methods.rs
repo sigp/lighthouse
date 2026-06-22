@@ -1595,13 +1595,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             req.count
         };
 
-        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
-            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-            None => {
-                debug!("Deneb fork is disabled");
-                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
-            }
-        };
+        let data_availability_boundary_slot =
+            match self.chain.custody_context.data_availability_boundary() {
+                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                None => {
+                    debug!("Deneb fork is disabled");
+                    return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
+                }
+            };
 
         let oldest_blob_slot = self
             .chain
@@ -1745,14 +1746,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
 
-        let column_data_availability_boundary_slot =
-            match self.chain.column_data_availability_boundary() {
-                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                None => {
-                    debug!("Fulu fork is disabled");
-                    return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
-                }
-            };
+        let column_data_availability_boundary_slot = match self
+            .chain
+            .custody_context
+            .column_data_availability_boundary()
+        {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            None => {
+                debug!("Fulu fork is disabled");
+                return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
+            }
+        };
 
         let earliest_custodied_data_column_slot =
             match self.chain.earliest_custodied_data_column_epoch() {
@@ -1916,8 +1920,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let non_custody_indices = {
             let custody_columns = self
                 .chain
-                .data_availability_checker
-                .custody_context()
+                .custody_context
                 .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
             requested_indices
                 .iter()

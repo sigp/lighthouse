@@ -854,11 +854,11 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
 
                         let current_slot =
                             chain.slot().map_err(warp_utils::reject::unhandled_error)?;
-                        if let Some(cgc_change) = chain
-                            .data_availability_checker
-                            .custody_context()
-                            .register_validators(validators_and_balances, current_slot, &chain.spec)
-                        {
+                        if let Some(cgc_change) = chain.custody_context.register_validators(
+                            validators_and_balances,
+                            current_slot,
+                            &chain.spec,
+                        ) {
                             chain.update_data_column_custody_info(Some(
                                 cgc_change
                                     .effective_epoch
