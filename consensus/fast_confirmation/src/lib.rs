@@ -27,12 +27,12 @@
 //!    threaded into `will_no_conflicting_checkpoint_be_justified` /
 //!    `will_current_target_be_justified` rather than recomputed per call.
 //!
-//! 3. **Multi-entry vote-root / checkpoint memos**: inside
+//! 3. **Multi-entry vote-root / checkpoint memos** (`optimizations::RootMemo`): inside
 //!    `precompute_chain_attestation_scores` and `get_current_target_score`, each distinct
 //!    vote root (or root+epoch) is resolved (HashMap lookup + ancestor walk) at most once
 //!    across the whole validator set and memoized. Real mainnet votes are scattered by
 //!    validator index, so a single-element cache thrashes; the memos turn ~1M ancestor
-//!    walks into ~tens. Keyed on the root prefix via [`IdentityU64Hasher`] to avoid
+//!    walks into ~tens. Keyed on the root prefix via an identity hasher to avoid
 //!    SipHashing 32-byte roots per validator (full key stored for collision safety).
 //!
 //! 4. **Single-pass balance rebuild** (`BalanceSourceData::build_for_epochs`): the
@@ -44,6 +44,7 @@
 
 mod balance_source;
 pub mod metrics;
+pub mod optimizations;
 mod slot_assignments;
 
 pub use balance_source::BalanceSourceData;
@@ -51,7 +52,7 @@ use slot_assignments::SlotAssignments;
 pub use slot_assignments::UNSET_SLOT;
 
 use proto_array::core::{ProtoArray, VoteTracker};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
@@ -83,34 +84,6 @@ pub enum Error {
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
 const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
-
-/// Identity hasher for `u64` keys that are already well-distributed (block-root byte
-/// prefixes). The per-vote memoization loops resolve each vote's root/checkpoint at most
-/// once across the whole validator set; keying those memos on a root prefix with this
-/// no-op hasher avoids SipHashing a 32-byte `Hash256` per validator (~1M times). Hash
-/// quality is irrelevant to correctness — the memos store and compare the full key.
-#[derive(Default)]
-struct IdentityU64Hasher(u64);
-impl std::hash::Hasher for IdentityU64Hasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    fn write(&mut self, _: &[u8]) {}
-    fn write_u64(&mut self, n: u64) {
-        self.0 = n;
-    }
-}
-type FastMap<V> = HashMap<u64, V, std::hash::BuildHasherDefault<IdentityU64Hasher>>;
-
-/// First 8 bytes of a block root as a `u64` (roots are uniformly distributed, so this is a
-/// good hash). Used as the memo key; the stored full root disambiguates the rare collision.
-fn root_prefix(root: &Hash256) -> u64 {
-    u64::from_le_bytes(
-        root.as_slice()[..8]
-            .try_into()
-            .expect("Hash256 is 32 bytes"),
-    )
-}
 
 /// Index of `e` in `epochs`, appending it if absent. Used to dedup the (few) epochs needed by
 /// a fused balance-source rebuild so coinciding sources share one validator pass.
@@ -570,14 +543,16 @@ impl FastConfirmationRule {
         // get_attestation_score per block (which would be O(B × V × depth) total).
         let precomputed_scores = {
             let _s = debug_span!("fcr_precompute").entered();
-            self.precompute_chain_attestation_scores(
-                head_root,
-                latest_confirmed_root,
-                &self.current_balance_source,
+            let chain = self.get_ancestor_roots(head_root, latest_confirmed_root, proto_array)?;
+            let terminal_slot = self.block_slot(latest_confirmed_root, proto_array)?;
+            optimizations::precompute_chain_attestation_scores(
                 proto_array,
+                &chain,
+                terminal_slot,
+                &self.current_balance_source,
                 votes,
                 equivocating_indices,
-            )?
+            )
         };
         // FFG support is identical for every FFG check in this run (constant head, slot and
         // vote set), so compute it once and thread it into the `will_*` checks below — the
@@ -773,16 +748,17 @@ impl FastConfirmationRule {
         };
 
         // Precompute scores for the confirmed chain in one O(V × depth) pass.
-        let precomputed_scores = self.precompute_chain_attestation_scores(
-            confirmed_root,
-            start_root,
-            &self.previous_balance_source,
+        let chain_roots = self.get_ancestor_roots(confirmed_root, start_root, proto_array)?;
+        let terminal_slot = self.block_slot(start_root, proto_array)?;
+        let precomputed_scores = optimizations::precompute_chain_attestation_scores(
             proto_array,
+            &chain_roots,
+            terminal_slot,
+            &self.previous_balance_source,
             votes,
             equivocating_indices,
-        )?;
+        );
 
-        let chain_roots = self.get_ancestor_roots(confirmed_root, start_root, proto_array)?;
         for root in &chain_roots {
             let score = *precomputed_scores
                 .get(root)
@@ -1033,11 +1009,11 @@ impl FastConfirmationRule {
         let bs = &self.head_balance_source;
         let mut score = 0u64;
 
-        // Memoize get_checkpoint_for_block by (vote root, vote epoch). Most validators share
-        // a small set of (root, epoch) pairs, so each is resolved (an O(depth) ancestor walk)
-        // at most once across the whole validator set instead of once per validator. Keyed on
-        // the root prefix for cheap hashing; the stored (root, epoch) disambiguates collisions.
-        let mut memo: FastMap<(Hash256, Epoch, Option<Checkpoint>)> = FastMap::default();
+        // Memoize get_checkpoint_for_block by (vote root, vote epoch): most validators share a
+        // small set of (root, epoch) pairs, so each O(depth) ancestor walk runs at most once
+        // across the validator set rather than once per validator.
+        let mut memo: optimizations::RootMemo<(Hash256, Epoch), Option<Checkpoint>> =
+            optimizations::RootMemo::new();
 
         for (val_idx, vote) in votes.iter().enumerate() {
             // Skip validators without a vote (spec: `i in store.latest_messages`).
@@ -1059,28 +1035,14 @@ impl FastConfirmationRule {
             //        get_latest_message_epoch(latest_messages[i]))
             // Use the VOTE's epoch, not the current epoch.
             let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
-            let key =
-                root_prefix(&vote_root) ^ vote_epoch.as_u64().wrapping_mul(0x9E37_79B9_7F4A_7C15);
-            let cached = memo
-                .get(&key)
-                .and_then(|(r, e, t)| (*r == vote_root && *e == vote_epoch).then_some(*t));
-            let vote_target = match cached {
-                Some(t) => t,
-                None => {
-                    let t = match self.get_checkpoint_for_block::<E>(
-                        vote_root,
-                        vote_epoch,
-                        proto_array,
-                    ) {
-                        Ok(cp) => Some(cp),
-                        // Vote references a block pruned from proto_array — skip it.
-                        Err(Error::CheckpointBlockNotFound { .. }) => None,
-                        Err(e) => return Err(e),
-                    };
-                    memo.insert(key, (vote_root, vote_epoch, t));
-                    t
+            let vote_target = memo.get_or_try_insert_with((vote_root, vote_epoch), || {
+                match self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) {
+                    Ok(cp) => Ok(Some(cp)),
+                    // Vote references a block pruned from proto_array — skip it.
+                    Err(Error::CheckpointBlockNotFound { .. }) => Ok(None),
+                    Err(e) => Err(e),
                 }
-            };
+            })?;
             if vote_target.is_some_and(|t| t == current_target) {
                 score = score.saturating_add(balance);
             }
@@ -1137,10 +1099,7 @@ impl FastConfirmationRule {
 
     fn block_slot(&self, root: Hash256, proto_array: &ProtoArray) -> Result<Slot, Error> {
         proto_array
-            .indices
-            .get(&root)
-            .and_then(|&idx| proto_array.nodes.get(idx))
-            .map(|n| n.slot())
+            .block_slot(root)
             .ok_or(Error::NodeNotFound(root))
     }
 
@@ -1150,21 +1109,13 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
     ) -> Result<types::Epoch, Error> {
         proto_array
-            .indices
-            .get(&root)
-            .and_then(|&idx| proto_array.nodes.get(idx))
-            .map(|n| n.slot().epoch(E::slots_per_epoch()))
+            .block_slot(root)
+            .map(|slot| slot.epoch(E::slots_per_epoch()))
             .ok_or(Error::BlockEpochNone(root))
     }
 
     fn parent_root(&self, root: Hash256, proto_array: &ProtoArray) -> Option<Hash256> {
-        proto_array
-            .indices
-            .get(&root)
-            .and_then(|&idx| proto_array.nodes.get(idx))
-            .and_then(|n| n.parent())
-            .and_then(|parent_idx| proto_array.nodes.get(parent_idx))
-            .map(|n| n.root())
+        proto_array.parent_root(root)
     }
 
     /// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
@@ -1173,10 +1124,7 @@ impl FastConfirmationRule {
     /// rejected later by `block_slot`, so this returning `false` here is safe.
     fn is_optimistic_or_invalid(&self, root: Hash256, proto_array: &ProtoArray) -> bool {
         proto_array
-            .indices
-            .get(&root)
-            .and_then(|&idx| proto_array.nodes.get(idx))
-            .and_then(|n| n.execution_status().ok())
+            .execution_status_of(root)
             .is_some_and(|s| s.is_optimistic_or_invalid())
     }
 
@@ -1201,9 +1149,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
     ) -> Result<Hash256, Error> {
         proto_array
-            .iter_block_roots(&block_root)
-            .find(|(_, s)| *s <= slot)
-            .map(|(root, _)| root)
+            .ancestor_at_slot(block_root, slot)
             .ok_or(Error::AncestorNotFound {
                 block: block_root,
                 slot,
@@ -1326,111 +1272,6 @@ impl FastConfirmationRule {
                 block: block_root,
                 epoch,
             })
-    }
-
-    // -----------------------------------------------------------------------
-    // Batch score precomputation
-    // -----------------------------------------------------------------------
-
-    /// Precompute attestation scores for all blocks along the canonical chain from
-    /// `terminal_root` (exclusive) to `chain_tip` (inclusive) in a single O(V × depth) pass.
-    ///
-    /// This replaces B separate O(V × depth) calls to `get_attestation_score` with one
-    /// pass over all validators, reducing total cost from O(B × V × depth) to O(V × depth + B).
-    pub fn precompute_chain_attestation_scores(
-        &self,
-        chain_tip: Hash256,
-        terminal_root: Hash256,
-        balance_source: &BalanceSourceData,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<HashMap<Hash256, u64>, Error> {
-        let chain = self.get_ancestor_roots(chain_tip, terminal_root, proto_array)?;
-
-        // Build node_index → chain_position map for O(1) membership checks during walks.
-        let mut index_to_position: HashMap<usize, usize> = HashMap::with_capacity(chain.len());
-        for (pos, root) in chain.iter().enumerate() {
-            if let Some(&node_idx) = proto_array.indices.get(root) {
-                index_to_position.insert(node_idx, pos);
-            }
-        }
-
-        let terminal_slot = self.block_slot(terminal_root, proto_array)?;
-
-        // For each validator, walk from vote_root toward genesis. The first canonical chain
-        // node hit is the deepest block the vote covers. Accumulate balances by position.
-        let chain_len = chain.len();
-        let mut score_at_position = vec![0u64; chain_len];
-
-        // Memoize vote-root -> deepest canonical position. Most validators vote for a small
-        // set of recent roots, so each root is resolved (proto-array lookup + ancestor walk)
-        // at most once across the validator set instead of once per validator. Keyed on the
-        // root prefix for cheap hashing; the stored full root disambiguates collisions.
-        let mut memo: FastMap<(Hash256, Option<usize>)> = FastMap::default();
-
-        for (val_idx, vote) in votes.iter().enumerate() {
-            let vote_root = vote.current_root();
-            if vote_root.is_zero() {
-                continue;
-            }
-            if equivocating_indices.contains(&(val_idx as u64)) {
-                continue;
-            }
-            let balance = balance_source.unslashed_balance(val_idx);
-            if balance == 0 {
-                continue;
-            }
-
-            let key = root_prefix(&vote_root);
-            let cached = memo
-                .get(&key)
-                .and_then(|(r, p)| (*r == vote_root).then_some(*p));
-            let pos = match cached {
-                Some(p) => p,
-                None => {
-                    // Resolve the vote root and walk ancestors to the deepest canonical block.
-                    let p = proto_array.indices.get(&vote_root).and_then(|&start_idx| {
-                        let mut deepest_pos = None;
-                        let mut current_idx = start_idx;
-                        loop {
-                            if let Some(&pos) = index_to_position.get(&current_idx) {
-                                deepest_pos = Some(pos);
-                                break;
-                            }
-                            let Some(node) = proto_array.nodes.get(current_idx) else {
-                                break;
-                            };
-                            if node.slot() <= terminal_slot {
-                                break;
-                            }
-                            match node.parent() {
-                                Some(parent_idx) => current_idx = parent_idx,
-                                None => break,
-                            }
-                        }
-                        deepest_pos
-                    });
-                    memo.insert(key, (vote_root, p));
-                    p
-                }
-            };
-
-            if let Some(pos) = pos {
-                score_at_position[pos] = score_at_position[pos].saturating_add(balance);
-            }
-        }
-
-        // Suffix sum: a vote covering position j also covers all ancestors at positions 0..j.
-        // score[k] = Σ score_at_position[j] for j ∈ [k, chain_len)
-        let mut scores = HashMap::with_capacity(chain_len);
-        let mut running = 0u64;
-        for i in (0..chain_len).rev() {
-            running = running.saturating_add(score_at_position[i]);
-            scores.insert(chain[i], running);
-        }
-
-        Ok(scores)
     }
 
     /// Spec: `is_one_confirmed` — uses a precomputed attestation score from

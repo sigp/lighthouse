@@ -218,6 +218,11 @@ fn bench_precompute_chain_scores(c: &mut Criterion) {
     for &n in &[64, 16_000, 100_000, 500_000] {
         let data = build_chain(n);
         let genesis_root = data.block_roots[0];
+        // `block_roots[1..]` is exactly `get_ancestor_roots(head, genesis)` for this linear chain.
+        let terminal_slot = data
+            .proto_array
+            .block_slot(genesis_root)
+            .expect("genesis in proto array");
 
         if n >= 100_000 {
             group.sample_size(10);
@@ -225,11 +230,11 @@ fn bench_precompute_chain_scores(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             b.iter(|| {
-                data.fcr.precompute_chain_attestation_scores(
-                    data.head_root,
-                    genesis_root,
-                    &data.balance_source,
+                fast_confirmation::optimizations::precompute_chain_attestation_scores(
                     &data.proto_array,
+                    &data.block_roots[1..],
+                    terminal_slot,
+                    &data.balance_source,
                     &data.votes,
                     &data.equivocating_indices,
                 )
