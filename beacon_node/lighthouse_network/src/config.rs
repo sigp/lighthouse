@@ -125,7 +125,7 @@ pub struct Config {
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
 
-    /// Whether to enable the deprecated mplex multiplexer alongside yamux.
+    /// Whether to enable the mplex multiplexer alongside yamux. Enabled by default.
     pub enable_mplex: bool,
 
     /// Configuration for the outbound rate limiter (requests made by this node).
@@ -365,7 +365,7 @@ impl Default for Config {
             proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: true,
-            enable_mplex: false,
+            enable_mplex: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,

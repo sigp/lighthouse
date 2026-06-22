@@ -30,7 +30,6 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::DisallowedReOrgOffsets;
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -173,15 +172,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org disallowed offsets list.
-    pub fn proposer_re_org_disallowed_offsets(
-        mut self,
-        disallowed_offsets: DisallowedReOrgOffsets,
-    ) -> Self {
-        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 
@@ -918,6 +908,7 @@ where
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;
+        let disable_get_blobs = self.chain_config.disable_get_blobs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -1053,6 +1044,7 @@ where
                     custody_context.clone(),
                     self.spec.clone(),
                     enable_partial_columns,
+                    disable_get_blobs,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),

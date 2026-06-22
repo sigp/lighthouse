@@ -62,7 +62,7 @@ impl GraffitiSettings {
         validator_graffiti
             .map(|graffiti| Self::Specified {
                 graffiti,
-                policy: policy.unwrap_or(GraffitiPolicy::PreserveUserGraffiti),
+                policy: policy.unwrap_or_default(),
             })
             .unwrap_or(Self::Unspecified)
     }
@@ -480,9 +480,9 @@ mod tests {
                 // for the case of empty append_graffiti_string, i.e., user-specified graffiti is 30-32 characters
                 graffiti.to_string()
             } else {
-                // There is a space between the client version info and user graffiti
+                // There is a space between the user graffiti and client version info
                 // as defined in calculate_graffiti function in engine_api.rs
-                format!("{} {}", append_graffiti_string, graffiti)
+                format!("{} {}", graffiti, append_graffiti_string)
             };
 
             let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
