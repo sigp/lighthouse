@@ -92,14 +92,14 @@ pub struct PendingPayloadCache<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn new(
         kzg: Arc<Kzg>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -110,7 +110,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
         &self.custody_context
     }
 
@@ -516,10 +516,12 @@ mod data_availability_checker_tests {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::{SlotClock, TestingSlotClock};
+    use std::time::Duration;
     use types::test_utils::test_unstructured;
     use types::{
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope,
+        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot,
     };
 
     type E = MinimalEthSpec;
@@ -542,10 +544,16 @@ mod data_availability_checker_tests {
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let kzg = get_kzg(&spec);
         // TODO: check this with the new payload cache
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        );
         let complete_blob_backfill = false;
-        let custody_context = Arc::new(CustodyContext::<E>::new(
+        let custody_context = Arc::new(CustodyContext::<T>::new(
             node_custody,
             generate_data_column_indices_rand_order::<E>(),
+            slot_clock,
             complete_blob_backfill,
             &spec,
         ));

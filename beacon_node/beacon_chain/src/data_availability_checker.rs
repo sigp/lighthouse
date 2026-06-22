@@ -80,7 +80,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -118,7 +118,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
         enable_partial_columns: bool,
         disable_get_blobs: bool,
@@ -147,7 +147,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
         &self.custody_context
     }
 
@@ -1425,6 +1425,7 @@ mod test {
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
+            slot_clock.clone(),
             complete_blob_backfill,
             &spec,
         ));

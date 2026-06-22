@@ -349,7 +349,7 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -365,7 +365,7 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: usize,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -760,6 +760,7 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::TestingSlotClock;
     use state_processing::ConsensusContext;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
@@ -922,6 +923,7 @@ mod test {
                 HotStore = BeaconNodeBackend,
                 ColdStore = BeaconNodeBackend,
                 EthSpec = E,
+                SlotClock = TestingSlotClock,
             >,
     {
         create_test_tracing_subscriber();
@@ -929,9 +931,12 @@ mod test {
         let harness = get_fulu_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let complete_blob_backfill = false;
+        let slot_clock = harness.chain.slot_clock.clone();
+
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            slot_clock,
             complete_blob_backfill,
             &spec,
         ));

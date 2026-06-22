@@ -237,6 +237,7 @@ pub fn test_da_checker<E: EthSpec>(
     let custody_context = Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
+        slot_clock.clone(),
         complete_blob_backfill,
         &spec,
     ));

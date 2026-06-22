@@ -1,3 +1,5 @@
+use crate::BeaconChainTypes;
+use educe::Educe;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -236,8 +238,9 @@ impl NodeCustodyType {
 
 /// Contains all the information the node requires to calculate the
 /// number of columns to be custodied when checking for DA.
-#[derive(Debug)]
-pub struct CustodyContext<E: EthSpec> {
+#[derive(Educe)]
+#[educe(Debug(bound(T: BeaconChainTypes)))]
+pub struct CustodyContext<T: BeaconChainTypes> {
     /// The Number of custody groups required based on the number of validators
     /// that is attached to this node.
     ///
@@ -250,12 +253,16 @@ pub struct CustodyContext<E: EthSpec> {
     /// Stores an immutable, ordered list of all data column indices as determined by the node's NodeID
     /// on startup. This used to determine the node's custody columns.
     ordered_custody_column_indices: Vec<ColumnIndex>,
+    #[expect(dead_code)]
+    #[educe(Debug(ignore))]
+    slot_clock: T::SlotClock,
     /// backfill blobs and data columns beyond the data availability window.
     complete_blob_backfill: bool,
-    _phantom_data: PhantomData<E>,
+    #[educe(Debug(ignore))]
+    _phantom_data: PhantomData<T>,
 }
 
-impl<E: EthSpec> CustodyContext<E> {
+impl<T: BeaconChainTypes> CustodyContext<T> {
     /// Create a new custody default custody context object when no persisted object
     /// exists.
     ///
@@ -263,6 +270,7 @@ impl<E: EthSpec> CustodyContext<E> {
     pub fn new(
         node_custody_type: NodeCustodyType,
         ordered_custody_column_indices: Vec<ColumnIndex>,
+        slot_clock: T::SlotClock,
         complete_blob_backfill: bool,
         spec: &ChainSpec,
     ) -> Self {
@@ -274,6 +282,7 @@ impl<E: EthSpec> CustodyContext<E> {
             validator_custody_count: AtomicU64::new(cgc_override.unwrap_or(0)),
             validator_registrations: RwLock::new(ValidatorRegistrations::new(cgc_override)),
             ordered_custody_column_indices,
+            slot_clock,
             complete_blob_backfill,
             _phantom_data: PhantomData,
         }
@@ -298,6 +307,7 @@ impl<E: EthSpec> CustodyContext<E> {
         node_custody_type: NodeCustodyType,
         head_epoch: Epoch,
         ordered_custody_column_indices: Vec<ColumnIndex>,
+        slot_clock: T::SlotClock,
         complete_blob_backfill: bool,
         spec: &ChainSpec,
     ) -> (Self, Option<CustodyCountChanged>) {
@@ -365,6 +375,7 @@ impl<E: EthSpec> CustodyContext<E> {
                     .collect(),
             }),
             ordered_custody_column_indices,
+            slot_clock,
             complete_blob_backfill,
             _phantom_data: PhantomData,
         };
@@ -384,10 +395,10 @@ impl<E: EthSpec> CustodyContext<E> {
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Option<CustodyCountChanged> {
-        let Some((effective_epoch, new_validator_custody)) = self
-            .validator_registrations
-            .write()
-            .register_validators::<E>(validators_and_balance, current_slot, spec)
+        let Some((effective_epoch, new_validator_custody)) =
+            self.validator_registrations
+                .write()
+                .register_validators::<T::EthSpec>(validators_and_balance, current_slot, spec)
         else {
             return None;
         };
@@ -459,13 +470,13 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
     pub fn num_of_data_columns_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> usize {
         let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
-        spec.sampling_size_columns::<E>(custody_group_count)
+        spec.sampling_size_columns::<T::EthSpec>(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 
     /// Returns whether the node should attempt reconstruction at a given epoch.
     pub fn should_attempt_reconstruction(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
-        let min_columns_for_reconstruction = E::number_of_columns() / 2;
+        let min_columns_for_reconstruction = T::EthSpec::number_of_columns() / 2;
         // performing reconstruction is not necessary if sampling column count is exactly 50%,
         // because the node doesn't need the remaining columns.
         self.num_of_data_columns_to_sample(epoch, spec) > min_columns_for_reconstruction
@@ -509,7 +520,7 @@ impl<E: EthSpec> CustodyContext<E> {
         };
 
         // This is an unnecessary conversion for spec compliance, basically just multiplying by 1.
-        let columns_per_custody_group = spec.data_columns_per_group::<E>() as usize;
+        let columns_per_custody_group = spec.data_columns_per_group::<T::EthSpec>() as usize;
         let custody_column_count = columns_per_custody_group * custody_group_count;
 
         &self.ordered_custody_column_indices[..custody_column_count]
@@ -559,8 +570,8 @@ pub struct CustodyContextSsz {
     pub epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
 }
 
-impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
-    fn from(context: &CustodyContext<E>) -> Self {
+impl<T: BeaconChainTypes> From<&CustodyContext<T>> for CustodyContextSsz {
+    fn from(context: &CustodyContext<T>) -> Self {
         CustodyContextSsz {
             validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
             // This field is deprecated and has no effect
@@ -579,16 +590,27 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::generate_data_column_indices_rand_order;
+    use crate::test_utils::{EphemeralHarnessType, generate_data_column_indices_rand_order};
+    use slot_clock::{SlotClock, TestingSlotClock};
+    use std::time::Duration;
     use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
+    type T = EphemeralHarnessType<E>;
+
+    fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {
+        TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        )
+    }
 
     fn setup_custody_context(
         spec: &ChainSpec,
         head_epoch: Epoch,
         epoch_and_cgc_tuples: Vec<(Epoch, u64)>,
-    ) -> CustodyContext<E> {
+    ) -> CustodyContext<T> {
         let cgc_at_head = epoch_and_cgc_tuples.last().unwrap().1;
         let ssz_context = CustodyContextSsz {
             validator_custody_at_head: cgc_at_head,
@@ -597,11 +619,12 @@ mod tests {
         };
 
         let complete_blob_backfill = false;
-        let (custody_context, _) = CustodyContext::<E>::new_from_persisted_custody_context(
+        let (custody_context, _) = CustodyContext::<T>::new_from_persisted_custody_context(
             ssz_context,
             NodeCustodyType::Fullnode,
             head_epoch,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(spec),
             complete_blob_backfill,
             spec,
         );
@@ -610,7 +633,7 @@ mod tests {
     }
 
     fn complete_backfill_for_epochs(
-        custody_context: &CustodyContext<E>,
+        custody_context: &CustodyContext<T>,
         start_epoch: Epoch,
         end_epoch: Epoch,
         expected_cgc: u64,
@@ -641,11 +664,12 @@ mod tests {
         let complete_blob_backfill = false;
 
         let (custody_context, custody_count_changed) =
-            CustodyContext::<E>::new_from_persisted_custody_context(
+            CustodyContext::<T>::new_from_persisted_custody_context(
                 ssz_context,
                 target_node_custody_type,
                 head_epoch,
                 generate_data_column_indices_rand_order::<E>(),
+                testing_slot_clock(spec),
                 complete_blob_backfill,
                 spec,
             );
@@ -714,11 +738,12 @@ mod tests {
         let complete_blob_backfill = false;
 
         let (custody_context, custody_count_changed) =
-            CustodyContext::<E>::new_from_persisted_custody_context(
+            CustodyContext::<T>::new_from_persisted_custody_context(
                 ssz_context,
                 target_node_custody_type,
                 head_epoch,
                 generate_data_column_indices_rand_order::<E>(),
+                testing_slot_clock(spec),
                 complete_blob_backfill,
                 spec,
             );
@@ -742,9 +767,10 @@ mod tests {
     fn no_validators_supernode_default() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -762,9 +788,10 @@ mod tests {
     fn no_validators_semi_supernode_default() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::SemiSupernode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -782,9 +809,10 @@ mod tests {
     fn no_validators_fullnode_default() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -803,9 +831,10 @@ mod tests {
     fn register_single_validator_should_update_cgc() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -822,7 +851,7 @@ mod tests {
             (vec![(0, 10 * bal_per_additional_group)], Some(10)),
         ];
 
-        register_validators_and_assert_cgc::<E>(
+        register_validators_and_assert_cgc::<T>(
             &custody_context,
             validators_and_expected_cgc_change,
             &spec,
@@ -833,9 +862,10 @@ mod tests {
     fn register_multiple_validators_should_update_cgc() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -865,7 +895,7 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc::<E>(
+        register_validators_and_assert_cgc::<T>(
             &custody_context,
             validators_and_expected_cgc,
             &spec,
@@ -876,9 +906,10 @@ mod tests {
     fn register_validators_should_not_update_cgc_for_supernode() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -904,7 +935,7 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc::<E>(
+        register_validators_and_assert_cgc::<T>(
             &custody_context,
             validators_and_expected_cgc,
             &spec,
@@ -920,9 +951,10 @@ mod tests {
     fn cgc_change_should_be_effective_to_sampling_after_delay() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -957,9 +989,10 @@ mod tests {
     fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1005,9 +1038,10 @@ mod tests {
     fn validator_dropped_after_no_registrations_within_expiry() {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1058,8 +1092,8 @@ mod tests {
     }
 
     /// Update the validator every epoch and assert cgc against expected values.
-    fn register_validators_and_assert_cgc<E: EthSpec>(
-        custody_context: &CustodyContext<E>,
+    fn register_validators_and_assert_cgc<T: BeaconChainTypes>(
+        custody_context: &CustodyContext<T>,
         validators_and_expected_cgc_changed: Vec<(ValidatorsAndBalances, Option<u64>)>,
         spec: &ChainSpec,
     ) {
@@ -1070,7 +1104,7 @@ mod tests {
             let updated_custody_count_opt = custody_context
                 .register_validators(
                     validators_and_balance,
-                    epoch.start_slot(E::slots_per_epoch()),
+                    epoch.start_slot(T::EthSpec::slots_per_epoch()),
                     spec,
                 )
                 .map(|c| c.new_custody_group_count);
@@ -1084,9 +1118,10 @@ mod tests {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1102,9 +1137,10 @@ mod tests {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             ordered_custody_column_indices,
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1120,9 +1156,10 @@ mod tests {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1148,9 +1185,10 @@ mod tests {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1175,11 +1213,12 @@ mod tests {
             epoch_validator_custody_requirements: vec![],
         };
 
-        let (custody_context, _) = CustodyContext::<E>::new_from_persisted_custody_context(
+        let (custody_context, _) = CustodyContext::<T>::new_from_persisted_custody_context(
             ssz_context,
             NodeCustodyType::Fullnode,
             Epoch::new(0),
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1215,9 +1254,10 @@ mod tests {
         let spec = E::default_spec();
         let complete_blob_backfill = false;
         let semi_supernode_cgc = spec.number_of_custody_groups / 2; // 64
-        let custody_context = CustodyContext::<E>::new(
+        let custody_context = CustodyContext::<T>::new(
             NodeCustodyType::SemiSupernode,
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );
@@ -1367,11 +1407,12 @@ mod tests {
         };
 
         let complete_blob_backfill = false;
-        let (custody_context, _) = CustodyContext::<E>::new_from_persisted_custody_context(
+        let (custody_context, _) = CustodyContext::<T>::new_from_persisted_custody_context(
             ssz_context,
             NodeCustodyType::Fullnode,
             Epoch::new(20),
             generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
             complete_blob_backfill,
             &spec,
         );

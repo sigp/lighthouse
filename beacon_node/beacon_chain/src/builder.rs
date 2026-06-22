@@ -951,6 +951,7 @@ where
                 self.node_custody_type,
                 head_epoch,
                 ordered_custody_column_indices,
+                slot_clock.clone(),
                 complete_blob_backfill,
                 &self.spec,
             )
@@ -959,6 +960,7 @@ where
                 CustodyContext::new(
                     self.node_custody_type,
                     ordered_custody_column_indices,
+                    slot_clock.clone(),
                     complete_blob_backfill,
                     &self.spec,
                 ),
