@@ -1921,7 +1921,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let custody_columns = self
                 .chain
                 .custody_context
-                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
+                .custody_columns_for_epoch(epoch_opt);
             requested_indices
                 .iter()
                 .filter(|subnet_id| !custody_columns.contains(subnet_id))

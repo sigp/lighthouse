@@ -746,7 +746,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_custody_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_gloas_blocks_and_columns(count, &spec);
 
@@ -885,7 +885,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expects_custody_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
@@ -967,7 +967,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         // Split sampling columns into two batches
         let mid = expected_sampling_columns.len() / 2;
@@ -1172,7 +1172,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
@@ -1274,7 +1274,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
@@ -1394,7 +1394,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..1)

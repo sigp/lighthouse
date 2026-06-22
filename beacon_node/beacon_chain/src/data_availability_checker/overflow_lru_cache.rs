@@ -504,9 +504,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -610,9 +608,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -713,9 +709,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     fn get_num_expected_columns(&self, epoch: Epoch) -> Option<usize> {
         if self.spec.is_peer_das_enabled_for_epoch(epoch) {
-            let num_of_column_samples = self
-                .custody_context
-                .num_of_data_columns_to_sample(epoch, &self.spec);
+            let num_of_column_samples = self.custody_context.num_of_data_columns_to_sample(epoch);
             Some(num_of_column_samples)
         } else {
             None
@@ -963,9 +957,7 @@ mod test {
         let epoch = pending_block.block.epoch();
 
         let num_blobs_expected = pending_block.num_blobs_expected();
-        let columns_expected = cache
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &harness.spec);
+        let columns_expected = cache.custody_context.num_of_data_columns_to_sample(epoch);
 
         // All columns are returned from availability_pending_block (E::number_of_columns())
         // but we only need custody columns
@@ -1005,9 +997,7 @@ mod test {
         }
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns
@@ -1043,9 +1033,7 @@ mod test {
         let root = pending_block.import_data.block_root;
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns

@@ -41,11 +41,11 @@ pub fn info<T: BeaconChainTypes>(
     // node is custodying.
     let custody_columns = chain
         .custody_context
-        .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch), &chain.spec)
+        .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch))
         .to_vec();
     let custody_group_count = chain
         .custody_context
-        .custody_group_count_at_epoch(earliest_custodied_data_column_epoch, &chain.spec);
+        .custody_group_count_at_epoch(earliest_custodied_data_column_epoch);
 
     Ok(CustodyInfo {
         earliest_custodied_data_column_slot,

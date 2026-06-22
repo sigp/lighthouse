@@ -5398,11 +5398,10 @@ async fn test_missing_columns_after_cgc_change() {
     let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
-    harness.chain.custody_context.register_validators(
-        vec![(1, 32_000_000_000 * 9)],
-        cgc_change_slot,
-        &spec,
-    );
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot);
 
     harness.advance_slot();
     harness
@@ -5464,11 +5463,10 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
-    harness.chain.custody_context.register_validators(
-        vec![(1, 32_000_000_000 * 16)],
-        cgc_change_slot,
-        &spec,
-    );
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot);
 
     let epoch_after_increase =
         (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());

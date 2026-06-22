@@ -1613,7 +1613,7 @@ impl TestRig {
         self.harness
             .chain
             .custody_context
-            .custody_columns_for_epoch(None, &self.harness.spec)
+            .custody_columns_for_epoch(None)
     }
 
     // Test setup

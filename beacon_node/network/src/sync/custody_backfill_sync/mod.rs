@@ -225,7 +225,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         let cgc_at_head = self
             .beacon_chain
             .custody_context
-            .custody_group_count_at_head(&self.beacon_chain.spec);
+            .custody_group_count_at_head();
 
         if cgc_at_head != self.cgc {
             self.restart_sync();
@@ -317,7 +317,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.cgc = self
             .beacon_chain
             .custody_context
-            .custody_group_count_at_head(&self.beacon_chain.spec);
+            .custody_group_count_at_head();
     }
 
     fn set_start_epoch(&mut self) {

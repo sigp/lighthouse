@@ -185,9 +185,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -228,9 +226,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -252,9 +248,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -282,9 +276,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -340,7 +332,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let slot = bid.message.slot;
         let columns_to_sample = self
             .custody_context()
-            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
 
         let data_columns_to_import_and_publish = all_data_columns
             .into_iter()
@@ -458,9 +450,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let epoch = pending_components.bid.epoch();
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
@@ -578,9 +568,7 @@ mod data_availability_checker_tests {
         cache.insert_bid(block_root, bid.clone());
 
         let epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let sampling = cache
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &spec);
+        let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()
             .filter(|c| sampling.contains(c.index()))
