@@ -928,13 +928,15 @@ mod test {
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_fulu_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
+        let complete_blob_backfill = false;
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
+            complete_blob_backfill,
             &spec,
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec.clone())
+            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec)
                 .expect("should create cache"),
         );
         (harness, cache, chain_db_path)

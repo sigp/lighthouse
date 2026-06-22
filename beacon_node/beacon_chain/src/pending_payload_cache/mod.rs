@@ -541,9 +541,12 @@ mod data_availability_checker_tests {
         create_test_tracing_subscriber();
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let kzg = get_kzg(&spec);
+        // TODO: check this with the new payload cache
+        let complete_blob_backfill = false;
         let custody_context = Arc::new(CustodyContext::<E>::new(
             node_custody,
             generate_data_column_indices_rand_order::<E>(),
+            complete_blob_backfill,
             &spec,
         ));
         let cache = Arc::new(

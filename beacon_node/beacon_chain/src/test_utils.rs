@@ -233,12 +233,13 @@ pub fn test_da_checker<E: EthSpec>(
     );
     let kzg = get_kzg(&spec);
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let complete_blob_backfill = false;
     let custody_context = Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
+        complete_blob_backfill,
         &spec,
     ));
-    let complete_blob_backfill = false;
     DataAvailabilityChecker::new(
         complete_blob_backfill,
         slot_clock,
