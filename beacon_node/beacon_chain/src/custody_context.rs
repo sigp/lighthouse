@@ -2,14 +2,16 @@ use crate::BeaconChainTypes;
 use educe::Educe;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::{
     collections::{BTreeMap, HashMap},
+    sync::Arc,
     sync::atomic::{AtomicU64, Ordering},
 };
 use tracing::{debug, warn};
-use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
+use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
 pub const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
@@ -253,11 +255,12 @@ pub struct CustodyContext<T: BeaconChainTypes> {
     /// Stores an immutable, ordered list of all data column indices as determined by the node's NodeID
     /// on startup. This used to determine the node's custody columns.
     ordered_custody_column_indices: Vec<ColumnIndex>,
-    #[expect(dead_code)]
     #[educe(Debug(ignore))]
     slot_clock: T::SlotClock,
     /// backfill blobs and data columns beyond the data availability window.
     complete_blob_backfill: bool,
+    #[educe(Debug(ignore))]
+    spec: Arc<ChainSpec>,
     #[educe(Debug(ignore))]
     _phantom_data: PhantomData<T>,
 }
@@ -284,6 +287,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             ordered_custody_column_indices,
             slot_clock,
             complete_blob_backfill,
+            spec: Arc::new(spec.clone()),
             _phantom_data: PhantomData,
         }
     }
@@ -377,6 +381,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             ordered_custody_column_indices,
             slot_clock,
             complete_blob_backfill,
+            spec: Arc::new(spec.clone()),
             _phantom_data: PhantomData,
         };
 
@@ -544,6 +549,46 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         self.validator_registrations
             .write()
             .reset_validator_custody_requirements(effective_epoch);
+    }
+
+    /// The epoch at which we require a data availability check in block processing.
+    /// `None` if the `Deneb` fork is disabled.
+    pub fn data_availability_boundary(&self) -> Option<Epoch> {
+        let fork_epoch = self.spec.deneb_fork_epoch?;
+
+        if self.complete_blob_backfill {
+            Some(fork_epoch)
+        } else {
+            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+            self.spec
+                .min_epoch_data_availability_boundary(current_epoch)
+        }
+    }
+
+    /// Returns true if the given epoch lies within the da boundary and false otherwise.
+    pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
+        self.data_availability_boundary()
+            .is_some_and(|da_epoch| block_epoch >= da_epoch)
+    }
+
+    /// If the epoch is from prior to the data availability boundary, no blobs are required.
+    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(epoch) && !self.spec.is_peer_das_enabled_for_epoch(epoch)
+    }
+
+    /// If the epoch is from prior to the data availability boundary, no data columns are required.
+    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
+    }
+
+    /// See `Self::blobs_required_for_epoch`
+    pub fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+        block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
+    }
+
+    /// See `Self::data_columns_required_for_epoch`
+    pub fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+        block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
     }
 }
 

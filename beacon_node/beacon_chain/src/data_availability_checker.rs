@@ -18,7 +18,7 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
+    DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError,
     PartialDataColumnSidecarRef, SignedBeaconBlock, Slot,
 };
 
@@ -75,7 +75,6 @@ const OVERFLOW_LRU_CAPACITY: usize = 32;
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
     slot_clock: T::SlotClock,
@@ -115,7 +114,6 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
-        complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T>>,
@@ -137,7 +135,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             None
         };
         Ok(Self {
-            complete_blob_backfill,
             partial_assembler,
             availability_cache: Arc::new(inner),
             slot_clock,
@@ -310,9 +307,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
+        slot_clock: &T::SlotClock,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let seen_timestamp = self
-            .slot_clock
+        let seen_timestamp = slot_clock
             .now_duration()
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
@@ -505,59 +502,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         Ok(())
-    }
-
-    /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
-    /// If the epoch is from prior to the data availability boundary, no blobs are required.
-    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && !self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// Determines the data column requirements for an epoch.
-    /// - If the epoch is pre-peerdas, no data columns are required.
-    /// - If the epoch is from prior to the data availability boundary, no data columns are required.
-    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// See `Self::blobs_required_for_epoch`
-    fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
-    }
-
-    /// See `Self::data_columns_required_for_epoch`
-    fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
-    }
-
-    /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Deneb` fork is disabled.
-    pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let fork_epoch = self.spec.deneb_fork_epoch?;
-
-        if self.complete_blob_backfill {
-            Some(fork_epoch)
-        } else {
-            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-            self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
-        }
-    }
-
-    /// Returns true if the given epoch lies within the da boundary and false otherwise.
-    pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.data_availability_boundary()
-            .is_some_and(|da_epoch| block_epoch >= da_epoch)
-    }
-
-    /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
-    pub fn is_deneb(&self) -> bool {
-        self.slot_clock.now().is_some_and(|slot| {
-            self.spec.deneb_fork_epoch.is_some_and(|deneb_epoch| {
-                let now_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                now_epoch >= deneb_epoch
-            })
-        })
     }
 
     /// Collects metrics from the data availability checker.
@@ -893,8 +837,12 @@ impl<E: EthSpec> AvailableBlock<E> {
         T: BeaconChainTypes<EthSpec = E>,
     {
         // Ensure block availability
-        let blobs_required = da_checker.blobs_required_for_block(&block);
-        let columns_required = da_checker.data_columns_required_for_block(&block);
+        let blobs_required = da_checker
+            .custody_context()
+            .blobs_required_for_block(&block);
+        let columns_required = da_checker
+            .custody_context()
+            .data_columns_required_for_block(&block);
 
         match &block_data {
             AvailableBlockData::NoData => {
@@ -1081,7 +1029,8 @@ mod test {
     use std::time::Duration;
     use types::data::DataColumn;
     use types::{
-        ChainSpec, ColumnIndex, DataColumnSidecarFulu, EthSpec, ForkName, MainnetEthSpec, Slot,
+        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, MainnetEthSpec,
+        Slot,
     };
 
     type E = MainnetEthSpec;
@@ -1429,15 +1378,7 @@ mod test {
             complete_blob_backfill,
             &spec,
         ));
-        DataAvailabilityChecker::new(
-            complete_blob_backfill,
-            slot_clock,
-            kzg,
-            custody_context,
-            spec,
-            true,
-            false,
-        )
-        .expect("should initialise data availability checker")
+        DataAvailabilityChecker::new(slot_clock, kzg, custody_context, spec, true, false)
+            .expect("should initialise data availability checker")
     }
 }

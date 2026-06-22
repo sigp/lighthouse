@@ -1042,7 +1042,6 @@ where
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
-                    complete_blob_backfill,
                     slot_clock.clone(),
                     self.kzg.clone(),
                     custody_context.clone(),

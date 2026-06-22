@@ -3981,7 +3981,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
         let availability = self
             .data_availability_checker
-            .put_rpc_blobs(block_root, blobs)
+            .put_rpc_blobs(block_root, blobs, &self.slot_clock)
             .map_err(BlockError::from)?;
 
         self.process_availability(slot, availability, || Ok(()))
@@ -7483,12 +7483,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.data_availability_checker.data_availability_boundary()
+        self.data_availability_checker
+            .custody_context()
+            .data_availability_boundary()
     }
 
     /// Returns true if epoch is within the data availability boundary
     pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
         self.data_availability_checker
+            .custody_context()
             .da_check_required_for_epoch(epoch)
     }
 

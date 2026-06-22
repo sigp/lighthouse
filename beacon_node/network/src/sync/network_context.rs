@@ -1429,12 +1429,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         } else if self
             .chain
             .data_availability_checker
+            .custody_context()
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
         } else if self
             .chain
             .data_availability_checker
+            .custody_context()
             .blobs_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndBlobs

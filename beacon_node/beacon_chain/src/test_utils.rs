@@ -241,16 +241,8 @@ pub fn test_da_checker<E: EthSpec>(
         complete_blob_backfill,
         &spec,
     ));
-    DataAvailabilityChecker::new(
-        complete_blob_backfill,
-        slot_clock,
-        kzg,
-        custody_context,
-        spec,
-        true,
-        false,
-    )
-    .expect("should initialise data availability checker")
+    DataAvailabilityChecker::new(slot_clock, kzg, custody_context, spec, true, false)
+        .expect("should initialise data availability checker")
 }
 
 pub struct Builder<T: BeaconChainTypes> {
