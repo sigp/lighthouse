@@ -73,6 +73,8 @@ type_name!(DepositMessage);
 type_name!(DepositRequest);
 type_name!(Eth1Data);
 type_name!(Builder);
+type_name!(BuilderDepositRequest);
+type_name!(BuilderExitRequest);
 type_name!(BuilderPendingPayment);
 type_name!(BuilderPendingWithdrawal);
 type_name!(WithdrawalRequest);

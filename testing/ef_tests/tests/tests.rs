@@ -829,6 +829,18 @@ mod ssz_static {
     }
 
     #[test]
+    fn builder_deposit_request() {
+        SszStaticHandler::<BuilderDepositRequest, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderDepositRequest, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn builder_exit_request() {
+        SszStaticHandler::<BuilderExitRequest, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderExitRequest, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
     fn builder_pending_payment() {
         SszStaticHandler::<BuilderPendingPayment, MinimalEthSpec>::gloas_and_later().run();
         SszStaticHandler::<BuilderPendingPayment, MainnetEthSpec>::gloas_and_later().run();
@@ -1110,6 +1122,18 @@ fn fork_choice_get_parent_payload_status() {
 fn fork_choice_on_payload_attestation_message() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_payload_attestation_message").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("on_payload_attestation_message").run();
+}
+
+#[test]
+fn fork_choice_payload_timeliness() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("payload_timeliness").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("payload_timeliness").run();
+}
+
+#[test]
+fn fork_choice_payload_data_availability() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("payload_data_availability").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("payload_data_availability").run();
 }
 
 #[test]
