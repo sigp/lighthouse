@@ -60,8 +60,8 @@ impl SlotAssignments {
     /// Check if a validator is assigned to any committee in the slot range `[start, end]`.
     ///
     /// Iterates over all 3 epoch columns and returns `true` if any assigned slot
-    /// falls within the range (inclusive). Returns an error if an `UNSET_SLOT`
-    /// sentinel is encountered, indicating a rebuild bug.
+    /// falls within the range (inclusive). Columns with no assignment (`UNSET_SLOT`,
+    /// or an out-of-range index) are treated as "not in range".
     pub(crate) fn is_in_range(
         &self,
         val_idx: usize,
@@ -178,10 +178,6 @@ impl SlotAssignments {
                 .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?;
 
             let shuffling = committee_cache.shuffling();
-            if shuffling.is_empty() {
-                continue;
-            }
-
             let committees_per_slot = committee_cache.committees_per_slot() as usize;
             let epoch_start = duty_epoch.start_slot(slots_per_epoch);
 

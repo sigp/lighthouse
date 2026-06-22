@@ -468,14 +468,14 @@ impl FastConfirmationRule {
             } else {
                 None
             };
-        if confirmed_epoch_too_old || confirmed_not_ancestor || chain_unsafe_reason.is_some() {
-            let reason = if confirmed_epoch_too_old {
-                "epoch_too_old"
-            } else if confirmed_not_ancestor {
-                "not_ancestor"
-            } else {
-                chain_unsafe_reason.unwrap_or("chain_unsafe")
-            };
+        let revert_reason = if confirmed_epoch_too_old {
+            Some("epoch_too_old")
+        } else if confirmed_not_ancestor {
+            Some("not_ancestor")
+        } else {
+            chain_unsafe_reason
+        };
+        if let Some(reason) = revert_reason {
             debug!(
                 prev_confirmed = %confirmed_root,
                 finalized = %finalized_checkpoint.root,
@@ -1347,9 +1347,6 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<HashMap<Hash256, u64>, Error> {
         let chain = self.get_ancestor_roots(chain_tip, terminal_root, proto_array)?;
-        if chain.is_empty() {
-            return Ok(HashMap::new());
-        }
 
         // Build node_index → chain_position map for O(1) membership checks during walks.
         let mut index_to_position: HashMap<usize, usize> = HashMap::with_capacity(chain.len());
