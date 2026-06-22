@@ -615,8 +615,7 @@ mod tests {
         let available_block = AvailableBlock::new(
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
-            &chain.data_availability_checker,
-            chain.spec.clone(),
+            &chain.custody_context,
         )
         .unwrap();
 

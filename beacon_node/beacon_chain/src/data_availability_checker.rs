@@ -139,7 +139,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+    fn custody_context(&self) -> &Arc<CustodyContext<T>> {
         self.availability_cache.custody_context()
     }
 
@@ -821,20 +821,14 @@ impl<E: EthSpec> AvailableBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
-        da_checker: &DataAvailabilityChecker<T>,
-        // TODO: remove spec
-        _spec: Arc<ChainSpec>,
+        custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         // Ensure block availability
-        let blobs_required = da_checker
-            .custody_context()
-            .blobs_required_for_block(&block);
-        let columns_required = da_checker
-            .custody_context()
-            .data_columns_required_for_block(&block);
+        let blobs_required = custody_context.blobs_required_for_block(&block);
+        let columns_required = custody_context.data_columns_required_for_block(&block);
 
         match &block_data {
             AvailableBlockData::NoData => {
@@ -875,8 +869,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
-                let mut column_indices = da_checker
-                    .custody_context()
+                let mut column_indices = custody_context
                     .sampling_columns_for_epoch(block.epoch())
                     .iter()
                     .collect::<HashSet<_>>();
@@ -1238,8 +1231,7 @@ mod test {
                 };
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RangeSyncBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(Arc::new(block), block_data, da_checker.custody_context())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

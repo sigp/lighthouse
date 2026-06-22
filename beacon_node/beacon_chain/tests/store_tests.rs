@@ -3322,13 +3322,8 @@ async fn weak_subjectivity_sync_test(
             let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
             let mut corrupt_block = (*block).clone();
             *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::new(
-                Arc::new(corrupt_block),
-                data,
-                &beacon_chain.data_availability_checker,
-                Arc::new(spec),
-            )
-            .expect("available block")
+            AvailableBlock::new(Arc::new(corrupt_block), data, &beacon_chain.custody_context)
+                .expect("available block")
         };
 
         // Importing the invalid batch should error.

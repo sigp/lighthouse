@@ -226,23 +226,30 @@ pub fn test_da_checker<E: EthSpec>(
     spec: Arc<ChainSpec>,
     node_custody_type: NodeCustodyType,
 ) -> DataAvailabilityChecker<EphemeralHarnessType<E>> {
+    let kzg = get_kzg(&spec);
+    let custody_context = test_custody_context(node_custody_type, spec.clone());
+    DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
+        .expect("should initialise data availability checker")
+}
+
+pub fn test_custody_context<E: EthSpec>(
+    node_custody_type: NodeCustodyType,
+    spec: Arc<ChainSpec>,
+) -> Arc<CustodyContext<EphemeralHarnessType<E>>> {
+    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let complete_blob_backfill = false;
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(0),
         spec.get_slot_duration(),
     );
-    let kzg = get_kzg(&spec);
-    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-    let complete_blob_backfill = false;
-    let custody_context = Arc::new(CustodyContext::new(
+    Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
-        slot_clock.clone(),
+        slot_clock,
         complete_blob_backfill,
-        spec.clone(),
-    ));
-    DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
-        .expect("should initialise data availability checker")
+        spec,
+    ))
 }
 
 pub struct Builder<T: BeaconChainTypes> {
@@ -3175,8 +3182,7 @@ where
                 RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
+                    &self.chain.custody_context,
                 )
                 .unwrap()
             };
@@ -3201,13 +3207,7 @@ where
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(
-                    block,
-                    block_data,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )
-                .unwrap()
+                RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
             }
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
@@ -3217,13 +3217,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.chain.data_availability_checker,
-                self.chain.spec.clone(),
-            )
-            .unwrap()
+            RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
         }
     }
 
@@ -3259,18 +3253,12 @@ where
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
                 let block_data = AvailableBlockData::new_with_data_columns(columns);
-                RangeSyncBlock::new(
-                    block,
-                    block_data,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
+                RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
             } else {
                 RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
+                    &self.chain.custody_context,
                 )?
             }
         } else {
@@ -3286,12 +3274,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.chain.data_availability_checker,
-                self.chain.spec.clone(),
-            )?
+            RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
         })
     }
 

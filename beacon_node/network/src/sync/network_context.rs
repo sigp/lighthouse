@@ -819,10 +819,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         let range_req = entry.get_mut();
-        if let Some(blocks_result) = range_req.responses(
-            self.chain.data_availability_checker.clone(),
-            self.chain.spec.clone(),
-        ) {
+        if let Some(blocks_result) =
+            range_req.responses(&self.chain.custody_context, self.chain.spec.clone())
+        {
             if let Err(CouplingError::DataColumnPeerFailure {
                 error,
                 faulty_peers: _,

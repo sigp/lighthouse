@@ -1313,13 +1313,7 @@ impl TestRig {
             } else {
                 AvailableBlockData::NoData
             };
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.harness.chain.data_availability_checker,
-                self.harness.chain.spec.clone(),
-            )
-            .unwrap()
+            RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
         };
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
