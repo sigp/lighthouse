@@ -43,8 +43,6 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-const D: Duration = Duration::new(0, 0);
-
 /// Extract the Gloas payload envelope (if any) carried by a stored `RangeSyncBlock`.
 fn envelope_of(block: &RangeSyncBlock<E>) -> Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
     match block {
@@ -886,14 +884,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 beacon_block: Some(block.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlock {
             sync_request_id,
             peer_id,
             beacon_block: None,
-            seen_timestamp: D,
         });
     }
 
@@ -917,14 +913,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 blob_sidecar: Some(blob.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlob {
             sync_request_id,
             peer_id,
             blob_sidecar: None,
-            seen_timestamp: D,
         });
     }
 
@@ -953,14 +947,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 data_column: Some(column.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcDataColumn {
             sync_request_id,
             peer_id,
             data_column: None,
-            seen_timestamp: D,
         });
     }
 
@@ -979,14 +971,12 @@ impl TestRig {
             sync_request_id,
             peer_id,
             envelope: envelope.clone(),
-            seen_timestamp: D,
         });
         // Stream termination
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,
             envelope: None,
-            seen_timestamp: D,
         });
     }
 
@@ -1006,7 +996,6 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 envelope: Some(envelope.clone()),
-                seen_timestamp: D,
             });
         }
         // Stream termination
@@ -1014,7 +1003,6 @@ impl TestRig {
             sync_request_id,
             peer_id,
             envelope: None,
-            seen_timestamp: D,
         });
     }
 
