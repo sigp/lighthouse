@@ -436,6 +436,29 @@ impl BeaconNodeHttpClient {
             .map_err(Error::from)
     }
 
+    /// Perform a HTTP POST request using an 'accept' header, returning `None` on a 404 error.
+    pub async fn post_bytes_opt_accept_header<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        accept_header: Accept,
+        timeout: Duration,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let response = self
+            .client
+            .post(url)
+            .json(body)
+            .accept(accept_header)
+            .timeout(timeout)
+            .send()
+            .await?;
+        let opt_response = ok_or_error(response).await.optional()?;
+        match opt_response {
+            Some(resp) => Ok(Some(resp.bytes().await?.into_iter().collect::<Vec<_>>())),
+            None => Ok(None),
+        }
+    }
+
     /// Generic POST function supporting arbitrary responses and timeouts.
     async fn post_generic<T: Serialize, U: IntoUrl>(
         &self,
@@ -706,6 +729,29 @@ impl BeaconNodeHttpClient {
         self.post_with_opt_response(path, &request).await
     }
 
+    /// `POST beacon/states/{state_id}/validator_identities`
+    ///
+    ///  Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_identities_ssz(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_identities");
+
+        let request = ValidatorIdentitiesRequestBody { ids };
+
+        self.post_bytes_opt_accept_header(path, &request, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `GET beacon/states/{state_id}/validators?id,status`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -917,6 +963,26 @@ impl BeaconNodeHttpClient {
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
+    /// `GET beacon/states/{state_id}/pending_deposits`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_deposits_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_deposits");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `GET beacon/states/{state_id}/pending_partial_withdrawals`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -941,6 +1007,26 @@ impl BeaconNodeHttpClient {
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
+    /// `GET beacon/states/{state_id}/pending_partial_withdrawals`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_partial_withdrawals_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_partial_withdrawals");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `GET beacon/states/{state_id}/pending_consolidations`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -961,6 +1047,26 @@ impl BeaconNodeHttpClient {
         self.get_fork_contextual(path, |fork| fork)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/pending_consolidations`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_consolidations_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_consolidations");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/states/{state_id}/proposer_lookahead`
@@ -3240,6 +3346,32 @@ impl BeaconNodeHttpClient {
         self.get_with_timeout(path, self.timeouts.attestation).await
     }
 
+    /// `GET v1/validator/attestation_data?slot,committee_index` in SSZ format
+    pub async fn get_validator_attestation_data_ssz(
+        &self,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+    ) -> Result<AttestationData, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("attestation_data");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string())
+            .append_pair("committee_index", &committee_index.to_string());
+
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.attestation)
+            .await?;
+
+        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
+
+        AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+    }
+
     /// `GET validator/payload_attestation_data/{slot}`
     /// Returns `None` if no block has been received for the requested slot (404).
     pub async fn get_validator_payload_attestation_data(
@@ -3337,6 +3469,60 @@ impl BeaconNodeHttpClient {
         self.get_opt_with_timeout(path, self.timeouts.attestation)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v2/validator/aggregate_attestation?slot,attestation_data_root,committee_index` in SSZ format
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_validator_aggregate_attestation_v2_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        attestation_data_root: Hash256,
+        committee_index: CommitteeIndex,
+    ) -> Result<Option<Attestation<E>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("aggregate_attestation");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string())
+            .append_pair(
+                "attestation_data_root",
+                &format!("{:?}", attestation_data_root),
+            )
+            .append_pair("committee_index", &committee_index.to_string());
+
+        self.get_response_with_response_headers(
+            path,
+            Accept::Ssz,
+            self.timeouts.attestation,
+            |response, headers| async move {
+                let fork_name = headers
+                    .get(CONSENSUS_VERSION_HEADER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<ForkName>().ok())
+                    .ok_or_else(|| {
+                        Error::InvalidHeaders(
+                            "missing or invalid Eth-Consensus-Version header".into(),
+                        )
+                    })?;
+                let bytes = response.bytes().await?.into_iter().collect::<Vec<_>>();
+                let attestation = if fork_name.electra_enabled() {
+                    AttestationElectra::<E>::from_ssz_bytes(&bytes)
+                        .map(Attestation::Electra)
+                        .map_err(Error::InvalidSsz)?
+                } else {
+                    AttestationBase::<E>::from_ssz_bytes(&bytes)
+                        .map(Attestation::Base)
+                        .map_err(Error::InvalidSsz)?
+                };
+                Ok(attestation)
+            },
+        )
+        .await
     }
 
     /// `GET validator/sync_committee_contribution`
