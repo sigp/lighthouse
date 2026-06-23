@@ -31,11 +31,10 @@ use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
     BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ExecutionRequestsGloas,
-    FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
-    Withdrawals,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
+    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -810,11 +809,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
-        // The EL get_payload response carries the standard (Electra-shaped) requests; lift them
-        // into the Gloas variant carried by the envelope and committed to by the bid.
-        // TODO(gloas): plumb builder deposit/exit requests from the EL.
-        let execution_requests = to_gloas_execution_requests(execution_requests);
-
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
@@ -1104,33 +1098,6 @@ where
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(block_contents)
-}
-
-/// Drop voluntary exits whose target validators will be exited by the parent envelope's
-/// execution requests.
-///
-/// In Gloas the parent execution payload is processed before voluntary exits during block
-/// processing. EL-triggered withdrawal-full-exit requests (EIP-7002) and cross-pubkey
-/// consolidation requests (EIP-7251) call `initiate_validator_exit`, setting the target's
-/// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
-/// Lift a fork-agnostic `ExecutionRequests` (as received from the EL) into the Gloas variant.
-///
-/// The standard request types are carried over; the Gloas-only builder deposit/exit lists are
-/// left empty.
-/// TODO(gloas): plumb builder deposit/exit requests from the EL.
-fn to_gloas_execution_requests<E: EthSpec>(
-    requests: ExecutionRequests<E>,
-) -> ExecutionRequestsGloas<E> {
-    match requests {
-        ExecutionRequests::Gloas(requests) => requests,
-        other => ExecutionRequestsGloas {
-            deposits: other.deposits().clone(),
-            withdrawals: other.withdrawals().clone(),
-            consolidations: other.consolidations().clone(),
-            builder_deposits: <_>::default(),
-            builder_exits: <_>::default(),
-        },
-    }
 }
 
 fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(

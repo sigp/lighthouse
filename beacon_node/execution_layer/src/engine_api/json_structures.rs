@@ -474,6 +474,7 @@ pub enum RequestsError {
     InvalidOrdering,
     InvalidPrefix(u8),
     DecodeError(String),
+    VariantMismatch,
 }
 
 /// Format of `ExecutionRequests` received over the engine api.
@@ -602,6 +603,28 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
                 withdrawals,
                 consolidations,
             }))
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> {
+    type Error = RequestsError;
+
+    fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
+        match ExecutionRequests::<E>::try_from(value)? {
+            ExecutionRequests::Electra(requests) => Ok(requests),
+            ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
+    type Error = RequestsError;
+
+    fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
+        match ExecutionRequests::<E>::try_from(value)? {
+            ExecutionRequests::Gloas(requests) => Ok(requests),
+            ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
         }
     }
 }
