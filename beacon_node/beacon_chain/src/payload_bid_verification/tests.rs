@@ -214,15 +214,19 @@ impl TestContext {
         value: u64,
         parent_block_root: Hash256,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
-        make_signed_bid(
-            slot,
-            builder_index,
-            fee_recipient,
-            gas_limit,
-            value,
-            parent_block_root,
-            self.expected_prev_randao(),
-        )
+        Arc::new(SignedExecutionPayloadBid {
+            message: ExecutionPayloadBid {
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+                prev_randao: self.expected_prev_randao(),
+                ..ExecutionPayloadBid::default()
+            },
+            signature: Signature::empty(),
+        })
     }
 
     fn insert_non_canonical_block(&self) -> Hash256 {
@@ -265,30 +269,6 @@ impl TestContext {
             .expect("should insert fork block");
         fork_block_root
     }
-}
-
-fn make_signed_bid(
-    slot: Slot,
-    builder_index: u64,
-    fee_recipient: Address,
-    gas_limit: u64,
-    value: u64,
-    parent_block_root: Hash256,
-    prev_randao: Hash256,
-) -> Arc<SignedExecutionPayloadBid<E>> {
-    Arc::new(SignedExecutionPayloadBid {
-        message: ExecutionPayloadBid {
-            slot,
-            builder_index,
-            fee_recipient,
-            gas_limit,
-            value,
-            parent_block_root,
-            prev_randao,
-            ..ExecutionPayloadBid::default()
-        },
-        signature: Signature::empty(),
-    })
 }
 
 fn make_signed_preferences(
