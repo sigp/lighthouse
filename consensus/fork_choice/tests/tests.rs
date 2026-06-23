@@ -415,6 +415,24 @@ impl ForkChoiceTest {
     async fn apply_attestation_to_chain<F, G>(
         self,
         delay: MutationDelay,
+        mutation_func: F,
+        comparison_func: G,
+    ) -> Self
+    where
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
+        G: FnMut(Result<(), BeaconChainError>),
+    {
+        self.apply_nth_attestation_to_chain(0, delay, mutation_func, comparison_func)
+            .await
+    }
+
+    /// Like `apply_attestation_to_chain`, but attests with the validator at
+    /// `validator_committee_index` within the committee. Lets a test enqueue multiple distinct
+    /// votes for the same slot without tripping `PriorAttestationKnown`.
+    async fn apply_nth_attestation_to_chain<F, G>(
+        self,
+        validator_committee_index: usize,
+        delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
@@ -431,7 +449,6 @@ impl ForkChoiceTest {
             .produce_unaggregated_attestation(current_slot, 0)
             .expect("should not error while producing attestation");
 
-        let validator_committee_index = 0;
         let validator_index = *head
             .beacon_state
             .get_beacon_committee(
@@ -472,7 +489,9 @@ impl ForkChoiceTest {
 
         let single_attestation = SingleAttestation {
             attester_index: validator_index as u64,
-            committee_index: validator_committee_index as u64,
+            committee_index: attestation
+                .committee_index()
+                .expect("should get committee index"),
             data: attestation.data().clone(),
             signature: attestation.signature().clone(),
         };
@@ -1037,6 +1056,100 @@ async fn invalid_attestation_delayed_slot() {
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
         .skip_slot()
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
+}
+
+/// Regression test for out-of-order dequeuing of queued attestations.
+///
+/// `on_attestation` pushes queued attestations in arrival order and never sorts the queue, so a
+/// future-slot vote can sit ahead of a vote that becomes due sooner. The due vote must still be
+/// released once its slot is in the past. A dequeue that assumes the queue is slot-sorted leaves
+/// the due vote stuck behind the future-slot vote forever.
+#[tokio::test]
+async fn dequeue_attestations_consecutive_slot_divergence() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Enqueue a future-slot vote first (slot + 2) so it sits at the front of the queue.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Then enqueue a vote that becomes due sooner (slot + 1), behind the future-slot vote.
+        // A different committee position avoids `PriorAttestationKnown`.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance so the slot+1 vote is due (in the past) but the slot+2 vote is not yet.
+        .skip_slots(2)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                1,
+                "the due vote must be dequeued even though a future-slot vote is ahead of it"
+            );
+        });
+}
+
+/// Companion to `dequeue_attestations_consecutive_slot_divergence`: same out-of-order enqueue, but the clock is
+/// advanced far enough that *both* votes are due at dequeue time.
+///
+/// When every queued vote is in the past, `current_slot` is greater than all of them, so even a
+/// slot-sorted dequeue drains the whole queue regardless of order. This case therefore passes on
+/// the current implementation too — it pins down the boundary where the ordering bug does *not*
+/// manifest, so a future change can't quietly turn this into another stuck-vote regression.
+#[tokio::test]
+async fn dequeue_attestations_conciliation() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Enqueue a future-slot vote first (slot + 2) so it sits at the front of the queue.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Then enqueue a vote that becomes due sooner (slot + 1), behind the future-slot vote.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance past both votes (to slot + 3) so the whole queue converges and drains.
+        .skip_slots(3)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                0,
+                "all votes are due, so the entire queue must drain regardless of order"
+            );
+        });
 }
 
 /// Tests that the correct target root is used when the attested-to block is in a prior epoch to
