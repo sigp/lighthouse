@@ -305,6 +305,7 @@ pub struct DutiesServiceBuilder<S, T> {
     /// Create sync selection proof config
     sync_selection_proof_config: SelectionProofConfig,
     disable_attesting: bool,
+    disable_proposer_duties_v2: bool,
 }
 
 impl<S, T> Default for DutiesServiceBuilder<S, T> {
@@ -325,6 +326,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             attestation_selection_proof_config: SelectionProofConfig::default(),
             sync_selection_proof_config: SelectionProofConfig::default(),
             disable_attesting: false,
+            disable_proposer_duties_v2: false,
         }
     }
 
@@ -382,6 +384,11 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         self
     }
 
+    pub fn disable_proposer_duties_v2(mut self, disable_proposer_duties_v2: bool) -> Self {
+        self.disable_proposer_duties_v2 = disable_proposer_duties_v2;
+        self
+    }
+
     pub fn build(self) -> Result<DutiesService<S, T>, String> {
         Ok(DutiesService {
             attesters: Default::default(),
@@ -405,6 +412,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
             selection_proof_config: self.attestation_selection_proof_config,
             disable_attesting: self.disable_attesting,
+            disable_proposer_duties_v2: self.disable_proposer_duties_v2,
         })
     }
 }
@@ -437,6 +445,11 @@ pub struct DutiesService<S, T> {
     /// Pass the config for distributed or non-distributed mode.
     pub selection_proof_config: SelectionProofConfig,
     pub disable_attesting: bool,
+    /// Use the v1 proposer duties endpoint instead of v2. The v1 endpoint reports an incorrect
+    /// dependent root, causing spurious "Proposer duties re-org" warnings. This flag exists for
+    /// compatibility with beacon nodes that do not yet serve the v2 endpoint and can be removed
+    /// after Gloas.
+    pub disable_proposer_duties_v2: bool,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
@@ -1660,54 +1673,8 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     // Only download duties and push out additional block production events if we have some
     // validators.
     if !local_pubkeys.is_empty() {
-        let download_result = duties_service
-            .beacon_nodes
-            .first_success(|beacon_node| async move {
-                let _timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::DUTIES_SERVICE_TIMES,
-                    &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_duties_proposer(current_epoch)
-                    .await
-            })
-            .await;
-
-        match download_result {
-            Ok(response) => {
-                let dependent_root = response.dependent_root;
-
-                let relevant_duties = response
-                    .data
-                    .into_iter()
-                    .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
-                    .collect::<Vec<_>>();
-
-                debug!(
-                    %dependent_root,
-                    num_relevant_duties = relevant_duties.len(),
-                    "Downloaded proposer duties"
-                );
-
-                if let Some((prior_dependent_root, _)) = duties_service
-                    .proposers
-                    .write()
-                    .insert(current_epoch, (dependent_root, relevant_duties))
-                    && dependent_root != prior_dependent_root
-                {
-                    warn!(
-                        %prior_dependent_root,
-                        %dependent_root,
-                        msg = "this may happen from time to time",
-                        "Proposer duties re-org"
-                    )
-                }
-            }
-            // Don't return early here, we still want to try and produce blocks using the cached values.
-            Err(e) => error!(
-                err = %e,
-                "Failed to download proposer duties"
-            ),
+        for epoch in [current_epoch, current_epoch + 1] {
+            fetch_and_store_proposer_duties(duties_service, epoch, &local_pubkeys).await;
         }
 
         // Compute the block proposers for this slot again, now that we've received an update from
@@ -1748,6 +1715,70 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
 
     Ok(())
+}
+
+async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &DutiesService<S, T>,
+    epoch: Epoch,
+    local_pubkeys: &HashSet<PublicKeyBytes>,
+) {
+    let use_v2 = !duties_service.disable_proposer_duties_v2;
+    let download_result = duties_service
+        .beacon_nodes
+        .first_success(|beacon_node| async move {
+            let _timer = validator_metrics::start_timer_vec(
+                &validator_metrics::DUTIES_SERVICE_TIMES,
+                &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
+            );
+            // Prefer the v2 endpoint, which reports the correct dependent root. The v1 endpoint
+            // returns an incorrect dependent root, leading to spurious "Proposer duties re-org"
+            // warnings.
+            if use_v2 {
+                beacon_node.get_validator_duties_proposer_v2(epoch).await
+            } else {
+                beacon_node.get_validator_duties_proposer(epoch).await
+            }
+        })
+        .await;
+
+    match download_result {
+        Ok(response) => {
+            let dependent_root = response.dependent_root;
+
+            let relevant_duties = response
+                .data
+                .into_iter()
+                .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
+                .collect::<Vec<_>>();
+
+            debug!(
+                %dependent_root,
+                %epoch,
+                num_relevant_duties = relevant_duties.len(),
+                "Downloaded proposer duties"
+            );
+
+            if let Some((prior_dependent_root, _)) = duties_service
+                .proposers
+                .write()
+                .insert(epoch, (dependent_root, relevant_duties))
+                && dependent_root != prior_dependent_root
+            {
+                warn!(
+                    %prior_dependent_root,
+                    %dependent_root,
+                    %epoch,
+                    msg = "this may happen from time to time",
+                    "Proposer duties re-org"
+                )
+            }
+        }
+        Err(e) => error!(
+            err = %e,
+            %epoch,
+            "Failed to download proposer duties"
+        ),
+    }
 }
 
 /// Query the beacon node for ptc duties for any known validators.

@@ -3273,6 +3273,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ExecutionPayloadBid => {
                                     event_handler.subscribe_execution_payload_bid()
                                 }
+                                api_types::EventTopic::ProposerPreferences => {
+                                    event_handler.subscribe_proposer_preferences()
+                                }
                                 api_types::EventTopic::PayloadAttestationMessage => {
                                     event_handler.subscribe_payload_attestation_message()
                                 }
