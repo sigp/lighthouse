@@ -121,6 +121,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
         enable_partial_columns: bool,
+        disable_get_blobs: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
@@ -130,6 +131,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let partial_assembler = if enable_partial_columns {
             Some(Arc::new(PartialDataColumnAssembler::new(
                 OVERFLOW_LRU_CAPACITY,
+                disable_get_blobs,
             )))
         } else {
             None
@@ -1432,6 +1434,7 @@ mod test {
             custody_context,
             spec,
             true,
+            false,
         )
         .expect("should initialise data availability checker")
     }

@@ -131,6 +131,21 @@ fn disable_auto_discover_flag() {
 }
 
 #[test]
+fn disable_proposer_duties_v2_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.disable_proposer_duties_v2));
+}
+
+#[test]
+fn disable_proposer_duties_v2_flag() {
+    CommandLineTest::new()
+        .flag("disable-proposer-duties-v2", None)
+        .run()
+        .with_config(|config| assert!(config.disable_proposer_duties_v2));
+}
+
+#[test]
 fn init_slashing_protections_flag() {
     CommandLineTest::new()
         .flag("init-slashing-protection", None)
