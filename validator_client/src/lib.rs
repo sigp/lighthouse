@@ -502,6 +502,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .attestation_selection_proof_config(attestation_selection_proof_config)
                 .sync_selection_proof_config(sync_selection_proof_config)
                 .disable_attesting(config.disable_attesting)
+                .disable_proposer_duties_v2(config.disable_proposer_duties_v2)
                 .build()?,
         );
 

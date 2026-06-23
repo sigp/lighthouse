@@ -3,7 +3,8 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
     test_utils::{
-        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
+        fork_name_from_env, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
@@ -366,9 +367,13 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // TODO(EIP-7732): extend test for Gloas — `get_validator_blocks_v3` is missing the
-    // `Eth-Execution-Payload-Blinded` header for Gloas block production responses.
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    // We don't run these test for post-Gloas forks because of the FcU changes that were
+    // applied in the gloas. Gloas adopted tests can be found in `gloas_re_org_test.rs`
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let spec = test_spec::<E>();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;

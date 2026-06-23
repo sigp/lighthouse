@@ -14,7 +14,7 @@ use eth2::types::{
 };
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
-use lighthouse_network::PubsubMessage;
+use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
@@ -442,12 +442,22 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     // Publish partial messages
     if !partial_columns.is_empty() {
         if let Some(header) = partial_header {
+            let header = Arc::new(header);
+            let messages = partial_columns
+                .into_iter()
+                .map(|column| {
+                    let mut request_cells = column.sidecar.cells_present_bitmap.clone();
+                    request_cells.not_inplace();
+                    PubsubPartialMessage::DataColumnFulu {
+                        column,
+                        request_cells,
+                        header: header.clone(),
+                    }
+                })
+                .collect();
             crate::utils::publish_network_message(
                 sender_clone,
-                NetworkMessage::PublishPartialColumns {
-                    columns: partial_columns,
-                    header: Arc::new(header),
-                },
+                NetworkMessage::PublishPartialColumns { messages },
             )
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))

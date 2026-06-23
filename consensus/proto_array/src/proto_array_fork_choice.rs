@@ -723,15 +723,14 @@ impl ProtoArrayForkChoice {
             .into());
         }
 
-        // Spec: `is_parent_strong`. Use payload-aware weight matching the
-        // payload path the head node is on from its parent.
-        let parent_payload_status = info.head_node.get_parent_payload_status();
-        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
+        // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
+        // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
+        let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-        let parent_strong = parent_weight > re_org_parent_weight_threshold;
+        let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
         if !parent_strong {
             return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight,
+                parent_weight: parent_pending_weight,
                 re_org_parent_weight_threshold,
             }
             .into());

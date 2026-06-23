@@ -7,9 +7,9 @@ use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain, EthSpec,
-    MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
-    SignedRoot, Slot,
+    Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
+    EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -399,5 +399,82 @@ async fn payload_attestation_message_event_on_gossip_verification() {
         assert_eq!(versioned.data.data, data);
     } else {
         panic!("Expected PayloadAttestationMessage event, got {:?}", event);
+    }
+}
+
+/// Verifies that a `proposer_preferences` SSE event is emitted when signed proposer preferences
+/// pass gossip verification.
+#[tokio::test]
+async fn proposer_preferences_event_on_gossip_verification() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    let genesis_validators_root = harness.chain.genesis_validators_root;
+
+    // Pick a proposal slot in the next epoch so it is always a valid, future slot. The lookahead
+    // covers 2 epochs: index = epoch_offset * slots_per_epoch + slot_in_epoch.
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let proposer_lookahead = head_state
+        .proposer_lookahead()
+        .expect("gloas state should have proposer lookahead");
+    let next_epoch_start = (head_state.current_epoch() + 1).start_slot(E::slots_per_epoch());
+    let proposal_slot = next_epoch_start + 1;
+    let lookahead_index = slots_per_epoch + 1;
+    let validator_index = *proposer_lookahead
+        .get(lookahead_index)
+        .expect("lookahead index should be in range");
+
+    // Build and sign proposer preferences for the proposer of `proposal_slot`.
+    let preferences = ProposerPreferences {
+        dependent_root: Hash256::ZERO,
+        proposal_slot,
+        validator_index,
+        fee_recipient: Address::repeat_byte(0xaa),
+        target_gas_limit: 30_000_000,
+    };
+    let domain = harness.spec.get_domain(
+        proposal_slot.epoch(E::slots_per_epoch()),
+        Domain::ProposerPreferences,
+        &head_state.fork(),
+        genesis_validators_root,
+    );
+    let signature = harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(preferences.signing_root(domain));
+    let signed = SignedProposerPreferences {
+        message: preferences.clone(),
+        signature,
+    };
+
+    // Subscribe before verification.
+    let event_handler = harness.chain.event_handler.as_ref().unwrap();
+    let mut receiver = event_handler.subscribe_proposer_preferences();
+
+    // Verify the preferences through the gossip path.
+    harness
+        .chain
+        .verify_proposer_preferences_for_gossip(Arc::new(signed))
+        .expect("verification should succeed");
+
+    // Assert the event was emitted with the expected data.
+    let event = receiver.try_recv().expect("should receive event");
+    if let EventKind::ProposerPreferences(versioned) = event {
+        assert_eq!(versioned.data.message, preferences);
+        assert_eq!(
+            versioned.version,
+            harness.spec.fork_name_at_slot::<E>(proposal_slot)
+        );
+    } else {
+        panic!("Expected ProposerPreferences event, got {:?}", event);
     }
 }
