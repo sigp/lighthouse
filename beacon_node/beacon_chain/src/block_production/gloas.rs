@@ -1100,6 +1100,13 @@ where
     Ok(block_contents)
 }
 
+/// Drop voluntary exits whose target validators will be exited by the parent envelope's
+/// execution requests.
+///
+/// In Gloas the parent execution payload is processed before voluntary exits during block
+/// processing. EL-triggered withdrawal-full-exit requests (EIP-7002) and cross-pubkey
+/// consolidation requests (EIP-7251) call `initiate_validator_exit`, setting the target's
+/// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
 fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
     voluntary_exits: &mut Vec<SignedVoluntaryExit>,
     parent_execution_requests: &ExecutionRequestsGloas<E>,
