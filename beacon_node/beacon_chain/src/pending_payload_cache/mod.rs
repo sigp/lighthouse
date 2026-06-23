@@ -648,11 +648,14 @@ mod data_availability_checker_tests {
         generate_rand_block_and_data_columns, get_kzg,
     };
     use fork_choice::PayloadVerificationStatus;
+    use kzg::KzgProof;
     use logging::create_test_tracing_subscriber;
+    use ssz_types::VariableList;
     use types::test_utils::test_unstructured;
     use types::{
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope,
+        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests,
+        ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadEnvelope, Slot,
     };
 
     type E = MinimalEthSpec;
@@ -911,5 +914,105 @@ mod data_availability_checker_tests {
 
         s.put_columns(vec![last]);
         assert_lengths_match(&s);
+    }
+
+    // ────────── Gloas partial column merge ─────────────────────────────────
+    //
+    // `merge_partial_data_columns` accumulates cells from partial (incomplete) columns until each
+    // column has a cell for every expected blob. These tests drive that state machine directly.
+
+    /// Build a Gloas KZG-verified custody partial column for `index` carrying cells at the `present`
+    /// blob indices. Cell contents are irrelevant: the cache keys cells by blob index and never
+    /// re-verifies them on merge.
+    fn gloas_partial(
+        block_root: Hash256,
+        slot: Slot,
+        index: ColumnIndex,
+        total_blobs: usize,
+        present: &[usize],
+    ) -> KzgVerifiedCustodyPartialDataColumnGloas<E> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &i in present {
+            bitmap.set(i, true).unwrap();
+        }
+        let column: VariableList<_, _> = present
+            .iter()
+            .map(|_| Cell::<E>::default())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let kzg_proofs: VariableList<_, _> = present
+            .iter()
+            .map(|_| KzgProof::empty())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let partial = PartialDataColumn::Gloas(PartialDataColumnGloas {
+            block_root,
+            slot,
+            index,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: bitmap,
+                column,
+                kzg_proofs,
+            },
+        });
+        KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
+            KzgVerifiedPartialDataColumn::from_execution_verified(partial),
+        )
+        .into_gloas()
+        .expect("partial is Gloas")
+    }
+
+    /// Two partial arrivals for the same column complete it: the first (one cell of two expected) is
+    /// `MissingComponents` with no full column; the second fills the gap and yields one full column.
+    #[tokio::test]
+    async fn merge_partial_columns_completes_column_across_arrivals() {
+        let s = setup_with(NodeCustodyType::Fullnode, NumBlobs::Number(2));
+        let slot = s.cache.get_bid(&s.block_root).expect("bid").message.slot;
+
+        // First arrival: column 0 carries only blob 0's cell — incomplete (1 of 2 expected).
+        let first = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[first])
+            .expect("merge");
+        assert_missing(availability);
+        assert_eq!(result.added_cells, 1);
+        assert!(result.full_columns.is_empty(), "column not yet complete");
+        assert!(!s.cache.is_column_complete(&s.block_root, 0));
+
+        // Second arrival: column 0 gains blob 1's cell — now complete.
+        let second = gloas_partial(s.block_root, slot, 0, 2, &[1]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[second])
+            .expect("merge");
+        assert_eq!(result.added_cells, 1);
+        assert_eq!(result.full_columns.len(), 1, "column 0 becomes complete");
+        assert_eq!(result.full_columns[0].index(), 0);
+        assert!(s.cache.is_column_complete(&s.block_root, 0));
+    }
+
+    /// Re-merging a cell that is already present is a no-op: it adds no cells and completes nothing.
+    #[tokio::test]
+    async fn merge_partial_columns_dedups_repeated_cells() {
+        let s = setup_with(NodeCustodyType::Fullnode, NumBlobs::Number(2));
+        let slot = s.cache.get_bid(&s.block_root).expect("bid").message.slot;
+
+        let first = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[first])
+            .expect("merge");
+        assert_eq!(result.added_cells, 1);
+
+        let duplicate = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[duplicate])
+            .expect("merge");
+        assert_eq!(result.added_cells, 0, "duplicate cell is not re-inserted");
+        assert!(result.full_columns.is_empty());
     }
 }
