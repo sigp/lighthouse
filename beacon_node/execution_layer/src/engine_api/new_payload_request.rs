@@ -129,7 +129,6 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         Ok(())
     }
 
-    /// Returns the execution requests as a fork-tagged reference, if present.
     pub fn execution_requests_ref(&self) -> Option<ExecutionRequestsRef<'block, E>> {
         match self {
             Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
