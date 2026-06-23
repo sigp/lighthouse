@@ -205,7 +205,7 @@ pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotC
     let payload_available_send = beacon_nodes
         .payload_available_send
         .clone()
-        .ok_or("Unable to start head monitor without payload_available_send")?;
+        .ok_or("Unable to start payload monitor without payload_available_send")?;
 
     let candidates = {
         let candidates_guard = beacon_nodes.candidates.read().await;

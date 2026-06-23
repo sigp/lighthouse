@@ -20,6 +20,7 @@ pub struct Inner<S, T> {
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
     payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>,
+    latest_voted_slot: Mutex<Slot>,
 }
 
 pub struct PayloadAttestationService<S, T> {
@@ -65,6 +66,7 @@ where
                 executor,
                 chain_spec,
                 payload_available_rx,
+                latest_voted_slot: Mutex::new(Slot::default()),
             }),
         }
     }
@@ -133,6 +135,15 @@ where
             };
             (slot, None)
         };
+
+        let mut last_slot = self.latest_voted_slot.lock().await;
+
+        if attestation_slot <= *last_slot {
+            debug!(%attestation_slot, "Payload attestation already produced for this slot");
+            return Ok(());
+        }
+        *last_slot = attestation_slot;
+        drop(last_slot);
 
         let triggered_early = beacon_node_data.is_some();
         let mut data_result = self
