@@ -1164,6 +1164,7 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
@@ -1245,6 +1246,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadGossip(SseExecutionPayloadGossip),
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
 }
 
@@ -1273,6 +1275,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
             EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
         }
     }
@@ -1389,6 +1392,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
                 })?,
             ))),
+            "proposer_preferences" => Ok(EventKind::ProposerPreferences(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Preferences: {:?}", e))
+                })?,
+            ))),
             "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!(
@@ -1436,6 +1444,7 @@ pub enum EventTopic {
     ExecutionPayloadGossip,
     ExecutionPayloadAvailable,
     ExecutionPayloadBid,
+    ProposerPreferences,
     PayloadAttestationMessage,
 }
 
@@ -1466,6 +1475,7 @@ impl FromStr for EventTopic {
             "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
             "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
@@ -1499,6 +1509,7 @@ impl fmt::Display for EventTopic {
                 write!(f, "execution_payload_available")
             }
             EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::ProposerPreferences => write!(f, "proposer_preferences"),
             EventTopic::PayloadAttestationMessage => {
                 write!(f, "payload_attestation_message")
             }
