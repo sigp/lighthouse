@@ -149,13 +149,17 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
-        func(
-            self.harness
-                .chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .queued_attestations(),
-        );
+        let queued = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .queued_attestations()
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        func(&queued);
         self
     }
 
