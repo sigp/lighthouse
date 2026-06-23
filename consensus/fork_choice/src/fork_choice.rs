@@ -319,19 +319,20 @@ fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut Vec<QueuedAttestation>,
 ) -> Vec<QueuedAttestation> {
-    let remaining = queued_attestations.split_off(
-        queued_attestations
-            .iter()
-            .position(|a| a.slot >= current_slot)
-            .unwrap_or(queued_attestations.len()),
-    );
+    // The queue is not slot-sorted: `on_attestation` pushes in arrival order, so a future-slot
+    // vote can sit ahead of a due one. Partition on slot rather than splitting at a sorted prefix,
+    // otherwise a due vote stuck behind a future-slot vote would never be released.
+    let (due, remaining): (Vec<_>, Vec<_>) = std::mem::take(queued_attestations)
+        .into_iter()
+        .partition(|a| a.slot < current_slot);
+    *queued_attestations = remaining;
 
     metrics::inc_counter_by(
         &metrics::FORK_CHOICE_DEQUEUED_ATTESTATIONS,
-        queued_attestations.len() as u64,
+        due.len() as u64,
     );
 
-    std::mem::replace(queued_attestations, remaining)
+    due
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
