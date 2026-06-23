@@ -924,7 +924,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_index = verified_data_column.index();
 
         let data_col = verified_data_column.as_data_column();
-        // Republish the full column as a partial if partial columns are enabled and the store
+        // Republish the full column as a partial if partial columns are enabled, and the store
         // tracking partials for its fork (Fulu: assembler, Gloas: pending payload cache) does not
         // hold it complete yet. The assembler only exists if partial columns are enabled.
         let republish_as_partial = match data_col {
@@ -949,7 +949,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             let message = match data_col.to_partial() {
                 Ok(PartialDataColumn::Fulu(mut fulu)) => {
-                    // All cells are present in a full column, so request all of them.
                     let request_cells = fulu.sidecar.cells_present_bitmap.clone();
                     if let Some(header) = fulu.sidecar.header.take() {
                         Some(PubsubPartialMessage::DataColumnFulu {
@@ -963,7 +962,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
                 Ok(PartialDataColumn::Gloas(gloas)) => {
-                    // All cells are present in a full column, so request all of them.
                     let request_cells = gloas.sidecar.cells_present_bitmap.clone();
                     Some(PubsubPartialMessage::DataColumnGloas {
                         column: Box::new(gloas),
@@ -1374,8 +1372,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
 
                 match merge_result.updated_partials {
-                    // Fulu partials always travel with a header, and `verified_header` is `Some`
-                    // for every Fulu partial that reached this point.
+                    // Fulu partials are always published with a header, and `verified_header` is
+                    // `Some` for every Fulu partial that reached this point.
                     UpdatedPartials::Fulu(updated_partials) => {
                         if !updated_partials.is_empty()
                             && let Some(verified_header) = verified_header

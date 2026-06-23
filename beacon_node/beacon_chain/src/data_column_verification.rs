@@ -28,7 +28,7 @@ use tree_hash::TreeHash;
 use types::data::{
     ColumnIndex, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
     PartialDataColumnHeader, PartialDataColumnSidecarError, PartialDataColumnSidecarFulu,
-    PartialDataColumnSidecarGloas, PartialDataColumnSidecarRef,
+    PartialDataColumnSidecarRef,
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -825,20 +825,6 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         }
     }
 
-    pub fn index(&self) -> ColumnIndex {
-        match self {
-            Self::Fulu(column) => column.index(),
-            Self::Gloas(column) => column.index(),
-        }
-    }
-
-    pub fn sidecar(&self) -> PartialDataColumnSidecarRef<'_, E> {
-        match self {
-            Self::Fulu(column) => column.sidecar(),
-            Self::Gloas(column) => column.sidecar(),
-        }
-    }
-
     /// Return the Fulu variant, or `None` if this is a Gloas column.
     pub fn into_fulu(self) -> Option<KzgVerifiedCustodyPartialDataColumnFulu<E>> {
         match self {
@@ -861,10 +847,6 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
         self.data
     }
 
-    pub fn as_data_column(&self) -> &PartialDataColumnFulu<E> {
-        &self.data
-    }
-
     pub fn sidecar(&self) -> PartialDataColumnSidecarRef<'_, E> {
         PartialDataColumnSidecarRef::Fulu(&self.data.sidecar)
     }
@@ -882,32 +864,83 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
     /// If both columns contain the same cell, the cell from `self` is used - however, as they are
     /// KZG verified, they will be the same.
     pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
+        let self_sidecar = &self.data.sidecar;
+        let other_sidecar = &other.data.sidecar;
+
+        // Check that each sidecar is internally consistent by checking the lengths.
+        PartialDataColumnSidecarRef::Fulu(self_sidecar).verify_len()?;
+        PartialDataColumnSidecarRef::Fulu(other_sidecar).verify_len()?;
         if self.data.block_root != other.data.block_root || self.data.index != other.data.index {
             return Err(PartialDataColumnSidecarError::ConflictingData);
         }
+        if self_sidecar.cells_present_bitmap.len() != other_sidecar.cells_present_bitmap.len() {
+            return Err(PartialDataColumnSidecarError::DifferingLengths {
+                lhs_len: self_sidecar.cells_present_bitmap.len(),
+                rhs_len: other_sidecar.cells_present_bitmap.len(),
+            });
+        }
 
-        let PartialDataColumnSidecarGloas {
-            cells_present_bitmap,
-            column,
-            kzg_proofs,
-        } = self.sidecar().merge_without_header(&other.sidecar())?;
+        let new_bitmap = self_sidecar
+            .cells_present_bitmap
+            .union(&other_sidecar.cells_present_bitmap);
+        let len = new_bitmap.num_set_bits();
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let mut self_iter = self_sidecar
+            .column
+            .iter()
+            .zip(self_sidecar.kzg_proofs.iter());
+        let mut other_iter = other_sidecar
+            .column
+            .iter()
+            .zip(other_sidecar.kzg_proofs.iter());
 
-        // Prefer the header from `self`, falling back to `other`.
-        let header = if self.data.sidecar.header.is_some() {
-            self.data.sidecar.header.clone()
-        } else {
-            other.data.sidecar.header.clone()
-        };
+        for presence_bits in self_sidecar
+            .cells_present_bitmap
+            .iter()
+            .zip(other_sidecar.cells_present_bitmap.iter())
+        {
+            match presence_bits {
+                (false, false) => {}
+                (true, other) => {
+                    let (cell, proof) = self_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                    if other {
+                        other_iter
+                            .next()
+                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    }
+                }
+                (false, true) => {
+                    let (cell, proof) = other_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                }
+            }
+        }
 
         Ok(Self {
             data: Arc::new(PartialDataColumnFulu {
                 block_root: self.data.block_root,
                 index: self.data.index,
                 sidecar: PartialDataColumnSidecarFulu {
-                    cells_present_bitmap,
-                    column,
-                    kzg_proofs,
-                    header,
+                    cells_present_bitmap: new_bitmap,
+                    column: new_column
+                        .try_into()
+                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+                    kzg_proofs: new_proofs
+                        .try_into()
+                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+                    header: if self_sidecar.header.is_some() {
+                        self_sidecar.header.clone()
+                    } else {
+                        other_sidecar.header.clone()
+                    },
                 },
             }),
             latest_cell_timestamp: self.latest_cell_timestamp.max(other.latest_cell_timestamp),
@@ -947,10 +980,6 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
     pub fn into_inner(self) -> Arc<PartialDataColumnGloas<E>> {
         self.data
-    }
-
-    pub fn as_data_column(&self) -> &PartialDataColumnGloas<E> {
-        &self.data
     }
 
     pub fn sidecar(&self) -> PartialDataColumnSidecarRef<'_, E> {
@@ -1010,11 +1039,8 @@ pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
     })
 }
 
-/// Complete kzg verification for a `VerifiablePartialDataColumn`.
-///
-/// Only the cells we are still missing are verified (others are already cached). On success the
-/// column is moved straight into its fork-specific [`KzgVerifiedPartialDataColumn`] variant, so
-/// there is no intermediate `Arc<PartialDataColumn>` to allocate and immediately unwrap.
+/// Complete kzg verification for a `VerifiablePartialDataColumn`. Only the cells we are still
+/// missing are verified (others are already cached).
 ///
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
@@ -1304,7 +1330,7 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
 
     let slot = header.as_header().slot();
     let column: PartialDataColumn<T::EthSpec> = (*column).into();
-    match validate_partial_data_column_kzg(
+    match validate_partial_data_column_common(
         Box::new(column),
         header.as_header().kzg_commitments.as_ref(),
         chain,
@@ -1355,7 +1381,7 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
     }
 
     let column: PartialDataColumn<T::EthSpec> = (*column).into();
-    match validate_partial_data_column_kzg(
+    match validate_partial_data_column_common(
         Box::new(column),
         bid.message.blob_kzg_commitments.as_ref(),
         chain,
@@ -1372,7 +1398,7 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
 
 /// Shared structural + KZG checks for partial data columns, agnostic to which fork the
 /// commitments came from (Fulu header vs Gloas bid).
-fn validate_partial_data_column_kzg<T: BeaconChainTypes>(
+fn validate_partial_data_column_common<T: BeaconChainTypes>(
     column: Box<PartialDataColumn<T::EthSpec>>,
     kzg_commitments: &[KzgCommitment],
     chain: &BeaconChain<T>,

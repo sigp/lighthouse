@@ -27,7 +27,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
     /// Set once we have fetched the blobs locally (via `getBlobs` from the EL). Suppresses
-    /// republishing partials that would race with the local fetch.
+    /// requesting partials that would race with the local fetch.
     pub has_local_blobs: bool,
     pub(crate) span: Span,
 }
@@ -111,15 +111,15 @@ impl<E: EthSpec> PendingComponents<E> {
             let column = sidecar.column();
             let proofs = sidecar.kzg_proofs();
 
-            let was_complete = self
-                .verified_data_columns
-                .get(&col_index)
-                .is_some_and(PendingColumn::is_complete);
-
             let col = self
                 .verified_data_columns
                 .entry(col_index)
                 .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
+
+            if col.is_complete() {
+                // Nothing to do.
+                continue;
+            }
 
             let mut storage_idx = 0;
             let mut inserted_cells = 0;
@@ -142,7 +142,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 outcome.updated.push(col_index);
             }
 
-            if !was_complete && col.is_complete() {
+            if col.is_complete() {
                 outcome.newly_complete.push(col_index);
             }
         }

@@ -165,7 +165,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         block_root: Hash256,
         column: &KzgVerifiedCustodyDataColumn<E>,
     ) -> bool {
-        // TODO(gloas): support partial messages
         let Ok(fulu) = column.as_data_column().as_fulu() else {
             return false;
         };

@@ -162,78 +162,6 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
         }
         Ok(len)
     }
-
-    /// Merge the cells of two partial sidecars into their combined bitmap, column, and proofs.
-    ///
-    /// Both sidecars must be internally consistent (see [`Self::verify_len`]) and have bitmaps of
-    /// the same length. If both contain the same cell, the cell from `self` is kept — though as
-    /// they are KZG verified, the two will be identical.
-    ///
-    /// Only the fork-agnostic fields are merged, so the result is returned as a (header-less)
-    /// [`PartialDataColumnSidecarGloas`]. The caller is responsible for any fork-specific fields
-    /// (e.g. the Fulu header) when assembling the resulting sidecar.
-    pub fn merge_without_header(
-        &self,
-        other: &Self,
-    ) -> Result<PartialDataColumnSidecarGloas<E>, PartialDataColumnSidecarError> {
-        // Check that each sidecar is internally consistent by checking the lengths.
-        self.verify_len()?;
-        other.verify_len()?;
-        if self.cells_present_bitmap().len() != other.cells_present_bitmap().len() {
-            return Err(PartialDataColumnSidecarError::DifferingLengths {
-                lhs_len: self.cells_present_bitmap().len(),
-                rhs_len: other.cells_present_bitmap().len(),
-            });
-        }
-
-        let new_bitmap = self
-            .cells_present_bitmap()
-            .union(other.cells_present_bitmap());
-        let len = new_bitmap.num_set_bits();
-        let mut new_column = Vec::with_capacity(len);
-        let mut new_proofs = Vec::with_capacity(len);
-        let mut self_iter = self.column().iter().zip(self.kzg_proofs().iter());
-        let mut other_iter = other.column().iter().zip(other.kzg_proofs().iter());
-
-        for presence_bits in self
-            .cells_present_bitmap()
-            .iter()
-            .zip(other.cells_present_bitmap().iter())
-        {
-            match presence_bits {
-                (false, false) => {}
-                (true, other_present) => {
-                    let (cell, proof) = self_iter
-                        .next()
-                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    new_column.push(cell.clone());
-                    new_proofs.push(*proof);
-                    if other_present {
-                        other_iter
-                            .next()
-                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    }
-                }
-                (false, true) => {
-                    let (cell, proof) = other_iter
-                        .next()
-                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    new_column.push(cell.clone());
-                    new_proofs.push(*proof);
-                }
-            }
-        }
-
-        Ok(PartialDataColumnSidecarGloas {
-            cells_present_bitmap: new_bitmap,
-            column: new_column
-                .try_into()
-                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
-            kzg_proofs: new_proofs
-                .try_into()
-                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
-        })
-    }
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
@@ -361,16 +289,6 @@ impl<E: EthSpec> PartialDataColumn<E> {
         match self {
             PartialDataColumn::Fulu(fulu) => fulu.try_clone_full(header?),
             PartialDataColumn::Gloas(gloas) => gloas.try_clone_full(),
-        }
-    }
-
-    pub fn try_into_full(
-        self,
-        header: Option<&PartialDataColumnHeader<E>>,
-    ) -> Option<DataColumnSidecar<E>> {
-        match self {
-            PartialDataColumn::Fulu(fulu) => fulu.try_into_full(header?),
-            PartialDataColumn::Gloas(gloas) => gloas.try_into_full(),
         }
     }
 }

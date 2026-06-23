@@ -1012,7 +1012,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 match full.as_data_column().to_partial() {
                                     Ok(PartialDataColumn::Fulu(fulu)) => Arc::new(fulu),
                                     // The Fulu assembler never holds Gloas columns.
-                                    Ok(PartialDataColumn::Gloas(_)) => return None,
+                                    Ok(PartialDataColumn::Gloas(_)) => {
+                                        crit!("Found gloas column in Fulu partial assembler");
+                                        return None;
+                                    }
                                     Err(err) => {
                                         crit!(?err, "Failed to convert full column to partial");
                                         return None;

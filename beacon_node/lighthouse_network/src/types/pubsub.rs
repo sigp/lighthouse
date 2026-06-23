@@ -12,14 +12,14 @@ use types::{
     DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
     PartialDataColumnGroupId, PartialDataColumnHeader, PartialDataColumnSidecar,
-    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -472,14 +472,14 @@ pub fn decode_partial<E: EthSpec>(
         GossipKind::DataColumnSidecar(id) => {
             // Partial messages are spec'd under the assumption that there is one column per subnet.
             let index = **id;
-            let version = group
-                .first()
-                .ok_or_else(|| "Empty partial group id".to_string())?;
-            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
-                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-            match (version, sidecar) {
-                (&PARTIAL_COLUMNS_VERSION_BYTE_FULU, PartialDataColumnSidecar::Fulu(sidecar)) => {
-                    let block_root = Hash256::from_ssz_bytes(&group[1..])
+            let Some((version, group_id)) = group.split_first() else {
+                return Err("Empty partial group id".to_string());
+            };
+            match version {
+                &PARTIAL_COLUMNS_VERSION_BYTE_FULU => {
+                    let sidecar = PartialDataColumnSidecarFulu::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let block_root = Hash256::from_ssz_bytes(group_id)
                         .map_err(|e| format!("Error decoding Fulu group: {:?}", e))?;
                     Ok(PartialDataColumnFulu {
                         block_root,
@@ -488,8 +488,10 @@ pub fn decode_partial<E: EthSpec>(
                     }
                     .into())
                 }
-                (&PARTIAL_COLUMNS_VERSION_BYTE_GLOAS, PartialDataColumnSidecar::Gloas(sidecar)) => {
-                    let group_id = PartialDataColumnGroupId::from_ssz_bytes(&group[1..])
+                &PARTIAL_COLUMNS_VERSION_BYTE_GLOAS => {
+                    let sidecar = PartialDataColumnSidecarGloas::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let group_id = PartialDataColumnGroupId::from_ssz_bytes(group_id)
                         .map_err(|e| format!("Error decoding Gloas group: {:?}", e))?;
                     Ok(PartialDataColumnGloas {
                         block_root: group_id.beacon_block_root,
@@ -499,9 +501,7 @@ pub fn decode_partial<E: EthSpec>(
                     }
                     .into())
                 }
-                (version, _) => Err(format!(
-                    "Partial data column version/payload mismatch: {version}"
-                )),
+                version => Err(format!("Unknown partial version: {version}")),
             }
         }
         other => Err(format!("Partial message unsupported for topic: {other}")),

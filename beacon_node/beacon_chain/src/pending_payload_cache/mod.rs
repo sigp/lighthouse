@@ -430,37 +430,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         self.check_availability(block_root, pending_components, num_expected_columns)
     }
 
-    /// Re-run the availability check using the columns already stored in the cache, without
-    /// re-inserting them.
-    ///
-    /// Used after a Gloas partial merge has completed one or more columns: those columns were
-    /// assembled in-place in this same cache, so feeding them back through
-    /// `put_kzg_verified_custody_data_columns` would redundantly re-clone every cell. We only need
-    /// to check whether the envelope is now available.
-    pub fn check_payload_envelope_availability(
-        &self,
-        block_root: Hash256,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
-
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
-
-        let pending_components =
-            RwLockReadGuard::try_map(self.availability_cache.read(), |cache| {
-                cache.peek(&block_root)
-            })
-            .map_err(|_| {
-                AvailabilityCheckError::Unexpected("pending components should exist".to_string())
-            })?;
-
-        self.check_availability(block_root, pending_components, num_expected_columns)
-    }
-
     #[instrument(skip_all, level = "debug")]
     pub fn reconstruct_data_columns(
         &self,

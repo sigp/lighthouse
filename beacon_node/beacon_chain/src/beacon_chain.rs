@@ -3324,44 +3324,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check if we have custody of this column
         let sampling_columns =
             self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        if !sampling_columns.contains(&column_index) {
+        let verified_partial = if sampling_columns.contains(&column_index) {
+            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
+        } else {
             return Ok(None);
-        }
+        };
 
         if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let (merge_result, gloas_availability) =
-            match KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial) {
-                KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
-                    // Fulu: merge via the partial assembler.
-                    let Some(assembler) = self.data_availability_checker.partial_assembler() else {
-                        // Partial messages are apparently not activated
-                        return Ok(None);
-                    };
-                    let Some(header) = verified_header else {
-                        return Err(BlockError::InternalError(
-                            "Fulu partial data column received without a header".to_string(),
-                        ));
-                    };
+        let (merge_result, gloas_availability) = match verified_partial {
+            KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
+                // Fulu: merge via the partial assembler.
+                let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+                    // Partial messages are apparently not activated
+                    return Ok(None);
+                };
+                let Some(header) = verified_header else {
+                    return Err(BlockError::InternalError(
+                        "Fulu partial data column received without a header".to_string(),
+                    ));
+                };
 
-                    let merge_result = assembler
-                        .merge_partials(block_root, vec![verified_partial], header.into_header())
-                        .ok_or_else(|| {
-                            BlockError::InternalError("No assembly found for block".to_string())
-                        })?;
-                    (merge_result, None)
-                }
-                KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
-                    // Gloas: merge directly into the pending payload cache.
-                    let (availability, merge_result) = self
-                        .pending_payload_cache
-                        .merge_partial_data_columns(block_root, &[verified_partial])
-                        .map_err(BlockError::from)?;
-                    (merge_result, Some(availability))
-                }
-            };
+                let merge_result = assembler
+                    .merge_partials(block_root, vec![verified_partial], header.into_header())
+                    .ok_or_else(|| {
+                        BlockError::InternalError("No assembly found for block".to_string())
+                    })?;
+                (merge_result, None)
+            }
+            KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
+                // Gloas: merge directly into the pending payload cache.
+                let (availability, merge_result) = self
+                    .pending_payload_cache
+                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .map_err(BlockError::from)?;
+                (merge_result, Some(availability))
+            }
+        };
 
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
