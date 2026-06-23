@@ -33,7 +33,7 @@ pub(crate) struct SlotAssignments {
     /// Flat array of slot assignments. Length = `validator_count * 3`.
     slots: Vec<Slot>,
     /// The 3 epochs covered by columns 0, 1, 2 (typically `[current-2, current-1, current]`).
-    epochs: [Epoch; 3],
+    epochs: [Epoch; NUM_EPOCH_COLUMNS],
 }
 
 /// Number of epoch columns in the slot assignment table.
@@ -122,7 +122,7 @@ impl SlotAssignments {
         // so we accept states where current_slot_epoch <= state_current + 1.
         let state_next = state
             .next_epoch()
-            .unwrap_or(state_current.saturating_add(1u64));
+            .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?;
         if current_slot_epoch > state_next {
             return Err(Error::StaleStateForAssignments {
                 current_slot_epoch,
@@ -169,9 +169,12 @@ impl SlotAssignments {
                     .next_epoch()
                     .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
             };
-            let Some(col) = desired_epochs.iter().position(|e| *e == duty_epoch) else {
-                continue;
-            };
+            // `duty_epoch` is `state.{previous,current,next}_epoch()` and `desired_epochs` is built
+            // from exactly those, so the position is always found.
+            let col = desired_epochs
+                .iter()
+                .position(|e| *e == duty_epoch)
+                .expect("duty_epoch is one of desired_epochs by construction");
 
             let committee_cache = state
                 .committee_cache(relative_epoch)
