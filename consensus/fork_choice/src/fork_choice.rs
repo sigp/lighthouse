@@ -313,9 +313,24 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
+impl QueuedAttestation {
+    /// Construct an empty attestation for the given slot. Exposed for benchmarking.
+    #[doc(hidden)]
+    pub fn inner(slot: Slot) -> Self {
+        Self {
+            slot,
+            attesting_indices: vec![],
+            block_root: Hash256::ZERO,
+            target_epoch: Epoch::new(0),
+            payload_present: false,
+        }
+    }
+}
+
 /// Returns all attestations in `queued_attestations` with a slot earlier than the current slot,
 /// removing them from the queue.
-fn dequeue_attestations(
+#[doc(hidden)]
+pub fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut BTreeMap<Slot, Vec<QueuedAttestation>>,
 ) -> BTreeMap<Slot, Vec<QueuedAttestation>> {
