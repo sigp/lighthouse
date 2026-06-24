@@ -900,7 +900,8 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, MakeAttestationOptions, RelativeSyncCommittee,
+        test_spec,
     };
     use bls::Keypair;
     use maplit::hashset;
@@ -2488,23 +2489,20 @@ mod release_tests {
         assert_eq!(bit_counts, vec![3, 2, 1, 1]);
     }
 
-    /// In Gloas, `payload_present` is encoded via `data.index`: true → index=1, false → index=0.
-    /// This test verifies that attestations created with `payload_present=true` get `data.index=1`
-    /// and that both index values are stored separately and packed into a block independently.
+    /// Test that when payload_present is true, `index` in AttestationData = 1 (for Gloas)
+    /// If payload_present is false, `index` = 0
+    /// https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
     #[tokio::test]
-    async fn attestation_payload_present_field() {
-        use beacon_chain::test_utils::MakeAttestationOptions;
-
+    async fn attestation_payload_present_changes_index_field() {
         let spec = test_spec::<MinimalEthSpec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         }
 
         let num_validators = 64;
-
         let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
-        let all_validators = harness.get_all_validators();
-        // Advance to slot 1 to produce a block we can attest to.
+        let all_validators: Vec<usize> = (0..num_validators).collect();
+
         harness
             .add_attested_blocks_at_slots(
                 harness.get_current_state(),
@@ -2517,30 +2515,59 @@ mod release_tests {
         let state = &head.snapshot.beacon_state;
         let state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
-        let slot = state.slot();
-        let fork = spec.fork_at_epoch(slot.epoch(MinimalEthSpec::slots_per_epoch()));
 
-        // Create attestations with payload_present=true.
-        let (attestations_payload_present, _attesters) = harness.make_attestations_with_opts(
+        let attestations_at_head = harness.make_unaggregated_attestations(
             &all_validators,
             state,
             state_root,
             head_block_root.into(),
-            slot,
-            MakeAttestationOptions {
-                limit: None,
-                fork,
-                payload_present_override: Some(true),
-            },
+            Slot::new(1),
         );
 
-        // Create attestations with payload_present=false.
-        let (attestations_payload_absent, _attesters) = harness.make_attestations_with_opts(
+        // when block.slot == current slot, always set index = 0
+        // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L104-L105
+        for committee_attestations in &attestations_at_head {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    0,
+                    "Attesting at head slot should always have index=0"
+                );
+            }
+        }
+
+        // Advance to slot 2 without producing a block (skipped slot).
+        harness.advance_slot();
+
+        let attestations_with_payload_present = harness.make_unaggregated_attestations(
             &all_validators,
             state,
             state_root,
             head_block_root.into(),
-            slot,
+            Slot::new(2),
+        );
+
+        // head_block is still Slot 1 (since Slot 2 is a skipped slot)
+        // block.slot (Slot 1) != current_slot (Slot 2)
+        // With payload_present and attesting at Slot 2, index = 1
+        for committee_attestations in &attestations_with_payload_present {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    1,
+                    "Attesting after head slot (skipped slot) should have index=1 (payload_present=true)"
+                );
+            }
+        }
+
+        // Create attestations at Slot 2 without payload_present
+        let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
+        let (attestations_no_payload_present, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(2),
             MakeAttestationOptions {
                 limit: None,
                 fork,
@@ -2548,25 +2575,15 @@ mod release_tests {
             },
         );
 
-        // When payload_present= true, the index field in AttestationData should be 1
-        // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
-        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_payload_present {
-            for (attestation, _subnetid) in committee_attestations {
-                assert_eq!(
-                    attestation.data().index,
-                    1,
-                    "payload_present=true should have a committee_index=1"
-                );
-            }
-        }
-
-        // When payload_present= false, the index field in AttestationData should be 0
-        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_payload_absent {
+        // Without payload_present, index = 0
+        for (committee_attestations, _signed_aggregate_and_proof) in
+            &attestations_no_payload_present
+        {
             for (attestation, _subnetid) in committee_attestations {
                 assert_eq!(
                     attestation.data().index,
                     0,
-                    "payload_present=false should encode as committee_index=0"
+                    "Skipped slot with non-canonical payload should have index=0 (payload_present=false)"
                 );
             }
         }
