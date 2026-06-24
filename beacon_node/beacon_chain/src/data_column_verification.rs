@@ -1845,8 +1845,9 @@ mod test {
     use std::time::UNIX_EPOCH;
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
-        PartialDataColumnHeader, PartialDataColumnSidecarFulu,
+        ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
+        PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
+        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot,
     };
 
     type E = MainnetEthSpec;
