@@ -12,8 +12,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, warn};
 use types::SignedExecutionPayloadBid;
-use warp::reply::Reply;
-use warp::{Filter, Rejection};
+use warp::{
+    Filter, Rejection,
+    reply::{Reply, Response},
+};
 
 // POST /eth/v1/beacon/execution_payload_bids (SSZ)
 pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
@@ -79,7 +81,7 @@ pub fn publish_execution_payload_bid<T: BeaconChainTypes>(
     bid: SignedExecutionPayloadBid<T::EthSpec>,
     chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-) -> Result<warp::reply::Response, Rejection> {
+) -> Result<Response, Rejection> {
     let slot = bid.slot();
     let builder_index = bid.message.builder_index;
 

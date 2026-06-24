@@ -120,11 +120,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .layer(cors_layer);
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
-    let server = Server::builder()
-        .router(router)
-        .address(address)
-        .build()
-        .await?;
+    let server = Server::builder(router, address).build().await?;
 
     let (address, server) = server.serve_with_shutdown(shutdown).await?;
 

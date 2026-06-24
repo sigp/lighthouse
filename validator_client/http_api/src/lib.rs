@@ -1405,11 +1405,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
 
-    let server = Server::builder()
-        .router(axum_router)
-        .address(address)
-        .build()
-        .await?;
+    let server = Server::builder(axum_router, address).build().await?;
 
     let (address, server) = server.serve_with_shutdown(shutdown).await?;
 

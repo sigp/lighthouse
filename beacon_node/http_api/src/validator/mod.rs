@@ -33,7 +33,7 @@ use types::{
     SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
     SyncContributionData, ValidatorSubscription,
 };
-use warp::{Filter, Rejection, Reply};
+use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
@@ -299,7 +299,6 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
     use ssz::Encode;
-    use warp::http::Response;
 
     eth_v1
         .and(warp::path("validator"))
@@ -351,7 +350,7 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                         })?;
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
@@ -368,7 +367,7 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: payload_attestation_data,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())

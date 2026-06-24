@@ -109,9 +109,7 @@ use version::{
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
     unsupported_version_rejection,
 };
-use warp::Reply;
-use warp::sse::Event;
-use warp::{Filter, Rejection, http::Response};
+use warp::{Filter, Rejection, Reply, http::response::Builder, reply::Response, sse::Event};
 use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -1166,7 +1164,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     };
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(block.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1302,7 +1300,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         .map_err(inconsistent_fork_rejection)?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(block.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1358,7 +1356,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         .map_err(inconsistent_fork_rejection)?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(blob_sidecar_list_filtered.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1407,7 +1405,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         block_id.get_blobs_by_versioned_hashes(versioned_hashes, &chain)?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(response.data.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1632,7 +1630,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         get_next_withdrawals::<T>(&chain, state, state_id, proposal_slot)?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(withdrawals.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1718,7 +1716,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         .spec
                         .fork_name_at_slot::<T::EthSpec>(update.get_slot());
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(update.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1766,7 +1764,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         .spec
                         .fork_name_at_slot::<T::EthSpec>(update.signature_slot());
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(update.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -1991,7 +1989,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         block_id.get_data_columns(indices, &chain)?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(data_columns.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
@@ -2057,13 +2055,11 @@ pub async fn serve<T: BeaconChainTypes>(
                             "HTTP state load"
                         );
 
-                        Response::builder()
+                        Builder::new()
                             .status(200)
                             .body(response_bytes)
                             .map(add_ssz_content_type_header)
-                            .map(|resp: warp::reply::Response| {
-                                add_consensus_version_header(resp, fork_name)
-                            })
+                            .map(|resp: Response| add_consensus_version_header(resp, fork_name))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -3515,7 +3511,7 @@ pub async fn serve<T: BeaconChainTypes>(
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
 
-    let mut server_builder = Server::builder().router(axum_router).address(address);
+    let mut server_builder = Server::builder(axum_router, address);
 
     let tls_enabled = config.tls_config.is_some();
     if let Some(tls_config) = config.tls_config {

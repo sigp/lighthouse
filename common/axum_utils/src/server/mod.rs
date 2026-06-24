@@ -21,8 +21,8 @@ pub struct Server {
 
 impl Server {
     /// Initialize a new server builder.
-    pub fn builder() -> ServerBuilder {
-        ServerBuilder::new()
+    pub fn builder(router: Router, address: SocketAddr) -> ServerBuilder {
+        ServerBuilder::new(router, address)
     }
 
     /// Get information about the server configuration.
@@ -49,17 +49,11 @@ impl Server {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        let tokio_listener = tokio::net::TcpListener::bind(self.address)
-            .await
-            .map_err(ServerError::ServerFailed)?;
+        let tokio_listener = tokio::net::TcpListener::bind(self.address).await?;
 
-        let actual_addr = tokio_listener
-            .local_addr()
-            .map_err(ServerError::ServerFailed)?;
+        let actual_addr = tokio_listener.local_addr()?;
 
-        let listener = tokio_listener
-            .into_std()
-            .map_err(ServerError::ServerFailed)?;
+        let listener = tokio_listener.into_std()?;
 
         let handle = axum_server::Handle::new();
 
@@ -76,22 +70,24 @@ impl Server {
             });
 
             let result = match self.rustls_config {
-                Some(config) => axum_server::from_tcp_rustls(listener, config)
-                    .handle(handle)
-                    .serve(self.router.into_make_service())
-                    .await
-                    .map_err(ServerError::ServerFailed),
-                None => axum_server::from_tcp(listener)
-                    .handle(handle)
-                    .serve(self.router.into_make_service())
-                    .await
-                    .map_err(ServerError::ServerFailed),
+                Some(config) => {
+                    axum_server::from_tcp_rustls(listener, config)
+                        .handle(handle)
+                        .serve(self.router.into_make_service())
+                        .await
+                }
+                None => {
+                    axum_server::from_tcp(listener)
+                        .handle(handle)
+                        .serve(self.router.into_make_service())
+                        .await
+                }
             };
 
             // Abort the shutdown listener if it's still running (server exited first).
             shutdown_handle.abort();
 
-            result
+            result.map_err(ServerError::ServerFailed)
         };
 
         Ok((actual_addr, server_future))

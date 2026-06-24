@@ -9,9 +9,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use tracing::debug;
 use types::Slot;
-use warp::http::Response;
-use warp::reply::Reply;
-use warp::{Filter, Rejection};
+use warp::{Filter, Rejection, http::response::Builder, reply::Reply};
 
 // GET validator/execution_payload_envelopes/{slot}
 pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
@@ -59,7 +57,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
@@ -76,7 +74,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: envelope,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())

@@ -38,8 +38,11 @@ use types::{
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
     SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use warp::reply::{self, Reply};
-use warp::{Filter, Rejection};
+use warp::{
+    Filter, Rejection,
+    http::StatusCode,
+    reply::{self, Reply},
+};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
@@ -1063,11 +1066,10 @@ pub fn serve<E: EthSpec>(
                                 .unwrap(),
                         )
                     } else {
-                        Ok(warp::http::Response::builder()
-                            .status(202)
-                            .body("")
-                            .map(|res| add_consensus_version_header(res, fork_name))
-                            .unwrap())
+                        Ok(add_consensus_version_header(
+                            StatusCode::ACCEPTED.into_response(),
+                            fork_name,
+                        ))
                     }
                 },
             );
@@ -1114,11 +1116,10 @@ pub fn serve<E: EthSpec>(
                             .unwrap(),
                     )
                 } else {
-                    Ok(warp::http::Response::builder()
-                        .status(202)
-                        .body("".to_string())
-                        .map(|res| add_consensus_version_header(res, fork_name))
-                        .unwrap())
+                    Ok(add_consensus_version_header(
+                        StatusCode::ACCEPTED.into_response(),
+                        fork_name,
+                    ))
                 }
             },
         );
