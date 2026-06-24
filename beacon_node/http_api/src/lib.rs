@@ -115,6 +115,38 @@ use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
 
+/// Translates Lighthouse's internal disconnect reason tag (the `reason` field
+/// on `LastDisconnect`, which is a `'static` variant name of `GoodbyeReason`)
+/// into the simplified `PeerDisconnectReason` vocabulary defined by the
+/// beacon-API peer-scoring proposal.
+fn map_disconnect_reason(reason: &str) -> Option<&'static str> {
+    let mapped = match reason {
+        "BadScore" | "Banned" | "BannedIP" => "bad_score",
+        "ClientShutdown" => "client_shutdown",
+        "IrrelevantNetwork" => "irrelevant_network",
+        "UnableToVerifyNetwork" => "unviable_fork",
+        "TooManyPeers" => "too_many_peers",
+        "Fault" => "io_error",
+        _ => "unknown",
+    };
+    Some(mapped)
+}
+
+/// Translates Lighthouse's internal downscore reason tag (the `reason` field
+/// on `LastAction`, e.g. tags emitted by `rpc_error_msg` or report-peer call
+/// sites) into the simplified `PeerScoreReason` vocabulary defined by the
+/// beacon-API peer-scoring proposal.
+fn map_downscore_reason(reason: &str) -> &'static str {
+    match reason {
+        "rpc_invalid_request" => "rpc_invalid_request",
+        "rpc_rate_limited" => "rpc_rate_limited",
+        "rpc_io_error" => "rpc_io_error",
+        "rpc_stream_timeout" | "rpc_negotiation_timeout" => "rpc_timeout",
+        "rpc_invalid_data" | "rpc_ssz_decode_error" => "rpc_invalid_response",
+        _ => "unknown",
+    }
+}
+
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
@@ -2434,12 +2466,36 @@ pub fn serve<T: BeaconChainTypes>(
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
                         if let Some(&dir) = peer_info.connection_direction() {
+                            let agent_version = peer_info.client().agent_string.clone();
+                            let score = Some(peer_info.score().score());
+                            let state: api_types::PeerState =
+                                peer_info.connection_status().clone().into();
+                            // Per beacon-API spec, `disconnect_reason` MUST only be populated
+                            // when `state` is `disconnected` or `disconnecting`.
+                            let disconnect_reason = if matches!(
+                                state,
+                                api_types::PeerState::Disconnected
+                                    | api_types::PeerState::Disconnecting
+                            ) {
+                                peer_info.last_disconnect().and_then(|d| {
+                                    map_disconnect_reason(d.reason).map(|s| s.to_string())
+                                })
+                            } else {
+                                None
+                            };
+                            let downscore_reasons = peer_info
+                                .last_action()
+                                .map(|a| vec![map_downscore_reason(a.reason).to_string()]);
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
                                 direction: dir.into(),
-                                state: peer_info.connection_status().clone().into(),
+                                state,
+                                agent_version,
+                                score,
+                                disconnect_reason,
+                                downscore_reasons,
                             }));
                         }
                     }
@@ -2495,12 +2551,34 @@ pub fn serve<T: BeaconChainTypes>(
                                     .is_none_or(|directions| directions.contains(&direction));
 
                                 if state_matches && direction_matches {
+                                    let agent_version = peer_info.client().agent_string.clone();
+                                    let score = Some(peer_info.score().score());
+                                    // Per beacon-API spec, `disconnect_reason` MUST only be
+                                    // populated when `state` is `disconnected` or `disconnecting`.
+                                    let disconnect_reason = if matches!(
+                                        state,
+                                        api_types::PeerState::Disconnected
+                                            | api_types::PeerState::Disconnecting
+                                    ) {
+                                        peer_info.last_disconnect().and_then(|d| {
+                                            map_disconnect_reason(d.reason).map(|s| s.to_string())
+                                        })
+                                    } else {
+                                        None
+                                    };
+                                    let downscore_reasons = peer_info
+                                        .last_action()
+                                        .map(|a| vec![map_downscore_reason(a.reason).to_string()]);
                                     peers.push(api_types::PeerData {
                                         peer_id: peer_id.to_string(),
                                         enr: peer_info.enr().map(|enr| enr.to_base64()),
                                         last_seen_p2p_address: address,
                                         direction,
                                         state,
+                                        agent_version,
+                                        score,
+                                        disconnect_reason,
+                                        downscore_reasons,
                                     });
                                 }
                             }

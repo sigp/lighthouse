@@ -6,7 +6,7 @@
 //!
 //! The scoring algorithms are currently experimental.
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::cmp::Ordering;
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -43,7 +43,7 @@ const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
 // somewhat generic.
-#[derive(Debug, Clone, Copy, AsRefStr)]
+#[derive(Debug, Clone, Copy, AsRefStr, Serialize)]
 #[strum(serialize_all = "snake_case")]
 pub enum PeerAction {
     /// We should not communicate more with this peer.
@@ -66,7 +66,7 @@ pub enum PeerAction {
 }
 
 /// Service reporting a `PeerAction` for a peer.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum ReportSource {
     Gossipsub,
     RPC,
@@ -85,6 +85,65 @@ impl From<ReportSource> for &'static str {
             ReportSource::PeerManager => "peer_manager",
         }
     }
+}
+
+/// Custom serializer for [`Instant`] fields: emits the elapsed time in seconds.
+///
+/// `Instant` is opaque and has no meaningful wire representation; we serialize
+/// it as "how many seconds ago this happened" so consumers can render it
+/// without needing wall-clock context.
+pub(crate) fn serialize_instant_seconds_ago<S>(
+    instant: &Instant,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u64(instant.elapsed().as_secs())
+}
+
+/// The most recent score-affecting event applied to a peer.
+///
+/// Exposed on the `/lighthouse/peers` HTTP endpoint so external tools (e.g.
+/// dora) can show *why* a peer was scored, not just the resulting number.
+#[derive(Debug, Clone, Serialize)]
+pub struct LastAction {
+    /// Static reason tag for the event, e.g. `bad_gossip_block_ssz` or
+    /// `lookup_block_processing_failure`.
+    pub reason: &'static str,
+    /// Which subsystem reported the action.
+    pub source: ReportSource,
+    /// The action category (Fatal/Low/Mid/High tolerance).
+    pub action: PeerAction,
+    /// Signed score change caused by this event (`post_score - pre_score`).
+    pub delta: f64,
+    /// When the event happened — serialized as `seconds_ago`.
+    #[serde(serialize_with = "serialize_instant_seconds_ago", rename = "seconds_ago")]
+    pub at: Instant,
+}
+
+/// The direction of a disconnect event.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DisconnectDirection {
+    /// We sent the goodbye / initiated the disconnect.
+    Sent,
+    /// The peer sent us a goodbye.
+    Received,
+}
+
+/// The most recent disconnect event for a peer.
+#[derive(Debug, Clone, Serialize)]
+pub struct LastDisconnect {
+    /// Human-readable variant name of the goodbye reason (e.g. `BadScore`).
+    pub reason: &'static str,
+    /// Numeric goodbye code on the wire (mirrors libp2p `GoodbyeReason as u64`).
+    pub code: u64,
+    /// Whether we sent or received the goodbye.
+    pub direction: DisconnectDirection,
+    /// When the disconnect happened — serialized as `seconds_ago`.
+    #[serde(serialize_with = "serialize_instant_seconds_ago", rename = "seconds_ago")]
+    pub at: Instant,
 }
 
 impl std::fmt::Display for PeerAction {
@@ -417,5 +476,39 @@ mod tests {
         score.update_gossipsub_score(GOSSIPSUB_GREYLIST_THRESHOLD, true);
         assert!(!score.is_good_gossipsub_peer());
         assert_eq!(score.score(), 0.0);
+    }
+
+    #[test]
+    fn test_last_action_serialization_shape() {
+        let last_action = LastAction {
+            reason: "bad_gossip_block_ssz",
+            source: ReportSource::Gossipsub,
+            action: PeerAction::Fatal,
+            delta: -100.0,
+            at: Instant::now(),
+        };
+        let value: serde_json::Value =
+            serde_json::to_value(&last_action).expect("serialization should succeed");
+        assert_eq!(value["reason"], "bad_gossip_block_ssz");
+        assert_eq!(value["source"], "Gossipsub");
+        assert_eq!(value["action"], "Fatal");
+        assert_eq!(value["delta"], -100.0);
+        assert!(value["seconds_ago"].is_u64());
+    }
+
+    #[test]
+    fn test_last_disconnect_serialization_shape() {
+        let last_disconnect = LastDisconnect {
+            reason: "BadScore",
+            code: 250,
+            direction: DisconnectDirection::Sent,
+            at: Instant::now(),
+        };
+        let value: serde_json::Value =
+            serde_json::to_value(&last_disconnect).expect("serialization should succeed");
+        assert_eq!(value["reason"], "BadScore");
+        assert_eq!(value["code"], 250);
+        assert_eq!(value["direction"], "sent");
+        assert!(value["seconds_ago"].is_u64());
     }
 }

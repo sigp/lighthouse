@@ -5568,6 +5568,7 @@ dependencies = [
  "rand 0.9.2",
  "regex",
  "serde",
+ "serde_json",
  "sha2",
  "smallvec",
  "snap",

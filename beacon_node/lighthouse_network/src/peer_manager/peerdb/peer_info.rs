@@ -1,5 +1,5 @@
 use super::client::Client;
-use super::score::{PeerAction, Score, ScoreState};
+use super::score::{LastAction, LastDisconnect, PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
@@ -59,6 +59,19 @@ pub struct PeerInfo<E: EthSpec> {
     connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
     enr: Option<Enr>,
+    /// The most recent score-affecting event for this peer (if any).
+    ///
+    /// Exposed via the `/lighthouse/peers` HTTP endpoint so external tooling
+    /// can correlate score changes with their cause. Skipped from JSON when
+    /// the peer has never been scored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_action: Option<LastAction>,
+    /// The most recent disconnect event for this peer (if any).
+    ///
+    /// Records the goodbye reason and direction (sent/received). Skipped from
+    /// JSON when the peer has never disconnected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_disconnect: Option<LastDisconnect>,
 }
 
 impl<E: EthSpec> Default for PeerInfo<E> {
@@ -78,6 +91,8 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             is_trusted: false,
             connection_direction: None,
             enr: None,
+            last_action: None,
+            last_disconnect: None,
         }
     }
 }
@@ -471,6 +486,29 @@ impl<E: EthSpec> PeerInfo<E> {
         if !self.is_trusted {
             self.score.apply_peer_action(peer_action)
         }
+    }
+
+    /// Returns the most recent score-affecting event recorded for this peer.
+    pub fn last_action(&self) -> Option<&LastAction> {
+        self.last_action.as_ref()
+    }
+
+    /// Returns the most recent disconnect event recorded for this peer.
+    pub fn last_disconnect(&self) -> Option<&LastDisconnect> {
+        self.last_disconnect.as_ref()
+    }
+
+    /// Records the most recent score-affecting event for this peer.
+    // VISIBILITY: The peer manager populates this from `report_peer`.
+    pub(in crate::peer_manager) fn set_last_action(&mut self, last_action: LastAction) {
+        self.last_action = Some(last_action);
+    }
+
+    /// Records the most recent disconnect event for this peer.
+    // VISIBILITY: Populated from goodbye send/receive paths in both the peer
+    // manager and the service layer.
+    pub(crate) fn set_last_disconnect(&mut self, last_disconnect: LastDisconnect) {
+        self.last_disconnect = Some(last_disconnect);
     }
 
     /// Updates the gossipsub score with a new score. Optionally ignore the gossipsub score.

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use logging::crit;
 use network_utils::enr_ext::{EnrExt, peer_id_to_node_id};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use score::{PeerAction, ReportSource, Score, ScoreState};
+use score::{LastAction, PeerAction, ReportSource, Score, ScoreState};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -120,6 +120,21 @@ impl<E: EthSpec> PeerDB<E> {
     // status.
     pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<E>> {
         self.peers.get_mut(peer_id)
+    }
+
+    /// Records the most recent disconnect event for a peer.
+    ///
+    /// Exposed to the wider crate (e.g. the RPC service layer when receiving
+    /// a `Goodbye` request) so the `/lighthouse/peers` HTTP endpoint can
+    /// show *why* a peer disconnected. No-op if the peer is unknown.
+    pub(crate) fn record_last_disconnect(
+        &mut self,
+        peer_id: &PeerId,
+        last_disconnect: score::LastDisconnect,
+    ) {
+        if let Some(info) = self.peers.get_mut(peer_id) {
+            info.set_last_disconnect(last_disconnect);
+        }
     }
 
     /// Returns if the peer is already connected.
@@ -631,7 +646,21 @@ impl<E: EthSpec> PeerDB<E> {
         match self.peers.get_mut(peer_id) {
             Some(info) => {
                 let previous_state = info.score_state();
+                let pre_score = info.score().score();
                 info.apply_peer_action_to_score(action);
+                let post_score = info.score().score();
+                // Record the most recent score-affecting event so the HTTP
+                // API can expose *why* a peer's score moved. Trusted peers
+                // are skipped because their score is never mutated.
+                if !info.is_trusted {
+                    info.set_last_action(LastAction {
+                        reason: msg,
+                        source,
+                        action,
+                        delta: post_score - pre_score,
+                        at: Instant::now(),
+                    });
+                }
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                     &[info.client().kind.as_ref(), action.as_ref(), source.into()],
