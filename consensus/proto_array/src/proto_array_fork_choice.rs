@@ -242,6 +242,8 @@ pub struct Block {
     pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
     pub proposer_index: Option<u64>,
+    /// Whether the block's execution payload envelope has been received. Always `false` pre-Gloas.
+    pub payload_received: bool,
 }
 
 impl Block {
@@ -502,6 +504,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash,
             execution_payload_block_hash,
             proposer_index: Some(proposer_index),
+            payload_received: false,
         };
 
         proto_array
@@ -720,15 +723,14 @@ impl ProtoArrayForkChoice {
             .into());
         }
 
-        // Spec: `is_parent_strong`. Use payload-aware weight matching the
-        // payload path the head node is on from its parent.
-        let parent_payload_status = info.head_node.get_parent_payload_status();
-        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
+        // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
+        // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
+        let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-        let parent_strong = parent_weight > re_org_parent_weight_threshold;
+        let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
         if !parent_strong {
             return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight,
+                parent_weight: parent_pending_weight,
                 re_org_parent_weight_threshold,
             }
             .into());
@@ -959,6 +961,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
+            payload_received: block.payload_received().unwrap_or(false),
         })
     }
 
@@ -1383,6 +1386,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1411,6 +1415,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1547,6 +1552,7 @@ mod test_compute_deltas {
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
                         proposer_index: Some(0),
+                        payload_received: false,
                     },
                     Slot::from(block.slot),
                     &spec,
