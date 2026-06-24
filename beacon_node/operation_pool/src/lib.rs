@@ -2531,7 +2531,7 @@ mod release_tests {
                 assert_eq!(
                     attestation.data().index,
                     0,
-                    "Attesting at head slot should always have index=0"
+                    "Attestation at head slot should always have index=0"
                 );
             }
         }
@@ -2555,7 +2555,7 @@ mod release_tests {
                 assert_eq!(
                     attestation.data().index,
                     1,
-                    "Attesting after head slot (skipped slot) should have index=1 (payload_present=true)"
+                    "Attestation after head slot should have index=1 when payload_present=true"
                 );
             }
         }
@@ -2583,7 +2583,7 @@ mod release_tests {
                 assert_eq!(
                     attestation.data().index,
                     0,
-                    "Skipped slot with non-canonical payload should have index=0 (payload_present=false)"
+                    "Attestation after head slot should have index=0 when payload_present=false"
                 );
             }
         }
