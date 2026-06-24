@@ -284,12 +284,12 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 /// information about the attestation.
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
-    slot: Slot,
-    attesting_indices: Vec<u64>,
-    block_root: Hash256,
-    target_epoch: Epoch,
+    pub slot: Slot,
+    pub attesting_indices: Vec<u64>,
+    pub block_root: Hash256,
+    pub target_epoch: Epoch,
     /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
-    payload_present: bool,
+    pub payload_present: bool,
 }
 
 /// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
@@ -313,23 +313,8 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
-impl QueuedAttestation {
-    /// Construct an empty attestation for the given slot. Exposed for benchmarking.
-    #[doc(hidden)]
-    pub fn inner(slot: Slot) -> Self {
-        Self {
-            slot,
-            attesting_indices: vec![],
-            block_root: Hash256::ZERO,
-            target_epoch: Epoch::new(0),
-            payload_present: false,
-        }
-    }
-}
-
 /// Returns all attestations in `queued_attestations` with a slot earlier than the current slot,
 /// removing them from the queue.
-#[doc(hidden)]
 pub fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut BTreeMap<Slot, Vec<QueuedAttestation>>,

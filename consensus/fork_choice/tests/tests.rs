@@ -493,9 +493,7 @@ impl ForkChoiceTest {
 
         let single_attestation = SingleAttestation {
             attester_index: validator_index as u64,
-            committee_index: attestation
-                .committee_index()
-                .expect("should get committee index"),
+            committee_index: 0,
             data: attestation.data().clone(),
             signature: attestation.signature().clone(),
         };
@@ -1105,6 +1103,11 @@ async fn dequeue_attestations_consecutive_slot_divergence() {
                 queue.len(),
                 1,
                 "the due vote must be dequeued even though a future-slot vote is ahead of it"
+            );
+            assert_eq!(
+                queue[0].slot,
+                Slot::new(3),
+                "the surviving vote must be the not-yet-due slot+2 vote"
             );
         });
 }
