@@ -1060,19 +1060,17 @@ async fn invalid_attestation_delayed_slot() {
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
 }
 
-/// Regression test for out-of-order dequeuing of queued attestations.
+/// Regression test for dequeuing when votes for two different future slots are queued.
 ///
-/// `on_attestation` pushes queued attestations in arrival order and never sorts the queue, so a
-/// future-slot vote can sit ahead of a vote that becomes due sooner. The due vote must still be
-/// released once its slot is in the past. A dequeue that assumes the queue is slot-sorted leaves
-/// the due vote stuck behind the future-slot vote forever.
+/// With votes queued for consecutive slots, advancing the clock past the earlier one must release
+/// only that vote and leave the later one queued until its own slot is in the past.
 #[tokio::test]
 async fn dequeue_attestations_consecutive_slot_divergence() {
     ForkChoiceTest::new()
         .apply_blocks_without_new_attestations(1)
         .await
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
-        // Enqueue a future-slot vote first (slot + 2) so it sits at the front of the queue.
+        // Queue a vote for `slot + 2`.
         .apply_nth_attestation_to_chain(
             0,
             MutationDelay::NoDelay,
@@ -1083,7 +1081,7 @@ async fn dequeue_attestations_consecutive_slot_divergence() {
             |result| assert!(result.is_ok()),
         )
         .await
-        // Then enqueue a vote that becomes due sooner (slot + 1), behind the future-slot vote.
+        // Queue a vote for `slot + 1`, which becomes due sooner.
         // A different committee position avoids `PriorAttestationKnown`.
         .apply_nth_attestation_to_chain(
             1,
@@ -1102,7 +1100,7 @@ async fn dequeue_attestations_consecutive_slot_divergence() {
             assert_eq!(
                 queue.len(),
                 1,
-                "the due vote must be dequeued even though a future-slot vote is ahead of it"
+                "only the due slot+1 vote should be dequeued"
             );
             assert_eq!(
                 queue[0].slot,
@@ -1112,20 +1110,17 @@ async fn dequeue_attestations_consecutive_slot_divergence() {
         });
 }
 
-/// Companion to `dequeue_attestations_consecutive_slot_divergence`: same out-of-order enqueue, but the clock is
-/// advanced far enough that *both* votes are due at dequeue time.
+/// Companion to `dequeue_attestations_consecutive_slot_divergence`: votes for two different slots
+/// are queued, but the clock is advanced far enough that *both* are due at dequeue time.
 ///
-/// When every queued vote is in the past, `current_slot` is greater than all of them, so even a
-/// slot-sorted dequeue drains the whole queue regardless of order. This case therefore passes on
-/// the current implementation too — it pins down the boundary where the ordering bug does *not*
-/// manifest, so a future change can't quietly turn this into another stuck-vote regression.
+/// When every queued vote is in the past, the whole queue drains in a single dequeue.
 #[tokio::test]
 async fn dequeue_attestations_conciliation() {
     ForkChoiceTest::new()
         .apply_blocks_without_new_attestations(1)
         .await
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
-        // Enqueue a future-slot vote first (slot + 2) so it sits at the front of the queue.
+        // Queue a vote for `slot + 2`.
         .apply_nth_attestation_to_chain(
             0,
             MutationDelay::NoDelay,
@@ -1136,7 +1131,7 @@ async fn dequeue_attestations_conciliation() {
             |result| assert!(result.is_ok()),
         )
         .await
-        // Then enqueue a vote that becomes due sooner (slot + 1), behind the future-slot vote.
+        // Queue a vote for `slot + 1`.
         .apply_nth_attestation_to_chain(
             1,
             MutationDelay::NoDelay,
@@ -1148,13 +1143,13 @@ async fn dequeue_attestations_conciliation() {
         )
         .await
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
-        // Advance past both votes (to slot + 3) so the whole queue converges and drains.
+        // Advance past both votes (to slot + 3) so the whole queue drains.
         .skip_slots(3)
         .inspect_queued_attestations(|queue| {
             assert_eq!(
                 queue.len(),
                 0,
-                "all votes are due, so the entire queue must drain regardless of order"
+                "all votes are due, so the entire queue must drain"
             );
         });
 }
