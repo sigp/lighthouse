@@ -14,7 +14,7 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
-    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
+    HistoricalBlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
@@ -26,7 +26,6 @@ use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, Hash256};
 
@@ -56,19 +55,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             let duplicate_cache = self.duplicate_cache.clone();
-            self.process_lookup_block(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-                duplicate_cache,
-            )
-            .await;
+            self.process_lookup_block(block_root, block, process_type, duplicate_cache)
+                .await;
         };
         Box::pin(process_fn)
     }
@@ -78,14 +70,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
         let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
-            seen_timestamp,
             process_type.clone(),
         );
         // A closure which will ignore the block.
@@ -119,7 +109,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
     ) {
@@ -133,12 +122,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-            );
+            let (process_fn, ignore_fn) =
+                self.clone()
+                    .generate_lookup_beacon_block_fns(block_root, block, process_type);
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                 beacon_block_root: block_root,
                 process_fn,
@@ -206,13 +192,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Failed to inform block import"
                     );
                 };
-                self.chain.block_times_cache.write().set_time_observed(
-                    *hash,
-                    *slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
 
                 self.chain.recompute_head_at_current_slot().await;
             }
@@ -254,20 +233,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         // custody_columns must always have at least one element
         let Some(slot) = custody_columns.first().map(|d| d.slot()) else {
             return;
         };
-
-        if let Ok(current_slot) = self.chain.slot()
-            && current_slot == slot
-        {
-            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
-            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-        }
 
         let mut indices = custody_columns
             .iter()
@@ -332,7 +303,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         debug!(
