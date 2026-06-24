@@ -6,6 +6,7 @@ use crate::{
         ProposerPreferencesError, proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
 };
+use eth2::types::{EventKind, ForkVersionedResponse};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{get_pubkey_from_state, proposer_preferences_signature_set};
 use tracing::debug;
@@ -145,6 +146,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     %validator_index,
                     "Successfully verified gossip proposer preferences"
                 );
+
+                if let Some(event_handler) = self.event_handler.as_ref()
+                    && event_handler.has_proposer_preferences_subscribers()
+                {
+                    event_handler.register(EventKind::ProposerPreferences(Box::new(
+                        ForkVersionedResponse {
+                            version: self.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot),
+                            metadata: Default::default(),
+                            data: (*verified.signed_preferences).clone(),
+                        },
+                    )));
+                }
+
                 Ok(verified)
             }
             Err(e) => {
