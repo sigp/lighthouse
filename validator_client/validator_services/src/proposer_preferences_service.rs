@@ -78,9 +78,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         Ok(())
     }
 
-    fn get_current_epoch(&self) -> Option<Epoch> {
-        let current_slot = self.slot_clock.now()?;
-        Some(current_slot.epoch(S::E::slots_per_epoch()))
+    async fn run_update(&self, published_preferences: &mut HashMap<Epoch, Hash256>) {
+        let slot_duration = self.chain_spec.get_slot_duration();
+
+        let Some(current_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock");
+            sleep(slot_duration).await;
+            return;
+        };
+
+        let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+
+        self.poll_and_publish_preferences(current_epoch, published_preferences)
+            .await;
+
+        self.sleep_until_next_slot().await;
     }
 
     async fn sleep_until_next_slot(&self) {
@@ -90,21 +102,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             .duration_to_next_slot()
             .unwrap_or(slot_duration);
         sleep(duration_to_next_slot).await;
-    }
-
-    async fn run_update(&self, published_preferences: &mut HashMap<Epoch, Hash256>) {
-        let slot_duration = self.chain_spec.get_slot_duration();
-
-        let Some(current_epoch) = self.get_current_epoch() else {
-            error!("Failed to read slot clock");
-            sleep(slot_duration).await;
-            return;
-        };
-
-        self.poll_and_publish_preferences(current_epoch, published_preferences)
-            .await;
-
-        self.sleep_until_next_slot().await;
     }
 
     /// Publish proposer preferences for `current_epoch` and `current_epoch + 1`.
@@ -358,15 +355,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_current_epoch() {
-        let test_harness = TestHarness::new_with_validators(1).await;
-
-        let result = test_harness.service.get_current_epoch();
-        // The testnet starts with slot 0, hence Epoch 0
-        assert_eq!(result, Some(Epoch::new(0)));
-    }
-
-    #[tokio::test]
     async fn test_sleep_until_next_slot() {
         tokio::time::pause();
 
@@ -407,7 +395,7 @@ mod tests {
     async fn publish_proposer_preferences_ssz() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let current_epoch = test_harness.service.get_current_epoch().unwrap();
+        let current_epoch = Epoch::new(0);
         test_harness.insert_proposer_duties(current_epoch);
 
         let duties = test_harness
@@ -448,7 +436,7 @@ mod tests {
     async fn publish_proposer_preferences_ssz_fails_fallback_to_json() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let current_epoch = test_harness.service.get_current_epoch().unwrap();
+        let current_epoch = Epoch::new(0);
         test_harness.insert_proposer_duties(current_epoch);
 
         let duties = test_harness
@@ -493,7 +481,7 @@ mod tests {
     async fn no_duties_no_publish() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let current_epoch = test_harness.service.get_current_epoch().unwrap();
+        let current_epoch = Epoch::new(0);
         // We did not insert proposer duty
         let mock_ssz = test_harness
             .harness
@@ -515,7 +503,7 @@ mod tests {
     async fn poll_and_publish_preferences_same_root() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let current_epoch = test_harness.service.get_current_epoch().unwrap();
+        let current_epoch = Epoch::new(0);
         test_harness.insert_proposer_duties(current_epoch);
 
         let mock_ssz = test_harness
@@ -545,7 +533,7 @@ mod tests {
     async fn poll_and_publish_preferences_different_root() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let current_epoch = test_harness.service.get_current_epoch().unwrap();
+        let current_epoch = Epoch::new(0);
         test_harness.insert_proposer_duties(current_epoch);
 
         let mock_ssz = test_harness
