@@ -204,8 +204,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PartialHeaderOrBid::try_from_block(signed_beacon_block.as_ref())
                 {
                     let publish_blobs = false;
-                    self.fetch_engine_blobs_and_publish_full(header_or_bid, block_root, publish_blobs)
-                        .await;
+                    self.fetch_engine_blobs_and_publish_full(
+                        header_or_bid,
+                        block_root,
+                        publish_blobs,
+                    )
+                    .await;
                 }
             }
             _ => {}
