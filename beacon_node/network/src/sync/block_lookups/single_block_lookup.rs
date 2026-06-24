@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
-            cx.send_block_for_processing(self.id, self.block_root, data.value, data.seen_timestamp)
+            cx.send_block_for_processing(self.id, self.block_root, data.value)
                 .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 
@@ -422,7 +422,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             self.id,
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SingleCustodyColumn(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -463,7 +462,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         cx.send_payload_for_processing(
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SinglePayloadEnvelope(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -711,17 +709,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 #[derive(Debug, Clone)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
-    pub seen_timestamp: Duration,
     pub peer_group: PeerGroup,
 }
 
 impl<T: Clone> DownloadResult<T> {
-    pub fn new(value: T, peer_group: PeerGroup, seen_timestamp: Duration) -> Self {
-        Self {
-            value,
-            seen_timestamp,
-            peer_group,
-        }
+    pub fn new(value: T, peer_group: PeerGroup) -> Self {
+        Self { value, peer_group }
     }
 }
 

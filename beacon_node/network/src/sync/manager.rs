@@ -113,7 +113,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A blob has been received from the RPC.
@@ -121,7 +120,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A data columns has been received from the RPC
@@ -129,7 +127,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A payload envelope has been received from the RPC.
@@ -137,7 +134,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
@@ -835,35 +831,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 sync_request_id,
                 peer_id,
                 beacon_block,
-                seen_timestamp,
             } => {
-                self.rpc_block_received(sync_request_id, peer_id, beacon_block, seen_timestamp);
+                self.rpc_block_received(sync_request_id, peer_id, beacon_block);
             }
             SyncMessage::RpcBlob {
                 sync_request_id,
                 peer_id,
                 blob_sidecar,
-                seen_timestamp,
-            } => self.rpc_blob_received(sync_request_id, peer_id, blob_sidecar, seen_timestamp),
+            } => self.rpc_blob_received(sync_request_id, peer_id, blob_sidecar),
             SyncMessage::RpcDataColumn {
                 sync_request_id,
                 peer_id,
                 data_column,
-                seen_timestamp,
-            } => {
-                self.rpc_data_column_received(sync_request_id, peer_id, data_column, seen_timestamp)
-            }
+            } => self.rpc_data_column_received(sync_request_id, peer_id, data_column),
             SyncMessage::RpcPayloadEnvelope {
                 sync_request_id,
                 peer_id,
                 envelope,
-                seen_timestamp,
-            } => self.rpc_payload_envelope_received(
-                sync_request_id,
-                peer_id,
-                envelope,
-                seen_timestamp,
-            ),
+            } => self.rpc_payload_envelope_received(sync_request_id, peer_id, envelope),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
@@ -877,7 +862,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
@@ -1122,19 +1106,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlock { id } => self.on_single_block_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(block, seen_timestamp),
-            ),
-            SyncRequestId::BlocksByRange(id) => self.on_blocks_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(block, seen_timestamp),
-            ),
+            SyncRequestId::SingleBlock { id } => {
+                self.on_single_block_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
+            SyncRequestId::BlocksByRange(id) => {
+                self.on_blocks_by_range_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
             _ => {
                 crit!(%peer_id, "bad request id for block");
             }
@@ -1150,9 +1129,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups.on_block_download_response(
                 id,
-                resp.map(|(value, seen_timestamp)| {
-                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
-                }),
+                resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
         }
@@ -1163,14 +1140,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::BlobsByRange(id) => self.on_blobs_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
+            SyncRequestId::BlobsByRange(id) => {
+                self.on_blobs_by_range_response(id, peer_id, RpcEvent::from_chunk(blob))
+            }
             _ => {
                 crit!(%peer_id, "bad request id for blob");
             }
@@ -1182,20 +1156,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
             SyncRequestId::SinglePayloadEnvelope { id } => self
-                .on_single_payload_envelope_response(
-                    id,
-                    peer_id,
-                    RpcEvent::from_chunk(envelope, seen_timestamp),
-                ),
+                .on_single_payload_envelope_response(id, peer_id, RpcEvent::from_chunk(envelope)),
             SyncRequestId::PayloadEnvelopesByRange(req_id) => {
                 self.on_payload_envelopes_by_range_response(
                     req_id,
                     peer_id,
-                    RpcEvent::from_chunk(envelope, seen_timestamp),
+                    RpcEvent::from_chunk(envelope),
                 );
             }
             _ => {
@@ -1209,21 +1178,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,
                     peer_id,
-                    RpcEvent::from_chunk(data_column, seen_timestamp),
+                    RpcEvent::from_chunk(data_column),
                 );
             }
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(
                     req_id,
                     peer_id,
-                    RpcEvent::from_chunk(data_column, seen_timestamp),
+                    RpcEvent::from_chunk(data_column),
                 );
             }
             _ => {
@@ -1244,9 +1212,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             self.block_lookups.on_payload_download_response(
                 id,
-                resp.map(|(value, seen_timestamp)| {
-                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
-                }),
+                resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
         }
