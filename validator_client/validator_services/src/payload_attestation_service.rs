@@ -496,8 +496,19 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.service;
+        let service = test_harness.service;
         service.produce_and_publish(attestation_slot).await;
+
+        let service = harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         // first_success function tries both beacon nodes for SSZ post payload attestation:
         // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
@@ -584,9 +595,16 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.service;
+        let service = test_harness.service;
         // The produce_and_publish() should return early before reaching the POST endpoint
         service.produce_and_publish(attestation_slot).await;
+
+        let service = harness.service;
+        // Data production should error before any signing/publishing happens.
+        let result = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await;
+        assert!(result.is_err());
 
         // Both beacon nodes should not be called at all
         mock_ssz.expect(0).assert();
@@ -634,8 +652,19 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let service = harness.service;
+        let service = test_harness.service;
         service.produce_and_publish(attestation_slot).await;
+
+        let service = harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         let messages = test_harness
             .harness
