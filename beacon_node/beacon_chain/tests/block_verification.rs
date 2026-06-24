@@ -2308,7 +2308,8 @@ async fn make_gloas_range_sync_block_inputs() -> Option<(
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_accepts_matching_envelope() {
-    let Some((block, envelope, custody_context, columns)) = make_gloas_range_sync_block_inputs().await
+    let Some((block, envelope, custody_context, columns)) =
+        make_gloas_range_sync_block_inputs().await
     else {
         return;
     };
