@@ -2480,8 +2480,12 @@ mod release_tests {
             .unwrap();
 
         // Then: one attestation per combo, sorted by participation (most first).
+        // Only MaxPayloadAttestations (4) can be packed
         // payload_attestation from Slot 0 is ignored and not packed
-        assert_eq!(attestations.len(), 4);
+        assert_eq!(
+            attestations.len(),
+            MinimalEthSpec::max_payload_attestations()
+        );
         let bit_counts: Vec<_> = attestations
             .iter()
             .map(|a| a.aggregation_bits.num_set_bits())
