@@ -2456,7 +2456,6 @@ mod release_tests {
         }
 
         // Insert one more distinct PayloadAttestationMessage at a different slot
-        // this PayloadAttestationMessage should NOT appear in packing
         let new_slot = Slot::new(0);
         let validator_index = 0;
         let msg = make_payload_attestation_message(new_slot, validator_index, parent_root);
@@ -2493,7 +2492,7 @@ mod release_tests {
         assert_eq!(bit_counts, vec![3, 2, 1, 1]);
     }
 
-    /// Test that when payload_present is true, `index` in AttestationData = 1 (for Gloas)
+    /// Test when payload_present is true and the slot is not the head slot, `index` in AttestationData = 1 (for Gloas)
     /// If payload_present is false, `index` = 0
     /// https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
     #[tokio::test]
@@ -2528,7 +2527,7 @@ mod release_tests {
             Slot::new(1),
         );
 
-        // when block.slot == current slot, always set index = 0
+        // when block.slot == current slot, index should always be 0
         // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L104-L105
         for committee_attestations in &attestations_at_head {
             for (attestation, _subnetid) in committee_attestations {
