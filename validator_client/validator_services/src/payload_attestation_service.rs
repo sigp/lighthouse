@@ -497,9 +497,6 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = test_harness.service;
-        service.produce_and_publish(attestation_slot).await;
-
-        let service = harness.service;
         let (duties, attestation_data) = service
             .produce_payload_attestation_data(attestation_slot)
             .await
@@ -596,10 +593,6 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = test_harness.service;
-        // The produce_and_publish() should return early before reaching the POST endpoint
-        service.produce_and_publish(attestation_slot).await;
-
-        let service = harness.service;
         // Data production should error before any signing/publishing happens.
         let result = service
             .produce_payload_attestation_data(attestation_slot)
@@ -653,9 +646,6 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
         let service = test_harness.service;
-        service.produce_and_publish(attestation_slot).await;
-
-        let service = harness.service;
         let (duties, attestation_data) = service
             .produce_payload_attestation_data(attestation_slot)
             .await
