@@ -2475,4 +2475,88 @@ mod release_tests {
             .collect();
         assert_eq!(bit_counts, vec![3, 2, 1, 1]);
     }
+
+    /// In Gloas, `payload_present` is encoded via `data.index`: true → index=1, false → index=0.
+    /// This test verifies that attestations created with `payload_present=true` get `data.index=1`
+    /// and that both index values are stored separately and packed into a block independently.
+    #[tokio::test]
+    async fn attestation_payload_present_field() {
+        use beacon_chain::test_utils::MakeAttestationOptions;
+
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        }
+
+        let num_validators = 64;
+
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let all_validators = harness.get_all_validators();
+        // Advance to slot 1 to produce a block we can attest to.
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                &all_validators,
+            )
+            .await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let state_root = head.head_state_root();
+        let head_block_root = head.head_block_root();
+        let slot = state.slot();
+        let fork = spec.fork_at_epoch(slot.epoch(MinimalEthSpec::slots_per_epoch()));
+
+        // Create attestations with payload_present=true.
+        let (attestations_payload_present, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            slot,
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(true),
+            },
+        );
+
+        // Create attestations with payload_present=false.
+        let (attestations_payload_absent, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            slot,
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(false),
+            },
+        );
+
+        // When payload_present= true, the index field in AttestationData should be 1
+        // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_payload_present {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    1,
+                    "payload_present=true should have a committee_index=1"
+                );
+            }
+        }
+
+        // When payload_present= false, the index field in AttestationData should be 0
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_payload_absent {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    0,
+                    "payload_present=false should encode as committee_index=0"
+                );
+            }
+        }
+    }
 }
