@@ -59,7 +59,7 @@ pub fn checkout(repo_dir: &Path, revision_or_branch: &str) -> Result<(), String>
 }
 
 /// Gets the last annotated tag of the given repo.
-pub fn get_latest_release(repo_dir: &Path, branch_name: &str) -> Result<String, String> {
+pub fn get_latest_release_geth(repo_dir: &Path, branch_name: &str) -> Result<String, String> {
     // If the directory was already present it is possible we don't have the most recent tags.
     // Fetch them
     output_to_result(
@@ -91,8 +91,8 @@ pub fn get_latest_release(repo_dir: &Path, branch_name: &str) -> Result<String, 
 /// Gets the latest stable `MAJOR.MINOR.PATCH` tag of the given repo, independent of branches.
 ///
 /// Useful for repos that tag releases on per-release branches rather than a long-lived
-/// development branch (where [`get_latest_release`] would not find them via `git describe`).
-pub fn get_latest_stable_release(repo_dir: &Path) -> Result<String, String> {
+/// development branch (where [`get_latest_release_geth`] would not find them via `git describe`).
+pub fn get_latest_release_nethermind(repo_dir: &Path) -> Result<String, String> {
     // If the directory was already present it is possible we don't have the most recent tags.
     // Fetch them
     output_to_result(
@@ -100,6 +100,7 @@ pub fn get_latest_stable_release(repo_dir: &Path) -> Result<String, String> {
             .arg("fetch")
             .arg("--tags")
             .arg("--force")
+            .arg("--prune")
             .current_dir(repo_dir)
             .output()
             .map_err(|e| format!("Failed to fetch tags for {repo_dir:?}: Err: {e}"))?,
@@ -123,6 +124,8 @@ pub fn get_latest_stable_release(repo_dir: &Path) -> Result<String, String> {
 }
 
 /// Returns `true` if `tag` looks like a stable `MAJOR.MINOR.PATCH` version.
+///
+/// This will prevent pulling versions such as `1.37.0-alpha` and `1.37.0-unstable`.
 fn is_stable_semver(tag: &str) -> bool {
     let parts: Vec<&str> = tag.split('.').collect();
     parts.len() == 3

@@ -31,7 +31,7 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    let last_release = build_utils::get_latest_release_geth(&repo_dir, GETH_BRANCH).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth
@@ -108,7 +108,6 @@ impl GenericExecutionEngine for GethEngine {
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
-            .arg("--allow-insecure-unlock")
             .arg("--authrpc.jwtsecret")
             .arg(jwt_secret_path.as_path().to_str().unwrap())
             // This flag is required to help Geth perform reliably when feeding it blocks

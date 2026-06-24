@@ -16,7 +16,6 @@ fn build_result(repo_dir: &Path) -> Output {
         .arg("src/Nethermind/Nethermind.Runner/Nethermind.Runner.csproj")
         .arg("-c")
         .arg("Release")
-        .arg("-p:TreatWarningsAsErrors=false")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
@@ -31,7 +30,7 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest stable release tag
-    let last_release = build_utils::get_latest_stable_release(&repo_dir).unwrap();
+    let last_release = build_utils::get_latest_release_nethermind(&repo_dir).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
@@ -62,7 +61,7 @@ pub struct NethermindEngine;
 impl NethermindEngine {
     fn binary_path() -> PathBuf {
         let manifest_dir: PathBuf = env::var("CARGO_MANIFEST_DIR").unwrap().into();
-        let nethermind_dir = manifest_dir
+        manifest_dir
             .join("execution_clients")
             .join("nethermind")
             .join("src")
@@ -70,14 +69,8 @@ impl NethermindEngine {
             .join("artifacts")
             .join("bin")
             .join("Nethermind.Runner")
-            .join("release");
-
-        let latest_path = nethermind_dir.join("net10.0").join("nethermind");
-        if latest_path.exists() {
-            latest_path
-        } else {
-            nethermind_dir.join("nethermind")
-        }
+            .join("release")
+            .join("nethermind")
     }
 }
 
@@ -104,7 +97,7 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("none.json")
+            .arg("none")
             .arg("--Init.ChainSpecPath")
             .arg(genesis_json_path.to_str().unwrap())
             .arg("--Merge.TerminalTotalDifficulty")
