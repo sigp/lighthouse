@@ -422,7 +422,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -434,7 +433,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -446,7 +444,6 @@ impl TestRig {
                 .send_rpc_custody_columns(
                     self.next_block.canonical_root(),
                     data_columns,
-                    Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
                 .unwrap();
