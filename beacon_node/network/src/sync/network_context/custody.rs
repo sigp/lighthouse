@@ -5,7 +5,6 @@ use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use parking_lot::RwLock;
-use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
@@ -116,7 +115,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let _guard = batch_request.span.clone().entered();
 
         match resp {
-            Ok((data_columns, seen_timestamp)) => {
+            Ok(data_columns) => {
                 debug!(
                     %req_id,
                     %peer_id,
@@ -147,12 +146,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .map(|block_root| data_columns.remove(&(*block_root, *column_index)))
                         .collect::<Option<Vec<_>>>()
                     {
-                        column_request.on_download_success(
-                            req_id,
-                            peer_id,
-                            columns,
-                            seen_timestamp,
-                        )?;
+                        column_request.on_download_success(req_id, peer_id, columns)?;
                     } else {
                         // Peer does not have the requested data.
                         // TODO(das) do not consider this case a success. We know for sure the block has
@@ -214,18 +208,16 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         if completed_requests >= total_requests {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
-            let mut seen_timestamps = vec![];
             let columns = std::mem::take(&mut self.column_requests)
                 .into_values()
                 .map(|request| {
-                    let (peer, data_columns, seen_timestamp) = request.complete()?;
+                    let (peer, data_columns) = request.complete()?;
                     if let Some(data_column) = data_columns.first() {
                         peers
                             .entry(peer)
                             .or_default()
                             .push(*data_column.index() as usize);
                     }
-                    seen_timestamps.push(seen_timestamp);
                     Ok(data_columns)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -234,15 +226,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .collect();
 
             let peer_group = PeerGroup::from_set(peers);
-            let max_seen_timestamp = seen_timestamps
-                .into_iter()
-                .max()
-                .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
-            return Ok(Some(DownloadResult::new(
-                columns,
-                peer_group,
-                max_seen_timestamp,
-            )));
+            return Ok(Some(DownloadResult::new(columns, peer_group)));
         }
 
         let data_columns_by_root_per_peer =
@@ -422,7 +406,7 @@ struct ColumnRequest<E: EthSpec> {
 enum Status<E: EthSpec> {
     NotStarted(Instant),
     Downloading(DataColumnsByRootRequestId),
-    Downloaded(PeerId, Vec<Arc<DataColumnSidecar<E>>>, Duration),
+    Downloaded(PeerId, Vec<Arc<DataColumnSidecar<E>>>),
 }
 
 impl<E: EthSpec> ColumnRequest<E> {
@@ -491,7 +475,6 @@ impl<E: EthSpec> ColumnRequest<E> {
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
-        seen_timestamp: Duration,
     ) -> Result<(), Error> {
         match &self.status {
             Status::Downloading(expected_req_id) => {
@@ -501,7 +484,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                         req_id,
                     });
                 }
-                self.status = Status::Downloaded(peer_id, data_columns, seen_timestamp);
+                self.status = Status::Downloaded(peer_id, data_columns);
                 Ok(())
             }
             other => Err(Error::BadState(format!(
@@ -511,11 +494,9 @@ impl<E: EthSpec> ColumnRequest<E> {
     }
 
     #[allow(clippy::type_complexity)]
-    fn complete(self) -> Result<(PeerId, Vec<Arc<DataColumnSidecar<E>>>, Duration), Error> {
+    fn complete(self) -> Result<(PeerId, Vec<Arc<DataColumnSidecar<E>>>), Error> {
         match self.status {
-            Status::Downloaded(peer_id, data_columns, seen_timestamp) => {
-                Ok((peer_id, data_columns, seen_timestamp))
-            }
+            Status::Downloaded(peer_id, data_columns) => Ok((peer_id, data_columns)),
             other => Err(Error::BadState(format!(
                 "bad state complete expected Downloaded got {other:?}"
             ))),
