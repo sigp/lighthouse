@@ -97,11 +97,10 @@ use store::{Error as DBError, KeyValueStore};
 use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
-use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -1350,7 +1349,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let header = self.signed_block_header();
-        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
+        let block_root = check_block_relevancy(self.as_block(), block_root, false, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(header.clone(), e))?;
 
         let (available_block, _envelope) = self.into_available_block().map_err(|e| {
@@ -1394,7 +1393,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for LookupBlock<T::EthSpe
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
-        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
+        let block_root = check_block_relevancy(self.as_block(), block_root, false, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
         let maybe_available_block = MaybeAvailableBlock::AvailabilityPending {
@@ -1467,7 +1466,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
-        check_block_relevancy(block.as_block(), block_root, chain)?;
+        check_block_relevancy(block.as_block(), block_root, false, chain)?;
 
         // Define a future that will verify the execution payload with an execution engine.
         //
@@ -1851,6 +1850,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
 pub fn check_block_relevancy<T: BeaconChainTypes>(
     signed_block: &SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
+    skip_import_check: bool,
     chain: &BeaconChain<T>,
 ) -> Result<Hash256, BlockError> {
     let block = signed_block.message();
@@ -1880,11 +1880,12 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     check_block_against_finalized_slot(block, block_root, chain)?;
 
     // Check if the block is already known. We know it is post-finalization, so it is
-    // sufficient to check the fork choice.
-    if chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .contains_block(&block_root)
+    // sufficient to check the fork choice. This check can optionally be skipped.
+    if !skip_import_check
+        && chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
     {
         return Err(BlockError::DuplicateFullyImported(block_root));
     }

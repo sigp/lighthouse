@@ -25,12 +25,13 @@ use strum::AsRefStr;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
-    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationError, PayloadVerificationOutcome,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, BlockError,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+    payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency,
 };
 
 pub mod execution_pending_envelope;
@@ -288,4 +289,42 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
         state_root: block_state_root,
         beacon_block_root,
     })
+}
+
+/// Performs simple, cheap checks to ensure that the envelope is relevant to be imported.
+///
+/// Returns `Ok(true)` if the envelope passes these checks and should progress with verification,
+/// or `Ok(false)` if its payload has already been received and is no longer relevant.
+///
+/// Returns an error if a verification step fails.
+pub fn check_envelope_relevancy<T: BeaconChainTypes>(
+    block: &SignedBeaconBlock<T::EthSpec>,
+    signed_envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<bool, EnvelopeError> {
+    let envelope = &signed_envelope.message;
+    let Ok(bid) = block.message().body().signed_execution_payload_bid() else {
+        return Err(EnvelopeError::InternalError(
+            "Block is pre-gloas".to_string(),
+        ));
+    };
+
+    let latest_finalized_slot = chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+    verify_envelope_consistency(envelope, block, &bid.message, latest_finalized_slot)?;
+
+    if chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .is_payload_received(&envelope.beacon_block_root)
+    {
+        return Ok(false);
+    }
+
+    Ok(true)
 }

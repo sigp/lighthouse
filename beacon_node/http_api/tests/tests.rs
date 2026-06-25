@@ -7967,8 +7967,8 @@ impl ApiTester {
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
         let builder_boost_factor = None;
 
-        // Default case where GraffitiPolicy is None
-        let default_path = self
+        // When GraffitiPolicy is None
+        let no_graffiti_policy_path = self
             .client
             .get_validator_blocks_v3_path(
                 slot,
@@ -7981,13 +7981,30 @@ impl ApiTester {
             .await
             .unwrap();
 
+        // Default case where GraffitiPolicy is AppendClientVersions
+        let default_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                builder_boost_factor,
+                Some(GraffitiPolicy::AppendClientVersions),
+            )
+            .await
+            .unwrap();
+
+        let query_none_path = no_graffiti_policy_path.query().unwrap_or("");
         let query_default_path = default_path.query().unwrap_or("");
-        // When GraffitiPolicy is None, the HTTP API query path should not contain "graffiti_policy"
+        // When GraffitiPolicy is AppendClientVersions (default GraffitiPolicy), the HTTP API query path should not contain "graffiti_policy"
         assert!(
             !query_default_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
             query_default_path
         );
+        // The HTTP API query path for GraffiliPolicy is None should be the same as the default (GraffitiPolicy = AppendClientVersions)
+        assert_eq!(query_none_path, query_default_path);
 
         let preserve_path = self
             .client
@@ -8003,36 +8020,86 @@ impl ApiTester {
             .unwrap();
 
         let query_preserve_path = preserve_path.query().unwrap_or("");
-        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should not contain "graffiti_policy"
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should contain "graffiti_policy"
         assert!(
-            !query_preserve_path.contains("graffiti_policy"),
+            query_preserve_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
             query_preserve_path
         );
 
-        // The HTTP API query path for PreserveUserGraffiti should be the same as the default
-        assert_eq!(query_default_path, query_preserve_path);
+        self
+    }
 
-        let append_path = self
+    async fn get_validator_blocks_v4_path_graffiti_policy(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+        let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
+        let builder_boost_factor = None;
+
+        // When GraffitiPolicy is None
+        let no_graffiti_policy_path = self
             .client
-            .get_validator_blocks_v3_path(
+            .get_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
-                SkipRandaoVerification::No,
+                SkipRandaoVerification::Yes,
+                None,
+                builder_boost_factor,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Default case where GraffitiPolicy is AppendClientVersions
+        let default_path = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                None,
                 builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
             .await
             .unwrap();
 
-        let query_append_path = append_path.query().unwrap_or("");
-        // When GraffitiPolicy is AppendClientVersions, the HTTP API query path should contain "graffiti_policy"
+        let query_none_path = no_graffiti_policy_path.query().unwrap_or("");
+        let query_default_path = default_path.query().unwrap_or("");
+        // When GraffitiPolicy is AppendClientVersions (default GraffitiPolicy), the HTTP API query path should not contain "graffiti_policy"
         assert!(
-            query_append_path.contains("graffiti_policy"),
-            "URL should contain graffiti_policy=AppendClientVersions parameter. URL is: {}",
-            query_append_path
+            !query_default_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
+            query_default_path
         );
+        // The HTTP API query path for GraffiliPolicy is None should be the same as the default (GraffitiPolicy = AppendClientVersions)
+        assert_eq!(query_none_path, query_default_path);
+
+        let preserve_path = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                None,
+                builder_boost_factor,
+                Some(GraffitiPolicy::PreserveUserGraffiti),
+            )
+            .await
+            .unwrap();
+
+        let query_preserve_path = preserve_path.query().unwrap_or("");
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should contain "graffiti_policy"
+        assert!(
+            query_preserve_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
+            query_preserve_path
+        );
+
         self
     }
 }
@@ -9531,10 +9598,12 @@ async fn get_beacon_rewards_attestations_fulu() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_blocks_v3_http_api_path() {
+async fn get_validator_blocks_http_api_path() {
     ApiTester::new()
         .await
         .get_validator_blocks_v3_path_graffiti_policy()
+        .await
+        .get_validator_blocks_v4_path_graffiti_policy()
         .await;
 }
 
