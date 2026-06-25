@@ -379,8 +379,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let _guard = self.span.clone().entered();
 
         // === Block request ===
+        let block_failed_peers = self.block_request.state.failed_peers().clone();
         self.block_request.state.maybe_start_downloading(|| {
-            cx.block_lookup_request(self.id, self.peers.clone(), self.block_root)
+            cx.block_lookup_request(
+                self.id,
+                self.peers.clone(),
+                &block_failed_peers,
+                self.block_root,
+            )
         })?;
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
@@ -464,8 +470,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                 }
                 PayloadRequest::Request { peers, state } => {
+                    let failed_peers = state.failed_peers().clone();
                     state.maybe_start_downloading(|| {
-                        cx.payload_lookup_request(self.id, peers.clone(), self.block_root)
+                        cx.payload_lookup_request(
+                            self.id,
+                            peers.clone(),
+                            &failed_peers,
+                            self.block_root,
+                        )
                     })?;
                     // The envelope can only be verified once the block itself is imported;
                     // otherwise processing returns `BlockRootUnknown` and the lookup burns retries
@@ -621,12 +633,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_block_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: PeerId,
         result: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         self.block_request
             .state
-            .on_download_response(req_id, result)?;
+            .on_download_response(req_id, Some(peer_id), result)?;
         self.continue_requests(cx)
     }
 
@@ -641,7 +654,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             return Err(LookupRequestError::BadState("no data_request".to_owned()));
         };
 
-        state.on_download_response(req_id, result)?;
+        // Custody requests track and de-prioritize failed peers internally in `ActiveCustodyRequest`.
+        state.on_download_response(req_id, None, result)?;
         self.continue_requests(cx)
     }
 
@@ -649,6 +663,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_payload_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: PeerId,
         result: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
@@ -658,7 +673,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             ));
         };
 
-        state.on_download_response(req_id, result)?;
+        state.on_download_response(req_id, Some(peer_id), result)?;
         self.continue_requests(cx)
     }
 
@@ -752,6 +767,9 @@ pub struct SingleLookupRequestState<T: Clone> {
     failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
+    /// Peers that have failed to serve this request. Used to de-prioritize them when selecting a
+    /// peer to retry the download from.
+    failed_peers: HashSet<PeerId>,
 }
 
 impl<T: Clone> SingleLookupRequestState<T> {
@@ -760,7 +778,13 @@ impl<T: Clone> SingleLookupRequestState<T> {
             state: State::AwaitingDownload("not started"),
             failed_processing: 0,
             failed_downloading: 0,
+            failed_peers: HashSet::new(),
         }
+    }
+
+    /// Peers that have failed to serve this request, to be de-prioritized on retry.
+    pub fn failed_peers(&self) -> &HashSet<PeerId> {
+        &self.failed_peers
     }
 
     pub fn is_awaiting_download(&self) -> bool {
@@ -865,11 +889,17 @@ impl<T: Clone> SingleLookupRequestState<T> {
     pub fn on_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: Option<PeerId>,
         result: Result<DownloadResult<T>, RpcResponseError>,
     ) -> Result<(), LookupRequestError> {
         match result {
             Ok(result) => self.on_download_success(req_id, result),
-            Err(_) => self.on_download_failure(req_id),
+            Err(_) => {
+                if let Some(peer_id) = peer_id {
+                    self.failed_peers.insert(peer_id);
+                }
+                self.on_download_failure(req_id)
+            }
         }
     }
 

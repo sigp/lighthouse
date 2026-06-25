@@ -1129,6 +1129,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups.on_block_download_response(
                 id,
+                peer_id,
                 resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
@@ -1212,6 +1213,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             self.block_lookups.on_payload_download_response(
                 id,
+                peer_id,
                 resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
