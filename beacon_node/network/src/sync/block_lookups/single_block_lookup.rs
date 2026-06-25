@@ -394,12 +394,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             match &mut self.data_request {
                 DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
-                        let block_epoch = block
-                            .slot()
-                            .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
-                        self.data_request = if block.num_expected_blobs() == 0 {
-                            DataRequest::NoData
-                        } else if cx.chain.should_fetch_custody_columns(block_epoch) {
+                        self.data_request = if cx
+                            .chain
+                            .custody_context
+                            .data_columns_required_for_block(block)
+                        {
                             DataRequest::Request {
                                 slot: block.slot(),
                                 peers: self.get_data_peers(block.payload_bid_block_hash().ok()),

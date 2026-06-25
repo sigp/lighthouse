@@ -200,7 +200,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             }
 
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
+            let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
             let sampling_columns = gossip_verified_columns
                 .into_iter()
                 .filter(|col| sampling_column_indices.contains(&col.index()))

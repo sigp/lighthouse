@@ -958,6 +958,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
                     }
+                    CouplingError::AvailabilityCheckError(err) => {
+                        error!(?batch_id, ?err, "Availability check error");
+                    }
                 }
             }
             // A batch could be retried without the peer failing the request (disconnecting/
