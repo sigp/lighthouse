@@ -783,7 +783,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 
     /// Peers that have failed to serve this request, to be de-prioritized on retry.
-    pub fn failed_peers(&self) -> &HashSet<PeerId> {
+    fn failed_peers(&self) -> &HashSet<PeerId> {
         &self.failed_peers
     }
 
@@ -894,18 +894,17 @@ impl<T: Clone> SingleLookupRequestState<T> {
     ) -> Result<(), LookupRequestError> {
         match result {
             Ok(result) => self.on_download_success(req_id, result),
-            Err(_) => {
-                if let Some(peer_id) = peer_id {
-                    self.failed_peers.insert(peer_id);
-                }
-                self.on_download_failure(req_id)
-            }
+            Err(_) => self.on_download_failure(req_id, peer_id),
         }
     }
 
     /// Registers a failure in downloading a block. This might be a peer disconnection or a wrong
     /// block.
-    pub fn on_download_failure(&mut self, req_id: ReqId) -> Result<(), LookupRequestError> {
+    pub fn on_download_failure(
+        &mut self,
+        req_id: ReqId,
+        peer_id: Option<PeerId>,
+    ) -> Result<(), LookupRequestError> {
         match &self.state {
             State::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
@@ -913,6 +912,9 @@ impl<T: Clone> SingleLookupRequestState<T> {
                         expected_req_id: *expected_req_id,
                         req_id,
                     });
+                }
+                if let Some(peer_id) = peer_id {
+                    self.failed_peers.insert(peer_id);
                 }
                 self.failed_downloading = self.failed_downloading.saturating_add(1);
                 if self.failed_downloading >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
