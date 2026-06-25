@@ -379,15 +379,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let _guard = self.span.clone().entered();
 
         // === Block request ===
-        let block_failed_peers = self.block_request.state.failed_peers().clone();
-        self.block_request.state.maybe_start_downloading(|| {
-            cx.block_lookup_request(
-                self.id,
-                self.peers.clone(),
-                &block_failed_peers,
-                self.block_root,
-            )
-        })?;
+        self.block_request
+            .state
+            .maybe_start_downloading(|failed_peers| {
+                cx.block_lookup_request(self.id, self.peers.clone(), failed_peers, self.block_root)
+            })?;
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
@@ -418,7 +414,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                 }
                 DataRequest::Request { slot, peers, state } => {
-                    state.maybe_start_downloading(|| {
+                    // Custody selects/de-prioritizes peers internally in `ActiveCustodyRequest`.
+                    state.maybe_start_downloading(|_failed_peers| {
                         let req_id = cx.next_id();
                         cx.custody_lookup_request(
                             CustodyRequester::SingleLookup(SingleLookupReqId {
@@ -470,12 +467,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                 }
                 PayloadRequest::Request { peers, state } => {
-                    let failed_peers = state.failed_peers().clone();
-                    state.maybe_start_downloading(|| {
+                    state.maybe_start_downloading(|failed_peers| {
                         cx.payload_lookup_request(
                             self.id,
                             peers.clone(),
-                            &failed_peers,
+                            failed_peers,
                             self.block_root,
                         )
                     })?;
@@ -782,11 +778,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    /// Peers that have failed to serve this request, to be de-prioritized on retry.
-    fn failed_peers(&self) -> &HashSet<PeerId> {
-        &self.failed_peers
-    }
-
     pub fn is_awaiting_download(&self) -> bool {
         match self.state {
             State::AwaitingDownload { .. } => true,
@@ -838,10 +829,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// Drive download: check max attempts, issue request, handle result.
     fn maybe_start_downloading(
         &mut self,
-        request_fn: impl FnOnce() -> Result<LookupRequestResult<T>, RpcRequestSendError>,
+        request_fn: impl FnOnce(&HashSet<PeerId>) -> Result<LookupRequestResult<T>, RpcRequestSendError>,
     ) -> Result<(), LookupRequestError> {
         if self.is_awaiting_download() {
-            match request_fn().map_err(LookupRequestError::SendFailedNetwork)? {
+            match request_fn(&self.failed_peers).map_err(LookupRequestError::SendFailedNetwork)? {
                 LookupRequestResult::RequestSent(req_id) => self.on_download_start(req_id)?,
                 LookupRequestResult::NoRequestNeeded(reason, value) => {
                     self.on_completed_request(reason, value)?
