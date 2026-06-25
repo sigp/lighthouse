@@ -633,9 +633,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         result: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
+        if result.is_err() {
+            self.block_request.state.record_failed_peer(peer_id);
+        }
         self.block_request
             .state
-            .on_download_response(req_id, Some(peer_id), result)?;
+            .on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
 
@@ -651,7 +654,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         };
 
         // Custody requests track and de-prioritize failed peers internally in `ActiveCustodyRequest`.
-        state.on_download_response(req_id, None, result)?;
+        state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
 
@@ -669,7 +672,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             ));
         };
 
-        state.on_download_response(req_id, Some(peer_id), result)?;
+        if result.is_err() {
+            state.record_failed_peer(peer_id);
+        }
+        state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
 
@@ -877,25 +883,25 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
+    /// Record a peer that failed to serve this request, to be de-prioritized on retry.
+    fn record_failed_peer(&mut self, peer_id: PeerId) {
+        self.failed_peers.insert(peer_id);
+    }
+
     pub fn on_download_response(
         &mut self,
         req_id: ReqId,
-        peer_id: Option<PeerId>,
         result: Result<DownloadResult<T>, RpcResponseError>,
     ) -> Result<(), LookupRequestError> {
         match result {
             Ok(result) => self.on_download_success(req_id, result),
-            Err(_) => self.on_download_failure(req_id, peer_id),
+            Err(_) => self.on_download_failure(req_id),
         }
     }
 
     /// Registers a failure in downloading a block. This might be a peer disconnection or a wrong
     /// block.
-    pub fn on_download_failure(
-        &mut self,
-        req_id: ReqId,
-        peer_id: Option<PeerId>,
-    ) -> Result<(), LookupRequestError> {
+    pub fn on_download_failure(&mut self, req_id: ReqId) -> Result<(), LookupRequestError> {
         match &self.state {
             State::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
@@ -903,9 +909,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
                         expected_req_id: *expected_req_id,
                         req_id,
                     });
-                }
-                if let Some(peer_id) = peer_id {
-                    self.failed_peers.insert(peer_id);
                 }
                 self.failed_downloading = self.failed_downloading.saturating_add(1);
                 if self.failed_downloading >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
