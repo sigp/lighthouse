@@ -4,7 +4,9 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, BlobCellsAndProofsV1, CustodyColumnsBitArray,
+};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -1748,6 +1750,26 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if capabilities.get_blobs_v3 {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v4(
+        &self,
+        query: Vec<Hash256>,
+        custody_columns: CustodyColumnsBitArray,
+    ) -> Result<Vec<Option<BlobCellsAndProofsV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v4 {
+            self.engine()
+                .request(
+                    |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
+                )
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)

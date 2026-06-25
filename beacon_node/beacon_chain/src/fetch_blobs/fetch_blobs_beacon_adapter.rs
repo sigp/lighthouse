@@ -3,7 +3,9 @@ use crate::fetch_blobs::FetchEngineBlobError;
 use crate::observed_data_sidecars::ObservationKey;
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
-use execution_layer::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use execution_layer::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, BlobCellsAndProofsV1, CustodyColumnsBitArray,
+};
 use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
@@ -76,6 +78,23 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
+    pub(crate) async fn get_blobs_v4(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+        custody_columns: CustodyColumnsBitArray,
+    ) -> Result<Vec<Option<BlobCellsAndProofsV1<T::EthSpec>>>, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_blobs_v4(versioned_hashes, custody_columns)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+    }
+
     pub(crate) fn data_column_known_for_observation_key(
         &self,
         observation_key: ObservationKey,
@@ -127,5 +146,19 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .await
             .map_err(FetchEngineBlobError::RequestFailed)
             .map(|caps| caps.get_blobs_v3)
+    }
+
+    pub(crate) async fn supports_get_blobs_v4(&self) -> Result<bool, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_engine_capabilities(None)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+            .map(|caps| caps.get_blobs_v4)
     }
 }
