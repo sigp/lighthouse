@@ -1246,8 +1246,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                         AvailableBlock::new(
                             block,
                             AvailableBlockData::NoData,
-                            &chain.data_availability_checker,
-                            chain.spec.clone(),
+                            &chain.custody_context,
                         )
                         .map_err(BlockError::AvailabilityCheck)?,
                     )

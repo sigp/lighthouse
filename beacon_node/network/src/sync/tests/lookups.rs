@@ -1282,30 +1282,34 @@ impl TestRig {
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
-            // Gloas carries data columns in the payload envelope, not in `block_data`.
-            let envelope = self
-                .network_blocks_by_root
-                .get(&block_root)
-                .and_then(envelope_of)
-                .map(|envelope| AvailableEnvelope::new(envelope, columns.unwrap_or_default()));
-            RangeSyncBlock::new_gloas(block, envelope).unwrap()
-        } else {
-            let block_data = if let Some(columns) = columns {
-                AvailableBlockData::new_with_data_columns(columns)
-            } else if let Some(blobs) = blobs {
-                AvailableBlockData::new_with_blobs(blobs)
+        let range_sync_block =
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+                // Gloas carries data columns in the payload envelope, not in `block_data`.
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of)
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            columns.unwrap_or_default(),
+                            bid,
+                            &self.harness.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
+                RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
-                AvailableBlockData::NoData
+                let block_data = if let Some(columns) = columns {
+                    AvailableBlockData::new_with_data_columns(columns)
+                } else if let Some(blobs) = blobs {
+                    AvailableBlockData::new_with_blobs(blobs)
+                } else {
+                    AvailableBlockData::NoData
+                };
+                RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
             };
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.harness.chain.data_availability_checker,
-                self.harness.chain.spec.clone(),
-            )
-            .unwrap()
-        };
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
         self.network_blocks_by_root
@@ -1622,9 +1626,8 @@ impl TestRig {
     fn custody_columns(&self) -> &[ColumnIndex] {
         self.harness
             .chain
-            .data_availability_checker
-            .custody_context()
-            .custody_columns_for_epoch(None, &self.harness.spec)
+            .custody_context
+            .custody_columns_for_epoch(None)
     }
 
     // Test setup
