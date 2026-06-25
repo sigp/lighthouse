@@ -17,20 +17,21 @@
 //!      ExecutedEnvelope
 //!
 //! ```
-
+use crate::data_availability_checker::AvailabilityCheckError;
+use crate::{
+    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, CustodyContext,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+};
 use state_processing::envelope_processing::EnvelopeProcessingError;
+use std::collections::HashSet;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
-use tracing::instrument;
+use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
-};
-
-use crate::{
-    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationError, PayloadVerificationOutcome,
+    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -47,11 +48,76 @@ pub struct AvailableEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
-    pub fn new(
+    /// Constructs an `AvailableEnvelope` from an envelope and custody column data.
+    ///
+    /// This function validates that:
+    /// - All required custody columns are present
+    ///
+    /// If more columns are provided than necessary, a warning is logged and the extra
+    /// columns are filtered out of the list.
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `MissingCustodyColumns`: Required custody columns are missing or incomplete
+    pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-    ) -> Self {
-        Self { envelope, columns }
+        bid: &SignedExecutionPayloadBid<E>,
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        if custody_context.data_columns_required_for_bid(bid) {
+            let columns_expected = custody_context.num_of_data_columns_to_sample(bid.epoch());
+
+            // Get required custody column indices
+            let required_indices = custody_context
+                .sampling_columns_for_epoch(bid.epoch())
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>();
+
+            // Filter to only the columns we need (deduplicates if there are duplicates)
+            let mut filtered_columns = Vec::new();
+            let mut seen_indices = HashSet::new();
+            let num_provided_columns = columns.len();
+            for column in columns {
+                if required_indices.contains(column.index()) && seen_indices.insert(*column.index())
+                {
+                    filtered_columns.push(column);
+                }
+            }
+
+            // Check if we have all required columns
+            if filtered_columns.len() != columns_expected {
+                return Err(AvailabilityCheckError::MissingCustodyColumns);
+            }
+
+            if num_provided_columns != filtered_columns.len() {
+                warn!(
+                    message = "More columns provided than expected",
+                    envelope = %envelope.message.payload.block_hash,
+                    num_provided_columns = %num_provided_columns,
+                    columns_expected = %columns_expected,
+                );
+            }
+
+            Ok(Self {
+                envelope,
+                columns: filtered_columns,
+            })
+        } else if columns.is_empty() {
+            Ok(Self { envelope, columns })
+        } else {
+            warn!(
+                message = "Custody columns provided for envelope that does not require them",
+                envelope = %envelope.message.payload.block_hash,
+            );
+            Ok(Self {
+                envelope,
+                columns: vec![],
+            })
+        }
     }
 
     pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {

@@ -355,12 +355,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request.state.is_awaiting_event()
             || match &self.data_request {
-                DataRequest::WaitingForBlock => true,
+                // Not awaiting an event itself; it's blocked on the block request, already covered
+                // by the `block_request` term above. Returning `true` kept a peerless lookup parked
+                // in `AwaitingDownload` from being pruned, so it got stuck.
+                DataRequest::WaitingForBlock => false,
                 DataRequest::Request { state, .. } => state.is_awaiting_event(),
                 DataRequest::NoData => false,
             }
             || match &self.payload_request {
-                PayloadRequest::WaitingForBlock => true,
+                // See `data_request` above: not awaiting an event itself, the block request covers it.
+                PayloadRequest::WaitingForBlock => false,
                 PayloadRequest::Request { state, .. } => state.is_awaiting_event(),
                 PayloadRequest::PreGloas => false,
             }
@@ -390,12 +394,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             match &mut self.data_request {
                 DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
-                        let block_epoch = block
-                            .slot()
-                            .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
-                        self.data_request = if block.num_expected_blobs() == 0 {
-                            DataRequest::NoData
-                        } else if cx.chain.should_fetch_custody_columns(block_epoch) {
+                        self.data_request = if cx
+                            .chain
+                            .custody_context
+                            .data_columns_required_for_block(block)
+                        {
                             DataRequest::Request {
                                 slot: block.slot(),
                                 peers: self.get_data_peers(block.payload_bid_block_hash().ok()),

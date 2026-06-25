@@ -689,10 +689,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         // Check if all components have arrived
-        if let Some((blocks_result, block_peer)) = request.responses(
-            self.chain.data_availability_checker.clone(),
-            self.chain.spec.clone(),
-        ) {
+        if let Some((blocks_result, block_peer)) =
+            request.responses(&self.chain.custody_context, self.chain.spec.clone())
+        {
             Some(
                 blocks_result
                     .map(|blocks| (block_peer, blocks))
@@ -981,6 +980,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Include only the column indexes not yet imported (received through gossip)
         let mut custody_indexes_to_fetch = self
             .chain
+            .custody_context
             .sampling_columns_for_epoch(block_epoch)
             .iter()
             .copied()
@@ -1299,15 +1299,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ByRangeRequestType::BlocksAndEnvelopesAndColumns
         } else if self
             .chain
-            .data_availability_checker
+            .custody_context
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
-        } else if self
-            .chain
-            .data_availability_checker
-            .blobs_required_for_epoch(epoch)
-        {
+        } else if self.chain.custody_context.blobs_required_for_epoch(epoch) {
             ByRangeRequestType::BlocksAndBlobs
         } else {
             ByRangeRequestType::Blocks
@@ -1609,6 +1605,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let columns_by_range_peers_to_request = {
             let column_indexes = self
                 .chain
+                .custody_context
                 .sampling_columns_for_epoch(batch_id.epoch)
                 .iter()
                 .cloned()
