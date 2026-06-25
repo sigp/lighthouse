@@ -124,6 +124,8 @@ pub(crate) struct BlockLookupSummary {
     pub block_root: Hash256,
     /// List of peers that claim to have imported this set of block components.
     pub peers: Vec<PeerId>,
+    /// Whether the lookup expects some future event to make progress.
+    pub is_awaiting_event: bool,
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
@@ -160,6 +162,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 id: *id,
                 block_root: l.block_root(),
                 peers: l.all_peers(),
+                is_awaiting_event: l.is_awaiting_event(),
             })
             .collect()
     }
@@ -510,7 +513,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     block.canonical_root(),
                     DownloadResult {
                         value: block.clone(),
-                        seen_timestamp: d.seen_timestamp,
                         peer_group: d.peer_group.clone(),
                     },
                 );
@@ -523,7 +525,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             peer_id,
             response.map(|d| DownloadResult {
                 value: d.value.first_block,
-                seen_timestamp: d.seen_timestamp,
                 peer_group: d.peer_group,
             }),
             cx,

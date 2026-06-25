@@ -108,7 +108,6 @@ impl GenericExecutionEngine for GethEngine {
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
-            .arg("--allow-insecure-unlock")
             .arg("--authrpc.jwtsecret")
             .arg(jwt_secret_path.as_path().to_str().unwrap())
             // This flag is required to help Geth perform reliably when feeding it blocks

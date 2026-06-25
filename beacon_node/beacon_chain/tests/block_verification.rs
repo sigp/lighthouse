@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 // TODO(gloas) we probably need similar test for payload envelope verification
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, LookupBlock, RangeSyncBlock};
+use beacon_chain::custody_context::CustodyContext;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::payload_envelope_verification::AvailableEnvelope;
@@ -10,7 +11,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        MakeAttestationOptions, test_spec,
+        MakeAttestationOptions, generate_data_column_sidecars_from_block, test_spec,
     },
 };
 use beacon_chain::{
@@ -178,7 +179,7 @@ fn build_range_sync_block<T>(
 where
     T: BeaconChainTypes<EthSpec = E>,
 {
-    if block.fork_name_unchecked().gloas_enabled() {
+    if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
         let columns = match data_sidecars {
             Some(DataSidecars::DataColumns(columns)) => columns
                 .iter()
@@ -186,20 +187,17 @@ where
                 .collect::<Vec<_>>(),
             Some(DataSidecars::Blobs(_)) | None => vec![],
         };
-        let envelope = execution_envelope.map(|envelope| AvailableEnvelope::new(envelope, columns));
+        let envelope = execution_envelope
+            .map(|envelope| AvailableEnvelope::new(envelope, columns, bid, &chain.custody_context))
+            .transpose()
+            .unwrap();
         return RangeSyncBlock::new_gloas(block, envelope).unwrap();
     }
 
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &chain.data_availability_checker,
-                chain.spec.clone(),
-            )
-            .unwrap()
+            RangeSyncBlock::new(block, block_data, &chain.custody_context).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
             let block_data = AvailableBlockData::new_with_data_columns(
@@ -208,21 +206,11 @@ where
                     .map(|c| c.as_data_column().clone())
                     .collect::<Vec<_>>(),
             );
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &chain.data_availability_checker,
-                chain.spec.clone(),
-            )
-            .unwrap()
+            RangeSyncBlock::new(block, block_data, &chain.custody_context).unwrap()
         }
-        None => RangeSyncBlock::new(
-            block,
-            AvailableBlockData::NoData,
-            &chain.data_availability_checker,
-            chain.spec.clone(),
-        )
-        .unwrap(),
+        None => {
+            RangeSyncBlock::new(block, AvailableBlockData::NoData, &chain.custody_context).unwrap()
+        }
     }
 }
 
@@ -522,8 +510,7 @@ async fn chain_segment_non_linear_parent_roots() {
         RangeSyncBlock::new(
             mutated_block,
             blocks[3].block_data().clone(),
-            &harness.chain.data_availability_checker,
-            harness.spec.clone(),
+            &harness.chain.custody_context,
         )
         .unwrap()
     };
@@ -567,8 +554,7 @@ async fn chain_segment_non_linear_slots() {
         RangeSyncBlock::new(
             mutated_block,
             blocks[3].block_data().clone(),
-            &harness.chain.data_availability_checker,
-            harness.spec.clone(),
+            &harness.chain.custody_context,
         )
         .unwrap()
     };
@@ -602,8 +588,7 @@ async fn chain_segment_non_linear_slots() {
         RangeSyncBlock::new(
             mutated_block,
             blocks[3].block_data().clone(),
-            &harness.chain.data_availability_checker,
-            harness.chain.spec.clone(),
+            &harness.chain.custody_context,
         )
         .unwrap()
     };
@@ -1809,8 +1794,7 @@ async fn add_base_block_to_altair_chain() {
     let base_range_sync_block = RangeSyncBlock::new(
         Arc::new(base_block.clone()),
         AvailableBlockData::NoData,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
+        &harness.chain.custody_context,
     )
     .unwrap();
     assert!(matches!(
@@ -1840,8 +1824,7 @@ async fn add_base_block_to_altair_chain() {
                     RangeSyncBlock::new(
                         Arc::new(base_block),
                         AvailableBlockData::NoData,
-                        &harness.chain.data_availability_checker,
-                        harness.spec.clone()
+                        &harness.chain.custody_context,
                     )
                     .unwrap()
                 ],
@@ -1985,8 +1968,7 @@ async fn add_altair_block_to_base_chain() {
                     RangeSyncBlock::new(
                         Arc::new(altair_block),
                         AvailableBlockData::NoData,
-                        &harness.chain.data_availability_checker,
-                        harness.spec.clone()
+                        &harness.chain.custody_context,
                     )
                     .unwrap()
                 ],
@@ -2205,8 +2187,7 @@ async fn import_duplicate_block_unrealized_justification() {
         RangeSyncBlock::new(
             block.clone(),
             AvailableBlockData::NoData,
-            &harness.chain.data_availability_checker,
-            harness.spec.clone(),
+            &harness.chain.custody_context,
         )
         .unwrap()
     };
@@ -2284,8 +2265,12 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-async fn make_gloas_range_sync_block_inputs()
--> Option<(Arc<SignedBeaconBlock<E>>, SignedExecutionPayloadEnvelope<E>)> {
+async fn make_gloas_range_sync_block_inputs() -> Option<(
+    Arc<SignedBeaconBlock<E>>,
+    SignedExecutionPayloadEnvelope<E>,
+    Arc<CustodyContext<EphemeralHarnessType<E>>>,
+    DataColumnSidecarList<E>,
+)> {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return None;
@@ -2304,16 +2289,37 @@ async fn make_gloas_range_sync_block_inputs()
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
     let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
-    Some((block, envelope.expect("gloas block should have envelope")))
+    let custody_context = harness.chain.custody_context.clone();
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec)
+        .into_iter()
+        .filter(|column| {
+            custody_context
+                .sampling_columns_for_epoch(block.epoch())
+                .contains(column.index())
+        })
+        .collect();
+    Some((
+        block,
+        envelope.expect("gloas block should have envelope"),
+        custody_context,
+        columns,
+    ))
 }
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_accepts_matching_envelope() {
-    let Some((block, envelope)) = make_gloas_range_sync_block_inputs().await else {
+    let Some((block, envelope, custody_context, columns)) =
+        make_gloas_range_sync_block_inputs().await
+    else {
         return;
     };
-
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope =
+        AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2325,7 +2331,7 @@ async fn range_sync_block_new_gloas_accepts_matching_envelope() {
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_allows_missing_envelope() {
-    let Some((block, _)) = make_gloas_range_sync_block_inputs().await else {
+    let Some((block, _, _, _)) = make_gloas_range_sync_block_inputs().await else {
         return;
     };
 
@@ -2340,12 +2346,20 @@ async fn range_sync_block_new_gloas_allows_missing_envelope() {
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
-    let Some((block, mut envelope)) = make_gloas_range_sync_block_inputs().await else {
+    let Some((block, mut envelope, custody_context, columns)) =
+        make_gloas_range_sync_block_inputs().await
+    else {
         return;
     };
 
     envelope.message.payload.slot_number += 1;
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope =
+        AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2357,12 +2371,20 @@ async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
-    let Some((block, mut envelope)) = make_gloas_range_sync_block_inputs().await else {
+    let Some((block, mut envelope, custody_context, columns)) =
+        make_gloas_range_sync_block_inputs().await
+    else {
         return;
     };
 
     envelope.message.builder_index += 1;
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope =
+        AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2374,12 +2396,20 @@ async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
 
 #[tokio::test]
 async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
-    let Some((block, mut envelope)) = make_gloas_range_sync_block_inputs().await else {
+    let Some((block, mut envelope, custody_context, columns)) =
+        make_gloas_range_sync_block_inputs().await
+    else {
         return;
     };
 
     envelope.message.payload.block_hash = ExecutionBlockHash::repeat_byte(0x22);
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope =
+        AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2442,12 +2472,8 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
             let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
 
             // Try to create RpcBlock with wrong blob count
-            let result = RangeSyncBlock::new(
-                Arc::new(block),
-                block_data,
-                &harness.chain.data_availability_checker,
-                harness.chain.spec.clone(),
-            );
+            let result =
+                RangeSyncBlock::new(Arc::new(block), block_data, &harness.chain.custody_context);
 
             // Should fail with MissingBlobs
             assert!(
@@ -2523,8 +2549,7 @@ async fn range_sync_block_rejects_missing_custody_columns() {
                 let result = RangeSyncBlock::new(
                     Arc::new(block),
                     block_data,
-                    &harness.chain.data_availability_checker,
-                    harness.chain.spec.clone(),
+                    &harness.chain.custody_context,
                 );
 
                 // Should fail with MissingCustodyColumns
@@ -2599,6 +2624,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             // Now verify the block is past the DA boundary
             let da_boundary = harness
                 .chain
+                .custody_context
                 .data_availability_boundary()
                 .expect("DA boundary should be set");
             assert!(
@@ -2613,8 +2639,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             let result = RangeSyncBlock::new(
                 Arc::new(block),
                 AvailableBlockData::NoData,
-                &harness.chain.data_availability_checker,
-                harness.chain.spec.clone(),
+                &harness.chain.custody_context,
             );
 
             assert!(

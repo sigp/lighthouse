@@ -54,7 +54,6 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
@@ -86,22 +85,21 @@ pub const MAX_COLUMN_RETRIES: usize = 3;
 #[derive(Debug)]
 pub enum RpcEvent<T> {
     StreamTermination,
-    Response(T, Duration),
+    Response(T),
     RPCError(RPCError),
 }
 
 impl<T> RpcEvent<T> {
-    pub fn from_chunk(chunk: Option<T>, seen_timestamp: Duration) -> Self {
+    pub fn from_chunk(chunk: Option<T>) -> Self {
         match chunk {
-            Some(item) => RpcEvent::Response(item, seen_timestamp),
+            Some(item) => RpcEvent::Response(item),
             None => RpcEvent::StreamTermination,
         }
     }
 }
 
-pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
+pub type RpcResponseResult<T> = Result<T, RpcResponseError>;
 
-/// Duration = latest seen timestamp of all received data columns
 pub type CustodyByRootResult<T> =
     Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
 
@@ -463,9 +461,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect()
     }
 
-    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex, block_slot: Slot) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index)
+            .custody_peers_for_column(column_index, block_slot)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -598,8 +596,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Err("request id not present".to_string());
         };
 
-        let active_request_count_by_peer = self.active_request_count_by_peer();
-
         debug!(
             ?failed_columns,
             ?id,
@@ -609,12 +605,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
-            .select_columns_by_range_peers_to_request(
-                failed_columns,
-                peers,
-                active_request_count_by_peer,
-                peers_to_deprioritize,
-            )
+            .select_columns_by_range_peers_to_request(failed_columns, peers, peers_to_deprioritize)
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
@@ -672,7 +663,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             column_peers = column_peers.len()
         );
         let _guard = range_request_span.clone().entered();
-        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let blocks_by_range_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_range_requests);
 
         let Some(block_peer) = block_peers
             .iter()
@@ -680,8 +671,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (
                     // If contains -> 1 (order after), not contains -> 0 (order first)
                     peers_to_deprioritize.contains(peer),
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    blocks_by_range_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -704,6 +695,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
             let column_indexes = self
                 .chain
+                .custody_context
                 .sampling_columns_for_epoch(epoch)
                 .iter()
                 .cloned()
@@ -711,7 +703,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             Some(self.select_columns_by_range_peers_to_request(
                 &column_indexes,
                 column_peers,
-                active_request_count_by_peer,
                 peers_to_deprioritize,
             )?)
         } else {
@@ -783,6 +774,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let payloads_req_id =
             if matches!(batch_type, ByRangeRequestType::BlocksAndEnvelopesAndColumns) {
                 Some(self.send_payload_envelopes_by_range_request(
+                    // Peer selection: for a given peer, the count of sent blocks_by_range requests
+                    // equals the count of sent payloads_by_range requests. So we are under the
+                    // concurrency limit for payloads_by_range requests
                     block_peer,
                     PayloadEnvelopesByRangeRequest {
                         start_slot: *request.start_slot(),
@@ -807,7 +801,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
+                    self.chain
+                        .custody_context
+                        .sampling_columns_for_epoch(epoch)
+                        .to_vec(),
                 )
             }),
             payloads_req_id,
@@ -822,10 +819,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         custody_indexes: &HashSet<ColumnIndex>,
         peers: &HashSet<PeerId>,
-        active_request_count_by_peer: HashMap<PeerId, usize>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let data_columns_by_range_per_peer =
+            ActiveRequestsPerPeer::new(&self.data_columns_by_range_requests);
 
         for column_index in custody_indexes {
             // Strictly consider peers that are custodials of this column AND are part of this
@@ -841,12 +839,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     (
                         // If contains -> 1 (order after), not contains -> 0 (order first)
                         peers_to_deprioritize.contains(peer),
-                        // Prefer peers with less overall requests
-                        // Also account for requests that are not yet issued tracked in peer_id_to_request_map
-                        // We batch requests to the same peer, so count existance in the
-                        // `columns_to_request_by_peer` as a single 1 request.
-                        active_request_count_by_peer.get(peer).copied().unwrap_or(0)
-                            + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
+                        // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                        // Note: do not account for to-be-sent requests on
+                        // `data_columns_by_range_by_peer` as we always send at most one request
+                        data_columns_by_range_per_peer.at_concurrency_limit(peer),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
@@ -888,14 +884,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Err(e) = {
             let request = entry.get_mut();
             match range_block_component {
-                RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
+                RangeBlockComponent::Block(req_id, resp) => resp.and_then(|blocks| {
                     request.add_blocks(req_id, blocks).map_err(|e| {
                         RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
                             e,
                         ))
                     })
                 }),
-                RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
+                RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|blobs| {
                     request.add_blobs(req_id, blobs).map_err(|e| {
                         RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
                             e,
@@ -903,7 +899,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     })
                 }),
                 RangeBlockComponent::CustodyColumns(req_id, resp) => {
-                    resp.and_then(|(custody_columns, _)| {
+                    resp.and_then(|custody_columns| {
                         request
                             .add_custody_columns(req_id, custody_columns)
                             .map_err(|e| {
@@ -913,17 +909,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                             })
                     })
                 }
-                RangeBlockComponent::PayloadEnvelope(req_id, resp) => {
-                    resp.and_then(|(envelopes, _)| {
-                        request
-                            .add_payload_envelopes(req_id, envelopes)
-                            .map_err(|e| {
-                                RpcResponseError::BlockComponentCouplingError(
-                                    CouplingError::InternalError(e),
-                                )
-                            })
-                    })
-                }
+                RangeBlockComponent::PayloadEnvelope(req_id, resp) => resp.and_then(|envelopes| {
+                    request
+                        .add_payload_envelopes(req_id, envelopes)
+                        .map_err(|e| {
+                            RpcResponseError::BlockComponentCouplingError(
+                                CouplingError::InternalError(e),
+                            )
+                        })
+                }),
             }
         } {
             entry.remove();
@@ -931,10 +925,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         let range_req = entry.get_mut();
-        if let Some(blocks_result) = range_req.responses(
-            self.chain.data_availability_checker.clone(),
-            self.chain.spec.clone(),
-        ) {
+        if let Some(blocks_result) =
+            range_req.responses(&self.chain.custody_context, self.chain.spec.clone())
+        {
             if let Err(CouplingError::DataColumnPeerFailure {
                 error,
                 faulty_peers: _,
@@ -1182,13 +1175,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ));
         }
 
-        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let payload_envelopes_by_root_per_peer =
+            ActiveRequestsPerPeer::new(&self.payload_envelopes_by_root_requests);
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
                 (
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Strictly de-prioritize peers already at the per-protocol concurrency limit
+                    payload_envelopes_by_root_per_peer.at_concurrency_limit(peer),
                     rand::random::<u32>(),
                     peer,
                 )
@@ -1312,6 +1307,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Include only the blob indexes not yet imported (received through gossip)
         let mut custody_indexes_to_fetch = self
             .chain
+            .custody_context
             .sampling_columns_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
             .iter()
             .copied()
@@ -1342,6 +1338,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
+            block_slot,
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,
@@ -1627,15 +1624,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ByRangeRequestType::BlocksAndEnvelopesAndColumns
         } else if self
             .chain
-            .data_availability_checker
+            .custody_context
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
-        } else if self
-            .chain
-            .data_availability_checker
-            .blobs_required_for_epoch(epoch)
-        {
+        } else if self.chain.custody_context.blobs_required_for_epoch(epoch) {
             ByRangeRequestType::BlocksAndBlobs
         } else {
             ByRangeRequestType::Blocks
@@ -1680,11 +1673,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // `AncestorBlocks` always has a single block and no ancestors.
         let resp = self.blocks_by_root_requests.on_response(id, rpc_event);
         let resp = resp.map(|res| {
-            res.and_then(|(mut blocks, seen_timestamp)| {
+            res.and_then(|mut blocks| {
                 let block = blocks.pop().ok_or(RpcResponseError::from(
                     LookupVerifyError::NotEnoughResponsesReturned { actual: 0 },
                 ))?;
-                Ok((AncestorBlocks::from_single(block), seen_timestamp))
+                Ok(AncestorBlocks::from_single(block))
             })
         });
         self.on_rpc_response_result(resp, peer_id)
@@ -1700,11 +1693,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // followed by its ancestors in descending slot order.
         let resp = self.blocks_by_head_requests.on_response(id, rpc_event);
         let resp = resp.map(|res| {
-            res.and_then(|(blocks, seen_timestamp)| {
+            res.and_then(|blocks| {
                 let value = AncestorBlocks::from_vec(blocks).ok_or(RpcResponseError::from(
                     LookupVerifyError::NotEnoughResponsesReturned { actual: 0 },
                 ))?;
-                Ok((value, seen_timestamp))
+                Ok(value)
             })
         });
         self.on_rpc_response_result(resp, peer_id)
@@ -1720,9 +1713,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .payload_envelopes_by_root_requests
             .on_response(id, rpc_event);
         let resp = resp.map(|res| {
-            res.and_then(|(mut envelopes, seen_timestamp)| {
+            res.and_then(|mut envelopes| {
                 match envelopes.pop() {
-                    Some(envelope) => Ok((envelope, seen_timestamp)),
+                    Some(envelope) => Ok(envelope),
                     // Should never happen, we enforce at least 1 chunk.
                     None => Err(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 }.into()),
                 }
@@ -1863,7 +1856,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: Id,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
             .beacon_processor_if_enabled()
@@ -1878,7 +1870,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send_lookup_beacon_block(
                 block_root,
                 lookup_block,
-                seen_timestamp,
                 BlockProcessType::SingleBlock { id },
             )
             .map_err(|e| {
@@ -1894,7 +1885,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         block_root: Hash256,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
@@ -1908,7 +1898,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         );
 
         beacon_processor
-            .send_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+            .send_lookup_envelope(block_root, envelope, process_type)
             .map_err(|e| {
                 error!(
                     error = ?e,
@@ -1923,7 +1913,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         _id: Id,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
@@ -1937,7 +1926,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         );
 
         beacon_processor
-            .send_rpc_custody_columns(block_root, custody_columns, seen_timestamp, process_type)
+            .send_rpc_custody_columns(block_root, custody_columns, process_type)
             .map_err(|e| {
                 error!(
                     error = ?e,
@@ -1955,11 +1944,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
-        let active_request_count_by_peer = self.active_request_count_by_peer();
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request = {
             let column_indexes = self
                 .chain
+                .custody_context
                 .sampling_columns_for_epoch(batch_id.epoch)
                 .iter()
                 .cloned()
@@ -1968,7 +1957,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.select_columns_by_range_peers_to_request(
                 &column_indexes,
                 peers,
-                active_request_count_by_peer,
                 peers_to_deprioritize,
             )?
         };
@@ -2025,7 +2013,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if let Err(e) = {
             let request = entry.get_mut();
-            data_columns.and_then(|(data_columns, _)| {
+            data_columns.and_then(|data_columns| {
                 request
                     .add_custody_columns(req_id, data_columns.clone())
                     .map_err(|e| {

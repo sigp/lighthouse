@@ -602,7 +602,9 @@ mod tests {
             "precondition: test block must not be imported into fork choice yet"
         );
 
-        let sampling_columns = chain.sampling_columns_for_epoch(block.epoch());
+        let sampling_columns = chain
+            .custody_context
+            .sampling_columns_for_epoch(block.epoch());
         let data_columns = generate_data_column_sidecars_from_block(&block, &chain.spec)
             .into_iter()
             .filter(|column| sampling_columns.contains(column.index()))
@@ -615,16 +617,11 @@ mod tests {
         let available_block = AvailableBlock::new(
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
-            &chain.data_availability_checker,
-            chain.spec.clone(),
+            &chain.custody_context,
         )
         .unwrap();
 
         let current_slot = harness.get_current_slot();
-        let cached_head = chain.canonical_head.cached_head();
-        let canonical_head_proposer_index = chain
-            .canonical_head_proposer_index(current_slot, &cached_head)
-            .unwrap();
 
         chain
             .canonical_head
@@ -636,7 +633,6 @@ mod tests {
                 Duration::ZERO,
                 &post_state,
                 PayloadVerificationStatus::Verified,
-                canonical_head_proposer_index,
                 &chain.spec,
             )
             .unwrap();

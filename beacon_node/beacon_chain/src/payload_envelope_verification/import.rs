@@ -108,18 +108,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify and import the payload envelope.
         match import_envelope.await {
             // The payload envelope was successfully verified and imported.
-            Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
+            Ok(status @ AvailabilityProcessingStatus::Imported(slot, block_root)) => {
                 info!(
                     ?block_root,
-                    %block_slot,
+                    %slot,
                     source = %envelope_source,
                     "Execution payload envelope imported"
                 );
 
                 // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
-                // TODO(gloas) do we need to recompute head?
-                // should canonical_head return the block and the payload now?
-                self.recompute_head_at_current_slot().await;
 
                 metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
 
@@ -198,6 +195,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root,
             payload_verification_outcome,
         } = *envelope;
+        let slot = envelope.envelope.slot();
 
         let block_root = {
             let chain = self.clone();
@@ -214,7 +212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await??
         };
 
-        Ok(AvailabilityProcessingStatus::Imported(block_root))
+        Ok(AvailabilityProcessingStatus::Imported(slot, block_root))
     }
 
     /// Accepts a fully-verified and available envelope and imports it into the chain without performing any

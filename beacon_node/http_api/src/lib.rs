@@ -3179,10 +3179,11 @@ pub fn serve<T: BeaconChainTypes>(
                         .head_slot()
                         .epoch(T::EthSpec::slots_per_epoch())
                         + 1;
-                    let custody_context = chain.data_availability_checker.custody_context();
                     // Reset validator custody requirements to `effective_epoch` with the latest
                     // cgc requiremnets.
-                    custody_context.reset_validator_custody_requirements(effective_epoch);
+                    chain
+                        .custody_context
+                        .reset_validator_custody_requirements(effective_epoch);
                     // Update `DataColumnCustodyInfo` to reflect the custody change.
                     chain.update_data_column_custody_info(Some(
                         effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -3272,6 +3273,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::ExecutionPayloadBid => {
                                     event_handler.subscribe_execution_payload_bid()
+                                }
+                                api_types::EventTopic::ProposerPreferences => {
+                                    event_handler.subscribe_proposer_preferences()
                                 }
                                 api_types::EventTopic::PayloadAttestationMessage => {
                                     event_handler.subscribe_payload_attestation_message()

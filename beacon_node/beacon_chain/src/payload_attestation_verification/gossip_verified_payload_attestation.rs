@@ -70,13 +70,21 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         // 2. Blocks we've seen that are invalid (REJECT).
         // Presently both cases return IGNORE.
         let beacon_block_root = payload_attestation_message.data.beacon_block_root;
-        if ctx
+        let block = ctx
             .canonical_head
             .fork_choice_read_lock()
             .get_block(&beacon_block_root)
-            .is_none()
-        {
-            return Err(Error::UnknownHeadBlock { beacon_block_root });
+            .ok_or(Error::UnknownHeadBlock { beacon_block_root })?;
+
+        // [IGNORE] The block referenced by `data.beacon_block_root` is at slot `data.slot`, i.e.
+        // the block has `block.slot == data.slot`. A PTC member assigned to an empty slot must not
+        // attest, so ignore messages that reference an earlier block.
+        if block.slot != slot {
+            return Err(Error::BlockNotAtSlot {
+                beacon_block_root,
+                block_slot: block.slot,
+                data_slot: slot,
+            });
         }
 
         let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());

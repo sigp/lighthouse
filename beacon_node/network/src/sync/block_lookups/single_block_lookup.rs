@@ -369,12 +369,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request.state.is_awaiting_event()
             || match &self.data_request {
-                DataRequest::WaitingForBlock => true,
+                // Not awaiting an event itself; it's blocked on the block request, already covered
+                // by the `block_request` term above. Returning `true` kept a peerless lookup parked
+                // in `AwaitingDownload` from being pruned, so it got stuck.
+                DataRequest::WaitingForBlock => false,
                 DataRequest::Request { state, .. } => state.is_awaiting_event(),
                 DataRequest::NoData => false,
             }
             || match &self.payload_request {
-                PayloadRequest::WaitingForBlock => true,
+                // See `data_request` above: not awaiting an event itself, the block request covers it.
+                PayloadRequest::WaitingForBlock => false,
                 PayloadRequest::Request { state, .. } => state.is_awaiting_event(),
                 PayloadRequest::PreGloas => false,
             }
@@ -403,21 +407,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.is_awaiting_process()
         {
-            let DownloadResult {
-                value: block,
-                seen_timestamp,
-                ..
-            } = data;
+            let block = &data.value;
             // Eagerly check if we can import without having to send the block for processing. This
             // allows us to check many lookups in the same sync execution / loop.
             if cx.chain.is_parent_imported(block) {
-                cx.send_block_for_processing(
-                    self.id,
-                    self.block_root,
-                    block.clone(),
-                    *seen_timestamp,
-                )
-                .map_err(LookupRequestError::SendFailedProcessor)?;
+                cx.send_block_for_processing(self.id, self.block_root, block.clone())
+                    .map_err(LookupRequestError::SendFailedProcessor)?;
                 self.block_request.state.start_processing()?;
             } else if let Some(reason) = cx.conflicts_with_finality(block) {
                 return Err(LookupRequestError::ConflictsWithFinality(reason));
@@ -437,12 +432,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             match &mut self.data_request {
                 DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
-                        let block_epoch = block
-                            .slot()
-                            .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
-                        self.data_request = if block.num_expected_blobs() == 0 {
-                            DataRequest::NoData
-                        } else if cx.chain.should_fetch_custody_columns(block_epoch) {
+                        self.data_request = if cx
+                            .chain
+                            .custody_context
+                            .data_columns_required_for_block(block)
+                        {
                             DataRequest::Request {
                                 slot: block.slot(),
                                 peers: self.get_data_peers(block.payload_bid_block_hash().ok()),
@@ -469,7 +463,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             self.id,
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SingleCustodyColumn(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -510,7 +503,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         cx.send_payload_for_processing(
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SinglePayloadEnvelope(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -762,17 +754,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 #[derive(Debug, Clone)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
-    pub seen_timestamp: Duration,
     pub peer_group: PeerGroup,
 }
 
 impl<T: Clone> DownloadResult<T> {
-    pub fn new(value: T, peer_group: PeerGroup, seen_timestamp: Duration) -> Self {
-        Self {
-            value,
-            seen_timestamp,
-            peer_group,
-        }
+    pub fn new(value: T, peer_group: PeerGroup) -> Self {
+        Self { value, peer_group }
     }
 }
 
@@ -990,7 +977,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
     pub fn maybe_start_processing(&mut self) -> Option<DownloadResult<T>> {
-        // For 2 lines replace state with placeholder to gain ownership of `result`
         match &self.state {
             State::AwaitingProcess(result) => {
                 let result = result.clone();
@@ -1003,7 +989,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
     pub fn start_processing(&mut self) -> Result<(), LookupRequestError> {
-        // For 2 lines replace state with placeholder to gain ownership of `result`
         match &self.state {
             State::AwaitingProcess(result) => {
                 let result = result.clone();
