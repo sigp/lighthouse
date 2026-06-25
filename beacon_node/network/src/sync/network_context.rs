@@ -8,7 +8,7 @@ pub use self::requests::{
 };
 use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
-use super::manager::BlockProcessType;
+use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -493,6 +493,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    /// Returns `Some(reason)` if `block`'s slot is implausibly far ahead of the current wall-clock
+    /// slot — a peer shouldn't be serving it, so it must not trigger parent lookups or forced range
+    /// sync. Compared against the clock (not our head) so normal deep sync isn't rejected.
+    pub fn block_too_far_in_future(&self, block: &SignedBeaconBlock<T::EthSpec>) -> Option<String> {
+        let current_slot = self.chain.slot().ok()?;
+        if block.slot().as_u64() > current_slot.as_u64() + SLOT_IMPORT_TOLERANCE as u64 {
+            Some(format!(
+                "block slot {} more than {SLOT_IMPORT_TOLERANCE} ahead of current slot {current_slot}",
+                block.slot()
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
         self.network_globals()
@@ -965,7 +980,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
         by_head_count: u64,
-        failed_peers: &HashSet<PeerId>,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
@@ -985,9 +999,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (
                     // Strictly de-prioritize peers already at the concurrent-request limit
                     at_concurrency_limit,
-                    // De-prioritize peers that already failed a download for this lookup, so a retry
-                    // falls back to a fresh peer (e.g. a by_root peer when a by_head peer is faulty)
-                    failed_peers.contains(peer),
                     // Prefer peers that support `beacon_blocks_by_head`
                     !supports_blocks_by_head,
                     // Prefer peers with less overall requests
@@ -998,7 +1009,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, _, _, _, peer)| *peer)
+            .map(|(_, _, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive

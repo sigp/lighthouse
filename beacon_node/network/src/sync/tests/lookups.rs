@@ -11,7 +11,7 @@ use crate::sync::block_lookups::{
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{BatchProcessResult, BlockProcessType, SyncManager},
+    manager::{BatchProcessResult, BlockProcessType, SLOT_IMPORT_TOLERANCE, SyncManager},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -2532,32 +2532,21 @@ async fn blocks_by_head_request_count_grows_for_a_chain() {
     );
 }
 
-/// A peer that fails a lookup download is de-prioritized for the retry, so the lookup falls back to
-/// another peer (here a `by_root` peer when the `by_head` peer is faulty) instead of re-picking the
-/// failing peer until the lookup is dropped.
+/// A peer serves a block whose slot is far ahead of the wall-clock slot. It must be dropped, not
+/// turned into a parent lookup / forced range sync to a bogus future head.
 #[tokio::test]
-async fn lookup_falls_back_to_another_peer_after_a_failed_download() {
-    // Peers are `by_root` by default; one peer additionally supports `by_head`. Supernode peers so
-    // the block's data columns (post-Fulu) are served and the lookup can complete.
+async fn lookup_drops_block_too_far_in_future() {
     let mut r = TestRig::default();
-    let block_root = r.build_chain(1).await;
-    let by_head_peer = r.new_connected_supernode_peer();
-    r.set_peer_supports_by_head(by_head_peer);
-    let by_root_peer = r.new_connected_supernode_peer();
-    // Trigger from the by-head peer first so the lookup's first download goes to it, then add the
-    // by-root peer to the same lookup.
-    r.trigger_unknown_block_from_attestation(block_root, by_head_peer);
-    r.trigger_unknown_block_from_attestation(block_root, by_root_peer);
-    r.assert_single_lookups_count(1);
-    // The first (by-head) download returns empty and fails; the retry must fall back to the by-root
-    // peer rather than re-picking the failed by-head peer.
-    r.simulate(SimulateConfig::new().return_no_blocks_once())
-        .await;
+    // Tip is `> SLOT_IMPORT_TOLERANCE` slots ahead of where we hold the clock, so the served block
+    // looks far in the future. Set the clock directly (back) to dodge the harness epoch guard.
+    let block_root = r.build_chain(SLOT_IMPORT_TOLERANCE + 2).await;
+    r.harness.chain.slot_clock.set_slot(1);
+    let peer = r.new_connected_supernode_peer();
+    r.trigger_unknown_block_from_attestation(block_root, peer);
+    r.simulate(SimulateConfig::happy_path()).await;
 
-    r.assert_successful_lookup_sync();
-    let counts = r.requests_count();
-    assert_eq!(counts.get("BlocksByHead").copied().unwrap_or(0), 1);
-    assert_eq!(counts.get("BlocksByRoot").copied().unwrap_or(0), 1);
+    // The lookup is dropped on download; no parent lookup and no range sync are spawned.
+    r.assert_failed_lookup_sync();
 }
 
 #[tokio::test]
