@@ -14,7 +14,6 @@ use beacon_chain::{
         MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy, test_spec,
     },
 };
-use eth2::types::ProduceBlockV3Response;
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
@@ -28,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, MinimalEthSpec,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
     ProposerPreparationData, Slot,
 };
 
@@ -639,25 +638,14 @@ pub async fn proposer_boost_re_org_test(
     // `Empty`/`Pending` and the forkchoiceUpdated head hash falls back to B's parent rather than B's
     // own execution block hash. We skip this when B will be re-orged, since the execution layer
     // must never be told about a block that is about to be re-orged away.
-    let is_gloas = harness
-        .chain
-        .spec
-        .fork_name_at_slot::<E>(slot_b)
-        .gloas_enabled();
-    let reveal_block_b_payload = is_gloas && !should_re_org;
-    let (block_b, block_b_envelope, mut state_b) = if is_gloas {
-        let (block_b, block_b_envelope, state_b) = harness
-            .make_block_with_envelope_on(state_a.clone(), slot_b, head_parent_payload_status)
-            .await;
-        let block_b_envelope = if reveal_block_b_payload {
-            block_b_envelope
-        } else {
-            None
-        };
-        (block_b, block_b_envelope, state_b)
+    let reveal_block_b_payload = !should_re_org;
+    let (block_b, block_b_envelope, mut state_b) = harness
+        .make_block_with_envelope_on(state_a.clone(), slot_b, head_parent_payload_status)
+        .await;
+    let block_b_envelope = if reveal_block_b_payload {
+        block_b_envelope
     } else {
-        let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
-        (block_b, None, state_b)
+        None
     };
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
@@ -735,13 +723,8 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let is_gloas = harness
-        .chain
-        .spec
-        .fork_name_at_slot::<E>(slot_c)
-        .gloas_enabled();
 
-    let (block_c, block_c_blobs) = if is_gloas {
+    let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
             .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
@@ -751,84 +734,51 @@ pub async fn proposer_boost_re_org_test(
             Arc::new(harness.sign_beacon_block(response.data, &state_b)),
             None,
         )
-    } else {
-        let (unsigned_block_type, _) = tester
-            .client
-            .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
-            .await
-            .unwrap();
-
-        let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
-            ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
-                unsigned_block_contents_c.deconstruct()
-            }
-            ProduceBlockV3Response::Blinded(_) => {
-                panic!("Should not be a blinded block");
-            }
-        };
-        (
-            Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b)),
-            block_c_blobs,
-        )
     };
 
     // Post-Gloas the execution payload is decoupled from the beacon block: the payload hash
     // lives in the execution payload bid, and the payload timestamp is derived from the slot.
     let exec_block_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
-        if is_gloas {
-            block
-                .body()
-                .signed_execution_payload_bid()
-                .unwrap()
-                .message
-                .block_hash
-        } else {
-            block.execution_payload().unwrap().block_hash()
-        }
+        block
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message
+            .block_hash
     };
     let exec_parent_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
-        if is_gloas {
-            block
-                .body()
-                .signed_execution_payload_bid()
-                .unwrap()
-                .message
-                .parent_block_hash
-        } else {
-            block.execution_payload().unwrap().parent_hash()
-        }
+        block
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message
+            .parent_block_hash
     };
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());
     let block_b_exec_hash = exec_block_hash(block_b.0.message());
 
-    if is_gloas {
-        assert_eq!(
-            block_b.0.is_parent_block_full(block_a_exec_hash),
-            head_parent_payload_status == PayloadStatus::Full
-        );
-    }
+    assert_eq!(
+        block_b.0.is_parent_block_full(block_a_exec_hash),
+        head_parent_payload_status == PayloadStatus::Full
+    );
 
     if should_re_org {
         // Block C should build on A.
         assert_eq!(block_c.parent_root(), Hash256::from(block_a_root));
 
-        if is_gloas {
-            assert_eq!(
-                block_c.is_parent_block_full(block_a_exec_hash),
-                expected_parent_payload_status == PayloadStatus::Full
-            );
-        }
+        assert_eq!(
+            block_c.is_parent_block_full(block_a_exec_hash),
+            expected_parent_payload_status == PayloadStatus::Full
+        );
     } else {
         // Block C should build on B.
         assert_eq!(block_c.parent_root(), block_b_root);
 
-        if is_gloas {
-            assert_eq!(
-                block_c.is_parent_block_full(block_b_exec_hash),
-                expected_parent_payload_status == PayloadStatus::Full
-            );
-        }
+        assert_eq!(
+            block_c.is_parent_block_full(block_b_exec_hash),
+            expected_parent_payload_status == PayloadStatus::Full
+        );
     }
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
@@ -844,11 +794,7 @@ pub async fn proposer_boost_re_org_test(
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
 
-    let block_c_timestamp = if is_gloas {
-        harness.chain.slot_clock.start_of(slot_c).unwrap().as_secs()
-    } else {
-        block_c.message().execution_payload().unwrap().timestamp()
-    };
+    let block_c_timestamp = harness.chain.slot_clock.start_of(slot_c).unwrap().as_secs();
 
     // If we re-orged then no fork choice update for B should have been sent.
     assert_eq!(
@@ -872,8 +818,8 @@ pub async fn proposer_boost_re_org_test(
         .first_update_with_payload_attributes(
             c_parent_hash,
             block_c_timestamp,
-            is_gloas.then(|| block_c.parent_root()),
-            is_gloas.then(|| slot_c.as_u64()),
+            Some(block_c.parent_root()),
+            Some(slot_c.as_u64()),
         )
         .unwrap();
     let payload_attribs = first_update.payload_attributes.as_ref().unwrap();
@@ -887,12 +833,10 @@ pub async fn proposer_boost_re_org_test(
     } else {
         state_b.clone()
     };
-    let expected_withdrawals = if is_gloas
-        && matches!(
-            expected_first_update_lookahead,
-            ExpectedFirstUpdateLookahead::BlockProduction
-        )
-        && expected_parent_payload_status == PayloadStatus::Empty
+    let expected_withdrawals = if matches!(
+        expected_first_update_lookahead,
+        ExpectedFirstUpdateLookahead::BlockProduction
+    ) && expected_parent_payload_status == PayloadStatus::Empty
     {
         parent_state_advanced
             .payload_expected_withdrawals()
