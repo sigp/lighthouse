@@ -34,6 +34,12 @@ pub const DEFAULT_CACHE_SIZE: usize = 16;
 /// better than low-resource nodes going OOM.
 const MAX_CONCURRENT_PROMISES: usize = 2;
 
+/// The maximum number of epochs that the head block's state may be advanced on the on-demand miss
+/// path to compute a shuffling. This bounds the work done for a single request and prevents an
+/// unhealthy node (e.g. one whose head is hundreds of epochs behind) from replaying thousands of
+/// slots.
+const MAX_SHUFFLING_STATE_ADVANCE_EPOCHS: u64 = 8;
+
 #[derive(Clone)]
 pub struct CachedShuffling<E: EthSpec> {
     pub committee_cache: Arc<CommitteeCache>,
@@ -358,6 +364,17 @@ where
         // requesting such old shufflings for this `head_block_root`.
         let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
         if head_block_epoch > shuffling_epoch + 1 {
+            return Err(BeaconChainError::InvalidStateForShuffling {
+                state_epoch: head_block_epoch,
+                shuffling_epoch,
+            }
+            .into());
+        }
+
+        // Conversely, if `shuffling_epoch` is so far ahead of the block's state that computing the
+        // shuffling would require advancing the state through many empty epochs, then error rather
+        // than replay all those slots.
+        if shuffling_epoch > head_block_epoch + MAX_SHUFFLING_STATE_ADVANCE_EPOCHS {
             return Err(BeaconChainError::InvalidStateForShuffling {
                 state_epoch: head_block_epoch,
                 shuffling_epoch,

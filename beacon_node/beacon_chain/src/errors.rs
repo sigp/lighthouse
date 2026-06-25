@@ -135,6 +135,10 @@ pub enum BeaconChainError {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
     },
+    InvalidStateForProposers {
+        state_epoch: Epoch,
+        target_epoch: Epoch,
+    },
     SyncDutiesError(BeaconStateError),
     InconsistentForwardsIter {
         request_slot: Slot,

@@ -29,6 +29,11 @@ const CACHE_SIZE: usize = 16;
 /// performance perspective).
 pub const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
 
+/// The maximum number of epochs that a state may be advanced to determine proposers for a target
+/// epoch. This bounds the work done for a single request and prevents an unhealthy node (e.g. one
+/// whose head is hundreds of epochs behind) from replaying thousands of slots.
+const MAX_PROPOSER_STATE_ADVANCE_EPOCHS: u64 = 8;
+
 /// For some given slot, this contains the proposer index (`index`) and the `fork` that should be
 /// used to verify their signature.
 pub struct Proposer {
@@ -334,6 +339,13 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
         Err(BeaconStateError::SlotOutOfBounds.into())
     } else if state.current_epoch() >= minimum_epoch {
         Ok(())
+    } else if target_epoch > state.current_epoch() + MAX_PROPOSER_STATE_ADVANCE_EPOCHS {
+        // The state is so far behind the target epoch that advancing it would require replaying
+        // many empty epochs. Error rather than burden an unhealthy node.
+        Err(BeaconChainError::InvalidStateForProposers {
+            state_epoch: state.current_epoch(),
+            target_epoch,
+        })
     } else {
         // State's current epoch is less than the minimum epoch.
         // Advance the state up to the minimum epoch.
