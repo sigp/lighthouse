@@ -1185,6 +1185,9 @@ pub fn serve<E: EthSpec>(
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
+    // Use a `std::net::TcpListener` here which keeps the parent `serve` function from needing to be async.
+    // Once the mock_builder server has been migrated to Axum, we can use the tokio listener directly
+    // since we will require async anyway.
     let std_listener = std::net::TcpListener::bind(SocketAddrV4::new(listen_addr, listen_port))
         .expect("mock builder server should start");
     std_listener
