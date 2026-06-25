@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
+use tracing::error;
+use types::ColumnIndex;
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -1152,10 +1154,20 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns = custody_columns
+            .map(CustodyColumnsBitArray::try_from)
+            .transpose()
+            .unwrap_or_else(|err| {
+                error!(?err, "Failed to convert custody columns for fcuV4");
+                None
+            });
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
+            payload_attributes.map(JsonPayloadAttributes::from),
+            custody_columns
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self
@@ -1463,6 +1475,7 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         maybe_payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
@@ -1490,8 +1503,12 @@ impl HttpJsonRpc {
                 }
                 PayloadAttributes::V4(_) => {
                     if engine_capabilities.forkchoice_updated_v4 {
-                        self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
-                            .await
+                        self.forkchoice_updated_v4(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV4",
@@ -1499,6 +1516,10 @@ impl HttpJsonRpc {
                     }
                 }
             }
+        } else if engine_capabilities.forkchoice_updated_v4 {
+            // TODO(dknopik): Is adding this branch correct & necessary?
+            self.forkchoice_updated_v4(forkchoice_state, None, custody_columns)
+                .await
         } else if engine_capabilities.forkchoice_updated_v3 {
             self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
                 .await

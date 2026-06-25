@@ -13,7 +13,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::ExecutionBlockHash;
+use types::{ColumnIndex, ExecutionBlockHash};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -163,10 +163,15 @@ impl Engine {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
+            .forkchoice_updated(
+                forkchoice_state,
+                payload_attributes.clone(),
+                custody_columns,
+            )
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -204,9 +209,13 @@ impl Engine {
 
             info!(?forkchoice_state, "Issuing forkchoiceUpdated");
 
-            // For simplicity, payload attributes are never included in this call. It may be
-            // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
+            // For simplicity, payload attributes and custody columns are never included in this
+            // call. It may be reasonable to include them in the future.
+            if let Err(e) = self
+                .api
+                .forkchoice_updated(forkchoice_state, None, None)
+                .await
+            {
                 debug!(
                     error = ?e,
                     "Failed to issue latest head to engine"
