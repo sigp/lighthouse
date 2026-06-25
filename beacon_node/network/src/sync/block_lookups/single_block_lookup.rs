@@ -415,7 +415,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 }
                 DataRequest::Request { slot, peers, state } => {
                     // Custody selects/de-prioritizes peers internally in `ActiveCustodyRequest`.
-                    state.maybe_start_downloading(|_failed_peers| {
+                    state.maybe_start_downloading(|_| {
                         let req_id = cx.next_id();
                         cx.custody_lookup_request(
                             CustodyRequester::SingleLookup(SingleLookupReqId {
