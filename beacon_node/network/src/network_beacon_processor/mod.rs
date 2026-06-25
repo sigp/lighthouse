@@ -910,7 +910,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
@@ -985,7 +985,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
         let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
