@@ -3322,13 +3322,8 @@ async fn weak_subjectivity_sync_test(
             let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
             let mut corrupt_block = (*block).clone();
             *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::new(
-                Arc::new(corrupt_block),
-                data,
-                &beacon_chain.data_availability_checker,
-                Arc::new(spec),
-            )
-            .expect("available block")
+            AvailableBlock::new(Arc::new(corrupt_block), data, &beacon_chain.custody_context)
+                .expect("available block")
         };
 
         // Importing the invalid batch should error.
@@ -4878,7 +4873,10 @@ async fn test_column_da_boundary() {
 
     // The column da boundary should be the fulu fork epoch
     assert_eq!(
-        harness.chain.column_data_availability_boundary(),
+        harness
+            .chain
+            .custody_context
+            .column_data_availability_boundary(),
         Some(fulu_fork_epoch)
     );
 }
@@ -5293,6 +5291,7 @@ async fn test_custody_column_filtering_regular_node() {
     // Get custody columns for this epoch - regular nodes only store a subset
     let expected_custody_columns: HashSet<_> = harness
         .chain
+        .custody_context
         .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
         .iter()
         .copied()
@@ -5374,8 +5373,6 @@ async fn test_missing_columns_after_cgc_change() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5397,7 +5394,10 @@ async fn test_missing_columns_after_cgc_change() {
     let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot);
 
     harness.advance_slot();
     harness
@@ -5444,8 +5444,6 @@ async fn test_safely_backfill_data_column_custody_info() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5461,7 +5459,10 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot);
 
     let epoch_after_increase =
         (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());

@@ -1,18 +1,18 @@
-use crate::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
-use crate::{BeaconChainTypes, PayloadVerificationOutcome};
+use crate::{BeaconChainTypes, CustodyContext, PayloadVerificationOutcome};
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
@@ -118,8 +118,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: AvailableBlockData<E>,
-        da_checker: &DataAvailabilityChecker<T>,
-        spec: Arc<ChainSpec>,
+        custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -127,7 +126,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         if block.fork_name_unchecked().gloas_enabled() {
             return Err(AvailabilityCheckError::InvalidVariant);
         }
-        let available_block = AvailableBlock::new(block, block_data, da_checker, spec)?;
+        let available_block = AvailableBlock::new(block, block_data, custody_context)?;
         Ok(Self::Base(available_block))
     }
 

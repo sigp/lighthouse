@@ -352,10 +352,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         debug!(?batch_id, msg, "Blob peer failure");
                     }
                     CouplingError::EnvelopePeerFailure(msg) => {
-                        debug!(?batch_id, msg, "Envelope peer failure");
+                        debug!(?batch_id, ?msg, "Envelope peer failure");
                     }
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
+                    }
+                    CouplingError::AvailabilityCheckError(err) => {
+                        error!(?batch_id, ?err, "Availability check error");
                     }
                 }
             }

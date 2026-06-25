@@ -294,10 +294,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (mut libp2p, network_globals) = Network::new(
             executor.clone(),
             service_context,
-            beacon_chain
-                .data_availability_checker
-                .custody_context()
-                .custody_group_count_at_head(&beacon_chain.spec),
+            beacon_chain.custody_context.custody_group_count_at_head(),
             local_keypair,
         )
         .await?;
