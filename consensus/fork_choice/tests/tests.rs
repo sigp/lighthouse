@@ -483,7 +483,7 @@ impl ForkChoiceTest {
         attestation
             .sign(
                 &validator_sk,
-                committee_index,
+                committee_index as usize,
                 &head.beacon_state.fork(),
                 self.harness.chain.genesis_validators_root,
                 &self.harness.chain.spec,
