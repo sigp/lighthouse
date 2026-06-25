@@ -485,6 +485,30 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_downloading_seconds",
+        "Time range sync batches spend downloading",
+        Ok(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_PROCESSING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_processing_seconds",
+        "Time range sync batches spend in processing",
+        Ok(vec![
+            0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0,
+        ]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING_COUNT: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_range_chain_batch_awaiting_processing_count",
+            "Number of batches in AwaitingProcessing when a batch starts processing",
+            Ok(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+        )
+    });
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",

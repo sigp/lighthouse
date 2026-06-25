@@ -1,7 +1,5 @@
 use crate::sync::block_lookups::DownloadResult;
-use crate::sync::network_context::{
-    DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
-};
+use crate::sync::network_context::{DataColumnsByRootRequestId, DataColumnsByRootRequestParams};
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
@@ -22,7 +20,7 @@ use super::{
 const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
-    block_root: Hash256,
+    block_roots: Vec<Hash256>,
     block_slot: Slot,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
@@ -63,7 +61,7 @@ pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSideca
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
-        block_root: Hash256,
+        block_roots: Vec<Hash256>,
         block_slot: Slot,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
@@ -72,10 +70,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let span = debug_span!(
             parent: Span::current(),
             "lh_outgoing_custody_request",
-            %block_root,
+            blocks = block_roots.len(),
         );
         Self {
-            block_root,
+            block_roots,
             block_slot,
             custody_id,
             column_requests: HashMap::from_iter(
@@ -108,7 +106,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> CustodyRequestResult<T::EthSpec> {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
-                block_root = ?self.block_root,
                 %req_id,
                 "Received custody column response for unrequested index"
             );
@@ -120,7 +117,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         match resp {
             Ok(data_columns) => {
                 debug!(
-                    block_root = ?self.block_root,
                     %req_id,
                     %peer_id,
                     count = data_columns.len(),
@@ -130,8 +126,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 // Map columns by index as an optimization to not loop the returned list on each
                 // requested index. The worse case is 128 loops over a 128 item vec + mutation to
                 // drop the consumed columns.
-                let mut data_columns = HashMap::<ColumnIndex, _>::from_iter(
-                    data_columns.into_iter().map(|d| (*d.index(), d)),
+                let mut data_columns = HashMap::<(Hash256, ColumnIndex), _>::from_iter(
+                    data_columns
+                        .into_iter()
+                        .map(|d| ((d.block_root(), *d.index()), d)),
                 );
                 // Accumulate columns that the peer does not have to issue a single log per request
                 let mut missing_column_indexes = vec![];
@@ -142,8 +140,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .get_mut(column_index)
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
-                    if let Some(data_column) = data_columns.remove(column_index) {
-                        column_request.on_download_success(req_id, peer_id, data_column)?;
+                    if let Some(columns) = self
+                        .block_roots
+                        .iter()
+                        .map(|block_root| data_columns.remove(&(*block_root, *column_index)))
+                        .collect::<Option<Vec<_>>>()
+                    {
+                        column_request.on_download_success(req_id, peer_id, columns)?;
                     } else {
                         // Peer does not have the requested data.
                         // TODO(das) do not consider this case a success. We know for sure the block has
@@ -162,7 +165,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 if !missing_column_indexes.is_empty() {
                     // Note: Batch logging that columns are missing to not spam logger
                     debug!(
-                        block_root = ?self.block_root,
                         %req_id,
                         %peer_id,
                         ?missing_column_indexes,
@@ -172,7 +174,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             }
             Err(err) => {
                 debug!(
-                    block_root = ?self.block_root,
                     %req_id,
                    %peer_id,
                    error = ?err,
@@ -210,14 +211,19 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             let columns = std::mem::take(&mut self.column_requests)
                 .into_values()
                 .map(|request| {
-                    let (peer, data_column) = request.complete()?;
-                    peers
-                        .entry(peer)
-                        .or_default()
-                        .push(*data_column.index() as usize);
-                    Ok(data_column)
+                    let (peer, data_columns) = request.complete()?;
+                    if let Some(data_column) = data_columns.first() {
+                        peers
+                            .entry(peer)
+                            .or_default()
+                            .push(*data_column.index() as usize);
+                    }
+                    Ok(data_columns)
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect();
 
             let peer_group = PeerGroup::from_set(peers);
             return Ok(Some(DownloadResult::new(columns, peer_group)));
@@ -291,8 +297,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .data_column_lookup_request(
                     DataColumnsByRootRequester::Custody(self.custody_id),
                     peer_id,
-                    DataColumnsByRootSingleBlockRequest {
-                        block_root: self.block_root,
+                    DataColumnsByRootRequestParams {
+                        block_roots: self.block_roots.clone(),
                         indices: indices.clone(),
                     },
                     // If peer is in the lookup peer set, it claims to have imported the block and
@@ -400,7 +406,7 @@ struct ColumnRequest<E: EthSpec> {
 enum Status<E: EthSpec> {
     NotStarted(Instant),
     Downloading(DataColumnsByRootRequestId),
-    Downloaded(PeerId, Arc<DataColumnSidecar<E>>),
+    Downloaded(PeerId, Vec<Arc<DataColumnSidecar<E>>>),
 }
 
 impl<E: EthSpec> ColumnRequest<E> {
@@ -468,7 +474,7 @@ impl<E: EthSpec> ColumnRequest<E> {
         &mut self,
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
-        data_column: Arc<DataColumnSidecar<E>>,
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) -> Result<(), Error> {
         match &self.status {
             Status::Downloading(expected_req_id) => {
@@ -478,7 +484,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                         req_id,
                     });
                 }
-                self.status = Status::Downloaded(peer_id, data_column);
+                self.status = Status::Downloaded(peer_id, data_columns);
                 Ok(())
             }
             other => Err(Error::BadState(format!(
@@ -487,9 +493,10 @@ impl<E: EthSpec> ColumnRequest<E> {
         }
     }
 
-    fn complete(self) -> Result<(PeerId, Arc<DataColumnSidecar<E>>), Error> {
+    #[allow(clippy::type_complexity)]
+    fn complete(self) -> Result<(PeerId, Vec<Arc<DataColumnSidecar<E>>>), Error> {
         match self.status {
-            Status::Downloaded(peer_id, data_column) => Ok((peer_id, data_column)),
+            Status::Downloaded(peer_id, data_columns) => Ok((peer_id, data_columns)),
             other => Err(Error::BadState(format!(
                 "bad state complete expected Downloaded got {other:?}"
             ))),

@@ -1203,13 +1203,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn cached_data_column_indexes(
         &self,
         block_root: &Hash256,
-        slot: Slot,
+        block_epoch: Epoch,
     ) -> Option<Vec<ColumnIndex>> {
-        if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(slot)
-            .gloas_enabled()
-        {
+        if self.spec.fork_name_at_epoch(block_epoch).gloas_enabled() {
             self.pending_payload_cache
                 .cached_data_column_indexes(block_root)
         } else {
@@ -3494,7 +3490,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return;
             };
             let imported_data_columns = self
-                .cached_data_column_indexes(block_root, slot)
+                .cached_data_column_indexes(block_root, slot.epoch(T::EthSpec::slots_per_epoch()))
                 .unwrap_or_default();
             let new_data_columns =
                 data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
