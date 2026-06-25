@@ -108,6 +108,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blobs_req_id: Option<BlobsByRangeRequestId>,
         expects_custody_columns: bool,
         payloads_req_id: Option<PayloadEnvelopesByRangeRequestId>,
+        request_span: Span,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
@@ -121,7 +122,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
             payloads_request: payloads_req_id.map(ByRangeRequest::Active),
-            request_span: Span::none(),
+            request_span,
         }
     }
 
@@ -522,6 +523,7 @@ mod tests {
         },
     };
     use std::sync::Arc;
+    use tracing::Span;
     use types::{
         ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
         MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
@@ -681,8 +683,13 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let payloads_req_id = payloads_id(components_id);
-        let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, Some(payloads_req_id));
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            true,
+            Some(payloads_req_id),
+            Span::none(),
+        );
 
         info.add_blocks(
             blocks_req_id,
@@ -726,7 +733,8 @@ mod tests {
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 
         let blocks_req_id = blocks_id(components_id());
-        let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, false, None);
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, false, None, Span::none());
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks, PeerId::random())
@@ -754,8 +762,13 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let blobs_req_id = blobs_id(components_id);
-        let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, Some(blobs_req_id), false, None);
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            Some(blobs_req_id),
+            false,
+            None,
+            Span::none(),
+        );
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks, PeerId::random())
@@ -803,7 +816,8 @@ mod tests {
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
-        let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, None);
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, None, Span::none());
         // Send blocks and complete terminate response
         info.add_blocks(
             blocks_req_id,

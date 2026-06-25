@@ -566,13 +566,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 None
             };
 
-        let mut info = RangeBlockComponentsRequest::new(
+        let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             expects_custody_columns,
             payloads_req_id,
+            range_request_span,
         );
-        info.request_span = range_request_span;
         self.components_by_range_requests.insert(id, info);
 
         Ok(id.id)
