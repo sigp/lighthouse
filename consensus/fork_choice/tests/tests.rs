@@ -431,11 +431,11 @@ impl ForkChoiceTest {
     }
 
     /// Like `apply_attestation_to_chain`, but attests with the validator at
-    /// `validator_committee_index` within the committee. Lets a test enqueue multiple distinct
+    /// `validator_index_in_committee` within the committee. Lets a test enqueue multiple distinct
     /// votes for the same slot without tripping `PriorAttestationKnown`.
     async fn apply_nth_attestation_to_chain<F, G>(
         self,
-        validator_committee_index: usize,
+        validator_index_in_committee: usize,
         delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
@@ -453,17 +453,16 @@ impl ForkChoiceTest {
             .produce_unaggregated_attestation(current_slot, 0)
             .expect("should not error while producing attestation");
 
+        // For these tests we always use committee index 0, which also matches the "dummy" committee
+        // index used post-Electra.
+        let committee_index = 0;
+
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(
-                current_slot,
-                attestation
-                    .committee_index()
-                    .expect("should get committee index"),
-            )
+            .get_beacon_committee(current_slot, committee_index)
             .expect("should get committees")
             .committee
-            .get(validator_committee_index)
+            .get(validator_index_in_committee)
             .expect("there should be an attesting validator");
 
         let committee_count = head
@@ -473,7 +472,7 @@ impl ForkChoiceTest {
 
         let subnet_id = SubnetId::compute_subnet::<E>(
             current_slot,
-            0,
+            committee_index,
             committee_count,
             &self.harness.chain.spec,
         )
@@ -484,7 +483,7 @@ impl ForkChoiceTest {
         attestation
             .sign(
                 &validator_sk,
-                validator_committee_index,
+                committee_index,
                 &head.beacon_state.fork(),
                 self.harness.chain.genesis_validators_root,
                 &self.harness.chain.spec,
@@ -493,7 +492,7 @@ impl ForkChoiceTest {
 
         let single_attestation = SingleAttestation {
             attester_index: validator_index as u64,
-            committee_index: 0,
+            committee_index,
             data: attestation.data().clone(),
             signature: attestation.signature().clone(),
         };
