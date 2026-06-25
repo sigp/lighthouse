@@ -1,8 +1,9 @@
+use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::payload_envelope_verification::AvailableEnvelope;
 use beacon_chain::{
     BeaconChainTypes,
     block_verification_types::{AvailableBlockData, RangeSyncBlock},
-    data_availability_checker::DataAvailabilityChecker,
+    custody_context::CustodyContext,
     data_column_verification::CustodyDataColumn,
     get_block_root,
 };
@@ -81,6 +82,13 @@ pub enum CouplingError {
     },
     BlobPeerFailure(String),
     EnvelopePeerFailure(String),
+    AvailabilityCheckError(AvailabilityCheckError),
+}
+
+impl From<AvailabilityCheckError> for CouplingError {
+    fn from(e: AvailabilityCheckError) -> Self {
+        CouplingError::AvailabilityCheckError(e)
+    }
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -221,7 +229,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Returns `Some(Err(_))` if there are issues coupling blocks with their data.
     pub fn responses<T>(
         &mut self,
-        da_checker: Arc<DataAvailabilityChecker<T>>,
+        custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
     ) -> Option<Result<Vec<RangeSyncBlock<E>>, CouplingError>>
     where
@@ -241,7 +249,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::NoData => Some(Self::responses_with_blobs(
                 blocks.to_vec(),
                 vec![],
-                da_checker,
+                custody_context,
                 spec,
             )),
             RangeBlockDataRequest::Blobs(request) => {
@@ -251,7 +259,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 Some(Self::responses_with_blobs(
                     blocks.to_vec(),
                     blobs.to_vec(),
-                    da_checker,
+                    custody_context,
                     spec,
                 ))
             }
@@ -294,8 +302,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     column_to_peer_id,
                     expected_custody_columns,
                     *attempt,
-                    da_checker,
-                    spec,
+                    custody_context,
                     payload_envelopes,
                 );
 
@@ -321,7 +328,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn responses_with_blobs<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
-        da_checker: Arc<DataAvailabilityChecker<T>>,
+        custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
@@ -370,7 +377,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new_with_blobs(blobs);
             responses.push(
-                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, custody_context)
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -394,8 +401,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
         attempt: usize,
-        da_checker: Arc<DataAvailabilityChecker<T>>,
-        spec: Arc<ChainSpec>,
+        custody_context: &CustodyContext<T>,
         payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
@@ -499,17 +505,24 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 envelopes_by_block_root.as_mut()
             {
                 let envelope = envelopes_by_block_root.remove(&block_root);
-                let available_envelope =
-                    envelope.map(|env| AvailableEnvelope::new(env, custody_columns));
+                let bid = block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    // this really should never fail
+                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
+                let available_envelope = envelope
+                    .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
+                    .transpose()?;
 
                 RangeSyncBlock::new_gloas(block, available_envelope)
                     .map_err(CouplingError::EnvelopePeerFailure)?
             } else if custody_columns.is_empty() {
-                RangeSyncBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, AvailableBlockData::NoData, custody_context)
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, custody_context)
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             };
             range_sync_blocks.push(range_sync_block);
@@ -562,11 +575,10 @@ mod tests {
 
     use super::RangeBlockComponentsRequest;
     use beacon_chain::block_verification_types::RangeSyncBlock;
-    use beacon_chain::custody_context::NodeCustodyType;
-    use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+    use beacon_chain::custody_context::{CustodyContext, NodeCustodyType};
     use beacon_chain::test_utils::{
         EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
-        generate_rand_block_and_data_columns, test_da_checker, test_spec,
+        generate_rand_block_and_data_columns, test_custody_context, test_spec,
     };
     use bls::Signature;
     use lighthouse_network::{
@@ -737,8 +749,8 @@ mod tests {
 
     fn is_finished(info: &mut RangeBlockComponentsRequest<E>) -> bool {
         let spec = Arc::new(test_spec::<E>());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        info.responses(da_checker, spec).is_some()
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        info.responses(&custody_context, spec).is_some()
     }
 
     fn gloas_spec() -> ChainSpec {
@@ -826,7 +838,7 @@ mod tests {
     #[allow(clippy::type_complexity)]
     struct GloasSetup {
         info: RangeBlockComponentsRequest<E>,
-        da_checker: Arc<DataAvailabilityChecker<EphemeralHarnessType<E>>>,
+        custody_context: Arc<CustodyContext<EphemeralHarnessType<E>>>,
         spec: Arc<ChainSpec>,
         blocks: Vec<(
             Arc<SignedBeaconBlock<E>>,
@@ -841,10 +853,9 @@ mod tests {
     /// ready for the per-test payload-envelope step.
     fn setup_gloas_coupling(count: usize) -> GloasSetup {
         let spec = Arc::new(gloas_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expected_custody_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_gloas_blocks_and_columns(count, &spec);
 
@@ -886,7 +897,7 @@ mod tests {
 
         GloasSetup {
             info,
-            da_checker,
+            custody_context,
             spec,
             blocks,
             payloads_req_id,
@@ -900,7 +911,7 @@ mod tests {
         // Gloas each block still couples to its (empty-column) payload envelope, so the envelope
         // request is driven too.
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
         let blocks = make_blocks_and_columns(4, NumBlobs::None, &spec);
 
         let components_id = components_id();
@@ -921,7 +932,7 @@ mod tests {
         .unwrap();
         add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(&custody_context, spec).unwrap().unwrap();
         assert_custody_columns_coupled(&responses, blocks.len(), 0);
     }
 
@@ -960,19 +971,18 @@ mod tests {
         // FORK_NAME.
         spec.fulu_fork_epoch = None;
         let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
         // Blobs are no longer required for availability, so the response succeeds without them.
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(&custody_context, spec).unwrap();
         assert!(result.is_ok())
     }
 
     #[test]
     fn rpc_block_with_custody_columns() {
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expects_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expects_custody_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_blocks_and_columns(4, NumBlobs::Number(1), &spec);
 
@@ -1038,17 +1048,16 @@ mod tests {
         add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
         // All completed construct response
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(&custody_context, spec).unwrap().unwrap();
         assert_custody_columns_coupled(&responses, blocks.len(), expects_custody_columns.len());
     }
 
     #[test]
     fn rpc_block_with_custody_columns_batched() {
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         // Split sampling columns into two batches
         let mid = expected_sampling_columns.len() / 2;
@@ -1126,7 +1135,7 @@ mod tests {
         add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
         // All completed construct response
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(&custody_context, spec).unwrap().unwrap();
         assert_custody_columns_coupled(&responses, blocks.len(), expected_sampling_columns.len());
     }
 
@@ -1134,20 +1143,20 @@ mod tests {
     fn gloas_payload_envelopes_must_complete_before_responses() {
         let GloasSetup {
             mut info,
-            da_checker,
+            custody_context,
             spec,
             ..
         } = setup_gloas_coupling(2);
 
         // No payload envelopes added yet, so the request must not be complete.
-        assert!(info.responses(da_checker, spec).is_none());
+        assert!(info.responses(&custody_context, spec).is_none());
     }
 
     #[test]
     fn gloas_payload_envelopes_are_coupled_by_block_root() {
         let GloasSetup {
             mut info,
-            da_checker,
+            custody_context,
             spec,
             blocks,
             payloads_req_id,
@@ -1165,7 +1174,7 @@ mod tests {
         )
         .unwrap();
 
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(&custody_context, spec).unwrap().unwrap();
         assert_eq!(responses.len(), blocks.len());
         for response in responses {
             match response {
@@ -1188,7 +1197,7 @@ mod tests {
     fn gloas_payload_envelopes_allow_missing_envelopes() {
         let GloasSetup {
             mut info,
-            da_checker,
+            custody_context,
             spec,
             blocks,
             payloads_req_id,
@@ -1199,7 +1208,7 @@ mod tests {
         info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
             .unwrap();
 
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(&custody_context, spec).unwrap().unwrap();
         let count_with = |with_envelope: bool| {
             responses
                 .iter()
@@ -1216,7 +1225,7 @@ mod tests {
     fn gloas_payload_envelope_mismatch_fails_coupling() {
         let GloasSetup {
             mut info,
-            da_checker,
+            custody_context,
             spec,
             blocks,
             payloads_req_id,
@@ -1228,7 +1237,7 @@ mod tests {
         info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
             .unwrap();
 
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(&custody_context, spec).unwrap();
         assert!(
             matches!(
                 result,
@@ -1243,10 +1252,9 @@ mod tests {
     fn missing_custody_columns_from_faulty_peers() {
         // GIVEN: A request expecting sampling columns from multiple peers
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_blocks_and_columns(2, NumBlobs::Number(1), &spec);
 
@@ -1309,7 +1317,7 @@ mod tests {
         }
 
         // WHEN: Attempting to construct RPC blocks
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(&custody_context, spec).unwrap();
 
         // THEN: Should fail with PeerFailure identifying the faulty peers
         assert!(result.is_err());
@@ -1337,10 +1345,9 @@ mod tests {
     fn retry_logic_after_peer_failures() {
         // GIVEN: A request expecting sampling columns where some peers initially fail
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_blocks_and_columns(2, NumBlobs::Number(1), &spec);
 
@@ -1402,7 +1409,7 @@ mod tests {
         let result: Result<
             Vec<beacon_chain::block_verification_types::RangeSyncBlock<E>>,
             crate::sync::block_sidecar_coupling::CouplingError,
-        > = info.responses(da_checker.clone(), spec.clone()).unwrap();
+        > = info.responses(&custody_context, spec.clone()).unwrap();
         assert!(result.is_err());
 
         // AND: We retry with a new peer for the failed columns
@@ -1433,7 +1440,7 @@ mod tests {
         .unwrap();
 
         // WHEN: Attempting to get responses again
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(&custody_context, spec).unwrap();
 
         // THEN: Should succeed with complete RangeSync blocks
         assert!(result.is_ok());
@@ -1445,10 +1452,9 @@ mod tests {
     fn max_retries_exceeded_behavior() {
         // GIVEN: A request where peers consistently fail to provide required columns
         let spec = Arc::new(custody_test_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+        let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0))
             .to_vec();
         let blocks = make_blocks_and_columns(1, NumBlobs::Number(1), &spec);
 
@@ -1509,7 +1515,7 @@ mod tests {
 
         // WHEN: Multiple retry attempts are made (up to max retries)
         for _ in 0..MAX_COLUMN_RETRIES {
-            let result = info.responses(da_checker.clone(), spec.clone()).unwrap();
+            let result = info.responses(&custody_context, spec.clone()).unwrap();
             assert!(result.is_err());
 
             if let Err(super::CouplingError::DataColumnPeerFailure {
@@ -1522,7 +1528,7 @@ mod tests {
         }
 
         // AND: One final attempt after exceeding max retries
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(&custody_context, spec).unwrap();
 
         // THEN: Should fail with exceeded_retries = true
         assert!(result.is_err());
