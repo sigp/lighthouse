@@ -712,6 +712,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        peers_to_deprioritize: &HashSet<PeerId>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
@@ -720,6 +721,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
+                    // De-prioritize peers that have already failed this request
+                    peers_to_deprioritize.contains(peer),
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
                     blocks_by_root_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
@@ -728,7 +731,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, peer)| *peer)
+            .map(|(_, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
@@ -818,6 +821,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        peers_to_deprioritize: &HashSet<PeerId>,
         block_root: Hash256,
     ) -> Result<
         LookupRequestResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
@@ -841,6 +845,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
+                    // De-prioritize peers that have already failed this request
+                    peers_to_deprioritize.contains(peer),
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
                     payload_envelopes_by_root_per_peer.at_concurrency_limit(peer),
                     rand::random::<u32>(),
@@ -848,7 +854,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, peer)| *peer)
+            .map(|(_, _, _, peer)| *peer)
         else {
             return Ok(LookupRequestResult::Pending("no peers"));
         };
