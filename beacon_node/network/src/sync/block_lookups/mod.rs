@@ -433,6 +433,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_block_download_response(
         &mut self,
         id: SingleLookupReqId,
+        peer_id: PeerId,
         response: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -440,7 +441,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             debug!(?id, "Block returned for single block lookup not present");
             return;
         };
-        let result = lookup.on_block_download_response(id.req_id, response, cx);
+        let result = lookup.on_block_download_response(id.req_id, peer_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
     }
 
@@ -461,6 +462,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_payload_download_response(
         &mut self,
         id: SingleLookupReqId,
+        peer_id: PeerId,
         response: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -471,7 +473,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             );
             return;
         };
-        let result = lookup.on_payload_download_response(id.req_id, response, cx);
+        let result = lookup.on_payload_download_response(id.req_id, peer_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "payload_download_response", cx);
     }
 
