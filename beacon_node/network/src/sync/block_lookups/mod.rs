@@ -723,6 +723,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     p.get(&parent_root)
                         .map(|b| BlockComponent::Block(b.clone()))
                 });
+                if block_component.is_some() {
+                    metrics::inc_counter(&metrics::SYNC_LOOKUP_KNOWN_PARENT_REUSED);
+                }
                 if self.search_parent_of_child(
                     parent_root,
                     block_component,

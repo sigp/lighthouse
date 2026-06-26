@@ -1555,6 +1555,7 @@ impl<E: EthSpec> PeerManager<E> {
     // Update peer count related metrics.
     fn update_peer_count_metrics(&self) {
         let mut peers_connected = 0;
+        let mut peers_supporting_blocks_by_head: i64 = 0;
         let mut clients_per_peer = HashMap::new();
         let mut inbound_ipv4_peers_connected: usize = 0;
         let mut inbound_ipv6_peers_connected: usize = 0;
@@ -1563,6 +1564,10 @@ impl<E: EthSpec> PeerManager<E> {
 
         for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
+
+            if peer_info.supports_protocol(Protocol::BlocksByHead) {
+                peers_supporting_blocks_by_head += 1;
+            }
 
             *clients_per_peer
                 .entry(peer_info.client().kind.to_string())
@@ -1623,6 +1628,12 @@ impl<E: EthSpec> PeerManager<E> {
 
         // PEERS_CONNECTED
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // PEERS_SUPPORTING_BLOCKS_BY_HEAD
+        metrics::set_gauge(
+            &metrics::PEERS_SUPPORTING_BLOCKS_BY_HEAD,
+            peers_supporting_blocks_by_head,
+        );
 
         // CUSTODY_GROUP_COUNT
         for (custody_group_count, peer_count) in peers_per_custody_group_count.into_iter() {

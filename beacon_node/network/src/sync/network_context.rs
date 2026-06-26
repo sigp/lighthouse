@@ -1081,6 +1081,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
         // Lookup sync event safety: see `send_block_by_root_request`. The same guarantees apply,
         // with the events handled by `Self::on_blocks_by_head_response`.
+        metrics::observe(
+            &metrics::SYNC_BLOCKS_BY_HEAD_REQUESTED_ANCESTORS,
+            count as f64,
+        );
         let request = BlocksByHeadRequest {
             beacon_root: block_root,
             count,
