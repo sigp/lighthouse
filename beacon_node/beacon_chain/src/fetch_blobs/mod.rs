@@ -432,7 +432,7 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
 ) -> Result<Vec<KzgVerifiedCustodyPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
     let num_blobs = response.len();
     let num_columns = custody_columns_indices.len();
-    let mut sorted_column_indices: Vec<_> = custody_columns_indices.iter().copied().collect();
+    let mut sorted_column_indices = custody_columns_indices.to_vec();
     sorted_column_indices.sort_unstable();
 
     let mut custody_columns: Vec<KzgVerifiedCustodyPartialDataColumn<T::EthSpec>> =
