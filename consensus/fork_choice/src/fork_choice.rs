@@ -217,10 +217,6 @@ pub enum ParentImportStatus {
     UnknownBlock,
     /// The parent block is known, but the child's bid commits to a payload not known to fork choice.
     UnknownPayload,
-    /// The block is itself in fork choice (e.g. genesis/anchor, or a finalized block whose parent
-    /// was pruned), so its parent was imported. No parent `ProtoBlock` is carried because the anchor
-    /// has no queryable proto-node (`contains_block` is true but `get_block` returns `None`).
-    AlreadyImported,
 }
 
 impl<T> From<String> for Error<T> {
@@ -1595,10 +1591,13 @@ where
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
     /// parent's payload is imported too). See [`Self::get_parent_import_status`].
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        // A block that is itself in fork choice (e.g. genesis, or a finalized block whose parent has
+        // been pruned) had an imported parent. `contains_block` is used rather than `get_block`
+        // because the anchor block is present in the index but has no queryable proto-node.
         matches!(
             self.get_parent_import_status(block),
-            ParentImportStatus::Imported(_) | ParentImportStatus::AlreadyImported
-        )
+            ParentImportStatus::Imported(_)
+        ) || self.contains_block(&block.canonical_root())
     }
 
     /// Returns the import status of the parent of `block`.
@@ -1618,11 +1617,6 @@ where
             } else {
                 ParentImportStatus::Imported(parent_block)
             }
-        } else if self.contains_block(&block.canonical_root()) {
-            // The block is itself in fork choice (e.g. genesis/anchor, or a finalized block whose
-            // parent was pruned), so its parent was imported. `contains_block` is used rather than
-            // `get_block` because the anchor is in the index but has no queryable proto-node.
-            ParentImportStatus::AlreadyImported
         } else {
             ParentImportStatus::UnknownBlock
         }

@@ -1455,8 +1455,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     });
                 }
             }
-            // The block is itself already in fork choice; its parent was validated at import.
-            ParentImportStatus::AlreadyImported => {}
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
@@ -1928,13 +1926,12 @@ fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
     match fork_choice_read_lock.get_parent_import_status(&block) {
         ParentImportStatus::Imported(parent) => Ok((parent, block)),
-        // Unreachable for the not-yet-imported blocks this verifies; treat defensively as unknown.
-        ParentImportStatus::UnknownBlock
-        | ParentImportStatus::UnknownPayload
-        | ParentImportStatus::AlreadyImported => Err(BlockError::ParentUnknown {
-            parent_root: block.parent_root(),
-            parent_block_hash: block.payload_bid_parent_block_hash().ok(),
-        }),
+        ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
+            Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+                parent_block_hash: block.payload_bid_parent_block_hash().ok(),
+            })
+        }
     }
 }
 
