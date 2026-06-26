@@ -108,6 +108,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_BLOBS_V3,
     ENGINE_GET_BLOBS_V4,
     ENGINE_GET_INCLUSION_LIST_V1,
+    ENGINE_HAS_BLOBS,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
