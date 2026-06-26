@@ -4649,27 +4649,6 @@ dependencies = [
 
 [[package]]
 name = "igd-next"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "516893339c97f6011282d5825ac94fc1c7aad5cad26bdc2d0cee068c0bf97f97"
-dependencies = [
- "async-trait",
- "attohttpc",
- "bytes",
- "futures",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "log",
- "rand 0.9.2",
- "tokio",
- "url",
- "xmltree",
-]
-
-[[package]]
-name = "igd-next"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de7238d487a9aff61f81b5ab41c0a841532a115a398b5fa92a2fadd0885e2581"
@@ -5453,7 +5432,7 @@ source = "git+https://github.com/sigp/rust-libp2p.git?rev=3563de5ed20e509885592b
 dependencies = [
  "futures",
  "futures-timer",
- "igd-next 0.17.1",
+ "igd-next",
  "libp2p-core",
  "libp2p-swarm",
  "tokio",
@@ -6224,7 +6203,7 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
- "igd-next 0.16.2",
+ "igd-next",
  "itertools 0.14.0",
  "k256",
  "kzg",
