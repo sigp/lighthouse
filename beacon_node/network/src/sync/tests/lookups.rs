@@ -2500,12 +2500,8 @@ async fn blocks_by_head_request_count_grows_for_a_chain() {
     let mut r = TestRig::new(ByHeadSupport::Supported);
     // Deep enough that the lone count doesn't resolve it, forcing a second (chain) request, while
     // staying under `PARENT_DEPTH_TOLERANCE`.
-    r.build_chain(BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT as usize)
+    r.build_chain_and_trigger_last_block(BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT as usize)
         .await;
-    let peer_id = r.new_connected_supernode_peer();
-    // Trigger an unknown-parent lookup for the chain tip from that peer.
-    let tip = r.get_last_block().block_cloned();
-    r.trigger_unknown_parent_block(peer_id, tip);
     r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_successful_lookup_sync();
