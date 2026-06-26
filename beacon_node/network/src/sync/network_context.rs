@@ -425,7 +425,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let blocks_by_head_ids = blocks_by_head_requests
             .active_requests_of_peer(peer_id)
             .into_iter()
-            .map(|id| SyncRequestId::BlocksByHead { id: *id });
+            .map(|id| SyncRequestId::BlocksByHead(*id));
         let payload_envelopes_by_root_ids = payload_envelopes_by_root_requests
             .active_requests_of_peer(peer_id)
             .into_iter()
@@ -540,49 +540,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 app_request_id,
             });
         }
-    }
-
-    fn active_request_count_by_peer(&self) -> HashMap<PeerId, usize> {
-        let Self {
-            network_send: _,
-            request_id: _,
-            blocks_by_root_requests,
-            blocks_by_head_requests,
-            payload_envelopes_by_root_requests,
-            data_columns_by_root_requests,
-            blocks_by_range_requests,
-            blobs_by_range_requests,
-            data_columns_by_range_requests,
-            payload_envelopes_by_range_requests,
-            // custody_by_root_requests is a meta request of data_columns_by_root_requests
-            custody_by_root_requests: _,
-            // components_by_range_requests is a meta request of various _by_range requests
-            components_by_range_requests: _,
-            custody_backfill_data_column_batch_requests: _,
-            execution_engine_state: _,
-            network_beacon_processor: _,
-            chain: _,
-            fork_context: _,
-            // Don't use a fallback match. We want to be sure that all requests are considered when
-            // adding new ones
-        } = self;
-
-        let mut active_request_count_by_peer = HashMap::<PeerId, usize>::new();
-
-        for peer_id in blocks_by_root_requests
-            .iter_request_peers()
-            .chain(blocks_by_head_requests.iter_request_peers())
-            .chain(payload_envelopes_by_root_requests.iter_request_peers())
-            .chain(data_columns_by_root_requests.iter_request_peers())
-            .chain(blocks_by_range_requests.iter_request_peers())
-            .chain(blobs_by_range_requests.iter_request_peers())
-            .chain(data_columns_by_range_requests.iter_request_peers())
-            .chain(payload_envelopes_by_range_requests.iter_request_peers())
-        {
-            *active_request_count_by_peer.entry(peer_id).or_default() += 1;
-        }
-
-        active_request_count_by_peer
     }
 
     /// Retries only the specified failed columns by requesting them again.
@@ -981,7 +938,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         by_head_count: u64,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
-        let active_request_count_by_peer = self.active_request_count_by_peer();
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
         let blocks_by_head_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_head_requests);
         let Some(peer_id) = lookup_peers
@@ -1001,15 +957,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     at_concurrency_limit,
                     // Prefer peers that support `beacon_blocks_by_head`
                     !supports_blocks_by_head,
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
                 )
             })
             .min()
-            .map(|(_, _, _, _, peer)| *peer)
+            .map(|(_, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
@@ -1135,7 +1089,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: RequestType::BlocksByHead(request),
-                app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByHead { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByHead(id)),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 

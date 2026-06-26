@@ -436,9 +436,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return false;
         }
 
-        // Read the by-head count before inserting this lookup below: a lookup nothing yet awaits is
-        // a lone island and fetches a few ancestors; one a child already awaits is part of a deep
-        // chain and fetches a large batch.
+        // Compute before inserting below: a lookup nothing awaits is a lone island (fetch a few
+        // ancestors); one a child already awaits is part of a deep chain (fetch a large batch).
         let by_head_count = self.by_head_request_count(block_root);
 
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
@@ -506,17 +505,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // - If yes: sends block for processing
         // - If not: marks the lookup as awaiting parent
         let known_ancestors = response.as_ref().ok().map(|d| {
-            let mut known_ancestors = HashMap::new();
-            for block in &d.value.ancestor_blocks {
-                known_ancestors.insert(
-                    block.canonical_root(),
-                    DownloadResult {
-                        value: block.clone(),
-                        peer_group: d.peer_group.clone(),
-                    },
-                );
-            }
-            known_ancestors
+            d.value
+                .ancestor_blocks
+                .iter()
+                .map(|block| {
+                    (
+                        block.canonical_root(),
+                        DownloadResult {
+                            value: block.clone(),
+                            peer_group: d.peer_group.clone(),
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>()
         });
 
         let result = lookup.on_block_download_response(
@@ -717,6 +718,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 peers,
             }) => {
+                // If a prior by-head response already fetched the parent, seed its lookup with it.
                 let block_component = known_blocks.as_ref().and_then(|p| {
                     p.get(&parent_root)
                         .map(|b| BlockComponent::Block(b.clone()))

@@ -498,7 +498,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::BlocksByHead { id } => {
+            SyncRequestId::BlocksByHead(id) => {
                 self.on_blocks_by_head_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::SinglePayloadEnvelope { id } => {
@@ -1114,7 +1114,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::from_chunk(block))
             }
-            SyncRequestId::BlocksByHead { id } => {
+            SyncRequestId::BlocksByHead(id) => {
                 self.on_blocks_by_head_response(id, peer_id, RpcEvent::from_chunk(block))
             }
             SyncRequestId::BlocksByRange(id) => {

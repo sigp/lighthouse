@@ -44,8 +44,6 @@ pub enum LookupResult {
 pub enum LookupRequestError {
     /// Too many failed attempts
     TooManyAttempts,
-    /// This block is not a descendant of the finalized checkpoint
-    ConflictsWithFinality(String),
     /// Error sending event to network
     SendFailedNetwork(RpcRequestSendError),
     /// Error sending event to processor
@@ -412,7 +410,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     .map_err(LookupRequestError::SendFailedProcessor)?;
                 self.block_request.state.start_processing()?;
             } else if let Some(reason) = cx.conflicts_with_finality(block) {
-                return Err(LookupRequestError::ConflictsWithFinality(reason));
+                return Err(LookupRequestError::Failed(reason));
             } else if let Some(reason) = cx.block_too_far_in_future(block) {
                 // A peer served a block too far ahead of our head for an unknown root. Drop it
                 // instead of walking ancestors / forcing range sync to a bogus future head.
