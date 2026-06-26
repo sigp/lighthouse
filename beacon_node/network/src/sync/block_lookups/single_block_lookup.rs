@@ -404,8 +404,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         {
             let block = &data.value;
             // Eagerly check if we can import without having to send the block for processing. This
-            // allows us to check many lookups in the same sync execution / loop.
-            if cx.chain.is_parent_imported(block) {
+            // allows us to check many lookups in the same sync execution / loop. The block may also
+            // already be in fork choice itself (e.g. genesis/anchor, or one whose parent has been
+            // pruned by finalization), in which case it's importable rather than parent-unknown.
+            if cx.chain.is_parent_imported(block)
+                || cx.chain.block_is_known_to_fork_choice(&self.block_root)
+            {
                 cx.send_block_for_processing(self.id, self.block_root, block.clone())
                     .map_err(LookupRequestError::SendFailedProcessor)?;
                 self.block_request.state.start_processing()?;
