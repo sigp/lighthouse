@@ -2532,6 +2532,97 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
     );
 }
 
+#[tokio::test]
+async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 4,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
+    assert!(finalized_slot > Slot::new(1));
+
+    let block_root = harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let block = harness
+        .chain
+        .store
+        .get_full_block(&block_root)
+        .unwrap()
+        .unwrap();
+    let envelope = harness
+        .chain
+        .store
+        .get_payload_envelope(&block_root)
+        .unwrap()
+        .unwrap();
+
+    let (mut block_message, signature) = block.deconstruct();
+    *block_message.parent_root_mut() = Hash256::repeat_byte(0x42);
+    let checkpoint_block = Arc::new(SignedBeaconBlock::from_block(block_message, signature));
+    let checkpoint_root = checkpoint_block.canonical_root();
+
+    assert!(checkpoint_block.slot() <= finalized_slot);
+    assert_ne!(checkpoint_root, finalized_checkpoint.root);
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&checkpoint_root)
+    );
+
+    let split = harness.chain.store.get_split_info();
+    harness
+        .chain
+        .store
+        .set_split(split.slot, split.state_root, checkpoint_root);
+
+    // Construct directly to isolate `filter_chain_segment`: `new_gloas` would reject the
+    // deliberately-mutated block root before the finalized-slot filter gets exercised.
+    let range_sync_block = RangeSyncBlock::Gloas {
+        block: checkpoint_block,
+        envelope: Some(AvailableEnvelope::new(Arc::new(envelope), vec![])),
+    };
+
+    let filtered_blocks = match harness.chain.filter_chain_segment(vec![range_sync_block]) {
+        Ok(filtered_blocks) => filtered_blocks,
+        Err(_) => panic!("filter should succeed"),
+    };
+
+    assert_eq!(
+        filtered_blocks.len(),
+        1,
+        "checkpoint block should be retained by split root, not finalized root"
+    );
+    assert_eq!(filtered_blocks[0].0, checkpoint_root);
+}
+
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
 #[tokio::test]
 async fn range_sync_block_construction_fails_with_wrong_blob_count() {
