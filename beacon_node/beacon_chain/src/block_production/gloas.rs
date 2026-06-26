@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let should_build_on_full = self
             .canonical_head
             .fork_choice_read_lock()
-            .should_build_on_full(&parent_root, parent_payload_status)
+            .should_build_on_full(&parent_root, parent_payload_status, produce_at_slot)
             .map_err(|e| {
                 BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
             })?;

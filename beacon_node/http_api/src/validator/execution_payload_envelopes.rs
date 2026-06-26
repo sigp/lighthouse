@@ -9,8 +9,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use tracing::debug;
 use types::Slot;
-use warp::http::Response;
-use warp::{Filter, Rejection};
+use warp::{Filter, Rejection, http::response::Builder, reply::Reply};
 
 // GET validator/execution_payload_envelopes/{slot}
 pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
@@ -58,11 +57,12 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
-                            .body(envelope.as_ssz_bytes().into())
+                            .body(envelope.as_ssz_bytes())
+                            .map(|res| res.into_response())
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "Failed to build SSZ response: {e}"
@@ -74,19 +74,16 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: envelope,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())
-                                .body(
-                                    serde_json::to_string(&json_response)
-                                        .map_err(|e| {
-                                            warp_utils::reject::custom_server_error(format!(
-                                                "Failed to serialize response: {e}"
-                                            ))
-                                        })?
-                                        .into(),
-                                )
+                                .body(serde_json::to_string(&json_response).map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to serialize response: {e}"
+                                    ))
+                                })?)
+                                .map(|res| res.into_response())
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "Failed to build JSON response: {e}"

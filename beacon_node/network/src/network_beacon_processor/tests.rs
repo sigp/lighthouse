@@ -340,7 +340,7 @@ impl TestRig {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
-                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
+                let sampling_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
@@ -422,7 +422,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -434,7 +433,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -446,7 +444,6 @@ impl TestRig {
                 .send_rpc_custody_columns(
                     self.next_block.canonical_root(),
                     data_columns,
-                    Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
                 .unwrap();
@@ -1839,6 +1836,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
 
     let all_custody_columns = rig
         .chain
+        .custody_context
         .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
     let available_columns: Vec<u64> = all_custody_columns.to_vec();
 
@@ -1900,7 +1898,10 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
     let skip_slots: HashSet<u64> = [5, 6].into_iter().collect();
     let mut rig = TestRig::new_with_skip_slots(128, &skip_slots).await;
 
-    let all_custody_columns = rig.chain.custody_columns_for_epoch(Some(Epoch::new(0)));
+    let all_custody_columns = rig
+        .chain
+        .custody_context
+        .custody_columns_for_epoch(Some(Epoch::new(0)));
     let requested_column = vec![all_custody_columns[0]];
 
     // Request a range that spans the skip slots (slots 0 through 9).

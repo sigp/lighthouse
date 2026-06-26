@@ -22,9 +22,13 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
     Client, GossipTopic, MessageId, NetworkConfig, NetworkGlobals, PeerId, PubsubMessage,
+    PubsubPartialMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
+use logging::crit;
 use rand::prelude::SliceRandom;
+use ssz_types::VariableList;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,6 +42,8 @@ use {
 };
 
 pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
+
+use gossip_methods::ReprocessAllowance;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -93,15 +99,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.attestation,
                 package.subnet_id,
                 package.should_import,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |attestations| processor.process_gossip_attestation_batch(attestations, true);
+        let process_batch = move |attestations| {
+            processor
+                .process_gossip_attestation_batch(attestations, ReprocessAllowance::BlockAndPayload)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -135,15 +143,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.aggregate,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
+        let process_batch = move |aggregates| {
+            processor
+                .process_gossip_aggregate_batch(aggregates, ReprocessAllowance::BlockAndPayload)
+        };
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
@@ -518,15 +528,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
-            block_root,
-            block,
-            seen_timestamp,
-            process_type,
-        );
+        let process_fn =
+            self.clone()
+                .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlock {
@@ -542,14 +548,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcEnvelope(Box::pin(async move {
-                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                s.process_lookup_envelope(block_root, envelope, process_type)
                     .await;
             })),
         })
@@ -561,20 +566,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcCustodyColumn(Box::pin(async move {
-                s.process_rpc_custody_columns(
-                    block_root,
-                    custody_columns,
-                    seen_timestamp,
-                    process_type,
-                )
-                .await;
+                s.process_rpc_custody_columns(block_root, custody_columns, process_type)
+                    .await;
             })),
         })
     }
@@ -901,7 +900,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub async fn fetch_engine_blobs_and_publish(
+    pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
         header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
@@ -911,7 +910,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
@@ -925,14 +924,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header.clone(),
+            header,
             custody_columns,
             publish_fn,
         )
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(_) => {
+                AvailabilityProcessingStatus::Imported(..) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
@@ -969,44 +968,108 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+    }
 
-        // Publish partial columns without eager send
-        // TODO(gloas): implement publish partial columns without eager send
-        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
-            let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+    pub async fn publish_partial_data_columns(
+        self: &Arc<Self>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        block_root: Hash256,
+    ) {
+        if header.kzg_commitments.is_empty() {
+            return;
+        }
+
+        // TODO(gloas): implement publish partial columns
+        let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
+            // Partials are disabled.
+            return;
+        };
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
+        let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+
+        let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
+        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
+        for column in columns {
             // Republish both complete and incomplete columns as partials
-            let columns: Vec<_> = columns
-                .into_iter()
-                .filter_map(|column| match column {
-                    AssemblyColumn::Incomplete(partial) => Some(partial.into_inner()),
-                    AssemblyColumn::Complete(full) => {
-                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
-                            return None;
-                        };
-                        match fulu.to_partial() {
-                            Ok(partial) => Some(Arc::new(partial)),
-                            Err(err) => {
-                                error!(
-                                    %block_root,
-                                    column_index = %full.index(),
-                                    ?err,
-                                    "Failed to convert complete column to partial for re-seeding"
-                                );
-                                None
-                            }
+            let partial_column = match column {
+                AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                AssemblyColumn::Complete(full) => {
+                    let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                        continue;
+                    };
+                    match fulu.to_partial() {
+                        Ok(partial) => Arc::new(partial),
+                        Err(err) => {
+                            error!(
+                                %block_root,
+                                column_index = %full.index(),
+                                ?err,
+                                "Failed to convert complete column to partial for re-seeding"
+                            );
+                            continue;
                         }
                     }
-                })
-                .collect();
-            if !columns.is_empty() {
-                debug!(block = %block_root, "Publishing all partials after getBlobs");
-                self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns,
-                    header,
-                });
-            } else {
-                debug!(block = %block_root, "No partials to publish after getBlobs");
+                }
+            };
+
+            present_indices.insert(partial_column.index);
+            let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
+            request_cells.not_inplace();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: partial_column,
+                request_cells,
+                header: header.clone(),
+            });
+        }
+
+        // For each custody column without any local partial, send an empty placeholder
+        // that requests all cells.
+        let num_cells = header.kzg_commitments.len();
+        for col_idx in custody_columns {
+            if present_indices.contains(col_idx) {
+                continue;
             }
+            // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
+            // bitmap constructor is infallible.
+            let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
+            else {
+                crit!(
+                    %block_root,
+                    num_cells,
+                    column_index = %col_idx,
+                    "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
+                );
+                continue;
+            };
+            let request_cells = cells_present_bitmap.not();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: Arc::new(PartialDataColumn {
+                    block_root,
+                    index: *col_idx,
+                    sidecar: PartialDataColumnSidecar {
+                        cells_present_bitmap,
+                        column: VariableList::empty(),
+                        kzg_proofs: VariableList::empty(),
+                        header: None.into(),
+                    },
+                }),
+                request_cells,
+                header: header.clone(),
+            });
+        }
+
+        if !messages.is_empty() {
+            debug!(
+                block = %block_root,
+                count = messages.len(),
+                "Publishing all partials"
+            );
+            self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
+        } else {
+            // This should not happen, as any custody columns will have at least an empty
+            // partial published.
+            warn!(block = %block_root, "No partials to publish");
         }
     }
 
@@ -1020,7 +1083,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(hash) => {
+                    AvailabilityProcessingStatus::Imported(_, hash) => {
                         debug!(
                             result = "imported block and custody columns",
                             block_hash = %hash,
