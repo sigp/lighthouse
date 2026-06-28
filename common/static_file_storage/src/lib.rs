@@ -289,35 +289,24 @@ impl StaticFile {
             data_file.write_all(&VERSION_RECORD)?;
         }
 
-        let start_offset = data_file.metadata()?.len();
-        let record_sizes = group
-            .iter()
-            .map(|(_, value)| {
-                if (value.len() as u64) > self.config.max_value_bytes {
-                    return Err(Error::Invalid("record exceeds size limit".into()));
-                }
-                u32::try_from(value.len()).map_err(|_| Error::Invalid("record too large".into()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let offsets = group
-            .iter()
-            .zip(&record_sizes)
-            .scan(start_offset, |cursor, ((slot, _), payload_len)| {
-                let offset = *cursor;
-                *cursor += 8 + u64::from(*payload_len);
-                Some((*slot, offset))
-            })
-            .collect::<Vec<_>>();
-
+        let mut offsets = Vec::with_capacity(group.len());
         {
             // BufWriter coalesces the 8-byte record headers + payloads into
             // larger syscalls; cheap for one record, load-bearing for batches.
             let mut writer = std::io::BufWriter::with_capacity(1 << 20, &mut data_file);
-            for ((_, value), payload_len) in group.iter().zip(record_sizes) {
+            let mut cursor = writer.get_ref().metadata()?.len();
+            for &(slot, value) in group {
+                if (value.len() as u64) > self.config.max_value_bytes {
+                    return Err(Error::Invalid("record exceeds size limit".into()));
+                }
+                let payload_len = u32::try_from(value.len())
+                    .map_err(|_| Error::Invalid("record too large".into()))?;
+                offsets.push((slot, cursor));
                 writer.write_all(&self.config.record_type)?;
                 writer.write_all(&payload_len.to_le_bytes())?;
                 writer.write_all(&RECORD_RESERVED)?;
                 writer.write_all(value)?;
+                cursor += 8 + value.len() as u64;
             }
             writer.flush()?;
         }
@@ -608,4 +597,85 @@ fn sync_dir(path: &Path) -> Result<(), Error> {
     let dir = File::open(path)?;
     dir.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: Config = Config {
+        record_type: [4, 0],
+        max_value_bytes: 1024,
+    };
+
+    fn open(dir: &tempfile::TempDir) -> StaticFile {
+        StaticFile::open(dir.path().to_path_buf(), CONFIG).unwrap()
+    }
+
+    #[test]
+    fn round_trip_sparse_slots() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+
+        store.put(100, b"a").unwrap();
+        store.put(9000, b"b").unwrap();
+
+        assert_eq!(store.get(100).unwrap(), Some(b"a".to_vec()));
+        assert_eq!(store.get(101).unwrap(), None);
+        assert_eq!(store.get(9000).unwrap(), Some(b"b".to_vec()));
+        assert!(!store.contains(101).unwrap());
+    }
+
+    #[test]
+    fn reopen_preserves_committed_records() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir)
+            .put_batch(vec![(SLOTS_PER_FILE - 1, b"a"), (SLOTS_PER_FILE, b"b")])
+            .unwrap();
+
+        let store = open(&dir);
+        assert_eq!(store.get(SLOTS_PER_FILE - 1).unwrap(), Some(b"a".to_vec()));
+        assert_eq!(store.get(SLOTS_PER_FILE).unwrap(), Some(b"b".to_vec()));
+    }
+
+    #[test]
+    fn batch_retries_committed_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+
+        store.put_batch(vec![(0, b"a"), (1, b"b")]).unwrap();
+        store
+            .put_batch(vec![(0, b"a"), (1, b"b"), (2, b"c")])
+            .unwrap();
+
+        assert_eq!(store.get(2).unwrap(), Some(b"c".to_vec()));
+        assert!(store.put_batch(vec![(1, b"wrong")]).is_err());
+    }
+
+    #[test]
+    fn open_removes_uncommitted_future_file() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir).put(0, b"a").unwrap();
+        fs::write(dir.path().join("data_00001"), b"stale").unwrap();
+        fs::write(dir.path().join("data_00001.off"), b"stale").unwrap();
+
+        let store = open(&dir);
+        assert!(!dir.path().join("data_00001").exists());
+        assert!(!dir.path().join("data_00001.off").exists());
+
+        store.put(SLOTS_PER_FILE, b"b").unwrap();
+        assert_eq!(store.get(SLOTS_PER_FILE).unwrap(), Some(b"b".to_vec()));
+    }
+
+    #[test]
+    fn config_mismatch_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir);
+
+        let other = Config {
+            record_type: [5, 0],
+            ..CONFIG
+        };
+        assert!(StaticFile::open(dir.path().to_path_buf(), other).is_err());
+    }
 }
