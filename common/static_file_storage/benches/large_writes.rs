@@ -10,6 +10,8 @@
 //! Run with: `cargo bench -p static_file_storage --bench large_writes`.
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
+use rand::{RngCore, SeedableRng};
+use rand_xorshift::XorShiftRng;
 use static_file_storage::{Config, StaticFile};
 use std::hint::black_box;
 use std::path::PathBuf;
@@ -30,17 +32,8 @@ const SNAPPY: Config = Config {
 };
 
 fn payload(seed: u64, len: usize) -> Vec<u8> {
-    // xorshift fill — fast, deterministic, incompressible enough that snappy
-    // can't shortcut (we care about the path it actually takes in production
-    // where HDiff outputs are already entropy-dense).
     let mut buf = vec![0u8; len];
-    let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    for chunk in buf.chunks_mut(8) {
-        s ^= s << 13;
-        s ^= s >> 7;
-        s ^= s << 17;
-        chunk.copy_from_slice(&s.to_le_bytes()[..chunk.len()]);
-    }
+    XorShiftRng::seed_from_u64(seed).fill_bytes(&mut buf);
     buf
 }
 

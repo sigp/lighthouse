@@ -9,6 +9,8 @@ snap = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+rand = { workspace = true }
+rand_xorshift = { workspace = true }
 tempfile = { workspace = true }
 
 [[bench]]
