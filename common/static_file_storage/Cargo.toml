@@ -5,7 +5,6 @@ edition = { workspace = true }
 
 [dependencies]
 parking_lot = { workspace = true }
-snap = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
