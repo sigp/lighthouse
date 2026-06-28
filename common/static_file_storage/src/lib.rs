@@ -289,23 +289,13 @@ impl StaticFile {
             data_file.write_all(&VERSION_RECORD)?;
         }
 
-        let start_offset = data_file.metadata()?.len();
-        let record_sizes = group
-            .iter()
-            .map(|(_, value)| {
-                if (value.len() as u64) > self.config.max_value_bytes {
-                    return Err(Error::Invalid("record exceeds size limit".into()));
-                }
-                u32::try_from(value.len()).map_err(|_| Error::Invalid("record too large".into()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut cursor = data_file.metadata()?.len();
         let offsets = group
             .iter()
-            .zip(&record_sizes)
-            .scan(start_offset, |cursor, ((slot, _), payload_len)| {
-                let offset = *cursor;
-                *cursor += 8 + u64::from(*payload_len);
-                Some((*slot, offset))
+            .map(|(slot, value)| {
+                let offset = cursor;
+                cursor += 8 + value.len() as u64;
+                (*slot, offset)
             })
             .collect::<Vec<_>>();
 
@@ -313,7 +303,12 @@ impl StaticFile {
             // BufWriter coalesces the 8-byte record headers + payloads into
             // larger syscalls; cheap for one record, load-bearing for batches.
             let mut writer = std::io::BufWriter::with_capacity(1 << 20, &mut data_file);
-            for ((_, value), payload_len) in group.iter().zip(record_sizes) {
+            for (_, value) in group {
+                if (value.len() as u64) > self.config.max_value_bytes {
+                    return Err(Error::Invalid("record exceeds size limit".into()));
+                }
+                let payload_len = u32::try_from(value.len())
+                    .map_err(|_| Error::Invalid("record too large".into()))?;
                 writer.write_all(&self.config.record_type)?;
                 writer.write_all(&payload_len.to_le_bytes())?;
                 writer.write_all(&RECORD_RESERVED)?;
