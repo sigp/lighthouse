@@ -3182,8 +3182,7 @@ mod tests {
 
                     // It could be that we reach our target outbound limit and are unable to prune any
                     // extra, which violates the target_peer_condition.
-                    let outbound_peers =
-                        peer_manager.network_globals.connected_outbound_only_peers();
+                    let outbound_peers = peer_manager.network_globals.connected_outbound_only_peers();
                     let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
 
                     // No trusted peers should be disconnected
@@ -3197,9 +3196,9 @@ mod tests {
                     });
 
 
-                        (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected
-                    });
-    prop_assert!(result);
+                    (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected
+                });
+                prop_assert!(result);
             }
         }
     }
