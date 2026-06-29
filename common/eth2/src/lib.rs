@@ -208,6 +208,9 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            // Drop a trailing empty segment so a base URL with a trailing slash
+            // (e.g. `https://host/<api-key>/`) does not produce a double slash.
+            .pop_if_empty()
             .push("eth")
             .push(&version.to_string());
 
@@ -3232,6 +3235,7 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .pop_if_empty()
             .push("lighthouse")
             .push("liveness");
 
@@ -3506,5 +3510,39 @@ impl BeaconNodeHttpClient {
             self.timeouts.ptc_duties,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn eth_v2_prefix(base: &str) -> String {
+        let server = SensitiveUrl::parse(base).expect("valid base url");
+        let client = BeaconNodeHttpClient::new(server, Timeouts::set_all(Duration::from_secs(1)));
+        client.eth_path(V2).unwrap().to_string()
+    }
+
+    // A trailing slash on the base URL must not change the resulting endpoint
+    // path. With a path-embedded API key this previously produced a `//eth`
+    // double slash that providers redirect to a key-less, unauthenticated path.
+    // See https://github.com/sigp/lighthouse/issues/9545.
+    #[test]
+    fn eth_path_is_trailing_slash_tolerant() {
+        // The reported case: a path-embedded API key with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            "https://example.com/secret-key/eth/v2"
+        );
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            eth_v2_prefix("https://example.com/secret-key")
+        );
+        // Regression guard: a bare host with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("http://localhost:5052/"),
+            eth_v2_prefix("http://localhost:5052")
+        );
     }
 }
