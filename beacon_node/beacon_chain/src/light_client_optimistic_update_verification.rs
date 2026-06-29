@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use derivative::Derivative;
+use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -49,8 +49,8 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
     light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
     pub parent_root: Hash256,
@@ -70,9 +70,11 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .slot_clock
             .start_of(rcv_optimistic_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
-        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
+
+        let sync_message_due = chain.spec.get_sync_message_due();
+
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
-            < start_time + one_third_slot_duration
+            < start_time + sync_message_due
         {
             return Err(Error::TooEarly);
         }

@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::SlotData;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
-use types::slot_data::SlotData;
 use types::{
     Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
 };
@@ -473,12 +473,13 @@ where
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use types::{AttestationBase, FixedBytesExtended, Hash256, test_utils::test_random_instance};
+    use fixed_bytes::FixedBytesExtended;
+    use types::{AttestationBase, Hash256, test_utils::test_arbitrary_instance};
 
     type E = types::MainnetEthSpec;
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
-        let a: AttestationBase<E> = test_random_instance();
+        let a: AttestationBase<E> = test_arbitrary_instance();
         let mut a = Attestation::Base(a);
         a.data_mut().slot = slot;
         a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
@@ -486,7 +487,7 @@ mod tests {
     }
 
     fn get_sync_contribution(slot: Slot, beacon_block_root: u64) -> SyncCommitteeContribution<E> {
-        let mut a: SyncCommitteeContribution<E> = test_random_instance();
+        let mut a: SyncCommitteeContribution<E> = test_arbitrary_instance();
         a.slot = slot;
         a.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a

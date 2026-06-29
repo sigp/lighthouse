@@ -1,6 +1,8 @@
 use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use gossipsub::{IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
+use libp2p::gossipsub::{
+    IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams,
+};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -52,7 +54,7 @@ pub struct PeerScoreSettings<E: EthSpec> {
 
 impl<E: EthSpec> PeerScoreSettings<E> {
     pub fn new(chain_spec: &ChainSpec, mesh_n: usize) -> PeerScoreSettings<E> {
-        let slot = Duration::from_secs(chain_spec.seconds_per_slot);
+        let slot = chain_spec.get_slot_duration();
         let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)
             * (BEACON_BLOCK_WEIGHT

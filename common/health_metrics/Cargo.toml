@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = { workspace = true }
 
 [dependencies]
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 metrics = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-procfs = "0.15.1"
+procfs = { version = "0.18", default-features = false }
 psutil = "3.3.0"

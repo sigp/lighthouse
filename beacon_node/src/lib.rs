@@ -9,6 +9,8 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
+use lighthouse_network::load_private_key;
+use network_utils::enr_ext::peer_id_to_node_id;
 use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -18,16 +20,11 @@ use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>;
 
-/// The beacon node `Client` that will be used in production.
+/// The beacon node `Client` that is used in production.
 ///
 /// Generic over some `EthSpec`.
-///
-/// ## Notes:
-///
-/// Despite being titled `Production...`, this code is not ready for production. The name
-/// demonstrates an intention, not a promise.
 pub struct ProductionBeaconNode<E: EthSpec>(ProductionClient<E>);
 
 impl<E: EthSpec> ProductionBeaconNode<E> {
@@ -120,8 +117,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
+        // Generate or load the node id.
+        let local_keypair = load_private_key(&client_config.network);
+        let node_id = peer_id_to_node_id(&local_keypair.public().to_peer_id())?.raw();
+
         let builder = builder
-            .beacon_chain_builder(client_genesis, client_config.clone())
+            .beacon_chain_builder(client_genesis, client_config.clone(), node_id)
             .await?;
         info!("Block production enabled");
 
@@ -133,11 +134,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(Arc::new(client_config.network))
+            .network(Arc::new(client_config.network), local_keypair)
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
+            .await
             .map(Self)
     }
 

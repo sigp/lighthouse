@@ -10,20 +10,19 @@
 
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use types::non_zero_usize::new_non_zero_usize;
-use types::{
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
-};
+use tracing::{debug, instrument};
+use typenum::Unsigned;
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot};
 
 /// The number of sets of proposer indices that should be cached.
-const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+const CACHE_SIZE: usize = 16;
 
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
@@ -137,7 +136,8 @@ impl BeaconProposerCache {
     ) -> Arc<OnceCell<EpochBlockProposers>> {
         let key = (epoch, shuffling_decision_block);
         self.cache
-            .get_or_insert(key, || Arc::new(OnceCell::new()))
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone()
     }
 
@@ -154,21 +154,104 @@ impl BeaconProposerCache {
         fork: Fork,
     ) -> Result<(), BeaconStateError> {
         let key = (epoch, shuffling_decision_block);
-        if !self.cache.contains(&key) {
+        if !self.cache.contains_key(&key) {
             let epoch_proposers = EpochBlockProposers::new(epoch, fork, proposers);
             self.cache
-                .put(key, Arc::new(OnceCell::with_value(epoch_proposers)));
+                .insert(key, Arc::new(OnceCell::with_value(epoch_proposers)));
         }
 
         Ok(())
     }
 }
 
+/// Access the proposer cache, computing and caching the proposers if necessary.
+///
+/// This is a free function that operates on references to the cache and spec, decoupled from
+/// `BeaconChain`. The `accessor` is called with the cached `EpochBlockProposers` for the given
+/// `(proposal_epoch, shuffling_decision_block)` key. If the cache entry is missing, the
+/// `state_provider` closure is called to produce a state which is then used to compute and
+/// cache the proposers.
+pub fn with_proposer_cache<Spec, V, Err>(
+    beacon_proposer_cache: &Mutex<BeaconProposerCache>,
+    shuffling_decision_block: Hash256,
+    proposal_epoch: Epoch,
+    accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
+    state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    spec: &ChainSpec,
+) -> Result<V, Err>
+where
+    Spec: EthSpec,
+    Err: From<BeaconChainError> + From<BeaconStateError>,
+{
+    let cache_entry = beacon_proposer_cache
+        .lock()
+        .get_or_insert_key(proposal_epoch, shuffling_decision_block);
+
+    // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
+    // This prevents duplication of work across multiple threads.
+    //
+    // If it is already initialised, then `get_or_try_init` will return immediately without
+    // executing the initialisation code at all.
+    let epoch_block_proposers = cache_entry.get_or_try_init(|| {
+        // Fetch the state on-demand if the required epoch was missing from the cache.
+        // If the caller wants to not compute the state they must return an error here and then
+        // catch it at the call site.
+        let (state_root, mut state) = state_provider()?;
+
+        // Ensure the state can compute proposer duties for `epoch`.
+        ensure_state_can_determine_proposers_for_epoch(
+            &mut state,
+            state_root,
+            proposal_epoch,
+            spec,
+        )?;
+
+        // Sanity check the state.
+        let latest_block_root = state.get_latest_block_root(state_root);
+        let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
+            proposal_epoch,
+            latest_block_root,
+            spec,
+        )?;
+        if state_decision_block_root != shuffling_decision_block {
+            return Err(BeaconChainError::ProposerCacheIncorrectState {
+                state_decision_block_root,
+                requested_decision_block_root: shuffling_decision_block,
+            }
+            .into());
+        }
+
+        let proposers = state.get_beacon_proposer_indices(proposal_epoch, spec)?;
+
+        // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
+        // advanced the state completely into the new epoch.
+        let fork = spec.fork_at_epoch(proposal_epoch);
+
+        debug!(
+            ?shuffling_decision_block,
+            epoch = %proposal_epoch,
+            "Priming proposer shuffling cache"
+        );
+
+        Ok::<_, Err>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
+    })?;
+
+    // Run the accessor function on the computed epoch proposers.
+    accessor(epoch_block_proposers).map_err(Into::into)
+}
+
 /// Compute the proposer duties using the head state without cache.
+///
+/// Return:
+/// - Proposer indices.
+/// - True dependent root.
+/// - Legacy dependent root (last block of epoch `N - 1`).
+/// - Head execution status.
+/// - Fork at `request_epoch`.
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
+) -> Result<(Vec<usize>, Hash256, Hash256, ExecutionStatus, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
     // short as possible.
     let (mut state, head_state_root, head_block_root) = {
@@ -199,11 +282,26 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)?;
 
     let dependent_root = state
-        // The only block which decides its own shuffling is the genesis block.
-        .proposer_shuffling_decision_root(chain.genesis_block_root, &chain.spec)
+        .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
-    Ok((indices, dependent_root, execution_status, state.fork()))
+    // This is only required because the V1 proposer duties endpoint spec wasn't updated for Fulu. We
+    // can delete this once the V1 endpoint is deprecated at the Glamsterdam fork.
+    let legacy_dependent_root = state
+        .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
+        .map_err(BeaconChainError::from)?;
+
+    // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have advanced
+    // the state completely into the new epoch.
+    let fork = chain.spec.fork_at_epoch(request_epoch);
+
+    Ok((
+        indices,
+        dependent_root,
+        legacy_dependent_root,
+        execution_status,
+        fork,
+    ))
 }
 
 /// If required, advance `state` to the epoch required to determine proposer indices in `target_epoch`.
@@ -214,6 +312,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 /// - No-op if `state.current_epoch() == target_epoch`.
 /// - It must be the case that `state.canonical_root() == state_root`, but this function will not
 ///   check that.
+#[instrument(skip_all, fields(?state_root, %target_epoch, state_slot = %state.slot()), level = "debug")]
 pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
@@ -234,14 +333,6 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     if state.current_epoch() > maximum_epoch {
         Err(BeaconStateError::SlotOutOfBounds.into())
     } else if state.current_epoch() >= minimum_epoch {
-        if target_epoch > state.current_epoch() {
-            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
-
-            // Advance the state into the same epoch as the block. Use the "partial" method since state
-            // roots are not important for proposer/attester shuffling.
-            partial_state_advance(state, Some(state_root), target_slot, spec)
-                .map_err(BeaconChainError::from)?;
-        }
         Ok(())
     } else {
         // State's current epoch is less than the minimum epoch.

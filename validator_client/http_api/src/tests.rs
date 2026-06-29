@@ -11,6 +11,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
     random_password_string, validator_definitions::ValidatorDefinitions,
 };
+use bls::{Keypair, PublicKeyBytes};
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
     Error as ApiError,
@@ -134,7 +135,9 @@ impl ApiTester {
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit())
+                .await
+                .unwrap();
 
         tokio::spawn(server);
 

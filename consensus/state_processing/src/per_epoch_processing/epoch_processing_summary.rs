@@ -1,10 +1,11 @@
 use super::base::{TotalBalances, ValidatorStatus, validator_statuses::InclusionInfo};
 use crate::metrics;
+use milhouse::List;
 use std::sync::Arc;
 use types::{
-    BeaconStateError, Epoch, EthSpec, List, ParticipationFlags, ProgressiveBalancesCache,
-    SyncCommittee, Validator,
+    BeaconStateError, Epoch, EthSpec, ParticipationFlags, ProgressiveBalancesCache, SyncCommittee,
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
+    state::Validators,
 };
 
 /// Provides a summary of validator participation during the epoch.
@@ -25,7 +26,7 @@ pub enum EpochProcessingSummary<E: EthSpec> {
 #[derive(PartialEq, Debug)]
 pub struct ParticipationEpochSummary<E: EthSpec> {
     /// Copy of the validator registry prior to mutation.
-    validators: List<Validator, E::ValidatorRegistryLimit>,
+    validators: Validators<E>,
     /// Copy of the participation flags for the previous epoch.
     previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     /// Copy of the participation flags for the current epoch.
@@ -36,7 +37,7 @@ pub struct ParticipationEpochSummary<E: EthSpec> {
 
 impl<E: EthSpec> ParticipationEpochSummary<E> {
     pub fn new(
-        validators: List<Validator, E::ValidatorRegistryLimit>,
+        validators: Validators<E>,
         previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
         current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
         previous_epoch: Epoch,

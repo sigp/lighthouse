@@ -30,8 +30,9 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, metrics, observed_aggregates::ObserveOutcome,
 };
+use bls::AggregateSignature;
 use bls::{PublicKeyBytes, verify_signature_sets};
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
@@ -47,13 +48,13 @@ use strum::AsRefStr;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::ChainSpec;
+use types::SlotData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::slot_data::SlotData;
-use types::sync_committee::Error as SyncCommitteeError;
+use types::sync_committee::SyncCommitteeError;
 use types::{
-    AggregateSignature, BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
+    BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    sync_committee_contribution::Error as ContributionError,
+    sync_committee::SyncCommitteeContributionError as ContributionError,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -261,8 +262,8 @@ impl From<ContributionError> for Error {
 }
 
 /// Wraps a `SignedContributionAndProof` that has been verified for propagation on the gossip network.\
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
     participant_pubkeys: Vec<PublicKeyBytes>,
@@ -628,7 +629,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         (signed_aggregate.message.contribution.slot + 1).epoch(T::EthSpec::slots_per_epoch());
     let fork = chain.spec.fork_at_epoch(next_slot_epoch);
 
-    let signature_sets = vec![
+    let signature_sets = [
         signed_sync_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             signed_aggregate,

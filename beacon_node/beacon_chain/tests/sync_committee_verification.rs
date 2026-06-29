@@ -2,6 +2,8 @@
 
 use beacon_chain::sync_committee_verification::{Error as SyncCommitteeError, SyncCommitteeData};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
+use bls::{AggregateSignature, Keypair, SecretKey};
+use fixed_bytes::FixedBytesExtended;
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use state_processing::{
@@ -11,10 +13,11 @@ use state_processing::{
 use std::sync::LazyLock;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    AggregateSignature, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec,
-    SecretKey, Slot, SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
+    Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SyncContributionData, SyncSelectionProof,
+    SyncSubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -182,7 +185,6 @@ async fn aggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -492,7 +494,7 @@ async fn aggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 
@@ -516,7 +518,6 @@ async fn unaggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -798,7 +799,7 @@ async fn unaggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 

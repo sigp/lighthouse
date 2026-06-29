@@ -1,15 +1,18 @@
 //! Tests for API behaviour across fork boundaries.
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     StateSkipConfig,
     test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
 };
+use bls::PublicKey;
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
+use fixed_bytes::FixedBytesExtended;
 use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
-    Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
+    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
@@ -54,14 +57,9 @@ async fn sync_committee_duties_across_fork() {
     // If there's a skip slot at the fork slot, the endpoint should return duties, even
     // though the head state hasn't transitioned yet.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, mut state) = harness
-        .add_attested_block_at_slot(
-            fork_slot - 1,
-            genesis_state,
-            genesis_state_root,
-            &all_validators,
-        )
+    let genesis_state = harness.get_current_state();
+    let (_, state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
         .await
         .unwrap();
 
@@ -76,9 +74,8 @@ async fn sync_committee_duties_across_fork() {
     assert_eq!(sync_duties.len(), E::sync_committee_size());
 
     // After applying a block at the fork slot the duties should remain unchanged.
-    let state_root = state.canonical_root().unwrap();
     harness
-        .add_attested_block_at_slot(fork_slot, state, state_root, &all_validators)
+        .add_attested_block_at_slot(fork_slot, state, &all_validators)
         .await
         .unwrap();
 
@@ -292,14 +289,9 @@ async fn sync_committee_indices_across_fork() {
     // If there's a skip slot at the fork slot, the endpoint will return a 400 until a block is
     // applied.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, mut state) = harness
-        .add_attested_block_at_slot(
-            fork_slot - 1,
-            genesis_state,
-            genesis_state_root,
-            &all_validators,
-        )
+    let genesis_state = harness.get_current_state();
+    let (_, state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
         .await
         .unwrap();
 
@@ -331,9 +323,8 @@ async fn sync_committee_indices_across_fork() {
 
     // Once the head is updated it should be useable for requests, including in the next sync
     // committee period.
-    let state_root = state.canonical_root().unwrap();
     harness
-        .add_attested_block_at_slot(fork_slot + 1, state, state_root, &all_validators)
+        .add_attested_block_at_slot(fork_slot + 1, state, &all_validators)
         .await
         .unwrap();
 
@@ -391,7 +382,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
 
     fn withdrawal_credentials_fn<'a>(
         index: usize,
-        _: &'a types::PublicKey,
+        _: &'a PublicKey,
         spec: &'a ChainSpec,
     ) -> Hash256 {
         // It is a bit inefficient to regenerate the whole keypair here, but this is a workaround.
@@ -401,7 +392,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         bls_withdrawal_credentials(&keypair.pk, spec)
     }
 
-    let header = generate_genesis_header(&spec, true);
+    let header = generate_genesis_header(&spec);
 
     let genesis_state = InteropGenesisBuilder::new()
         .set_opt_execution_payload_header(header)
@@ -426,6 +417,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         None,
         Default::default(),
         true,
+        NodeCustodyType::Fullnode,
     )
     .await;
     let harness = &tester.harness;

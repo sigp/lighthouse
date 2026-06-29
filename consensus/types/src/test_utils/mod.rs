@@ -1,23 +1,44 @@
 #![allow(clippy::arithmetic_side_effects)]
 
-use std::fmt::Debug;
-
-pub use rand::{RngCore, SeedableRng};
-pub use rand_xorshift::XorShiftRng;
-
-pub use generate_deterministic_keypairs::generate_deterministic_keypair;
-pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
-pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
-use ssz::{Decode, Encode, ssz_encode};
-pub use test_random::{TestRandom, test_random_instance};
-use tree_hash::TreeHash;
-
 #[macro_use]
 mod macros;
 mod generate_deterministic_keypairs;
 #[cfg(test)]
 mod generate_random_block_and_blobs;
-mod test_random;
+
+pub use generate_deterministic_keypairs::generate_deterministic_keypair;
+pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
+pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
+
+/// Deterministic 256 KiB seed.
+#[cfg(feature = "arbitrary")]
+static SEED: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+    use rand::RngCore;
+    use rand::SeedableRng;
+    let mut bytes = vec![0u8; 256 * 1024];
+    rand_xorshift::XorShiftRng::from_seed([0x42; 16]).fill_bytes(&mut bytes);
+    bytes
+});
+
+/// Generates an arbitrary instance of `T` from a deterministic seed.
+/// Suitable for one-shot test instance creation.
+#[cfg(feature = "arbitrary")]
+pub fn test_arbitrary_instance<'a, T: arbitrary::Arbitrary<'a>>() -> T {
+    let mut u = arbitrary::Unstructured::new(&SEED);
+    T::arbitrary(&mut u).expect("sufficient bytes for arbitrary generation")
+}
+
+/// Returns an `Unstructured` from a deterministic seed.
+/// Use this when you need to pass an `Unstructured` to helpers like
+/// `generate_rand_block_and_blobs`.
+#[cfg(feature = "arbitrary")]
+pub fn test_unstructured() -> arbitrary::Unstructured<'static> {
+    arbitrary::Unstructured::new(&SEED)
+}
+
+use ssz::{Decode, Encode, ssz_encode};
+use std::fmt::Debug;
+use tree_hash::TreeHash;
 
 pub fn test_ssz_tree_hash_pair<T, U>(v1: &T, v2: &U)
 where

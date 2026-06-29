@@ -1,0 +1,335 @@
+use std::{fmt::Debug, hash::Hash, sync::Arc};
+
+use bls::Signature;
+use context_deserialize::context_deserialize;
+use educe::Educe;
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Kzg, KzgCommitment, KzgProof};
+use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
+use rand::Rng;
+use safe_arith::ArithError;
+use serde::{Deserialize, Serialize};
+use ssz::Encode;
+use ssz_derive::{Decode, Encode};
+use ssz_types::{FixedVector, RuntimeFixedVector, RuntimeVariableList, VariableList};
+use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
+
+use crate::{
+    block::{
+        BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
+    },
+    complete_kzg_commitment_merkle_proof,
+    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
+    data::{Blob, PartialDataColumnHeader},
+    fork::ForkName,
+    kzg_ext::KzgProofs,
+    state::BeaconStateError,
+};
+
+/// Container of the data that identifies an individual blob.
+#[derive(
+    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
+)]
+#[context_deserialize(ForkName)]
+pub struct BlobIdentifier {
+    pub block_root: Hash256,
+    pub index: u64,
+}
+
+impl PartialOrd for BlobIdentifier {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BlobIdentifier {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
+#[context_deserialize(ForkName)]
+#[serde(bound = "E: EthSpec")]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
+pub struct BlobSidecar<E: EthSpec> {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
+    pub blob: Blob<E>,
+    pub kzg_commitment: KzgCommitment,
+    pub kzg_proof: KzgProof,
+    pub signed_block_header: SignedBeaconBlockHeader,
+    pub kzg_commitment_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>,
+}
+
+impl<E: EthSpec> PartialOrd for BlobSidecar<E> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<E: EthSpec> Ord for BlobSidecar<E> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
+#[derive(Debug)]
+pub enum BlobSidecarError {
+    PreDeneb,
+    MissingKzgCommitment,
+    BeaconState(BeaconStateError),
+    MerkleTree(MerkleTreeError),
+    SszTypes(ssz_types::Error),
+    ArithError(ArithError),
+}
+
+impl From<BeaconStateError> for BlobSidecarError {
+    fn from(e: BeaconStateError) -> Self {
+        BlobSidecarError::BeaconState(e)
+    }
+}
+
+impl From<MerkleTreeError> for BlobSidecarError {
+    fn from(e: MerkleTreeError) -> Self {
+        BlobSidecarError::MerkleTree(e)
+    }
+}
+
+impl From<ArithError> for BlobSidecarError {
+    fn from(e: ArithError) -> Self {
+        BlobSidecarError::ArithError(e)
+    }
+}
+
+impl<E: EthSpec> BlobSidecar<E> {
+    pub fn new(
+        index: usize,
+        blob: Blob<E>,
+        signed_block: &SignedBeaconBlock<E>,
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let expected_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_e| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *expected_kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = signed_block
+            .message()
+            .body()
+            .kzg_commitment_merkle_proof(index)?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header: signed_block.signed_block_header(),
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
+    pub fn new_with_existing_proof<T: TryInto<PartialDataColumnHeader<E>>>(
+        index: usize,
+        blob: Blob<E>,
+        header: T,
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let header = header.try_into().map_err(|_| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *header
+            .kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = complete_kzg_commitment_merkle_proof::<E>(
+            &header.kzg_commitments,
+            index,
+            &header.kzg_commitments_inclusion_proof,
+        )?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header: header.signed_block_header,
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
+    pub fn id(&self) -> BlobIdentifier {
+        BlobIdentifier {
+            block_root: self.block_root(),
+            index: self.index,
+        }
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.signed_block_header.message.slot
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.signed_block_header
+            .message
+            .slot
+            .epoch(E::slots_per_epoch())
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.signed_block_header.message.tree_hash_root()
+    }
+
+    pub fn block_parent_root(&self) -> Hash256 {
+        self.signed_block_header.message.parent_root
+    }
+
+    pub fn block_proposer_index(&self) -> u64 {
+        self.signed_block_header.message.proposer_index
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            index: 0,
+            blob: Blob::<E>::default(),
+            kzg_commitment: KzgCommitment::empty_for_testing(),
+            kzg_proof: KzgProof::empty(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader::empty(),
+                signature: Signature::empty(),
+            },
+            kzg_commitment_inclusion_proof: Default::default(),
+        }
+    }
+
+    /// Verifies the kzg commitment inclusion merkle proof.
+    pub fn verify_blob_sidecar_inclusion_proof(&self) -> bool {
+        let kzg_commitments_tree_depth = E::kzg_commitments_tree_depth();
+
+        // EthSpec asserts that kzg_commitments_tree_depth is less than KzgCommitmentInclusionProofDepth
+        let (kzg_commitment_subtree_proof, kzg_commitments_proof) = self
+            .kzg_commitment_inclusion_proof
+            .split_at(kzg_commitments_tree_depth);
+
+        // Compute the `tree_hash_root` of the `blob_kzg_commitments` subtree using the
+        // inclusion proof branches
+        let blob_kzg_commitments_root = merkle_root_from_branch(
+            self.kzg_commitment.tree_hash_root(),
+            kzg_commitment_subtree_proof,
+            kzg_commitments_tree_depth,
+            self.index as usize,
+        );
+        // The remaining inclusion proof branches are for the top level `BeaconBlockBody` tree
+        verify_merkle_proof(
+            blob_kzg_commitments_root,
+            kzg_commitments_proof,
+            E::block_body_tree_depth(),
+            BLOB_KZG_COMMITMENTS_INDEX,
+            self.signed_block_header.message.body_root,
+        )
+    }
+
+    pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg) -> Result<Self, String> {
+        let mut blob_bytes = vec![0u8; BYTES_PER_BLOB];
+        rng.fill_bytes(&mut blob_bytes);
+        // Ensure that the blob is canonical by ensuring that
+        // each field element contained in the blob is < BLS_MODULUS
+        for byte in blob_bytes.iter_mut().step_by(BYTES_PER_FIELD_ELEMENT) {
+            *byte = 0;
+        }
+
+        let blob = Blob::<E>::new(blob_bytes)
+            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+        let kzg_blob: &[u8; BYTES_PER_BLOB] = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("error converting blob to kzg blob ref: {:?}", e))?;
+
+        let commitment = kzg
+            .blob_to_kzg_commitment(kzg_blob)
+            .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
+
+        let proof = kzg
+            .compute_blob_kzg_proof(kzg_blob, commitment)
+            .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
+
+        Ok(Self {
+            blob,
+            kzg_commitment: commitment,
+            kzg_proof: proof,
+            ..Self::empty()
+        })
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn max_size() -> usize {
+        // Fixed part
+        Self::empty().as_ssz_bytes().len()
+    }
+
+    pub fn build_sidecars(
+        blobs: BlobsList<E>,
+        block: &SignedBeaconBlock<E>,
+        kzg_proofs: KzgProofs<E>,
+        spec: &ChainSpec,
+    ) -> Result<BlobSidecarList<E>, BlobSidecarError> {
+        let mut blob_sidecars = vec![];
+        for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
+            let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
+            blob_sidecars.push(Arc::new(blob_sidecar));
+        }
+        RuntimeVariableList::new(
+            blob_sidecars,
+            spec.max_blobs_per_block(block.epoch()) as usize,
+        )
+        .map_err(BlobSidecarError::SszTypes)
+    }
+}
+
+pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
+/// Alias for a non length-constrained list of `BlobSidecar`s.
+pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
+pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::max_blobs_by_root_request_common;
+    use fixed_bytes::FixedBytesExtended;
+
+    // This is the "correct" implementation of max_blobs_by_root_request.
+    // This test ensures that the simplified implementation doesn't deviate from it.
+    fn max_blobs_by_root_request_implementation(max_request_blob_sidecars: u64) -> usize {
+        let max_request_blob_sidecars = max_request_blob_sidecars as usize;
+        let empty_blob_identifier = BlobIdentifier {
+            block_root: Hash256::zero(),
+            index: 0,
+        };
+
+        RuntimeVariableList::<BlobIdentifier>::new(
+            vec![empty_blob_identifier; max_request_blob_sidecars],
+            max_request_blob_sidecars,
+        )
+        .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
+        .as_ssz_bytes()
+        .len()
+    }
+
+    #[test]
+    fn max_blobs_by_root_request_matches_simplified() {
+        for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 768, 1024, 1152] {
+            assert_eq!(
+                max_blobs_by_root_request_common(n),
+                max_blobs_by_root_request_implementation(n),
+                "Mismatch at n={n}"
+            );
+        }
+    }
+}

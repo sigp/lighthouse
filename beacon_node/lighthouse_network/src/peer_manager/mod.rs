@@ -33,9 +33,7 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
-use types::data_column_custody_group::{
-    CustodyIndex, compute_subnets_from_custody_group, get_custody_groups,
-};
+use types::data::{CustodyIndex, compute_subnets_from_custody_group, get_custody_groups};
 
 /// Unified peer subnet information structure for pruning logic.
 struct PeerSubnetInfo<E: EthSpec> {
@@ -591,7 +589,10 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
                     // Lighthouse does not currently make light client requests; therefore, this
                     // is an unexpected scenario. We do not ban the peer for rate limiting.
                     Protocol::LightClientBootstrap => return,
@@ -617,6 +618,9 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::Ping => PeerAction::Fatal,
                     Protocol::BlocksByRange => return,
                     Protocol::BlocksByRoot => return,
+                    Protocol::BlocksByHead => return,
+                    Protocol::PayloadEnvelopesByRange => return,
+                    Protocol::PayloadEnvelopesByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::BlobsByRoot => return,
                     Protocol::DataColumnsByRoot => return,
@@ -640,6 +644,9 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
@@ -2033,11 +2040,11 @@ mod tests {
             .peer_info_mut(&peer0)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer0, Subnet::Attestation(1.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer0,
+            Subnet::Attestation(1.into()),
+            false,
+        );
 
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
         attnets.set(10, true).unwrap();
@@ -2054,11 +2061,11 @@ mod tests {
             .peer_info_mut(&peer2)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer2, Subnet::Attestation(10.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer2,
+            Subnet::Attestation(10.into()),
+            false,
+        );
 
         let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
         syncnets.set(3, true).unwrap();
@@ -2075,11 +2082,11 @@ mod tests {
             .peer_info_mut(&peer4)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer4, Subnet::SyncCommittee(3.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer4,
+            Subnet::SyncCommittee(3.into()),
+            false,
+        );
 
         // Perform the heartbeat.
         peer_manager.heartbeat();
@@ -2176,11 +2183,11 @@ mod tests {
                 peer_info.update_sync_status(empty_synced_status());
             }
 
-            peer_manager
-                .network_globals
-                .peers
-                .write()
-                .add_subscription(&peer, Subnet::DataColumn(subnet.into()));
+            peer_manager.network_globals.peers.write().add_subscription(
+                &peer,
+                Subnet::DataColumn(subnet.into()),
+                false,
+            );
             println!("{},{},{}", x, subnet, peer);
             peers.push(peer);
         }
@@ -2297,7 +2304,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             println!("{},{}", x, peer);
             peers.push(peer);
@@ -2401,7 +2408,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             peers.push(peer);
         }
@@ -2500,7 +2507,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             println!("{},{}", peer_idx, peer);
             peers.push(peer);
@@ -2672,7 +2679,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             peers.push(peer);
         }
@@ -2739,11 +2746,11 @@ mod tests {
                 .unwrap()
                 .set_meta_data(MetaData::V3(metadata));
 
-            peer_manager
-                .network_globals
-                .peers
-                .write()
-                .add_subscription(&peer, Subnet::Attestation((subnet as u64).into()));
+            peer_manager.network_globals.peers.write().add_subscription(
+                &peer,
+                Subnet::Attestation((subnet as u64).into()),
+                false,
+            );
 
             peers.push(peer);
         }
@@ -2844,7 +2851,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
 
             peers.push(peer);
@@ -2930,7 +2937,7 @@ mod tests {
                 }
 
                 for subnet in peer_info.long_lived_subnets() {
-                    peers_db.add_subscription(&peer, subnet);
+                    peers_db.add_subscription(&peer, subnet, false);
                 }
 
                 peers.push(peer);
@@ -2975,10 +2982,11 @@ mod tests {
         use crate::peer_manager::tests::build_peer_manager_with_trusted_peers;
         use crate::rpc::{MetaData, MetaDataV3};
         use libp2p::PeerId;
-        use quickcheck::{Arbitrary, Gen, TestResult};
-        use quickcheck_macros::quickcheck;
+        use proptest::prelude::*;
         use std::collections::HashSet;
-        use types::{DataColumnSubnetId, Unsigned};
+        use tokio::runtime::Runtime;
+        use typenum::Unsigned;
+        use types::DataColumnSubnetId;
         use types::{EthSpec, MainnetEthSpec as E};
 
         #[derive(Clone, Debug)]
@@ -2993,164 +3001,207 @@ mod tests {
             custody_subnets: HashSet<DataColumnSubnetId>,
         }
 
-        impl Arbitrary for PeerCondition {
-            fn arbitrary(g: &mut Gen) -> Self {
-                let attestation_net_bitfield = {
-                    let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
-                    let mut bitfield = Vec::with_capacity(len);
-                    for _ in 0..len {
-                        bitfield.push(bool::arbitrary(g));
-                    }
-                    bitfield
-                };
+        fn peer_condition_strategy() -> impl Strategy<Value = PeerCondition> {
+            let attestation_len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
+            let sync_committee_len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
+            let spec = E::default_spec();
+            let total_subnet_count = spec.data_column_sidecar_subnet_count;
+            let custody_requirement = spec.custody_requirement;
 
-                let sync_committee_net_bitfield = {
-                    let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
-                    let mut bitfield = Vec::with_capacity(len);
-                    for _ in 0..len {
-                        bitfield.push(bool::arbitrary(g));
-                    }
-                    bitfield
-                };
+            // Create the pool of available subnet IDs
+            let available_subnets: Vec<u64> = (custody_requirement..total_subnet_count).collect();
+            let max_custody_subnets = available_subnets.len();
 
-                let spec = E::default_spec();
-                let custody_subnets = {
-                    let total_subnet_count = spec.data_column_sidecar_subnet_count;
-                    let custody_subnet_count = u64::arbitrary(g) % (total_subnet_count + 1); // 0 to 128
-                    (spec.custody_requirement..total_subnet_count)
-                        .filter(|_| bool::arbitrary(g))
-                        .map(DataColumnSubnetId::new)
-                        .take(custody_subnet_count as usize)
-                        .collect()
-                };
+            // Trusted peer probability constants - 1 in 5 peers should be trusted (20%)
+            const TRUSTED_PEER_WEIGHT_FALSE: u32 = 4;
+            const TRUSTED_PEER_WEIGHT_TRUE: u32 = 1;
 
-                PeerCondition {
-                    peer_id: PeerId::random(),
-                    outgoing: bool::arbitrary(g),
-                    attestation_net_bitfield,
-                    sync_committee_net_bitfield,
-                    score: f64::arbitrary(g),
-                    trusted: bool::arbitrary(g),
-                    gossipsub_score: f64::arbitrary(g),
-                    custody_subnets,
+            (
+                proptest::collection::vec(any::<bool>(), attestation_len),
+                proptest::collection::vec(any::<bool>(), sync_committee_len),
+                any::<f64>(),
+                any::<bool>(),
+                any::<f64>(),
+                // Weight trusted peers to avoid test rejection due to too many trusted peers
+                prop_oneof![
+                    TRUSTED_PEER_WEIGHT_FALSE => Just(false),
+                    TRUSTED_PEER_WEIGHT_TRUE => Just(true),
+                ],
+                0..=max_custody_subnets,
+            )
+                .prop_flat_map(
+                    move |(
+                        attestation_net_bitfield,
+                        sync_committee_net_bitfield,
+                        score,
+                        outgoing,
+                        gossipsub_score,
+                        trusted,
+                        custody_subnet_count,
+                    )| {
+                        // Use proptest's subsequence to select a random subset of subnets
+                        let custody_subnets_strategy = proptest::sample::subsequence(
+                            available_subnets.clone(),
+                            custody_subnet_count,
+                        );
+
+                        (
+                            Just(attestation_net_bitfield),
+                            Just(sync_committee_net_bitfield),
+                            Just(score),
+                            Just(outgoing),
+                            Just(gossipsub_score),
+                            Just(trusted),
+                            custody_subnets_strategy,
+                        )
+                    },
+                )
+                .prop_map(
+                    |(
+                        attestation_net_bitfield,
+                        sync_committee_net_bitfield,
+                        score,
+                        outgoing,
+                        gossipsub_score,
+                        trusted,
+                        custody_subnets_vec,
+                    )| {
+                        let custody_subnets: HashSet<DataColumnSubnetId> = custody_subnets_vec
+                            .into_iter()
+                            .map(DataColumnSubnetId::new)
+                            .collect();
+
+                        PeerCondition {
+                            peer_id: PeerId::random(),
+                            outgoing,
+                            attestation_net_bitfield,
+                            sync_committee_net_bitfield,
+                            score,
+                            trusted,
+                            gossipsub_score,
+                            custody_subnets,
+                        }
+                    },
+                )
+        }
+
+        // Upper bound for testing peer pruning - we test with at least the target number
+        // and up to 50% more than the target to verify pruning behavior.
+        const MAX_TEST_PEERS: usize = 300;
+
+        proptest! {
+                // 64 cases (down from default 256) keeps this test under 10s while
+                // still providing good random coverage of the pruning logic.
+                #![proptest_config(ProptestConfig::with_cases(64))]
+                #[test]
+                fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=MAX_TEST_PEERS)) {
+                    let target_peer_count = DEFAULT_TARGET_PEERS;
+                    let spec = E::default_spec();
+
+                    let trusted_peers: Vec<_> = peer_conditions
+                        .iter()
+                        .filter_map(|p| if p.trusted { Some(p.peer_id) } else { None })
+                        .collect();
+                    // If we have a high percentage of trusted peers, it is very difficult to reason about
+                    // the expected results of the pruning.
+                    prop_assume!(trusted_peers.len() <= peer_conditions.len() / 3_usize);
+
+                    let rt = Runtime::new().unwrap();
+
+                    let result = rt.block_on(async move {
+                        // Collect all the trusted peers
+                        let mut peer_manager =
+                            build_peer_manager_with_trusted_peers(trusted_peers, target_peer_count).await;
+
+                        // Create peers based on the randomly generated conditions.
+                        for condition in &peer_conditions {
+                            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+                            let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
+
+                            if condition.outgoing {
+                                peer_manager.inject_connect_outgoing(
+                                    &condition.peer_id,
+                                    "/ip4/0.0.0.0".parse().unwrap(),
+                                    None,
+                                );
+                            } else {
+                                peer_manager.inject_connect_ingoing(
+                                    &condition.peer_id,
+                                    "/ip4/0.0.0.0".parse().unwrap(),
+                                    None,
+                                );
+                            }
+
+                            for (i, value) in condition.attestation_net_bitfield.iter().enumerate() {
+                                attnets.set(i, *value).unwrap();
+                            }
+
+                            for (i, value) in condition.sync_committee_net_bitfield.iter().enumerate() {
+                                syncnets.set(i, *value).unwrap();
+                            }
+
+                            let subnets_per_custody_group =
+                                spec.data_column_sidecar_subnet_count / spec.number_of_custody_groups;
+                            let metadata = MetaDataV3 {
+                                seq_number: 0,
+                                attnets,
+                                syncnets,
+                                custody_group_count: condition.custody_subnets.len() as u64
+                                    / subnets_per_custody_group,
+                            };
+
+                            let mut peer_db = peer_manager.network_globals.peers.write();
+                            let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
+                            peer_info.set_meta_data(MetaData::V3(metadata));
+                            peer_info.set_gossipsub_score(condition.gossipsub_score);
+                            peer_info.add_to_score(condition.score);
+                            peer_info.set_custody_subnets(condition.custody_subnets.clone());
+
+                            for subnet in peer_info.long_lived_subnets() {
+                                peer_db.add_subscription(&condition.peer_id, subnet, false);
+                            }
+                        }
+
+                        // Perform the heartbeat.
+                        peer_manager.heartbeat();
+
+                        // The minimum number of connected peers cannot be less than the target peer count
+                        // or submitted peers.
+
+                        let expected_peer_count = target_peer_count.min(peer_conditions.len());
+                        // Trusted peers could make this larger however.
+                        let no_of_trusted_peers = peer_conditions
+                            .iter()
+                            .filter(|condition| condition.trusted)
+                            .count();
+                        let expected_peer_count = expected_peer_count.max(no_of_trusted_peers);
+
+                        let target_peer_condition =
+                            peer_manager.network_globals.connected_or_dialing_peers()
+                                == expected_peer_count;
+
+                        // It could be that we reach our target outbound limit and are unable to prune any
+                        // extra, which violates the target_peer_condition.
+                        let outbound_peers =
+                            peer_manager.network_globals.connected_outbound_only_peers();
+                        let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
+
+                        // No trusted peers should be disconnected
+                        let trusted_peer_disconnected = peer_conditions.iter().any(|condition| {
+                            condition.trusted
+                                && !peer_manager
+                                    .network_globals
+                                    .peers
+                                    .read()
+                                    .is_connected(&condition.peer_id)
+                        });
+
+
+                            (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected
+                        });
+        prop_assert!(result);
                 }
             }
-        }
-
-        #[quickcheck(tests = 2)]
-        fn prune_excess_peers(peer_conditions: Vec<PeerCondition>) -> TestResult {
-            let target_peer_count = DEFAULT_TARGET_PEERS;
-            let spec = E::default_spec();
-            if peer_conditions.len() < target_peer_count {
-                return TestResult::discard();
-            }
-            let trusted_peers: Vec<_> = peer_conditions
-                .iter()
-                .filter_map(|p| if p.trusted { Some(p.peer_id) } else { None })
-                .collect();
-            // If we have a high percentage of trusted peers, it is very difficult to reason about
-            // the expected results of the pruning.
-            if trusted_peers.len() > peer_conditions.len() / 3_usize {
-                return TestResult::discard();
-            }
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async move {
-                    // Collect all the trusted peers
-                    let mut peer_manager =
-                        build_peer_manager_with_trusted_peers(trusted_peers, target_peer_count)
-                            .await;
-
-                    // Create peers based on the randomly generated conditions.
-                    for condition in &peer_conditions {
-                        let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-                        let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
-
-                        if condition.outgoing {
-                            peer_manager.inject_connect_outgoing(
-                                &condition.peer_id,
-                                "/ip4/0.0.0.0".parse().unwrap(),
-                                None,
-                            );
-                        } else {
-                            peer_manager.inject_connect_ingoing(
-                                &condition.peer_id,
-                                "/ip4/0.0.0.0".parse().unwrap(),
-                                None,
-                            );
-                        }
-
-                        for (i, value) in condition.attestation_net_bitfield.iter().enumerate() {
-                            attnets.set(i, *value).unwrap();
-                        }
-
-                        for (i, value) in condition.sync_committee_net_bitfield.iter().enumerate() {
-                            syncnets.set(i, *value).unwrap();
-                        }
-
-                        let subnets_per_custody_group =
-                            spec.data_column_sidecar_subnet_count / spec.number_of_custody_groups;
-                        let metadata = MetaDataV3 {
-                            seq_number: 0,
-                            attnets,
-                            syncnets,
-                            custody_group_count: condition.custody_subnets.len() as u64
-                                / subnets_per_custody_group,
-                        };
-
-                        let mut peer_db = peer_manager.network_globals.peers.write();
-                        let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
-                        peer_info.set_meta_data(MetaData::V3(metadata));
-                        peer_info.set_gossipsub_score(condition.gossipsub_score);
-                        peer_info.add_to_score(condition.score);
-                        peer_info.set_custody_subnets(condition.custody_subnets.clone());
-
-                        for subnet in peer_info.long_lived_subnets() {
-                            peer_db.add_subscription(&condition.peer_id, subnet);
-                        }
-                    }
-
-                    // Perform the heartbeat.
-                    peer_manager.heartbeat();
-
-                    // The minimum number of connected peers cannot be less than the target peer count
-                    // or submitted peers.
-
-                    let expected_peer_count = target_peer_count.min(peer_conditions.len());
-                    // Trusted peers could make this larger however.
-                    let no_of_trusted_peers = peer_conditions
-                        .iter()
-                        .filter(|condition| condition.trusted)
-                        .count();
-                    let expected_peer_count = expected_peer_count.max(no_of_trusted_peers);
-
-                    let target_peer_condition =
-                        peer_manager.network_globals.connected_or_dialing_peers()
-                            == expected_peer_count;
-
-                    // It could be that we reach our target outbound limit and are unable to prune any
-                    // extra, which violates the target_peer_condition.
-                    let outbound_peers =
-                        peer_manager.network_globals.connected_outbound_only_peers();
-                    let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
-
-                    // No trusted peers should be disconnected
-                    let trusted_peer_disconnected = peer_conditions.iter().any(|condition| {
-                        condition.trusted
-                            && !peer_manager
-                                .network_globals
-                                .peers
-                                .read()
-                                .is_connected(&condition.peer_id)
-                    });
-
-                    TestResult::from_bool(
-                        (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected,
-                    )
-                })
-        }
     }
 
     #[tokio::test]

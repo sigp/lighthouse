@@ -30,9 +30,9 @@ Yes, if you need to access your beacon or validator from an address such as `htt
 
 If your graph is not showing data, it usually means your validator node is still caching data. The application must wait at least 3 epochs before it can render any graphical visualizations. This could take up to 20min.
 
-## 8. How can I connect to Siren using Wallet Connect?
+## 8. How can I connect to Siren using Reown (previously WalletConnect)?
 
-Depending on your configuration, building with Docker or Local, you will need to include the `NEXT_PUBLIC_WALLET_CONNECT_ID` variable in your `.env` file. To obtain your Wallet Connect project ID, please follow the instructions on their [website](https://cloud.walletconnect.com/sign-in). After providing a valid project ID, the Wallet Connect option should appear in the wallet connector dropdown.
+Depending on your configuration, building with Docker or Local, you will need to include the `NEXT_PUBLIC_WALLET_CONNECT_ID` variable in your `.env` file. To obtain your Wallet Connect project ID, please follow the instructions on their [website](https://dashboard.reown.com/sign-in). After providing a valid project ID, the Wallet Connect option should appear in the wallet connector dropdown.
 
 ## 9. I can't log in to Siren even with correct credentials?
 

@@ -15,21 +15,22 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
+
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
-const CAPELLA_FORK_EPOCH: u64 = 1;
-const DENEB_FORK_EPOCH: u64 = 2;
-// const ELECTRA_FORK_EPOCH: u64 = 3;
-// const FULU_FORK_EPOCH: u64 = 4;
-// const GLOAS_FORK_EPOCH: u64 = 5;
+const CAPELLA_FORK_EPOCH: u64 = 0;
+const DENEB_FORK_EPOCH: u64 = 0;
+const ELECTRA_FORK_EPOCH: u64 = 0;
+const FULU_FORK_EPOCH: u64 = 0;
+// TODO(gloas): enable Gloas in simulator, current blocker is lack of data column gossip verification
+// const GLOAS_FORK_EPOCH: u64 = 2;
 
 // Since simulator tests are non-deterministic and there is a non-zero chance of missed
 // attestations, define an acceptable network-wide attestation performance.
@@ -179,8 +180,11 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let genesis_delay = GENESIS_DELAY;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    slot_duration_ms /= speed_up_factor;
+    slot_duration_ms = max(1_000, slot_duration_ms);
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -188,12 +192,12 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
-    //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
-    //spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
+    spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
     let disconnection_epoch = 1;
@@ -249,12 +253,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
                         Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client_with_fallbacks(
-                            validator_config,
-                            i,
-                            beacon_nodes,
-                            files,
-                        )
+                        .add_validator_client_with_fallbacks(validator_config, beacon_nodes, files)
                         .await
                         .expect("should add validator");
                 },

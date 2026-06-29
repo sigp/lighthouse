@@ -13,7 +13,7 @@ impl<T: BeaconChainTypes> From<&SingleBlockLookup<T>> for Node {
     fn from(value: &SingleBlockLookup<T>) -> Self {
         Self {
             block_root: value.block_root(),
-            parent_root: value.awaiting_parent(),
+            parent_root: value.awaiting_parent().map(|a| a.parent_root()),
         }
     }
 }
@@ -118,7 +118,8 @@ pub(crate) fn find_oldest_fork_ancestor(
 #[cfg(test)]
 mod tests {
     use super::{Node, compute_parent_chains, find_oldest_fork_ancestor};
-    use types::{FixedBytesExtended, Hash256};
+    use fixed_bytes::FixedBytesExtended;
+    use types::Hash256;
 
     fn h(n: u64) -> Hash256 {
         Hash256::from_low_u64_be(n)

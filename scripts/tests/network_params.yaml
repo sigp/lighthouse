@@ -6,10 +6,11 @@ participants:
     cl_image: lighthouse:local
     cl_extra_params:
       - --target-peers=3
+    supernode: true
     count: 4
 network_params:
-  electra_fork_epoch: 0
-  seconds_per_slot: 3
+  fulu_fork_epoch: 0
+  slot_duration_ms: 3000
   num_validator_keys_per_node: 20
 global_log_level: debug
 snooper_enabled: false

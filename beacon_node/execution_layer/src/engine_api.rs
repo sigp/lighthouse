@@ -1,11 +1,11 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
-    ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
-    ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -20,8 +20,8 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
-    Uint256, VariableList, Withdrawal, Withdrawals,
+    ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256,
+    Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -79,7 +79,7 @@ impl From<reqwest::Error> for Error {
             e.status(),
             Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
         ) {
-            Error::Auth(auth::Error::InvalidToken)
+            Error::Auth(auth::Error::InvalidToken(e.to_string()))
         } else {
             Error::HttpClient(e.into())
         }
@@ -158,7 +158,7 @@ impl ExecutionBlock {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -171,10 +171,14 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3))]
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     pub parent_beacon_block_root: Hash256,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub slot_number: u64,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub target_gas_limit: u64,
 }
 
 impl PayloadAttributes {
@@ -184,24 +188,45 @@ impl PayloadAttributes {
         suggested_fee_recipient: Address,
         withdrawals: Option<Vec<Withdrawal>>,
         parent_beacon_block_root: Option<Hash256>,
+        slot_number: Option<u64>,
+        target_gas_limit: Option<u64>,
     ) -> Self {
-        match withdrawals {
-            Some(withdrawals) => match parent_beacon_block_root {
-                Some(parent_beacon_block_root) => PayloadAttributes::V3(PayloadAttributesV3 {
+        match (
+            withdrawals,
+            parent_beacon_block_root,
+            slot_number,
+            target_gas_limit,
+        ) {
+            (
+                Some(withdrawals),
+                Some(parent_beacon_block_root),
+                Some(slot_number),
+                Some(target_gas_limit),
+            ) => PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number,
+                target_gas_limit,
+            }),
+            (Some(withdrawals), Some(parent_beacon_block_root), _, _) => {
+                PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,
                     prev_randao,
                     suggested_fee_recipient,
                     withdrawals,
                     parent_beacon_block_root,
-                }),
-                None => PayloadAttributes::V2(PayloadAttributesV2 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                }),
-            },
-            None => PayloadAttributes::V1(PayloadAttributesV1 {
+                })
+            }
+            (Some(withdrawals), None, _, _) => PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+            }),
+            (None, _, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
@@ -239,6 +264,22 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 suggested_fee_recipient,
                 withdrawals,
                 parent_beacon_block_root,
+            }) => Self::V3(SsePayloadAttributesV3 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+            }),
+            // V4 maps to V3 for SSE (slot_number/target_gas_limit are not part of the SSE spec)
+            PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number: _,
+                target_gas_limit: _,
             }) => Self::V3(SsePayloadAttributesV3 {
                 timestamp,
                 prev_randao,
@@ -541,34 +582,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Gloas(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
-            }
         }
     }
 }
@@ -579,9 +592,11 @@ pub struct EngineCapabilities {
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
     pub new_payload_v4: bool,
+    pub new_payload_v5: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
@@ -589,9 +604,10 @@ pub struct EngineCapabilities {
     pub get_payload_v3: bool,
     pub get_payload_v4: bool,
     pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
     pub get_client_version_v1: bool,
-    pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
 }
 
 impl EngineCapabilities {
@@ -609,6 +625,9 @@ impl EngineCapabilities {
         if self.new_payload_v4 {
             response.push(ENGINE_NEW_PAYLOAD_V4);
         }
+        if self.new_payload_v5 {
+            response.push(ENGINE_NEW_PAYLOAD_V5);
+        }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
         }
@@ -617,6 +636,9 @@ impl EngineCapabilities {
         }
         if self.forkchoice_updated_v3 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V3);
+        }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
         }
         if self.get_payload_bodies_by_hash_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
@@ -639,11 +661,11 @@ impl EngineCapabilities {
         if self.get_payload_v5 {
             response.push(ENGINE_GET_PAYLOAD_V5);
         }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
+        }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
-        }
-        if self.get_blobs_v1 {
-            response.push(ENGINE_GET_BLOBS_V1);
         }
         if self.get_blobs_v2 {
             response.push(ENGINE_GET_BLOBS_V2);
@@ -763,14 +785,18 @@ pub struct ClientVersionV1 {
 }
 
 impl ClientVersionV1 {
-    pub fn calculate_graffiti(&self, lighthouse_commit_prefix: CommitPrefix) -> Graffiti {
-        let graffiti_string = format!(
+    pub fn calculate_graffiti(
+        &self,
+        lighthouse_commit_prefix: CommitPrefix,
+        validator_graffiti: Option<Graffiti>,
+    ) -> Graffiti {
+        let append_graffiti_full = format!(
             "{}{}LH{}",
             self.code,
             self.commit
                 .0
                 .get(..4)
-                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .unwrap_or(self.commit.0.as_str())
                 .to_lowercase(),
             lighthouse_commit_prefix
                 .0
@@ -778,6 +804,53 @@ impl ClientVersionV1 {
                 .unwrap_or("0000")
                 .to_lowercase(),
         );
+
+        // Implement the special case here:
+        // https://hackmd.io/@wmoBhF17RAOH2NZ5bNXJVg/BJX2c9gja#SPECIAL-CASE-the-flexible-standard
+        let append_graffiti_one_byte = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..2)
+                .unwrap_or(self.commit.0.as_str())
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..2)
+                .unwrap_or("00")
+                .to_lowercase(),
+        );
+
+        let append_graffiti_no_commit = format!("{}LH", self.code);
+        let append_graffiti_only_el = format!("{}", self.code);
+
+        let graffiti_string = if let Some(graffiti) = validator_graffiti {
+            let graffiti_length = graffiti.as_utf8_lossy().len();
+            let graffiti_str = graffiti.as_utf8_lossy();
+
+            // 12 characters for append_graffiti_full, plus one character for spacing
+            // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
+            if graffiti_length < 20 {
+                format!("{} {}", graffiti_str, append_graffiti_full)
+            // user-specified graffiti is between 20-23 characters
+            } else if (20..24).contains(&graffiti_length) {
+                format!("{} {}", graffiti_str, append_graffiti_one_byte)
+            // user-specified graffiti is between 24-27 characters
+            } else if (24..28).contains(&graffiti_length) {
+                format!("{} {}", graffiti_str, append_graffiti_no_commit)
+            // user-specified graffiti is between 28-29 characters
+            } else if (28..30).contains(&graffiti_length) {
+                format!("{} {}", graffiti_str, append_graffiti_only_el)
+            // if user-specified graffiti is between 30-32 characters, append nothing
+            } else {
+                return graffiti;
+            }
+        } else {
+            // if no validator_graffiti (user doesn't specify), use the full client version info graffiti
+            append_graffiti_full
+        };
+
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
         let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
         graffiti_bytes[..bytes_to_copy]

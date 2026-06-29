@@ -1,5 +1,6 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{BeaconChain, BeaconChainTypes, metrics};
+use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
@@ -11,8 +12,8 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::{debug, instrument};
-use types::{FixedBytesExtended, Hash256, Slot};
+use tracing::{debug, debug_span, instrument};
+use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -34,6 +35,8 @@ pub enum HistoricalBlockError {
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
     IndexOutOfBounds,
+    /// Logic error: should never occur.
+    MissingOldestBlockRoot { slot: Slot },
     /// Internal store error
     StoreError(StoreError),
 }
@@ -56,7 +59,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `SignatureSetError` or `InvalidSignature` will be returned.
     ///
     /// To align with sync we allow some excess blocks with slots greater than or equal to
-    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
+    /// `oldest_block_slot` to be provided. They will be re-imported to fill the columns of the
+    /// checkpoint sync block.
     ///
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
@@ -72,9 +76,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
-        // Take all blocks with slots less than the oldest block slot.
+        // Take all blocks with slots less than or equal to the oldest block slot.
+        //
+        // This allows for reimport of the blobs/columns for the finalized block after checkpoint
+        // sync.
         let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() < anchor_info.oldest_block_slot
+            available_block.block().slot() <= anchor_info.oldest_block_slot
         });
 
         let total_blocks = blocks.len();
@@ -95,6 +102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
+        let mut last_block_root = expected_block_root;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
@@ -107,7 +115,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
-            if block_root != expected_block_root {
+            if block.slot() == anchor_info.oldest_block_slot {
+                // When reimporting, verify that this is actually the same block (same block root).
+                let oldest_block_root = self
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                    .ok()
+                    .flatten()
+                    .ok_or(HistoricalBlockError::MissingOldestBlockRoot { slot: block.slot() })?;
+                if block_root != oldest_block_root {
+                    return Err(HistoricalBlockError::MismatchedBlockRoot {
+                        block_root,
+                        expected_block_root: oldest_block_root,
+                    });
+                }
+
+                debug!(
+                    ?block_root,
+                    slot = %block.slot(),
+                    "Re-importing historic block"
+                );
+                last_block_root = block_root;
+            } else if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
                     block_root,
                     expected_block_root,
@@ -129,23 +157,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             match &block_data {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
-                    new_oldest_blob_slot = Some(block.slot());
-                }
+                AvailableBlockData::NoData => (),
+                AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
                 AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
+                    new_oldest_data_column_slot = Some(block.slot())
                 }
             }
 
             // Store the blobs or data columns too
-            if let Some(op) = self
-                .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
-                .map_err(|e| {
-                    HistoricalBlockError::StoreError(StoreError::DBError {
-                        message: format!("get_blobs_or_columns_store_op error {e:?}"),
-                    })
-                })?
+            if let Some(op) =
+                self.get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
             {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
@@ -198,7 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?
             .iter()
             .map(|block| block.parent_root())
-            .chain(iter::once(anchor_info.oldest_block_parent));
+            .chain(iter::once(last_block_root));
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
@@ -230,9 +251,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
         // do not exist.
-        self.store.blobs_db.do_atomically(blob_batch)?;
-        self.store.hot_db.do_atomically(hot_batch)?;
-        self.store.cold_db.do_atomically(cold_batch)?;
+        {
+            let _span = debug_span!("backfill_write_blobs_db").entered();
+            self.store.blobs_db.do_atomically(blob_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_hot_db").entered();
+            self.store.hot_db.do_atomically(hot_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_cold_db").entered();
+            self.store.cold_db.do_atomically(cold_batch)?;
+        }
 
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
@@ -279,10 +309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
         // This can only happen if we have backfilled all the way to genesis.
-        if backfill_complete
-            && self.genesis_backfill_slot == Slot::new(0)
-            && self.config.reconstruct_historic_states
-        {
+        if backfill_complete && self.genesis_backfill_slot == Slot::new(0) && self.config.archive {
             self.store_migrator.process_reconstruction();
         }
 

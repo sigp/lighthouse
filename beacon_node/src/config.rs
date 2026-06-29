@@ -1,10 +1,11 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use axum_utils::tls::TlsConfig;
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, INVALID_HOLESKY_BLOCK_ROOT,
 };
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
+use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_optional, parse_required};
@@ -12,8 +13,7 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use http_api::TlsConfig;
-use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
@@ -26,9 +26,9 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use types::graffiti::GraffitiString;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
+use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
@@ -108,6 +108,40 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    let default_partial_columns_enabled = spec
+        .config_name
+        .as_ref()
+        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+    let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
+        .unwrap_or(default_partial_columns_enabled);
+
+    if enable_partial_columns {
+        // Partial messages assume that each subnet maps to exactly one column.
+        // Check this here to avoid weird issues on networks where this is not the case.
+        if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
+            client_config.network.enable_partial_columns = true;
+            client_config.chain.enable_partial_columns = true;
+        } else {
+            warn!(
+                subnets = spec.data_column_sidecar_subnet_count,
+                columns = E::number_of_columns(),
+                "Not enabling partial columns on networks with multiple columns per subnet"
+            )
+        }
+    }
+
+    // Parse custody mode from CLI flags
+    let is_supernode = parse_flag(cli_args, "supernode");
+    let is_semi_supernode = parse_flag(cli_args, "semi-supernode");
+
+    client_config.chain.node_custody_type = if is_supernode {
+        NodeCustodyType::Supernode
+    } else if is_semi_supernode {
+        NodeCustodyType::SemiSupernode
+    } else {
+        NodeCustodyType::Fullnode
+    };
+
     /*
      * Staking flag
      * Note: the config values set here can be overwritten by other more specific cli params
@@ -186,6 +220,9 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+        // Mantain backwards compatibility with users customizing `shuffling_cache_size` to tweak
+        // the behaviour of the HTTP API route `beacon/states/committees`
+        client_config.http_api.historical_committee_cache_size = cache_size;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
@@ -421,6 +458,7 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
+    #[cfg(feature = "testing")]
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
@@ -539,8 +577,8 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if cli_args.get_flag("reconstruct-historic-states") {
-        client_config.chain.reconstruct_historic_states = true;
+    if cli_args.get_flag("archive") {
+        client_config.chain.archive = true;
         client_config.chain.genesis_backfill = true;
     }
 
@@ -711,50 +749,36 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_head_threshold = None;
-        client_config.chain.re_org_parent_threshold = None;
-    } else {
-        client_config.chain.re_org_head_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-        );
-        client_config.chain.re_org_max_epochs_since_finalization =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
-                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
-        client_config.chain.re_org_cutoff_millis =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+    client_config.chain.disable_proposer_reorg = cli_args.get_flag("disable-proposer-reorgs");
 
-        client_config.chain.re_org_parent_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-        );
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-threshold")?.is_some() {
+        warn!("The proposer-reorg-threshold flag is deprecated");
+    }
 
-        if let Some(disallowed_offsets_str) =
-            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
-        {
-            let disallowed_offsets = disallowed_offsets_str
-                .split(',')
-                .map(|s| {
-                    s.parse()
-                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
-                })
-                .collect::<Result<Vec<u64>, _>>()?;
-            client_config.chain.re_org_disallowed_offsets =
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
-                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
-        }
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-epochs-since-finalization")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-epochs-since-finalization flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-cutoff")?.is_some() {
+        warn!("The proposer-reorg-cutoff flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-parent-threshold")?.is_some() {
+        warn!("The proposer-reorg-parent-threshold flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-disallowed-offsets flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                Duration::from_secs(spec.seconds_per_slot)
-                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
-            });
+            .unwrap_or_else(|| spec.get_slot_duration() / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR);
 
     client_config.chain.always_prepare_payload = cli_args.get_flag("always-prepare-payload");
 
@@ -767,6 +791,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.always_reset_payload_statuses = cli_args.get_flag("reset-payload-statuses");
 
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
+
+    client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
 
     /*
      * Builder fallback configs.
@@ -835,10 +861,12 @@ pub fn get_config<E: EthSpec>(
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
+    #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
         client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
 
+    #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
         client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
@@ -1133,10 +1161,6 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if parse_flag(cli_args, "supernode") {
-        config.subscribe_all_data_column_subnets = true;
-    }
-
     if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
     }
@@ -1145,8 +1169,9 @@ pub fn set_network_config(
         config.import_all_attestations = true;
     }
 
+    #[cfg(feature = "testing")]
     if let Some(advertise_false_custody_group_count) =
-        parse_optional(cli_args, "advertise-false-custody-group-count")?
+        clap_utils::parse_optional(cli_args, "advertise-false-custody-group-count")?
     {
         config.advertise_false_custody_group_count = Some(advertise_false_custody_group_count);
     }
@@ -1182,12 +1207,6 @@ pub fn set_network_config(
                     let multi: Multiaddr = addr
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
-                    }
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
-                    }
                     multiaddrs.push(multi);
                 }
             }
@@ -1196,7 +1215,9 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
+    // DEPRECATED: can be removed in v8.2.0./v9.0.0
     if let Some(libp2p_addresses_str) = cli_args.get_one::<String>("libp2p-addresses") {
+        warn!("The --libp2p-addresses flag is deprecated and replaced by --boot-nodes");
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {
@@ -1409,6 +1430,10 @@ pub fn set_network_config(
 
     if parse_flag(cli_args, "disable-quic") {
         config.disable_quic_support = true;
+    }
+
+    if let Some(enable_mplex) = parse_optional(cli_args, "enable-mplex")? {
+        config.enable_mplex = enable_mplex;
     }
 
     if parse_flag(cli_args, "disable-upnp") {

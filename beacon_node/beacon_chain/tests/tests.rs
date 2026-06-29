@@ -3,18 +3,21 @@
 use beacon_chain::{
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
+    custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
 };
+use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
-    MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint,
+    DEFAULT_PRE_ELECTRA_WS_PERIOD, EthSpec, ForkName, Hash256, MainnetEthSpec, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -30,10 +33,31 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     get_harness_with_config(
         validator_count,
         ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..Default::default()
         },
     )
+}
+
+fn get_harness_with_spec(
+    validator_count: usize,
+    spec: &ChainSpec,
+) -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
+    let chain_config = ChainConfig {
+        archive: true,
+        ..Default::default()
+    };
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone().into())
+        .chain_config(chain_config)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
 }
 
 fn get_harness_with_config(
@@ -46,6 +70,28 @@ fn get_harness_with_config(
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
+}
+
+/// Creates a harness with SemiSupernode custody type to ensure enough columns are stored
+/// for sampling validation in Fulu.
+fn get_harness_semi_supernode(
+    validator_count: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .chain_config(ChainConfig {
+            archive: true,
+            ..Default::default()
+        })
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .node_custody_type(NodeCustodyType::SemiSupernode)
         .build();
 
     harness.advance_slot();
@@ -69,7 +115,18 @@ fn massive_skips() {
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
 
-    if state.fork_name_unchecked().fulu_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        // Gloas uses compute_balance_weighted_selection for proposer selection, which
+        // returns InvalidIndicesCount (not InsufficientValidators) when the active
+        // validator set is empty.
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InvalidIndicesCount
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else if state.fork_name_unchecked().fulu_enabled() {
         // post-fulu this is done in per_epoch_processing
         assert_eq!(
             error,
@@ -544,7 +601,10 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
-                latest_message.unwrap().1,
+                latest_message
+                    .expect("latest message should be present")
+                    .slot
+                    .epoch(MinimalEthSpec::slots_per_epoch()),
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
@@ -654,10 +714,12 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
-        let latest_message = fork_choice.latest_message(*validator);
+        let latest_message = fork_choice
+            .latest_message(*validator)
+            .expect("latest message should be present");
 
         assert_eq!(
-            latest_message.unwrap().1,
+            latest_message.slot.epoch(MinimalEthSpec::slots_per_epoch()),
             slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
@@ -668,8 +730,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
                 .expect("Should get block root at slot");
 
             assert_eq!(
-                latest_message.unwrap().0,
-                *block_root,
+                latest_message.root, *block_root,
                 "Latest message block root should be equal to block at slot."
             );
         }
@@ -678,8 +739,9 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
 
 async fn run_skip_slot_test(skip_slots: u64) {
     let num_validators = 8;
-    let harness_a = get_harness(num_validators);
-    let harness_b = get_harness(num_validators);
+    // SemiSupernode ensures enough columns are stored for sampling + custody RpcBlock validation
+    let harness_a = get_harness_semi_supernode(num_validators);
+    let harness_b = get_harness_semi_supernode(num_validators);
 
     for _ in 0..skip_slots {
         harness_a.advance_slot();
@@ -903,7 +965,7 @@ async fn pseudo_finalize_test_generic(
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         epochs_per_migration,
         ..Default::default()
     };
@@ -955,9 +1017,12 @@ async fn pseudo_finalize_test_generic(
     };
 
     // pseudo finalize
+    // Post-Gloas the finalized state must be Pending (the block's state_root), not Full
+    // (the envelope's state_root), because the payload of the finalized block is not finalized.
+    let finalized_state_root = head.beacon_block.message().state_root();
     harness
         .chain
-        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .manually_finalize_state(finalized_state_root, checkpoint)
         .unwrap();
 
     let split = harness.chain.store.get_split_info();
@@ -1057,4 +1122,29 @@ async fn pseudo_finalize_with_lagging_split_update() {
     let epochs_per_migration = 10;
     let expect_true_migration = false;
     pseudo_finalize_test_generic(epochs_per_migration, expect_true_migration).await;
+}
+
+#[tokio::test]
+async fn test_compute_weak_subjectivity_period() {
+    type E = MainnetEthSpec;
+    let expected_ws_period_pre_electra = DEFAULT_PRE_ELECTRA_WS_PERIOD;
+    let expected_ws_period_post_electra = 256;
+
+    // test Base variant
+    let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
+    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
+    let head_state = harness.get_current_state();
+
+    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
+
+    assert_eq!(calculated_ws_period, expected_ws_period_pre_electra);
+
+    // test Electra variant
+    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
+    let head_state = harness.get_current_state();
+
+    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
+
+    assert_eq!(calculated_ws_period, expected_ws_period_post_electra);
 }

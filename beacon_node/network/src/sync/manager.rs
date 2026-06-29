@@ -40,37 +40,40 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
-};
-use crate::sync::network_context::PeerGroup;
+use crate::sync::block_lookups::{BlockComponent, DownloadResult};
+use crate::sync::custody_backfill_sync::CustodyBackFillSync;
+use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::validator_monitor::timestamp_now;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
-    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    SingleLookupReqId, SyncRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyRequester,
+    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
+use slot_clock::SlotClock;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
+use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, DataColumnSidecar, EthSpec, ExecutionBlockHash, ForkContext, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -87,7 +90,7 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
@@ -110,7 +113,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A blob has been received from the RPC.
@@ -118,7 +120,6 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
-        seen_timestamp: Duration,
     },
 
     /// A data columns has been received from the RPC
@@ -126,21 +127,35 @@ pub enum SyncMessage<E: EthSpec> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<E>>>,
-        seen_timestamp: Duration,
+    },
+
+    /// A payload envelope has been received from the RPC.
+    RpcPayloadEnvelope {
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
     },
 
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
-
-    /// A data column with an unknown parent has been received.
-    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+    /// A sidecar (full/partial data column) with an unknown parent has been received. Carries only the header
+    /// info needed to trigger a parent lookup, decoupled from the concrete sidecar type.
+    UnknownParentSidecarHeader {
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+    },
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
+
+    /// A peer has sent a payload-present attestation (`index == 1`) for a block whose execution
+    /// payload envelope we have not seen. This triggers the manager to fetch the payload envelope
+    /// for `block_root` via `ExecutionPayloadEnvelopesByRoot`.
+    UnknownPayloadEnvelopeFromAttestation(PeerId, Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -158,39 +173,35 @@ pub enum SyncMessage<E: EthSpec> {
         result: BatchProcessResult,
     },
 
+    /// A custody batch has been processed by the processor thread.
+    CustodyBatchProcessed {
+        batch_id: CustodyBackfillBatchId,
+        result: CustodyBatchProcessResult,
+    },
+
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
         result: BlockProcessingResult,
     },
-
-    /// A block from gossip has completed processing,
-    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
     SingleBlock { id: Id },
-    SingleBlob { id: Id },
     SingleCustodyColumn(Id),
+    SinglePayloadEnvelope(Id),
 }
 
 impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
             BlockProcessType::SingleBlock { id }
-            | BlockProcessType::SingleBlob { id }
-            | BlockProcessType::SingleCustodyColumn(id) => *id,
+            | BlockProcessType::SingleCustodyColumn(id)
+            | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -207,6 +218,19 @@ pub enum BatchProcessResult {
         penalty: PeerAction,
     },
     NonFaultyFailure,
+}
+
+/// The result of processing multiple data columns.
+#[derive(Debug)]
+pub enum CustodyBatchProcessResult {
+    /// The custody batch was completed successfully. It carries whether the sent batch contained data columns.
+    Success {
+        #[allow(dead_code)]
+        sent_columns: usize,
+        imported_columns: usize,
+    },
+    /// The custody batch processing failed.
+    Error { peer_action: Option<PeerAction> },
 }
 
 /// The primary object for handling and driving all the current syncing logic. It maintains the
@@ -229,11 +253,18 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// Backfill syncing.
     backfill_sync: BackFillSync<T>,
 
+    /// Custody syncing.
+    custody_backfill_sync: CustodyBackFillSync<T>,
+
     block_lookups: BlockLookups<T>,
     /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
     /// may forward us thousands of a attestations, each one triggering an individual event. Only
     /// one event is useful, the rest generating log noise and wasted cycles
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
+    /// Debounce duplicated `UnknownPayloadEnvelopeFromAttestation` for the same root/peer tuple,
+    /// for the same reason as `notified_unknown_roots`: a peer may forward many payload-present
+    /// attestations for a block whose execution payload envelope we have not yet seen.
+    notified_unknown_payload_roots: LRUTimeCache<(PeerId, Hash256)>,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -288,26 +319,31 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 fork_context.clone(),
             ),
             range_sync: RangeSync::new(beacon_chain.clone()),
-            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals.clone()),
+            custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
+            notified_unknown_payload_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
-        self.block_lookups.active_single_lookups()
+    pub(crate) fn send_sync_message(&mut self, sync_message: SyncMessage<<T>::EthSpec>) {
+        self.network.send_sync_message(sync_message);
     }
 
     #[cfg(test)]
-    pub(crate) fn active_parent_lookups(&self) -> Vec<Vec<Hash256>> {
-        self.block_lookups
-            .active_parent_lookups()
-            .iter()
-            .map(|c| c.chain.clone())
-            .collect()
+    pub(crate) fn block_lookups(&self) -> &BlockLookups<T> {
+        &self.block_lookups
+    }
+
+    #[cfg(test)]
+    pub(crate) fn range_sync(&self) -> &RangeSync<T> {
+        &self.range_sync
     }
 
     #[cfg(test)]
@@ -462,8 +498,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::SingleBlob { id } => {
-                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
+            SyncRequestId::SinglePayloadEnvelope { id } => {
+                self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
@@ -477,6 +513,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => self
+                .on_payload_envelopes_by_range_response(req_id, peer_id, RpcEvent::RPCError(error)),
         }
     }
 
@@ -486,16 +524,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// there is no way to guarantee that libp2p always emits a error along with
     /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
-        // Inject a Disconnected error on all requests associated with the disconnected peer
-        // to retry all batches/lookups
-        for sync_request_id in self.network.peer_disconnected(peer_id) {
-            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
-        }
-
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
+
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups. Only after removing the peer from the data structures to
+        // avoid sending retry requests to the disconnecting peer.
+        for sync_request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
+        }
 
         // Regardless of the outcome, we update the sync status.
         self.update_sync_state();
@@ -549,6 +588,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // inform the backfill sync that a new synced peer has joined us.
                 if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
+                    self.custody_backfill_sync.fully_synced_peer_joined();
                 }
             }
             is_connected
@@ -558,17 +598,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as
+    /// Updates the global sync state, optionally instigating or pausing a backfill or custody sync as well as
     /// logging any changes.
     ///
     /// The logic for which sync should be running is as follows:
-    /// - If there is a range-sync running (or required) pause any backfill and let range-sync
+    /// - If there is a range-sync running (or required) pause any backfill/custody sync and let range-sync
     ///   complete.
     /// - If there is no current range sync, check for any requirement to backfill and either
     ///   start/resume a backfill sync if required. The global state will be BackFillSync if a
     ///   backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
     ///   known peers, we consider ourselves synced.
+    /// - If there is no range sync and no required backfill we check if we need to execute a custody sync.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
@@ -624,15 +665,51 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
+
+                        // If backfill is complete, check if we have a pending custody backfill to complete
+                        let anchor_info = self.chain.store.get_anchor_info();
+                        if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                            match self.custody_backfill_sync.start(&mut self.network) {
+                                Ok(SyncStart::Syncing {
+                                    completed,
+                                    remaining,
+                                }) => {
+                                    sync_state = SyncState::CustodyBackFillSyncing {
+                                        completed,
+                                        remaining,
+                                    };
+                                }
+                                Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if custody sync state didn't start.
+                                Err(e) => {
+                                    use crate::sync::custody_backfill_sync::CustodyBackfillError;
+
+                                    match &e {
+                                        CustodyBackfillError::BatchDownloadFailed(_)
+                                        | CustodyBackfillError::BatchProcessingFailed(_) => {
+                                            debug!(error=?e, "Custody backfill batch processing or downloading failed");
+                                        }
+                                        CustodyBackfillError::BatchInvalidState(_, reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid batch state")
+                                        }
+                                        CustodyBackfillError::InvalidSyncState(reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid sync state")
+                                        }
+                                        CustodyBackfillError::Paused => {}
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Return the sync state if backfilling is not required.
                     sync_state
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
-                    // If there is a backfill sync in progress pause it.
+                    // Range sync is in progress. If there is a backfill or custody sync in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingFinalized {
                         start_slot,
@@ -640,9 +717,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
-                    // If there is a backfill sync in progress pause it.
+                    // Range sync is in progress. If there is a backfill or custody backfill sync
+                    // in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingHead {
                         start_slot,
@@ -662,7 +742,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if new_state.is_synced()
                 && !matches!(
                     old_state,
-                    SyncState::Synced | SyncState::BackFillSyncing { .. }
+                    SyncState::Synced
+                        | SyncState::BackFillSyncing { .. }
+                        | SyncState::CustodyBackFillSyncing { .. }
                 )
             {
                 self.network.subscribe_core_topics();
@@ -693,6 +775,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
 
+        // Trigger a sync state update every epoch. This helps check if we need to trigger a custody backfill sync.
+        let epoch_duration =
+            self.chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+        let mut epoch_interval = tokio::time::interval(Duration::from_secs(epoch_duration));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -710,6 +797,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
+                    self.range_sync.register_metrics();
+                    self.backfill_sync.register_metrics();
+                    self.custody_backfill_sync.register_metrics();
+                }
+                _ = epoch_interval.tick() => {
+                    self.update_sync_state();
                 }
             }
         }
@@ -738,75 +831,57 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 sync_request_id,
                 peer_id,
                 beacon_block,
-                seen_timestamp,
             } => {
-                self.rpc_block_received(sync_request_id, peer_id, beacon_block, seen_timestamp);
+                self.rpc_block_received(sync_request_id, peer_id, beacon_block);
             }
             SyncMessage::RpcBlob {
                 sync_request_id,
                 peer_id,
                 blob_sidecar,
-                seen_timestamp,
-            } => self.rpc_blob_received(sync_request_id, peer_id, blob_sidecar, seen_timestamp),
+            } => self.rpc_blob_received(sync_request_id, peer_id, blob_sidecar),
             SyncMessage::RpcDataColumn {
                 sync_request_id,
                 peer_id,
                 data_column,
-                seen_timestamp,
-            } => {
-                self.rpc_data_column_received(sync_request_id, peer_id, data_column, seen_timestamp)
-            }
+            } => self.rpc_data_column_received(sync_request_id, peer_id, data_column),
+            SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope,
+            } => self.rpc_payload_envelope_received(sync_request_id, peer_id, envelope),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
+                let parent_block_hash = block.payload_bid_parent_block_hash().ok();
                 debug!(%block_root, %parent_root, "Received unknown parent block message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
+                    parent_block_hash,
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
-                        block_root,
-                        seen_timestamp: timestamp_now(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
             }
-            SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot();
-                let block_root = blob.block_root();
-                let parent_root = blob.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent blob message");
+            SyncMessage::UnknownParentSidecarHeader {
+                peer_id,
+                block_root,
+                parent_root,
+                slot,
+            } => {
+                debug!(%block_root, %parent_root, "Received unknown parent sidecar header message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
-                    blob_slot,
-                    BlockComponent::Blob(DownloadResult {
-                        value: blob,
-                        block_root,
-                        seen_timestamp: timestamp_now(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
-            }
-            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
-                let data_column_slot = data_column.slot();
-                let block_root = data_column.block_root();
-                let parent_root = data_column.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent data column message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    data_column_slot,
-                    BlockComponent::DataColumn(DownloadResult {
-                        value: data_column,
-                        block_root,
-                        seen_timestamp: timestamp_now(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
+                    // The event `UnknownParentSidecarHeader` only fires for pre-Gloas data
+                    // structues, so the bid parent hash is None.
+                    None,
+                    slot,
+                    BlockComponent::Sidecar,
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
@@ -814,6 +889,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.notified_unknown_roots.insert((peer_id, block_root));
                     debug!(?block_root, ?peer_id, "Received unknown block hash message");
                     self.handle_unknown_block_root(peer_id, block_root);
+                }
+            }
+            SyncMessage::UnknownPayloadEnvelopeFromAttestation(peer_id, block_root) => {
+                if !self
+                    .notified_unknown_payload_roots
+                    .contains(&(peer_id, block_root))
+                {
+                    self.notified_unknown_payload_roots
+                        .insert((peer_id, block_root));
+                    // TODO(gloas): trigger a payload-envelope lookup for `block_root` via
+                    // `ExecutionPayloadEnvelopesByRoot`. Wired up in the gloas lookup-sync PR (#9155).
+                    debug!(
+                        ?block_root,
+                        ?peer_id,
+                        "Received unknown payload envelope from attestation"
+                    );
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -831,14 +922,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self
                 .block_lookups
                 .on_processing_result(process_type, result, &mut self.network),
-            SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported,
-            } => self.block_lookups.on_external_processing_result(
-                block_root,
-                imported,
-                &mut self.network,
-            ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
@@ -865,6 +948,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             },
+            SyncMessage::CustodyBatchProcessed { result, batch_id } => {
+                match self.custody_backfill_sync.on_batch_process_result(
+                    &mut self.network,
+                    batch_id,
+                    &result,
+                ) {
+                    Ok(ProcessResult::Successful) => {}
+                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                    Err(error) => {
+                        error!(error = ?error, "Custody sync failed");
+                        // Update the global status
+                        self.update_sync_state();
+                    }
+                }
+            }
         }
     }
 
@@ -873,6 +971,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
         slot: Slot,
         block_component: BlockComponent<T::EthSpec>,
     ) {
@@ -881,6 +980,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
+                    parent_root,
+                    parent_block_hash,
                     peer_id,
                     &mut self.network,
                 ) {
@@ -1005,19 +1106,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlock { id } => self.on_single_block_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(block, seen_timestamp),
-            ),
-            SyncRequestId::BlocksByRange(id) => self.on_blocks_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(block, seen_timestamp),
-            ),
+            SyncRequestId::SingleBlock { id } => {
+                self.on_single_block_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
+            SyncRequestId::BlocksByRange(id) => {
+                self.on_blocks_by_range_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
             _ => {
                 crit!(%peer_id, "bad request id for block");
             }
@@ -1031,14 +1127,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
-            self.block_lookups
-                .on_download_response::<BlockRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
+            self.block_lookups.on_block_download_response(
+                id,
+                peer_id,
+                resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
+                &mut self.network,
+            )
         }
     }
 
@@ -1047,21 +1141,35 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
-            SyncRequestId::BlobsByRange(id) => self.on_blobs_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
+            SyncRequestId::BlobsByRange(id) => {
+                self.on_blobs_by_range_response(id, peer_id, RpcEvent::from_chunk(blob))
+            }
             _ => {
                 crit!(%peer_id, "bad request id for blob");
+            }
+        }
+    }
+
+    fn rpc_payload_envelope_received(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        match sync_request_id {
+            SyncRequestId::SinglePayloadEnvelope { id } => self
+                .on_single_payload_envelope_response(id, peer_id, RpcEvent::from_chunk(envelope)),
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => {
+                self.on_payload_envelopes_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(envelope),
+                );
+            }
+            _ => {
+                crit!(%peer_id, "bad request id for payload envelope");
             }
         }
     }
@@ -1071,42 +1179,62 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
-        seen_timestamp: Duration,
     ) {
         match sync_request_id {
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,
                     peer_id,
-                    RpcEvent::from_chunk(data_column, seen_timestamp),
+                    RpcEvent::from_chunk(data_column),
                 );
             }
-            SyncRequestId::DataColumnsByRange(id) => self.on_data_columns_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(data_column, seen_timestamp),
-            ),
+            SyncRequestId::DataColumnsByRange(req_id) => {
+                self.on_data_columns_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(data_column),
+                );
+            }
             _ => {
                 crit!(%peer_id, "bad request id for data_column");
             }
         }
     }
 
-    fn on_single_blob_response(
+    fn on_single_payload_envelope_response(
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
-            self.block_lookups
-                .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
+        if let Some(resp) = self
+            .network
+            .on_single_payload_envelope_response(id, peer_id, envelope)
+        {
+            self.block_lookups.on_payload_download_response(
+                id,
+                peer_id,
+                resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
+                &mut self.network,
+            )
+        }
+    }
+
+    fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .on_payload_envelopes_by_range_response(id, peer_id, envelope)
+        {
+            self.on_range_components_response(
+                id.parent_request_id,
+                peer_id,
+                RangeBlockComponent::PayloadEnvelope(id, resp),
+            );
         }
     }
 
@@ -1143,7 +1271,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Block(id, resp),
+                RangeBlockComponent::Block(id, resp, peer_id),
             );
         }
     }
@@ -1173,11 +1301,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
-            self.on_range_components_response(
-                id.parent_request_id,
-                peer_id,
-                RangeBlockComponent::CustodyColumns(id, resp),
-            );
+            let DataColumnsByRangeRequester::CustodyBackfillSync(custody_backfill_req_id) =
+                id.parent_request_id;
+            self.on_custody_backfill_columns_response(custody_backfill_req_id, id, peer_id, resp);
         }
     }
 
@@ -1186,12 +1312,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         requester: CustodyRequester,
         response: CustodyByRootResult<T::EthSpec>,
     ) {
-        self.block_lookups
-            .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                requester.0,
-                response,
-                &mut self.network,
-            );
+        match requester {
+            CustodyRequester::SingleLookup(id) => {
+                self.block_lookups
+                    .on_custody_download_response(id, response, &mut self.network);
+            }
+            CustodyRequester::RangeSync(components_by_range_id) => {
+                // Route custody-by-root results through the standard range components
+                // response path, reusing the same dispatch to range_sync / backfill.
+                let peer_group = response
+                    .as_ref()
+                    .ok()
+                    .map(|dl| dl.peer_group.clone())
+                    .unwrap_or_else(|| PeerGroup::from_set(Default::default()));
+                self.on_range_components_response(
+                    components_by_range_id,
+                    // Peer attributability is broken in range sync :)
+                    PeerId::random(),
+                    RangeBlockComponent::CustodyResult(response, peer_group),
+                );
+            }
+        }
     }
 
     /// Handles receiving a response for a range sync request that should have both blocks and
@@ -1207,7 +1348,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .range_block_component_response(range_request_id, range_block_component)
         {
             match resp {
-                Ok(blocks) => {
+                // On success the batch is attributed to the peer that provided its blocks.
+                Ok((peer_id, blocks)) => {
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
@@ -1243,7 +1385,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
-                            peer_id,
+                            Some(peer_id),
                             batch_id,
                             chain_id,
                             range_request_id.id,
@@ -1267,19 +1409,34 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
     }
-}
 
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
+    /// Handles receiving a response for a custody range sync request that has columns.
+    fn on_custody_backfill_columns_response(
+        &mut self,
+        custody_sync_request_id: CustodyBackFillBatchRequestId,
+        req_id: DataColumnsByRangeRequestId,
+        peer_id: PeerId,
+        data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
+    ) {
+        if let Some(resp) = self.network.custody_backfill_data_columns_response(
+            custody_sync_request_id,
+            req_id,
+            data_columns,
+        ) {
+            match self.custody_backfill_sync.on_data_column_response(
+                &mut self.network,
+                custody_sync_request_id,
+                &peer_id,
+                resp,
+            ) {
+                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                Ok(ProcessResult::Successful) => {}
+                Err(_e) => {
+                    // The custody sync has failed, errors are reported
+                    // within.
+                    self.update_sync_state();
+                }
+            }
         }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }

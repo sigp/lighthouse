@@ -22,8 +22,6 @@ env:
   # NOTE: this token is a personal access token on Jimmy's account due to the default GITHUB_TOKEN
   # not having access to other repositories. We should eventually devise a better solution here.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
-  # Enable self-hosted runners for the sigp repo only.
-  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -73,22 +71,52 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
         - name: Check that the pull request is not targeting the stable branch
-          run: test ${{ github.base_ref }} != "stable"
+          env:
+            BASE_REF: ${{ github.base_ref }}
+            HEAD_REF: ${{ github.head_ref }}
+            HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          run: |
+            if [[ "$BASE_REF" == "stable" && ! ( "$HEAD_REF" == release-* && "$HEAD_REPO" == "sigp/lighthouse" ) ]]; then
+              echo "::error::Pull requests must target unstable, not stable (sigp/lighthouse release-* branches excepted)."
+              exit 1
+            fi
+
+  forbidden-files-check:
+    name: forbidden-files-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for forbidden files
+        run: |
+          if [ -f .github/forbidden-files.txt ]; then
+            status=0
+            while IFS= read -r file || [ -n "$file" ]; do
+              # Skip comments and empty lines
+              [[ "$file" =~ ^#.*$ || -z "$file" ]] && continue
+              if [ -e "$file" ]; then
+                echo "::error::Forbidden file or directory exists: $file"
+                status=1
+              fi
+            done < .github/forbidden-files.txt
+            exit $status
+          fi
+
   release-tests-ubuntu:
     name: release-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
     # Set Java version to 21. (required since Web3Signer 24.12.0).
-    - uses: actions/setup-java@v4
+    # On sigp/lighthouse, Java 21 is baked into the snapshot.
+    - if: github.repository != 'sigp/lighthouse'
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '21'
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -96,43 +124,10 @@ jobs:
           bins: cargo-nextest
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: foundry-rs/foundry-toolchain@v1
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
       with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run tests in release
-      run: make test-release
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
-  release-tests-windows:
-    name: release-tests-windows
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
-    steps:
-    - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-          bins: cargo-nextest
-      env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Install make
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: choco install -y make
-    - name: Set LIBCLANG_PATH
-      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+          cache-provider: warpbuild
     - name: Run tests in release
       run: make test-release
     - name: Show cache stats
@@ -143,48 +138,46 @@ jobs:
     name: beacon-chain-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
   http-api-tests:
     name: http-api-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run http_api tests for all recent forks
       run: make test-http-api
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
     needs: [check-labels]
@@ -252,29 +245,23 @@ jobs:
     name: debug-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           bins: cargo-nextest
-    - name: Install Foundry (anvil)
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: foundry-rs/foundry-toolchain@v1
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
       with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
+          cache-provider: warpbuild
     - name: Run tests in debug
       run: make test-debug
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     needs: [check-labels]
@@ -293,25 +280,24 @@ jobs:
     name: ef-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run consensus-spec-tests with blst and fake_crypto
       run: make test-ef
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
     needs: [check-labels]
@@ -326,7 +312,7 @@ jobs:
           cache-target: release
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/basic_simulator_logs
-    - name: Run a basic beacon chain sim that starts from Deneb
+    - name: Run a basic beacon chain sim
       run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
       if: always()
@@ -360,21 +346,17 @@ jobs:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
-          cache-target: release
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Add go compiler to $PATH
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      run: echo "/usr/local/go/bin" >> $GITHUB_PATH
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-code:
@@ -390,9 +372,11 @@ jobs:
           channel: stable
           cache-target: release
           components: rustfmt,clippy
-          bins: cargo-audit
+          bins: cargo-audit,cargo-deny
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
+    - name: Check dependencies for unencrypted HTTP links
+      run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
     - name: Certify Cargo.lock freshness
@@ -403,6 +387,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
+    - name: Run cargo deny
+      run: make deny-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter
@@ -436,10 +422,6 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Fetch libssl1.1
-      run: wget https://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
-    - name: Install libssl1.1
-      run: sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
@@ -476,6 +458,22 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli-local
+  cargo-hack:
+    name: cargo-hack
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+    - uses: taiki-e/install-action@cargo-hack
+    - name: Check types feature powerset
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+    - name: Check eth2 feature powerset
+      run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
     name: cargo-sort
     needs: [check-labels]
@@ -500,8 +498,8 @@ jobs:
     needs: [
       'check-labels',
       'target-branch-check',
+      'forbidden-files-check',
       'release-tests-ubuntu',
-      'release-tests-windows',
       'beacon-chain-tests',
       'op-pool-tests',
       'network-tests',
@@ -519,6 +517,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-hack',
       'cargo-sort',
     ]
     steps:

@@ -10,15 +10,16 @@ build = "build.rs"
 bytes = { workspace = true }
 discv5 = { workspace = true }
 eth2_config = { workspace = true }
+fixed_bytes = { workspace = true }
 kzg = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
-serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
+yaml_serde = { workspace = true }
 
 [build-dependencies]
 eth2_config = { workspace = true }

@@ -8,19 +8,21 @@ use crate::{
     per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
 use itertools::izip;
+use milhouse::{Cow, List, Vector};
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use tracing::instrument;
+use typenum::Unsigned;
 use types::{
-    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
+    ActivationQueue, BeaconState, BeaconStateError, BuilderPendingPayment, ChainSpec, Checkpoint,
+    CommitteeCache, DepositData, Epoch, EthSpec, ExitCache, ForkName, ParticipationFlags,
+    PendingDeposit, ProgressiveBalancesCache, RelativeEpoch, Validator,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
-    milhouse::Cow,
 };
 
 pub struct SinglePassConfig {
@@ -32,6 +34,8 @@ pub struct SinglePassConfig {
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
     pub proposer_lookahead: bool,
+    pub builder_pending_payments: bool,
+    pub ptc_window: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -51,6 +55,8 @@ impl SinglePassConfig {
             pending_consolidations: true,
             effective_balance_updates: true,
             proposer_lookahead: true,
+            builder_pending_payments: true,
+            ptc_window: true,
         }
     }
 
@@ -64,6 +70,8 @@ impl SinglePassConfig {
             pending_consolidations: false,
             effective_balance_updates: false,
             proposer_lookahead: false,
+            builder_pending_payments: false,
+            ptc_window: false,
         }
     }
 }
@@ -135,12 +143,20 @@ impl ValidatorInfo {
     }
 }
 
+/// Result of single-pass epoch processing.
+pub struct SinglePassEpochResult<E: EthSpec> {
+    pub summary: ParticipationEpochSummary<E>,
+    /// Committee cache for the lookahead epoch, built during PTC window processing.
+    /// Can be installed as the Next committee cache after `advance_caches`.
+    pub lookahead_committee_cache: Option<Arc<CommitteeCache>>,
+}
+
 #[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
     conf: SinglePassConfig,
-) -> Result<ParticipationEpochSummary<E>, Error> {
+) -> Result<SinglePassEpochResult<E>, Error> {
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, spec)?;
     state.build_exit_cache(spec)?;
@@ -454,6 +470,12 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         )?;
     }
 
+    // Process builder pending payments outside the single-pass loop, as they depend on balances for
+    // multiple validators and cannot be computed accurately inside the loop.
+    if fork_name.gloas_enabled() && conf.builder_pending_payments {
+        process_builder_pending_payments(state, state_ctxt, spec)?;
+    }
+
     // Finally, finish updating effective balance caches. We need this to happen *after* processing
     // of pending consolidations, which recomputes some effective balances.
     if conf.effective_balance_updates {
@@ -469,7 +491,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         process_proposer_lookahead(state, spec)?;
     }
 
-    Ok(summary)
+    let lookahead_committee_cache = if conf.ptc_window && fork_name.gloas_enabled() {
+        Some(process_ptc_window(state, spec)?)
+    } else {
+        None
+    };
+
+    Ok(SinglePassEpochResult {
+        summary,
+        lookahead_committee_cache,
+    })
 }
 
 // TOOO(EIP-7917): use balances cache
@@ -498,6 +529,105 @@ pub fn process_proposer_lookahead<E: EthSpec>(
     }
 
     *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
+}
+
+/// Process the PTC window, returning the committee cache built for the lookahead epoch.
+///
+/// The returned cache can be injected into the state's Next committee cache slot after
+/// `advance_caches` is called during the epoch transition, avoiding redundant recomputation.
+pub fn process_ptc_window<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<Arc<CommitteeCache>, Error> {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Convert Vector -> List to use tree-efficient pop_front.
+    let ptc_window = state.ptc_window()?.clone();
+    let mut window: List<_, E::PtcWindowLength> = List::from(ptc_window);
+
+    // Drop the oldest epoch from the front (reuses shared tree nodes).
+    window
+        .pop_front(slots_per_epoch)
+        .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
+
+    // Compute PTC for the new lookahead epoch
+    let next_epoch = state
+        .current_epoch()
+        .safe_add(spec.min_seed_lookahead.as_u64())?
+        .safe_add(1)?;
+    let start_slot = next_epoch.start_slot(E::slots_per_epoch());
+
+    // Build a committee cache for the lookahead epoch (beyond the normal Next bound)
+    let committee_cache = state.initialize_committee_cache_for_lookahead(next_epoch, spec)?;
+
+    for i in 0..slots_per_epoch {
+        let slot = start_slot.safe_add(i as u64)?;
+        let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
+        let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
+        let entry = ssz_types::FixedVector::new(ptc_u64)
+            .map_err(|e| Error::BeaconStateError(BeaconStateError::SszTypesError(e)))?;
+        window
+            .push(entry)
+            .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
+    }
+
+    // Convert List back to Vector.
+    *state.ptc_window_mut()? = Vector::try_from(window)
+        .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
+
+    Ok(committee_cache)
+}
+
+/// Calculate the quorum threshold for builder payments based on total active balance.
+fn get_builder_payment_quorum_threshold<E: EthSpec>(
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    let per_slot_balance = state_ctxt
+        .total_active_balance
+        .safe_div(E::slots_per_epoch())?;
+    let quorum = per_slot_balance.safe_mul(spec.builder_payment_threshold_numerator)?;
+    quorum
+        .safe_div(spec.builder_payment_threshold_denominator)
+        .map_err(Error::from)
+}
+
+/// Processes the builder pending payments from the previous epoch.
+fn process_builder_pending_payments<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let quorum = get_builder_payment_quorum_threshold::<E>(state_ctxt, spec)?;
+
+    // Collect qualifying payments and append to `builder_pending_withdrawals`.
+    // We use this pattern rather than a loop to avoid multiple borrows of the state's fields.
+    let new_pending_builder_withdrawals = state
+        .builder_pending_payments()?
+        .iter()
+        .take(E::SlotsPerEpoch::to_usize())
+        .filter(|payment| payment.weight >= quorum)
+        .map(|payment| payment.withdrawal.clone())
+        .collect::<Vec<_>>();
+    for payment_withdrawal in new_pending_builder_withdrawals {
+        state
+            .builder_pending_withdrawals_mut()?
+            .push(payment_withdrawal)?;
+    }
+
+    // NOTE: this could be a little more memory-efficient with some juggling to reuse parts
+    // of the persistent tree (could convert to list, use pop_front, convert back).
+    let updated_payments = state
+        .builder_pending_payments()?
+        .iter()
+        .skip(E::SlotsPerEpoch::to_usize())
+        .cloned()
+        .chain((0..E::SlotsPerEpoch::to_usize()).map(|_| BuilderPendingPayment::default()))
+        .collect::<Vec<_>>();
+
+    *state.builder_pending_payments_mut()? = Vector::new(updated_payments)?;
 
     Ok(())
 }
@@ -832,7 +962,11 @@ fn compute_exit_epoch_and_update_churn(
         spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
     );
 
-    let per_epoch_churn = get_activation_exit_churn_limit(state_ctxt, spec)?;
+    let per_epoch_churn = if state_ctxt.fork_name.gloas_enabled() {
+        get_balance_churn_limit(state_ctxt, spec)?
+    } else {
+        get_activation_exit_churn_limit(state_ctxt, spec)?
+    };
     // New epoch for exits
     let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
         per_epoch_churn
@@ -861,17 +995,27 @@ fn get_activation_exit_churn_limit(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
+    let max_limit = if state_ctxt.fork_name.gloas_enabled() {
+        spec.max_per_epoch_activation_churn_limit_gloas
+    } else {
+        spec.max_per_epoch_activation_exit_churn_limit
+    };
     Ok(std::cmp::min(
-        spec.max_per_epoch_activation_exit_churn_limit,
+        max_limit,
         get_balance_churn_limit(state_ctxt, spec)?,
     ))
 }
 
 fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {
     let total_active_balance = state_ctxt.total_active_balance;
+    let quotient = if state_ctxt.fork_name.gloas_enabled() {
+        spec.churn_limit_quotient_gloas
+    } else {
+        spec.churn_limit_quotient
+    };
     let churn = std::cmp::max(
         spec.min_per_epoch_churn_limit_electra,
-        total_active_balance.safe_div(spec.churn_limit_quotient)?,
+        total_active_balance.safe_div(quotient)?,
     );
 
     Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
@@ -885,7 +1029,7 @@ impl SlashingsContext {
     ) -> Result<Self, Error> {
         let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
         let adjusted_total_slashing_balance = min(
-            sum_slashings.safe_mul(spec.proportional_slashing_multiplier_for_state(state))?,
+            sum_slashings.safe_mul(state.get_proportional_slashing_multiplier(spec))?,
             state_ctxt.total_active_balance,
         );
 
@@ -961,8 +1105,10 @@ impl PendingDepositsContext {
         let pending_deposits = state.pending_deposits()?;
 
         for deposit in pending_deposits.iter() {
-            // Do not process deposit requests if the Eth1 bridge deposits are not yet applied.
-            if deposit.slot > spec.genesis_slot
+            // Do not process deposit requests if pre-Fulu and the Eth1 bridge deposits are not yet applied.
+            // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+            if !state.fork_name_unchecked().fulu_enabled()
+                && deposit.slot > spec.genesis_slot
                 && state.eth1_deposit_index() < state.deposit_requests_start_index()?
             {
                 break;

@@ -1,6 +1,6 @@
 use crate::EpochProcessingError;
 use safe_arith::SafeArith;
-use types::historical_summary::HistoricalSummary;
+use types::state::HistoricalSummary;
 use types::{BeaconState, EthSpec};
 
 pub fn process_historical_summaries_update<E: EthSpec>(

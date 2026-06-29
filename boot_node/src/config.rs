@@ -11,9 +11,10 @@ use lighthouse_network::{
 use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
-use std::net::{SocketAddrV4, SocketAddrV6};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
+use tracing::{info, warn};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
@@ -117,7 +118,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     let genesis_state_root = genesis_state
                         .canonical_root()
                         .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
-                    tracing::info!(root = ?genesis_state_root, "Genesis state found");
+                    info!(root = ?genesis_state_root, "Genesis state found");
                     let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
@@ -125,7 +126,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                     Some(enr_fork.as_ssz_bytes())
                 } else {
-                    tracing::warn!("No genesis state provided. No Eth2 field added to the ENR");
+                    warn!("No genesis state provided. No Eth2 field added to the ENR");
                     None
                 }
             };
@@ -216,6 +217,20 @@ impl BootNodeConfigSerialization {
             } => (
                 Some(SocketAddrV4::new(ipv4, ipv4_port)),
                 Some(SocketAddrV6::new(ipv6, ipv6_port, 0, 0)),
+            ),
+            lighthouse_network::discv5::ListenConfig::FromSockets { ref ipv4, ref ipv6 } => (
+                ipv4.as_ref()
+                    .and_then(|socket| socket.local_addr().ok())
+                    .and_then(|addr| match addr {
+                        SocketAddr::V4(addr) => Some(addr),
+                        SocketAddr::V6(_) => None,
+                    }),
+                ipv6.as_ref()
+                    .and_then(|socket| socket.local_addr().ok())
+                    .and_then(|addr| match addr {
+                        SocketAddr::V6(addr) => Some(addr),
+                        SocketAddr::V4(_) => None,
+                    }),
             ),
         };
 

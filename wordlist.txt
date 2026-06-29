@@ -2,6 +2,7 @@ allocator
 APIs
 ARMv
 AUR
+autocomplete
 Backends
 Backfilling
 Beaconcha
@@ -40,9 +41,11 @@ Exercism
 Extractable
 FFG
 Fulu
+Fusaka
 Geth
 GiB
 Gitcoin
+Gloas
 Gnosis
 Goerli
 Grafana
@@ -56,6 +59,7 @@ JSON
 KeyManager
 Kurtosis
 LMDB
+LLM
 LLVM
 LRU
 LTO
@@ -70,6 +74,7 @@ NodeJS
 NullLogger
 PathBuf
 Pectra
+PeerDAS
 PowerShell
 PPA
 Pre
@@ -78,8 +83,9 @@ PRs
 Prysm
 QUIC
 QuickNode
-RasPi
 README
+RasPi
+Reown
 RESTful
 Reth
 RHEL
@@ -107,6 +113,8 @@ Validator
 VC
 VCs
 VPN
+VSCode
+WalletConnect
 Withdrawable
 WSL
 XFS
@@ -222,6 +230,7 @@ src
 stakers
 subnet
 subnets
+supernode
 systemd
 testnet
 testnets

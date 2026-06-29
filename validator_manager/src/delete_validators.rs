@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     SensitiveUrl,
@@ -5,7 +6,6 @@ use eth2::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use types::PublicKeyBytes;
 
 use crate::{DumpConfig, common::vc_http_client};
 

@@ -1,16 +1,14 @@
 use crate::metrics;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, ExecutionStatus,
-    bellatrix_readiness::{
-        BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig, SECONDS_IN_A_WEEK,
-    },
+    bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
 use execution_layer::{
     EngineCapabilities,
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
-        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+        ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
@@ -36,6 +34,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 /// The number of slots between logs that give detail about backfill process.
 const BACKFILL_LOG_INTERVAL: u64 = 5;
 
+const SECONDS_IN_A_WEEK: u64 = 604800;
 pub const FORK_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 
@@ -44,10 +43,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    seconds_per_slot: u64,
+    slot_duration: Duration,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(seconds_per_slot);
-
     let speedo = Mutex::new(Speedo::default());
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
@@ -56,6 +53,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     // Store info if we are required to do a backfill sync.
     let original_oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
+
+    // Use this info during custody backfill sync.
+    let mut original_earliest_data_column_slot = None;
 
     let interval_future = async move {
         // Perform pre-genesis logging.
@@ -69,7 +69,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         wait_time = estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                         "Waiting for genesis"
                     );
-                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
                     post_bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
                     genesis_execution_payload_logging(&beacon_chain).await;
                     sleep(slot_duration).await;
@@ -80,6 +79,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+        let mut last_custody_backfill_log_slot = None;
 
         loop {
             // Run the notifier half way through each slot.
@@ -110,6 +110,18 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     (SyncState::BackFillSyncing { .. }, _) => {
                         // We have transitioned from a backfill sync, reset the speedo
                         let mut speedo = speedo.lock().await;
+                        speedo.clear();
+                    }
+                    (_, SyncState::CustodyBackFillSyncing { .. }) => {
+                        // We have transitioned to a custody backfill sync. Reset the speedo.
+                        let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
+                        speedo.clear();
+                    }
+                    (SyncState::CustodyBackFillSyncing { .. }, _) => {
+                        // We have transitioned from a custody backfill sync, reset the speedo
+                        let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
                         speedo.clear();
                     }
                     (_, _) => {}
@@ -154,6 +166,40 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             Instant::now(),
                         );
                 }
+                SyncState::CustodyBackFillSyncing { .. } => {
+                    match beacon_chain.store.get_data_column_custody_info() {
+                        Ok(data_column_custody_info) => {
+                            if let Some(earliest_data_column_slot) = data_column_custody_info
+                                .and_then(|info| info.earliest_data_column_slot)
+                                && let Some(da_boundary) = beacon_chain
+                                    .custody_context
+                                    .column_data_availability_boundary()
+                            {
+                                sync_distance = earliest_data_column_slot.saturating_sub(
+                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                                );
+
+                                // We keep track of our starting point for custody backfill sync
+                                // so we can measure our speed of progress.
+                                if original_earliest_data_column_slot.is_none() {
+                                    original_earliest_data_column_slot =
+                                        Some(earliest_data_column_slot)
+                                }
+
+                                if let Some(original_earliest_data_column_slot) =
+                                    original_earliest_data_column_slot
+                                {
+                                    speedo.observe(
+                                        original_earliest_data_column_slot
+                                            .saturating_sub(earliest_data_column_slot),
+                                        Instant::now(),
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => error!(error=?e, "Unable to get data column custody info"),
+                    }
+                }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
                 | SyncState::SyncTransition => {
@@ -190,6 +236,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             // Log if we are backfilling.
             let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
+            let is_custody_backfilling =
+                matches!(current_sync_state, SyncState::CustodyBackFillSyncing { .. });
             if is_backfilling
                 && last_backfill_log_slot
                     .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
@@ -234,6 +282,53 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!("Historical block download complete");
             }
 
+            if is_custody_backfilling
+                && last_custody_backfill_log_slot
+                    .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+            {
+                last_custody_backfill_log_slot = Some(current_slot);
+
+                let distance = format!(
+                    "{} slots ({})",
+                    sync_distance.as_u64(),
+                    slot_distance_pretty(sync_distance, slot_duration)
+                );
+
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
+                let est_time_in_secs = if let (Some(da_boundary_epoch), Some(original_slot)) = (
+                    beacon_chain
+                        .custody_context
+                        .column_data_availability_boundary(),
+                    original_earliest_data_column_slot,
+                ) {
+                    let target = original_slot.saturating_sub(
+                        da_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    );
+                    speedo.estimated_time_till_slot(target)
+                } else {
+                    None
+                };
+                if display_speed {
+                    info!(
+                        distance,
+                        speed = sync_speed_pretty(speed),
+                        est_time = estimated_time_pretty(est_time_in_secs),
+                        "Downloading historical data columns"
+                    );
+                } else {
+                    info!(
+                        distance,
+                        est_time = estimated_time_pretty(est_time_in_secs),
+                        "Downloading historical data columns"
+                    );
+                }
+            } else if !is_custody_backfilling && last_custody_backfill_log_slot.is_some() {
+                last_custody_backfill_log_slot = None;
+                original_earliest_data_column_slot = None;
+                info!("Historical data column download complete");
+            }
+
             // Log if we are syncing
             if current_sync_state.is_syncing() {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
@@ -269,17 +364,21 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
-                    head_root.to_string()
+                    head_root.short().to_string()
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Ok(ExecutionStatus::Valid(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                        format!("{} (verified)", hash)
+                    }
                     Ok(ExecutionStatus::Optimistic(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                        execution_block_hash = ?hash,
+                            execution_block_hash = ?hash,
                             "Head is optimistic"
                         );
                         format!("{} (unverified)", hash)
@@ -298,7 +397,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
@@ -309,7 +408,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     %head_slot,
                     %current_slot,
@@ -317,7 +416,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             }
 
-            bellatrix_readiness_logging(current_slot, &beacon_chain).await;
             post_bellatrix_readiness_logging(current_slot, &beacon_chain).await;
         }
     };
@@ -328,78 +426,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
-/// fork and subsequent merge transition.
-async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
-    current_slot: Slot,
-    beacon_chain: &BeaconChain<T>,
-) {
-    let merge_completed = beacon_chain
-        .canonical_head
-        .cached_head()
-        .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
-
-    let has_execution_layer = beacon_chain.execution_layer.is_some();
-
-    if merge_completed && has_execution_layer
-        || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot)
-    {
-        return;
-    }
-
-    match beacon_chain.check_bellatrix_readiness(current_slot).await {
-        BellatrixReadiness::Ready {
-            config,
-            current_difficulty,
-        } => match config {
-            MergeConfig {
-                terminal_total_difficulty: Some(ttd),
-                terminal_block_hash: None,
-                terminal_block_hash_epoch: None,
-            } => {
-                info!(
-                    terminal_total_difficulty = %ttd,
-                    current_difficulty = current_difficulty
-                        .map(|d| d.to_string())
-                        .unwrap_or_else(|| "??".into()),
-                    "Ready for Bellatrix"
-                )
-            }
-            MergeConfig {
-                terminal_total_difficulty: _,
-                terminal_block_hash: Some(terminal_block_hash),
-                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
-            } => {
-                info!(
-                    info = "you are using override parameters, please ensure that you \
-                    understand these parameters and their implications.",
-                    ?terminal_block_hash,
-                    ?terminal_block_hash_epoch,
-                    "Ready for Bellatrix"
-                )
-            }
-            other => error!(
-                config = ?other,
-                "Inconsistent merge configuration"
-            ),
-        },
-        readiness @ BellatrixReadiness::NotSynced => warn!(
-            info = %readiness,
-            "Not ready Bellatrix"
-        ),
-        readiness @ BellatrixReadiness::NoExecutionEndpoint => warn!(
-            info = %readiness,
-            "Not ready for Bellatrix"
-        ),
-    }
-}
-
-/// Provides some helpful logging to users to indicate if their node is ready for Capella
+/// Provides some helpful logging to users to indicate if their node is ready for upcoming forks
 async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
@@ -469,8 +496,8 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         // Find the first fork that is scheduled and close to happen
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let preparation_slots =
-                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.seconds_per_slot;
+            let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
+                / beacon_chain.spec.get_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);
@@ -532,11 +559,11 @@ fn methods_required_for_fork(
             }
         }
         ForkName::Gloas => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
+            if !capabilities.get_payload_v6 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V6);
             }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
+            if !capabilities.new_payload_v5 {
+                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
             }
         }
     }

@@ -1,13 +1,10 @@
 //! Handlers for sync committee endpoints.
 
-use crate::publish_pubsub_message;
+use crate::utils::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
-use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
-    validator_monitor::timestamp_now,
-};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig};
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -17,8 +14,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
-    SyncSubnetId, slot_data::SlotData,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SlotData, SyncCommitteeMessage,
+    SyncDuty, SyncSubnetId,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -188,7 +185,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
 ) -> Result<(), warp::reject::Rejection> {
     let mut failures = vec![];
 
-    let seen_timestamp = timestamp_now();
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
 
     for (i, sync_committee_signature) in sync_committee_signatures.iter().enumerate() {
         let subnet_positions = match get_subnet_positions_for_sync_committee_message(
@@ -235,6 +232,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                             seen_timestamp,
                             verified.sync_message(),
                             &chain.slot_clock,
+                            &chain.spec,
                         );
 
                     verified_for_pool = Some(verified);
@@ -318,7 +316,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     let mut verified_contributions = Vec::with_capacity(signed_contribution_and_proofs.len());
     let mut failures = vec![];
 
-    let seen_timestamp = timestamp_now();
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
 
     if let Some(latest_optimistic_update) = chain
         .light_client_server_cache
@@ -376,6 +374,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                         verified_contribution.aggregate(),
                         verified_contribution.participant_pubkeys(),
                         &chain.slot_clock,
+                        &chain.spec,
                     );
 
                 verified_contributions.push((index, verified_contribution));

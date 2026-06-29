@@ -1,5 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use types::{EthSpec, FixedBytesExtended, Hash256};
+use fixed_bytes::FixedBytesExtended;
+use types::{EthSpec, Hash256};
 
 use lighthouse_network::rpc::{StatusMessage, methods::StatusMessageV2};
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.

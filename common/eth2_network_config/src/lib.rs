@@ -101,14 +101,14 @@ impl Eth2NetworkConfig {
 
     /// Instantiates `Self` from a `HardcodedNet`.
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
-        let config: Config = serde_yaml::from_reader(net.config)
+        let config: Config = yaml_serde::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
         let kzg_trusted_setup = get_trusted_setup();
         Ok(Self {
-            deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
+            deposit_contract_deploy_block: yaml_serde::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
             boot_enr: Some(
-                serde_yaml::from_reader(net.boot_enr)
+                yaml_serde::from_reader(net.boot_enr)
                     .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
             ),
             genesis_state_source: net.genesis_state_source,
@@ -131,6 +131,16 @@ impl Eth2NetworkConfig {
     /// Returns `true` if this configuration contains a `BeaconState`.
     pub fn genesis_state_is_known(&self) -> bool {
         self.genesis_state_source != GenesisStateSource::Unknown
+    }
+
+    /// The `genesis_time` of the genesis state.
+    pub fn genesis_time<E: EthSpec>(&self) -> Result<Option<u64>, String> {
+        if let GenesisStateSource::Url { genesis_time, .. } = self.genesis_state_source {
+            Ok(Some(genesis_time))
+        } else {
+            self.get_genesis_state_from_bytes::<E>()
+                .map(|state| Some(state.genesis_time()))
+        }
     }
 
     /// The `genesis_validators_root` of the genesis state.
@@ -276,7 +286,7 @@ impl Eth2NetworkConfig {
                 File::create(base_dir.join($file))
                     .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
                     .and_then(|mut file| {
-                        let yaml = serde_yaml::to_string(&$variable)
+                        let yaml = yaml_serde::to_string(&$variable)
                             .map_err(|e| format!("Unable to YAML encode {}: {:?}", $file, e))?;
 
                         // Remove the doc header from the YAML file.
@@ -324,7 +334,7 @@ impl Eth2NetworkConfig {
                 File::open(base_dir.join($file))
                     .map_err(|e| format!("Unable to open {}: {:?}", $file, e))
                     .and_then(|file| {
-                        serde_yaml::from_reader(file)
+                        yaml_serde::from_reader(file)
                             .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
                     })?
             };
@@ -464,9 +474,10 @@ fn parse_state_download_url(url: &str) -> Result<Url, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, FixedBytesExtended, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

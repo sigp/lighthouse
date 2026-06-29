@@ -14,7 +14,6 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
@@ -31,9 +30,10 @@ const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
-const ELECTRA_FORK_EPOCH: u64 = 2;
-// const FULU_FORK_EPOCH: u64 = 3;
-// const GLOAS_FORK_EPOCH: u64 = 4;
+const ELECTRA_FORK_EPOCH: u64 = 0;
+const FULU_FORK_EPOCH: u64 = 0;
+// TODO(gloas): enable Gloas in simulator, current blocker is lack of data column gossip verification
+// const GLOAS_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -172,11 +172,14 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_delay = GENESIS_DELAY;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.electra_fork_version;
-    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
+    let latest_fork_version = spec.fulu_fork_version;
+    let latest_fork_start_epoch = FULU_FORK_EPOCH;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    slot_duration_ms /= speed_up_factor;
+    slot_duration_ms = max(1_000, slot_duration_ms);
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -185,10 +188,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
@@ -253,7 +257,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                         network_1
                             .add_validator_client_with_fallbacks(
                                 validator_config,
-                                i,
                                 beacon_nodes,
                                 files,
                             )
@@ -362,7 +365,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             network_1.add_beacon_node_with_delay(
                 beacon_config.clone(),
                 mock_execution_config.clone(),
-                END_EPOCH - 1,
+                END_EPOCH - 3,
                 slot_duration,
                 slots_per_epoch
             ),

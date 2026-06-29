@@ -1,5 +1,6 @@
 //! Implementation of the standard keystore management API.
 use account_utils::validator_definitions::PasswordStorage;
+use bls::PublicKeyBytes;
 use eth2::lighthouse_vc::{
     std_types::{
         DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse,
@@ -18,7 +19,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use tracing::{info, warn};
-use types::{EthSpec, PublicKeyBytes};
+use types::EthSpec;
 use validator_dir::{Builder as ValidatorDirBuilder, keystore_password_path};
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
@@ -101,10 +102,8 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
 
-    for (KeystoreJsonStr(keystore), password) in request
-        .keystores
-        .into_iter()
-        .zip(request.passwords.into_iter())
+    for (KeystoreJsonStr(keystore), password) in
+        request.keystores.into_iter().zip(request.passwords)
     {
         let pubkey_str = keystore.pubkey().to_string();
 

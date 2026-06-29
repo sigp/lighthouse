@@ -23,9 +23,7 @@ normal activities such as performing attestations, but it will make the node
 harder to identify as a potential node to attack and will also consume less
 resources.
 
-Specifically, this flag reduces the default peer count (to a safe minimal
-number as maintaining peers on attestation subnets do not need to be considered),
-prevents the node from subscribing to any attestation-subnets or
+Specifically, this flag prevents the node from subscribing to any attestation-subnets or
 sync-committees which is a primary way for attackers to de-anonymize
 validators.
 

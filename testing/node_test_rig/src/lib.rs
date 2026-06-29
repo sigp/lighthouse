@@ -4,7 +4,8 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, Timeouts, reqwest::ClientBuilder};
+use eth2::{BeaconNodeHttpClient, Timeouts};
+use reqwest::ClientBuilder;
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -115,7 +116,7 @@ pub fn testing_client_config() -> ClientConfig {
     };
 
     // Simulator tests expect historic states to be available for post-run checks.
-    client_config.chain.reconstruct_historic_states = true;
+    client_config.chain.archive = true;
 
     // Specify a constant count of beacon processor workers. Having this number
     // too low can cause annoying HTTP timeouts, especially on Github runners
@@ -248,14 +249,8 @@ impl<E: EthSpec> LocalExecutionNode<E> {
         if let Err(e) = std::fs::write(jwt_file_path, config.jwt_key.hex_string()) {
             panic!("Failed to write jwt file {}", e);
         }
-        let spec = context.eth2_config.spec.clone();
         Self {
-            server: MockServer::new_with_config(
-                &context.executor.handle().unwrap(),
-                config,
-                spec,
-                None,
-            ),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

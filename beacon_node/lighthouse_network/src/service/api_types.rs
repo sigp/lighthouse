@@ -5,6 +5,7 @@ use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope,
 };
 
 pub type Id = u32;
@@ -20,8 +21,8 @@ pub struct SingleLookupReqId {
 pub enum SyncRequestId {
     /// Request searching for a block given a hash.
     SingleBlock { id: SingleLookupReqId },
-    /// Request searching for a set of blobs given a hash.
-    SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a payload envelope given a hash.
+    SinglePayloadEnvelope { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Blocks by range request
@@ -30,6 +31,8 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
+    /// Payload envelopes by range request
+    PayloadEnvelopesByRange(PayloadEnvelopesByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -57,16 +60,27 @@ pub struct BlobsByRangeRequestId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct PayloadEnvelopesByRangeRequestId {
+    pub id: Id,
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
-    /// The Id of the overall By Range request for block components.
-    pub parent_request_id: ComponentsByRangeRequestId,
+    /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
+    pub parent_request_id: DataColumnsByRangeRequester,
     /// The peer id associated with the request.
     ///
     /// This is useful to penalize the peer at a later point if it returned data columns that
     /// did not match with the verified block.
     pub peer: PeerId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DataColumnsByRangeRequester {
+    CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -78,6 +92,24 @@ pub struct ComponentsByRangeRequestId {
     pub id: Id,
     /// What sync component is issuing a components by range request and expecting data back
     pub requester: RangeRequestId,
+}
+
+/// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+/// handle retries and tie all the range requests for the given epoch together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackFillBatchRequestId {
+    /// For each `epoch` we may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    pub batch_id: CustodyBackfillBatchId,
+}
+
+/// Custody backfill may be restarted and sync each epoch multiple times in different runs. Identify
+/// each batch by epoch and run_id for uniqueness.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackfillBatchId {
+    pub epoch: Epoch,
+    pub run_id: u64,
 }
 
 /// Range sync chain or backfill batch
@@ -105,13 +137,16 @@ pub struct CustodyId {
     pub requester: CustodyRequester,
 }
 
-/// Downstream components that perform custody by root requests.
-/// Currently, it's only single block lookups, so not using an enum
+/// Downstream components that perform custody by root requests. A range sync request fetches the
+/// custody columns of an entire batch (identified by its `ComponentsByRangeRequestId`) in one go.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyRequester(pub SingleLookupReqId);
+pub enum CustodyRequester {
+    SingleLookup(SingleLookupReqId),
+    RangeSync(ComponentsByRangeRequestId),
+}
 
 /// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppRequestId {
     Sync(SyncRequestId),
     Router,
@@ -136,6 +171,13 @@ pub enum Response<E: EthSpec> {
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get BEACON_BLOCKS_BY_HEAD request. A None response signals the end of the
+    /// batch.
+    BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
+    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
+    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
@@ -157,9 +199,23 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRoot),
             },
+            Response::BlocksByHead(r) => match r {
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByHead(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByHead),
+            },
             Response::BlocksByRange(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::PayloadEnvelopesByRoot(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRoot(p)),
+                None => RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRoot),
+            },
+            Response::PayloadEnvelopesByRange(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRange(p)),
+                None => {
+                    RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRange)
+                }
             },
             Response::BlobsByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),
@@ -213,10 +269,18 @@ macro_rules! impl_display {
 impl_display!(BlocksByRangeRequestId, "{}/{}", id, parent_request_id);
 impl_display!(BlobsByRangeRequestId, "{}/{}", id, parent_request_id);
 impl_display!(DataColumnsByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(
+    PayloadEnvelopesByRangeRequestId,
+    "{}/{}",
+    id,
+    parent_request_id
+);
 impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
+impl_display!(CustodyBackFillBatchRequestId, "{}/{}", id, batch_id);
+impl_display!(CustodyBackfillBatchId, "{}/{}", epoch, run_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -228,7 +292,10 @@ impl Display for DataColumnsByRootRequester {
 
 impl Display for CustodyRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        match self {
+            Self::SingleLookup(id) => write!(f, "{id}"),
+            Self::RangeSync(id) => write!(f, "RangeSync/{id}"),
+        }
     }
 }
 
@@ -237,6 +304,14 @@ impl Display for RangeRequestId {
         match self {
             Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
             Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
+        }
+    }
+}
+
+impl Display for DataColumnsByRangeRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CustodyBackfillSync(id) => write!(f, "CustodyBackfill/{id}"),
         }
     }
 }
@@ -250,7 +325,7 @@ mod tests {
         let id = DataColumnsByRootRequestId {
             id: 123,
             requester: DataColumnsByRootRequester::Custody(CustodyId {
-                requester: CustodyRequester(SingleLookupReqId {
+                requester: CustodyRequester::SingleLookup(SingleLookupReqId {
                     req_id: 121,
                     lookup_id: 101,
                 }),
@@ -263,15 +338,17 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ComponentsByRangeRequestId {
-                id: 122,
-                requester: RangeRequestId::RangeSync {
-                    chain_id: 54,
-                    batch_id: Epoch::new(0),
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 122,
+                    batch_id: CustodyBackfillBatchId {
+                        epoch: Epoch::new(0),
+                        run_id: 54,
+                    },
                 },
-            },
+            ),
             peer: PeerId::random(),
         };
-        assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
+        assert_eq!(format!("{id}"), "123/CustodyBackfill/122/0/54");
     }
 }

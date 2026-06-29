@@ -1,8 +1,8 @@
 use super::errors::EpochProcessingError;
 use crate::per_epoch_processing::single_pass::{SinglePassConfig, process_epoch_single_pass};
 use safe_arith::SafeArith;
-use types::beacon_state::BeaconState;
-use types::chain_spec::ChainSpec;
+use types::core::ChainSpec;
+use types::state::BeaconState;
 use types::{BeaconStateError, EthSpec};
 
 /// This implementation is now only used in phase0. Later hard forks use single-pass.

@@ -1,6 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use eth2::{
@@ -586,6 +587,7 @@ async fn run<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), S
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use bls::SignatureBytes;
     use eth2_network_config::Eth2NetworkConfig;
     use regex::Regex;
     use std::path::Path;

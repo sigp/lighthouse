@@ -1,4 +1,5 @@
 use super::*;
+use beacon_chain::test_utils::generate_data_column_indices_rand_order;
 use beacon_chain::{
     BeaconChain,
     builder::{BeaconChainBuilder, Witness},
@@ -24,12 +25,7 @@ const SLOT_DURATION_MILLIS: u64 = 400;
 
 const TEST_LOG_LEVEL: Option<&str> = None;
 
-type TestBeaconChainType = Witness<
-    SystemTimeSlotClock,
-    MainnetEthSpec,
-    MemoryStore<MainnetEthSpec>,
-    MemoryStore<MainnetEthSpec>,
->;
+type TestBeaconChainType = Witness<SystemTimeSlotClock, MainnetEthSpec, MemoryStore, MemoryStore>;
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,
@@ -73,6 +69,9 @@ impl TestBeaconChain {
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
+                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<
+                    MainnetEthSpec,
+                >())
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
@@ -331,28 +330,26 @@ mod test {
         // submit the subscriptions
         subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
-        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
-        let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
+        let subnet = Subnet::Attestation(subnet_id1);
 
-        if subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
-            // If we are permanently subscribed to this subnet, we won't see a subscribe message
-            let _ = get_events_until_num_slots(&mut subnet_service, None, 1).await;
+        if subnet_service.is_subscribed_permanent(&subnet) {
+            // If permanently subscribed, no Subscribe/Unsubscribe events will be generated
+            let events = get_events_until_num_slots(&mut subnet_service, None, 3).await;
+            assert!(events.is_empty());
         } else {
-            let subscription = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-            assert_eq!(subscription, [expected]);
+            // Wait 1 slot: expect a single Subscribe event (no duplicate for the same subnet).
+            let events = get_events_until_num_slots(&mut subnet_service, None, 1).await;
+            assert_eq!(events, [SubnetServiceMessage::Subscribe(subnet)]);
+
+            // Wait for the Unsubscribe event after subscription_slot2 expires.
+            // Use a longer timeout because the test doesn't start exactly at a slot
+            // boundary, so the previous 1-slot wait may end partway through slot 1,
+            // leaving insufficient time to catch the Unsubscribe within another 1 slot.
+            let events = get_events_until_num_slots(&mut subnet_service, Some(1), 3).await;
+            assert_eq!(events, [SubnetServiceMessage::Unsubscribe(subnet)]);
         }
 
-        // Get event for 1 more slot duration, we should get the unsubscribe event now.
-        let unsubscribe_event = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-
-        // If the long lived and short lived subnets are different, we should get an unsubscription
-        // event.
-        let expected = SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id1));
-        if !subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
-            assert_eq!([expected], unsubscribe_event[..]);
-        }
-
-        // Should  no longer be subscribed to any short lived subnets after unsubscription.
+        // Should no longer be subscribed to any short lived subnets after unsubscription.
         assert_eq!(subnet_service.subscriptions().count(), 0);
     }
 

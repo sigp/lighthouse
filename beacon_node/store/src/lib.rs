@@ -8,20 +8,17 @@
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
-pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
+pub mod invariants;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
@@ -30,7 +27,6 @@ pub mod iter;
 
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
-pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
@@ -50,7 +46,7 @@ pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 pub type RawEntryIter<'a> =
     Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 
-pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
+pub trait KeyValueStore: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -81,11 +77,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error> {
         // Compact state and block related columns as they are likely to have the most churn,
         // i.e. entries being created and deleted.
-        for column in [
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateHotSummary,
-            DBColumn::BeaconBlock,
-        ] {
+        for column in [DBColumn::BeaconStateHotSummary, DBColumn::BeaconBlock] {
             self.compact_column(column)?;
         }
         Ok(())
@@ -185,7 +177,7 @@ pub enum KeyValueStoreOp {
     DeleteKey(DBColumn, Vec<u8>),
 }
 
-pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
+pub trait ItemStore: KeyValueStore + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column();
@@ -237,12 +229,14 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeletePayloadEnvelope(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -313,6 +307,9 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    /// Post-gloas execution payload envelopes.
+    #[strum(serialize = "pay")]
+    PayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -424,7 +421,8 @@ impl DBColumn {
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
             | Self::CustodyContext
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::OptimisticTransitionBlock
+            | Self::PayloadEnvelope => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
@@ -495,7 +493,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -533,7 +531,7 @@ mod tests {
 
     #[test]
     fn exists() {
-        let store = MemoryStore::<MinimalEthSpec>::open();
+        let store = MemoryStore::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

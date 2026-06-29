@@ -57,12 +57,13 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
-use tracing::debug;
+use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
-    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
-    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName,
+    Hash256, IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot,
+    SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -160,6 +161,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     CommitteeIndexNonZero(usize),
+    /// The validator index is set to an invalid value after Gloas.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    CommitteeIndexInvalid,
     /// The `attestation.data.beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
@@ -167,6 +174,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload envelope has not been seen yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
+    /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
+    UnknownPayloadEnvelope { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -267,11 +282,25 @@ pub enum Error {
     /// We were unable to process this attestation due to an internal error. It's unclear if the
     /// attestation is valid.
     BeaconChainError(Box<BeaconChainError>),
+    /// A critical error occurred while converting SSZ types.
+    /// This can only occur when a VariableList was not able to be constructed from a single
+    /// attestation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    SszTypesError(ssz_types::Error),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Self::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
     }
 }
 
@@ -442,7 +471,18 @@ fn process_slash_info<T: BeaconChainTypes>(
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-                let indexed_attestation = attestation.to_indexed(fork_name);
+                let indexed_attestation = match attestation.to_indexed(fork_name) {
+                    Ok(indexed) => indexed,
+                    Err(e) => {
+                        error!(
+                            attestation_root = ?attestation.data.tree_hash_root(),
+                            error = ?e,
+                            "Unable to construct VariableList from a single attestation. \
+                             This indicates a serious bug in SSZ handling"
+                        );
+                        return Error::SszTypesError(e);
+                    }
+                };
                 (indexed_attestation, true, err)
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
@@ -482,11 +522,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .inspect(|verified_aggregate| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -525,8 +560,12 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         }
         .tree_hash_root();
 
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
+
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation)?;
+        verify_committee_index(attestation, fork_name)?;
 
         if chain
             .observed_attestations
@@ -569,6 +608,29 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         let head_block = verify_head_block_is_known(chain, attestation.data(), None)?;
+
+        // [New in Gloas]: If the attested block is from the same slot as the attestation,
+        // index must be 0.
+        if fork_name.gloas_enabled()
+            && head_block.slot == attestation.data().slot
+            && attestation.data().index != 0
+        {
+            return Err(Error::CommitteeIndexNonZero(
+                attestation.data().index as usize,
+            ));
+        }
+
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
+        }
 
         // Check the attestation target root is consistent with the head root.
         //
@@ -846,7 +908,12 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         let fork_name = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            // [New in Gloas]
+            if attestation.data.index >= 2 {
+                return Err(Error::CommitteeIndexInvalid);
+            }
+        } else if fork_name.electra_enabled() {
             // [New in Electra:EIP7549]
             if attestation.data.index != 0 {
                 return Err(Error::CommitteeIndexNonZero(
@@ -864,6 +931,27 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             &attestation.data,
             chain.config.import_max_skip_slots,
         )?;
+
+        // [New in Gloas]: If the attested block is from the same slot as the attestation,
+        // index must be 0.
+        if fork_name.gloas_enabled()
+            && head_block.slot == attestation.data.slot
+            && attestation.data.index != 0
+        {
+            return Err(Error::CommitteeIndexNonZero(
+                attestation.data.index as usize,
+            ));
+        }
+
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled() && attestation.data.index == 1 && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
+        }
 
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
@@ -908,11 +996,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation, subnet_id, chain)
-            .inspect(|verified_unaggregated| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -932,7 +1015,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = attestation.to_indexed(fork_name);
+        let indexed_attestation = attestation
+            .to_indexed(fork_name)
+            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,
@@ -968,7 +1053,8 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         let (committee_opt, committees_per_slot) = chain.with_committee_cache(
             attestation.data.target.root,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
+            |cached_shuffling, _| {
+                let committee_cache = cached_shuffling.committee_cache.as_ref();
                 let committee_opt = committee_cache
                     .get_beacon_committee(attestation.data.slot, attestation.committee_index)
                     .map(|beacon_committee| beacon_committee.committee.to_vec());
@@ -1344,7 +1430,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .spec
         .fork_at_epoch(indexed_attestation.data().target.epoch);
 
-    let signature_sets = vec![
+    let signature_sets = [
         signed_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             signed_aggregate,
@@ -1377,7 +1463,10 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
 /// Verify that the `attestation` committee index is properly set for the attestation's fork.
 /// This function will only apply verification post-Electra.
-pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Result<(), Error> {
+pub fn verify_committee_index<E: EthSpec>(
+    attestation: AttestationRef<E>,
+    fork_name: ForkName,
+) -> Result<(), Error> {
     if let Ok(committee_bits) = attestation.committee_bits() {
         // Check to ensure that the attestation is for a single committee.
         let num_committee_bits = get_committee_indices::<E>(committee_bits);
@@ -1387,11 +1476,18 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
             ));
         }
 
-        // Ensure the attestation index is set to zero post Electra.
-        if attestation.data().index != 0 {
-            return Err(Error::CommitteeIndexNonZero(
-                attestation.data().index as usize,
-            ));
+        // Ensure the attestation index is valid for the fork.
+        let index = attestation.data().index;
+        if fork_name.gloas_enabled() {
+            // [New in Gloas]: index must be < 2.
+            if index >= 2 {
+                return Err(Error::CommitteeIndexInvalid);
+            }
+        } else {
+            // [New in Electra:EIP7549]: index must be 0.
+            if index != 0 {
+                return Err(Error::CommitteeIndexNonZero(index as usize));
+            }
         }
     }
     Ok(())
@@ -1509,7 +1605,8 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+    chain.with_committee_cache(target.root, attestation_epoch, |cached_shuffling, _| {
+        let committee_cache = cached_shuffling.committee_cache.as_ref();
         let committees_per_slot = committee_cache.committees_per_slot();
 
         Ok(committee_cache

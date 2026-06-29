@@ -21,11 +21,16 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     late_head: Sender<EventKind<E>>,
     light_client_finality_update_tx: Sender<EventKind<E>>,
     light_client_optimistic_update_tx: Sender<EventKind<E>>,
-    block_reward_tx: Sender<EventKind<E>>,
     proposer_slashing_tx: Sender<EventKind<E>>,
     attester_slashing_tx: Sender<EventKind<E>>,
     bls_to_execution_change_tx: Sender<EventKind<E>>,
     block_gossip_tx: Sender<EventKind<E>>,
+    execution_payload_tx: Sender<EventKind<E>>,
+    execution_payload_gossip_tx: Sender<EventKind<E>>,
+    execution_payload_available_tx: Sender<EventKind<E>>,
+    execution_payload_bid_tx: Sender<EventKind<E>>,
+    proposer_preferences_tx: Sender<EventKind<E>>,
+    payload_attestation_message_tx: Sender<EventKind<E>>,
 }
 
 impl<E: EthSpec> ServerSentEventHandler<E> {
@@ -48,11 +53,16 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (late_head, _) = broadcast::channel(capacity);
         let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
         let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
-        let (block_reward_tx, _) = broadcast::channel(capacity);
         let (proposer_slashing_tx, _) = broadcast::channel(capacity);
         let (attester_slashing_tx, _) = broadcast::channel(capacity);
         let (bls_to_execution_change_tx, _) = broadcast::channel(capacity);
         let (block_gossip_tx, _) = broadcast::channel(capacity);
+        let (execution_payload_tx, _) = broadcast::channel(capacity);
+        let (execution_payload_gossip_tx, _) = broadcast::channel(capacity);
+        let (execution_payload_available_tx, _) = broadcast::channel(capacity);
+        let (execution_payload_bid_tx, _) = broadcast::channel(capacity);
+        let (proposer_preferences_tx, _) = broadcast::channel(capacity);
+        let (payload_attestation_message_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -69,11 +79,16 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             late_head,
             light_client_finality_update_tx,
             light_client_optimistic_update_tx,
-            block_reward_tx,
             proposer_slashing_tx,
             attester_slashing_tx,
             bls_to_execution_change_tx,
             block_gossip_tx,
+            execution_payload_tx,
+            execution_payload_gossip_tx,
+            execution_payload_available_tx,
+            execution_payload_bid_tx,
+            proposer_preferences_tx,
+            payload_attestation_message_tx,
         }
     }
 
@@ -142,10 +157,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .light_client_optimistic_update_tx
                 .send(kind)
                 .map(|count| log_count("light client optimistic update", count)),
-            EventKind::BlockReward(_) => self
-                .block_reward_tx
-                .send(kind)
-                .map(|count| log_count("block reward", count)),
             EventKind::ProposerSlashing(_) => self
                 .proposer_slashing_tx
                 .send(kind)
@@ -162,6 +173,30 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .block_gossip_tx
                 .send(kind)
                 .map(|count| log_count("block gossip", count)),
+            EventKind::ExecutionPayload(_) => self
+                .execution_payload_tx
+                .send(kind)
+                .map(|count| log_count("execution payload", count)),
+            EventKind::ExecutionPayloadGossip(_) => self
+                .execution_payload_gossip_tx
+                .send(kind)
+                .map(|count| log_count("execution payload gossip", count)),
+            EventKind::ExecutionPayloadAvailable(_) => self
+                .execution_payload_available_tx
+                .send(kind)
+                .map(|count| log_count("execution payload available", count)),
+            EventKind::ExecutionPayloadBid(_) => self
+                .execution_payload_bid_tx
+                .send(kind)
+                .map(|count| log_count("execution payload bid", count)),
+            EventKind::ProposerPreferences(_) => self
+                .proposer_preferences_tx
+                .send(kind)
+                .map(|count| log_count("proposer preferences", count)),
+            EventKind::PayloadAttestationMessage(_) => self
+                .payload_attestation_message_tx
+                .send(kind)
+                .map(|count| log_count("payload attestation message", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(?event, "No receivers registered to listen for event");
@@ -224,10 +259,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.light_client_optimistic_update_tx.subscribe()
     }
 
-    pub fn subscribe_block_reward(&self) -> Receiver<EventKind<E>> {
-        self.block_reward_tx.subscribe()
-    }
-
     pub fn subscribe_attester_slashing(&self) -> Receiver<EventKind<E>> {
         self.attester_slashing_tx.subscribe()
     }
@@ -242,6 +273,30 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn subscribe_block_gossip(&self) -> Receiver<EventKind<E>> {
         self.block_gossip_tx.subscribe()
+    }
+
+    pub fn subscribe_execution_payload(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_tx.subscribe()
+    }
+
+    pub fn subscribe_execution_payload_gossip(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_gossip_tx.subscribe()
+    }
+
+    pub fn subscribe_execution_payload_available(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_available_tx.subscribe()
+    }
+
+    pub fn subscribe_execution_payload_bid(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_bid_tx.subscribe()
+    }
+
+    pub fn subscribe_proposer_preferences(&self) -> Receiver<EventKind<E>> {
+        self.proposer_preferences_tx.subscribe()
+    }
+
+    pub fn subscribe_payload_attestation_message(&self) -> Receiver<EventKind<E>> {
+        self.payload_attestation_message_tx.subscribe()
     }
 
     pub fn has_attestation_subscribers(&self) -> bool {
@@ -292,10 +347,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.late_head.receiver_count() > 0
     }
 
-    pub fn has_block_reward_subscribers(&self) -> bool {
-        self.block_reward_tx.receiver_count() > 0
-    }
-
     pub fn has_proposer_slashing_subscribers(&self) -> bool {
         self.proposer_slashing_tx.receiver_count() > 0
     }
@@ -310,5 +361,29 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_block_gossip_subscribers(&self) -> bool {
         self.block_gossip_tx.receiver_count() > 0
+    }
+
+    pub fn has_execution_payload_subscribers(&self) -> bool {
+        self.execution_payload_tx.receiver_count() > 0
+    }
+
+    pub fn has_execution_payload_gossip_subscribers(&self) -> bool {
+        self.execution_payload_gossip_tx.receiver_count() > 0
+    }
+
+    pub fn has_execution_payload_available_subscribers(&self) -> bool {
+        self.execution_payload_available_tx.receiver_count() > 0
+    }
+
+    pub fn has_execution_payload_bid_subscribers(&self) -> bool {
+        self.execution_payload_bid_tx.receiver_count() > 0
+    }
+
+    pub fn has_proposer_preferences_subscribers(&self) -> bool {
+        self.proposer_preferences_tx.receiver_count() > 0
+    }
+
+    pub fn has_payload_attestation_message_subscribers(&self) -> bool {
+        self.payload_attestation_message_tx.receiver_count() > 0
     }
 }

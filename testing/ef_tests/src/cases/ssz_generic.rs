@@ -5,12 +5,14 @@ use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
 use context_deserialize::{ContextDeserialize, context_deserialize};
+use milhouse::Vector;
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
+use typenum::*;
+use types::ForkName;
 
 #[derive(Debug, Clone, Deserialize)]
 #[context_deserialize(ForkName)]
@@ -318,14 +320,13 @@ where
 {
     let s: String = serde::de::Deserialize::deserialize(deserializer)?;
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+    let decoded_len = decoded.len();
 
-    if decoded.len() > N::to_usize() {
-        Err(D::Error::custom(format!(
+    decoded.try_into().map_err(|_| {
+        D::Error::custom(format!(
             "Too many values for list, got: {}, limit: {}",
-            decoded.len(),
+            decoded_len,
             N::to_usize()
-        )))
-    } else {
-        Ok(decoded.into())
-    }
+        ))
+    })
 }

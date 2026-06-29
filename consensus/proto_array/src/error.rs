@@ -1,5 +1,6 @@
+use crate::PayloadStatus;
 use safe_arith::ArithError;
-use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
+use types::{Epoch, ExecutionBlockHash, Hash256};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -8,8 +9,6 @@ pub enum Error {
     NodeUnknown(Hash256),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
-    InvalidParentIndex(usize),
-    InvalidBestChildIndex(usize),
     InvalidJustifiedIndex(usize),
     InvalidBestDescendant(usize),
     InvalidParentDelta(usize),
@@ -29,7 +28,6 @@ pub enum Error {
         current_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
     },
-    InvalidBestNode(Box<InvalidBestNodeInfo>),
     InvalidAncestorOfValidPayload {
         ancestor_block_root: Hash256,
         ancestor_payload_block_hash: ExecutionBlockHash,
@@ -52,23 +50,23 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
-    InvalidEpochOffset(u64),
     Arith(ArithError),
+    InvalidNodeVariant {
+        block_root: Hash256,
+    },
+    BrokenBlock {
+        block_root: Hash256,
+    },
+    NoViableChildren,
+    OnBlockRequiresProposerIndex,
+    InvalidPayloadStatus {
+        block_root: Hash256,
+        payload_status: PayloadStatus,
+    },
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::Arith(e)
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct InvalidBestNodeInfo {
-    pub current_slot: Slot,
-    pub start_root: Hash256,
-    pub justified_checkpoint: Checkpoint,
-    pub finalized_checkpoint: Checkpoint,
-    pub head_root: Hash256,
-    pub head_justified_checkpoint: Checkpoint,
-    pub head_finalized_checkpoint: Checkpoint,
 }

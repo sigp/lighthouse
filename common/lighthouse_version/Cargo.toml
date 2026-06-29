@@ -1,12 +1,8 @@
 [package]
 name = "lighthouse_version"
-version = "0.1.0"
+version = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-git-version = "0.3.4"
 
 [dev-dependencies]
 regex = { workspace = true }

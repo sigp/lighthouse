@@ -20,8 +20,6 @@ pub struct GossipCache {
     topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blobs.
-    blob_sidecar: Option<Duration>,
     /// Timeout for data columns.
     data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
@@ -40,6 +38,14 @@ pub struct GossipCache {
     sync_committee_message: Option<Duration>,
     /// Timeout for signed BLS to execution changes.
     bls_to_execution_change: Option<Duration>,
+    /// Timeout for signed execution payload envelope.
+    execution_payload: Option<Duration>,
+    /// Timeout for execution payload bid.
+    execution_payload_bid: Option<Duration>,
+    /// Timeout for payload attestation message.
+    payload_attestation: Option<Duration>,
+    /// Timeout for proposer preferences.
+    proposer_preferences: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -51,8 +57,6 @@ pub struct GossipCacheBuilder {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blob sidecars.
-    blob_sidecar: Option<Duration>,
     /// Timeout for data column sidecars.
     data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
@@ -71,6 +75,14 @@ pub struct GossipCacheBuilder {
     sync_committee_message: Option<Duration>,
     /// Timeout for signed BLS to execution changes.
     bls_to_execution_change: Option<Duration>,
+    /// Timeout for signed execution payload envelope.
+    execution_payload: Option<Duration>,
+    /// Timeout for execution payload bid.
+    execution_payload_bid: Option<Duration>,
+    /// Timeout for payload attestation message.
+    payload_attestation: Option<Duration>,
+    /// Timeout for proposer preferences.
+    proposer_preferences: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -139,6 +151,30 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for signed execution payload envelope.
+    pub fn execution_payload_timeout(mut self, timeout: Duration) -> Self {
+        self.execution_payload = Some(timeout);
+        self
+    }
+
+    /// Timeout for execution payload bid.
+    pub fn execution_payload_bid_timeout(mut self, timeout: Duration) -> Self {
+        self.execution_payload_bid = Some(timeout);
+        self
+    }
+
+    /// Timeout for payload attestation message.
+    pub fn payload_attestation_timeout(mut self, timeout: Duration) -> Self {
+        self.payload_attestation = Some(timeout);
+        self
+    }
+
+    /// Timeout for proposer preferences.
+    pub fn proposer_preferences_timeout(mut self, timeout: Duration) -> Self {
+        self.proposer_preferences = Some(timeout);
+        self
+    }
+
     /// Timeout for light client finality update messages.
     pub fn light_client_finality_update_timeout(mut self, timeout: Duration) -> Self {
         self.light_client_finality_update = Some(timeout);
@@ -155,7 +191,6 @@ impl GossipCacheBuilder {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
-            blob_sidecar,
             data_column_sidecar,
             aggregates,
             attestation,
@@ -165,6 +200,10 @@ impl GossipCacheBuilder {
             signed_contribution_and_proof,
             sync_committee_message,
             bls_to_execution_change,
+            execution_payload,
+            execution_payload_bid,
+            payload_attestation,
+            proposer_preferences,
             light_client_finality_update,
             light_client_optimistic_update,
         } = self;
@@ -172,7 +211,6 @@ impl GossipCacheBuilder {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
-            blob_sidecar: blob_sidecar.or(default_timeout),
             data_column_sidecar: data_column_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
@@ -182,6 +220,10 @@ impl GossipCacheBuilder {
             signed_contribution_and_proof: signed_contribution_and_proof.or(default_timeout),
             sync_committee_message: sync_committee_message.or(default_timeout),
             bls_to_execution_change: bls_to_execution_change.or(default_timeout),
+            execution_payload: execution_payload.or(default_timeout),
+            execution_payload_bid: execution_payload_bid.or(default_timeout),
+            payload_attestation: payload_attestation.or(default_timeout),
+            proposer_preferences: proposer_preferences.or(default_timeout),
             light_client_finality_update: light_client_finality_update.or(default_timeout),
             light_client_optimistic_update: light_client_optimistic_update.or(default_timeout),
         }
@@ -199,7 +241,6 @@ impl GossipCache {
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
-            GossipKind::BlobSidecar(_) => self.blob_sidecar,
             GossipKind::DataColumnSidecar(_) => self.data_column_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
@@ -209,6 +250,10 @@ impl GossipCache {
             GossipKind::SignedContributionAndProof => self.signed_contribution_and_proof,
             GossipKind::SyncCommitteeMessage(_) => self.sync_committee_message,
             GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
+            GossipKind::ExecutionPayload => self.execution_payload,
+            GossipKind::ExecutionPayloadBid => self.execution_payload_bid,
+            GossipKind::PayloadAttestation => self.payload_attestation,
+            GossipKind::ProposerPreferences => self.proposer_preferences,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };

@@ -7,8 +7,9 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
-    types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
+    types::{Epoch, EthSpec, MinimalEthSpec},
 };
+use bls::Keypair;
 use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
 use state_processing::{BlockReplayError, BlockReplayer};
 use std::array::IntoIter;
@@ -28,7 +29,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..Default::default()
     };
 
@@ -47,7 +48,7 @@ fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
 
 fn get_electra_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..Default::default()
     };
 
@@ -104,11 +105,11 @@ async fn test_sync_committee_rewards() {
 
     // Add block
     let chain = &harness.chain;
-    let (head_state, head_state_root) = harness.get_current_state_and_root();
+    let head_state = harness.get_current_state();
     let target_slot = harness.get_current_slot() + 1;
 
     let (block_root, mut state) = harness
-        .add_attested_block_at_slot(target_slot, head_state, head_state_root, &[])
+        .add_attested_block_at_slot(target_slot, head_state, &[])
         .await
         .unwrap();
 
@@ -268,16 +269,16 @@ async fn test_rewards_electra_slashings() {
     harness.add_attester_slashing(vec![0]).unwrap();
     let slashed_balance_1 = initial_balances.get_mut(0).unwrap();
     let validator_1_effective_balance = state.get_effective_balance(0).unwrap();
-    let delta_1 = validator_1_effective_balance
-        / harness.spec.min_slashing_penalty_quotient_for_state(&state);
+    let delta_1 =
+        validator_1_effective_balance / state.get_min_slashing_penalty_quotient(&harness.spec);
     *slashed_balance_1 -= delta_1;
 
     // add a proposer slashing and calculating slashing penalties
     harness.add_proposer_slashing(1).unwrap();
     let slashed_balance_2 = initial_balances.get_mut(1).unwrap();
     let validator_2_effective_balance = state.get_effective_balance(1).unwrap();
-    let delta_2 = validator_2_effective_balance
-        / harness.spec.min_slashing_penalty_quotient_for_state(&state);
+    let delta_2 =
+        validator_2_effective_balance / state.get_min_slashing_penalty_quotient(&harness.spec);
     *slashed_balance_2 -= delta_2;
 
     check_all_electra_rewards(&harness, initial_balances).await;

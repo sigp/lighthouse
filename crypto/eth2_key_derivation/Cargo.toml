@@ -3,6 +3,7 @@ name = "eth2_key_derivation"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
+autotests = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -14,3 +15,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
+
+[[test]]
+name = "eth2_key_derivation_tests"
+path = "tests/main.rs"

@@ -109,19 +109,6 @@ pub struct RuntimeContext<E: EthSpec> {
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
-    /// Returns a sub-context of this context.
-    ///
-    /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: String) -> Self {
-        Self {
-            executor: self.executor.clone_with_name(service_name),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
@@ -349,23 +336,6 @@ impl<E: EthSpec> Environment<E> {
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
-                "core".to_string(),
-            ),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
-    /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
-        RuntimeContext {
-            executor: TaskExecutor::new(
-                Arc::downgrade(self.runtime()),
-                self.exit.clone(),
-                self.signal_tx.clone(),
-                service_name,
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -418,7 +388,7 @@ impl<E: EthSpec> Environment<E> {
                 Err(e) => error!(error = ?e, "Could not register SIGHUP handler"),
             }
 
-            future::select(inner_shutdown, future::select_all(handles.into_iter())).await
+            future::select(inner_shutdown, future::select_all(handles)).await
         };
 
         match self.runtime().block_on(register_handlers) {

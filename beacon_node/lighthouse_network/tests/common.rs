@@ -1,4 +1,5 @@
 #![cfg(test)]
+use fixed_bytes::FixedBytesExtended;
 use lighthouse_network::Enr;
 use lighthouse_network::Multiaddr;
 use lighthouse_network::service::Network as LibP2PService;
@@ -9,13 +10,11 @@ use std::sync::Weak;
 use tokio::runtime::Runtime;
 use tracing::{Instrument, debug, error, info_span};
 use tracing_subscriber::EnvFilter;
-use types::{
-    ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
-    MinimalEthSpec,
-};
+use types::{ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 
+use lighthouse_network::identity::secp256k1;
 use lighthouse_network::rpc::config::InboundRateLimiterConfig;
 use tempfile::Builder as TempBuilder;
 
@@ -108,7 +107,7 @@ pub fn build_config(
     config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port, port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
-    config.network_dir = path.into_path();
+    config.network_dir = path.keep();
     config.disable_peer_scoring = disable_peer_scoring;
     config.inbound_rate_limiter_config = inbound_rate_limiter;
     Arc::new(config)
@@ -119,7 +118,6 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     fork_name: ForkName,
     chain_spec: Arc<ChainSpec>,
-    service_name: String,
     disable_peer_scoring: bool,
     inbound_rate_limiter: Option<InboundRateLimiterConfig>,
 ) -> Libp2pInstance {
@@ -128,7 +126,7 @@ pub async fn build_libp2p_instance(
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx, service_name);
+    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx);
     let custody_group_count = chain_spec.custody_requirement;
     let libp2p_context = lighthouse_network::Context {
         config,
@@ -138,10 +136,15 @@ pub async fn build_libp2p_instance(
         libp2p_registry: None,
     };
     Libp2pInstance(
-        LibP2PService::new(executor, libp2p_context, custody_group_count)
-            .await
-            .expect("should build libp2p instance")
-            .0,
+        LibP2PService::new(
+            executor,
+            libp2p_context,
+            custody_group_count,
+            secp256k1::Keypair::generate().into(),
+        )
+        .await
+        .expect("should build libp2p instance")
+        .0,
         signal,
     )
 }
@@ -173,7 +176,6 @@ pub async fn build_node_pair(
         vec![],
         fork_name,
         spec.clone(),
-        "sender".to_string(),
         disable_peer_scoring,
         inbound_rate_limiter.clone(),
     )
@@ -183,7 +185,6 @@ pub async fn build_node_pair(
         vec![],
         fork_name,
         spec.clone(),
-        "receiver".to_string(),
         disable_peer_scoring,
         inbound_rate_limiter,
     )
@@ -262,16 +263,7 @@ pub async fn build_linear(
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
         nodes.push(
-            build_libp2p_instance(
-                rt.clone(),
-                vec![],
-                fork_name,
-                spec.clone(),
-                "linear".to_string(),
-                false,
-                None,
-            )
-            .await,
+            build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone(), false, None).await,
         );
     }
 

@@ -19,7 +19,7 @@ pub enum ReceivedPreCapella {
 ///
 /// Using the LIFO queue for block production disincentivises spam on P2P at the Capella fork,
 /// and is less-relevant after that.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct BlsToExecutionChanges<E: EthSpec> {
     /// Map from validator index to BLS to execution change.
     by_validator_index: HashMap<u64, Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>>,

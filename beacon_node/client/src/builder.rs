@@ -28,6 +28,7 @@ use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
+use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -41,8 +42,8 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
-use tracing::{debug, info, warn};
-use types::data_column_custody_group::get_custody_groups_ordered;
+use tracing::{debug, info, instrument, warn};
+use types::data::compute_ordered_custody_column_indices;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -96,8 +97,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Instantiates a new, empty builder.
     ///
@@ -150,10 +151,12 @@ where
 
     /// Initializes the `BeaconChainBuilder`. The `build_beacon_chain` method will need to be
     /// called later in order to actually instantiate the `BeaconChain`.
+    #[instrument(skip_all)]
     pub async fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
+        node_id: [u8; 32],
     ) -> Result<Self, String> {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
@@ -165,7 +168,7 @@ where
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
-        let context = runtime_context.service_context("beacon".into());
+        let context = runtime_context.clone();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(
@@ -176,7 +179,7 @@ where
         };
 
         let execution_layer = if let Some(config) = config.execution_layer.clone() {
-            let context = runtime_context.service_context("exec".into());
+            let context = runtime_context.clone();
             let execution_layer = ExecutionLayer::from_config(config, context.executor.clone())
                 .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
@@ -191,6 +194,11 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
+        let ordered_custody_column_indices =
+            compute_ordered_custody_column_indices::<E>(node_id, &spec).map_err(|e| {
+                format!("Failed to compute ordered custody column indices: {:?}", e)
+            })?;
+
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())
@@ -202,7 +210,8 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
+            .node_custody_type(config.chain.node_custody_type)
+            .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
@@ -272,7 +281,7 @@ where
                 validator_count,
                 genesis_time,
             } => {
-                let execution_payload_header = generate_genesis_header(&spec, true);
+                let execution_payload_header = generate_genesis_header(&spec);
                 let keypairs = generate_deterministic_keypairs(validator_count);
                 let genesis_state = interop_genesis_state(
                     &keypairs,
@@ -306,7 +315,7 @@ where
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.seconds_per_slot);
+                            * spec.get_slot_duration().as_secs());
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
@@ -316,7 +325,7 @@ where
                         .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                     let blob_availability_window = reduced_p2p_availability_epochs
                         * E::slots_per_epoch()
-                        * spec.seconds_per_slot;
+                        * spec.get_slot_duration().as_secs();
 
                     if now > deneb_time + blob_availability_window {
                         return Err(
@@ -345,10 +354,11 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let anchor_blobs = if anchor_block.message().body().has_blobs() {
+
+                // Providing blobs is optional now and not providing them is recommended.
+                // Backfill can handle downloading the blobs or columns for the checkpoint block.
+                let anchor_blobs = if let Some(anchor_blobs_bytes) = anchor_blobs_bytes {
                     let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
-                    let anchor_blobs_bytes = anchor_blobs_bytes
-                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
                         BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
@@ -409,7 +419,11 @@ where
 
                 debug!("Downloaded finalized block");
 
-                let blobs = if block.message().body().has_blobs() {
+                // `get_blob_sidecars` API is deprecated from Fulu and may not be supported by all servers
+                let is_before_fulu = !spec
+                    .fork_name_at_slot::<E>(finalized_block_slot)
+                    .fulu_enabled();
+                let blobs = if is_before_fulu && block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
                         .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
@@ -453,7 +467,11 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
+    pub async fn network(
+        mut self,
+        config: Arc<NetworkConfig>,
+        local_keypair: Keypair,
+    ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -481,11 +499,10 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
+            local_keypair,
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
-
-        init_custody_context(beacon_chain, &network_globals)?;
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
@@ -500,7 +517,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("node timer requires a runtime_context")?
-            .service_context("node_timer".into());
+            .clone();
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -540,7 +557,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
-            .service_context("slasher_service_ctxt".into());
+            .clone();
         SlasherService::new(beacon_chain, network_senders.network_send()).run(&context.executor)
     }
 
@@ -551,7 +568,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("monitoring_client requires a runtime_context")?
-            .service_context("monitoring_client".into());
+            .clone();
         let monitoring_client = MonitoringHttpClient::new(config)?;
         monitoring_client.auto_update(
             context.executor,
@@ -566,7 +583,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("slot_notifier requires a runtime_context")?
-            .service_context("slot_notifier".into());
+            .clone();
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -575,17 +592,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let seconds_per_slot = self
+        let slot_duration = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .seconds_per_slot;
+            .get_slot_duration();
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            seconds_per_slot,
+            slot_duration,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -597,7 +614,8 @@ where
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
-    pub fn build(
+    #[instrument(name = "build_client", skip_all)]
+    pub async fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
@@ -621,11 +639,15 @@ where
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
+                historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
+                    self.http_api_config.historical_committee_cache_size,
+                )),
             });
 
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_api::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             let http_api_task = async move {
@@ -656,6 +678,7 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context
@@ -674,7 +697,7 @@ where
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             if let Some(network_globals) = &self.network_globals {
-                let beacon_processor_context = runtime_context.service_context("bproc".into());
+                let beacon_processor_context = runtime_context.clone();
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
@@ -697,16 +720,15 @@ where
                 )?;
             }
 
-            let state_advance_context = runtime_context.service_context("state_advance".into());
+            let state_advance_context = runtime_context.clone();
             spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone());
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let params = beacon_chain
-                        .canonical_head
-                        .cached_head()
-                        .forkchoice_update_parameters();
+                    let cached_head = beacon_chain.canonical_head.cached_head();
+                    let head_payload_status = cached_head.head_payload_status();
+                    let params = cached_head.forkchoice_update_parameters();
                     if params
                         .head_hash
                         .is_some_and(|hash| hash != ExecutionBlockHash::zero())
@@ -719,6 +741,7 @@ where
                                     .update_execution_engine_forkchoice(
                                         current_slot,
                                         params,
+                                        head_payload_status,
                                         Default::default(),
                                     )
                                     .await;
@@ -749,8 +772,7 @@ where
             // Spawn service to publish light_client updates at some interval into the slot.
             if let Some(light_client_server_rv) = self.light_client_server_rv {
                 let inner_chain = beacon_chain.clone();
-                let light_client_update_context =
-                    runtime_context.service_context("lc_update".to_string());
+                let light_client_update_context = runtime_context.clone();
                 light_client_update_context.executor.spawn(
                     async move {
                         compute_light_client_updates(
@@ -788,30 +810,16 @@ where
     }
 }
 
-fn init_custody_context<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    network_globals: &NetworkGlobals<T::EthSpec>,
-) -> Result<(), String> {
-    let node_id = network_globals.local_enr().node_id().raw();
-    let spec = &chain.spec;
-    let custody_groups_ordered =
-        get_custody_groups_ordered(node_id, spec.number_of_custody_groups, spec)
-            .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
-    chain
-        .data_availability_checker
-        .custody_context()
-        .init_ordered_data_columns_from_custody_groups(custody_groups_ordered, spec)
-}
-
 impl<TSlotClock, E, THotStore, TColdStore>
     ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
+    #[instrument(skip_all)]
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -839,8 +847,7 @@ where
     }
 }
 
-impl<TSlotClock, E>
-    ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
+impl<TSlotClock, E> ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>
 where
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
@@ -881,8 +888,8 @@ where
 impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
 where
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {
@@ -903,7 +910,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(spec.seconds_per_slot),
+            spec.get_slot_duration(),
         );
 
         self.slot_clock = Some(slot_clock);

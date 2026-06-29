@@ -1,6 +1,7 @@
-use crate::{Config, Context};
+use crate::{Config, Context, caches::HistoricalCommitteeCache};
 use beacon_chain::{
     BeaconChain, BeaconChainTypes,
+    custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
 };
 use beacon_processor::{
@@ -56,7 +57,7 @@ pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
 
 type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
 type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
-type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
+type Mutator<E> = BoxedMutator<E, MemoryStore, MemoryStore>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
@@ -67,6 +68,20 @@ impl<E: EthSpec> InteractiveTester<E> {
             None,
             Config::default(),
             true,
+            NodeCustodyType::Fullnode,
+        )
+        .await
+    }
+
+    pub async fn new_supernode(spec: Option<ChainSpec>, validator_count: usize) -> Self {
+        Self::new_with_initializer_and_mutator(
+            spec,
+            validator_count,
+            None,
+            None,
+            Config::default(),
+            true,
+            NodeCustodyType::Supernode,
         )
         .await
     }
@@ -78,6 +93,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         mutator: Option<Mutator<E>>,
         config: Config,
         use_mock_builder: bool,
+        node_custody_type: NodeCustodyType,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
@@ -92,6 +108,8 @@ impl<E: EthSpec> InteractiveTester<E> {
                 .deterministic_keypairs(validator_count)
                 .fresh_ephemeral_store()
         };
+
+        harness_builder = harness_builder.node_custody_type(node_custody_type);
 
         // Add a mutator for the beacon chain builder which will be called in
         // `HarnessBuilder::build`.
@@ -275,10 +293,14 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         network_globals: Some(network_globals),
         beacon_processor_send: Some(beacon_processor_send),
         sse_logging_components: None,
+        historical_committee_cache: Arc::new(HistoricalCommitteeCache::new(
+            http_config.historical_committee_cache_size,
+        )),
     });
 
-    let (listening_socket, server) =
-        crate::serve(ctx.clone(), test_runtime.task_executor.exit()).unwrap();
+    let (listening_socket, server) = crate::serve(ctx.clone(), test_runtime.task_executor.exit())
+        .await
+        .unwrap();
 
     ApiServer {
         ctx,

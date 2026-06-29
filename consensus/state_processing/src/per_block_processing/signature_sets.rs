@@ -2,17 +2,20 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::SignatureSet;
+use super::builder::{convert_validator_index_to_builder_index, is_builder_index};
+use bls::{AggregateSignature, PublicKey, PublicKeyBytes, Signature, SignatureSet};
 use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::{
-    AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
-    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    AbstractExecPayload, AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError,
+    BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
+    IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -27,6 +30,9 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// Attempted to find the public key of a builder that does not exist. You cannot distinguish
+    /// between an error and an invalid block in this case.
+    BuilderUnknown(BuilderIndex),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorPubkeyUnknown(PublicKeyBytes),
@@ -52,7 +58,7 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-/// Helper function to get a public key from a `state`.
+/// Helper function to get a validator public key from a `state`.
 pub fn get_pubkey_from_state<E>(
     state: &BeaconState<E>,
     validator_index: usize,
@@ -65,6 +71,25 @@ where
         .get(validator_index)
         .and_then(|v| {
             let pk: Option<PublicKey> = v.pubkey.decompress().ok();
+            pk
+        })
+        .map(Cow::Owned)
+}
+
+/// Helper function to get a builder public key from a `state`.
+pub fn get_builder_pubkey_from_state<E>(
+    state: &BeaconState<E>,
+    builder_index: BuilderIndex,
+) -> Option<Cow<'_, PublicKey>>
+where
+    E: EthSpec,
+{
+    state
+        .builders()
+        .ok()?
+        .get(builder_index as usize)
+        .and_then(|b| {
+            let pk: Option<PublicKey> = b.pubkey.decompress().ok();
             pk
         })
         .map(Cow::Owned)
@@ -331,6 +356,128 @@ where
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
 
+pub fn indexed_payload_attestation_signature_set<'a, 'b, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    indexed_payload_attestation_signature_set_from_pubkeys(
+        get_pubkey,
+        signature,
+        indexed_payload_attestation,
+        state.genesis_validators_root(),
+        spec,
+    )
+}
+
+pub fn indexed_payload_attestation_signature_set_from_pubkeys<'a, 'b, E, F>(
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let mut pubkeys = Vec::with_capacity(indexed_payload_attestation.attesting_indices.len());
+    for &validator_idx in indexed_payload_attestation.attesting_indices.iter() {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
+
+    let epoch = indexed_payload_attestation
+        .data
+        .slot
+        .epoch(E::slots_per_epoch());
+    let fork = spec.fork_at_epoch(epoch);
+    let domain = spec.get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
+
+    let message = indexed_payload_attestation.data.signing_root(domain);
+
+    Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+pub fn proposer_preferences_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    signed_proposer_preferences: &'a SignedProposerPreferences,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let preferences = &signed_proposer_preferences.message;
+    let validator_index = preferences.validator_index as usize;
+
+    let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+    let proposal_fork = spec.fork_at_epoch(proposal_epoch);
+    let domain = spec.get_domain(
+        proposal_epoch,
+        Domain::ProposerPreferences,
+        &proposal_fork,
+        state.genesis_validators_root(),
+    );
+
+    let message = preferences.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(
+        &signed_proposer_preferences.signature,
+        get_pubkey(validator_index).ok_or(Error::ValidatorUnknown(validator_index as u64))?,
+        message,
+    ))
+}
+
+pub fn execution_payload_bid_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_builder_pubkey: F,
+    signed_execution_payload_bid: &'a SignedExecutionPayloadBid<E>,
+    spec: &'a ChainSpec,
+) -> Result<Option<SignatureSet<'a>>>
+where
+    E: EthSpec,
+    F: Fn(BuilderIndex) -> Option<Cow<'a, PublicKey>>,
+{
+    let execution_payload_bid = &signed_execution_payload_bid.message;
+    let builder_index = execution_payload_bid.builder_index;
+    if builder_index == BUILDER_INDEX_SELF_BUILD {
+        // No signatures to verify in case of a self-build, but consensus code MUST check that
+        // the signature is the point at infinity.
+        // See `process_execution_payload_bid`.
+        return Ok(None);
+    }
+
+    let bid_epoch = signed_execution_payload_bid
+        .message
+        .slot
+        .epoch(E::slots_per_epoch());
+    let bid_fork = spec.fork_at_epoch(bid_epoch);
+    let domain = spec.get_domain(
+        bid_epoch,
+        Domain::BeaconBuilder,
+        &bid_fork,
+        state.genesis_validators_root(),
+    );
+
+    let pubkey = get_builder_pubkey(builder_index).ok_or(Error::BuilderUnknown(builder_index))?;
+    let message = execution_payload_bid.signing_root(domain);
+
+    Ok(Some(SignatureSet::single_pubkey(
+        &signed_execution_payload_bid.signature,
+        pubkey,
+        message,
+    )))
+}
+
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
 pub fn attester_slashing_signature_sets<'a, E, F>(
     state: &'a BeaconState<E>,
@@ -373,7 +520,7 @@ pub fn deposit_pubkey_signature_message(
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
-/// validator.
+/// validator (or builder, in the case of a builder exit).
 pub fn exit_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
@@ -385,7 +532,18 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let exit = &signed_exit.message;
-    let proposer_index = exit.validator_index as usize;
+    let validator_index = exit.validator_index;
+
+    let is_builder_exit =
+        state.fork_name_unchecked().gloas_enabled() && is_builder_index(validator_index);
+
+    let pubkey = if is_builder_exit {
+        let builder_index = convert_validator_index_to_builder_index(validator_index);
+        get_builder_pubkey_from_state(state, builder_index)
+            .ok_or(Error::ValidatorUnknown(validator_index))?
+    } else {
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?
+    };
 
     let domain = if state.fork_name_unchecked().deneb_enabled() {
         // EIP-7044
@@ -407,7 +565,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
-        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
+        pubkey,
         message,
     ))
 }

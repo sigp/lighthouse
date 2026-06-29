@@ -40,7 +40,7 @@ Options:
           The gas limit to be used in all builder proposals for all validators
           managed by this validator client. Note this will not necessarily be
           used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 45000000]
+          gas limit. [default: 60000000]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -185,6 +185,12 @@ Flags:
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
           validator_definitions.yml file.
+      --disable-beacon-head-monitor
+          Disable the beacon head monitor which tries to attest as soon as any
+          of the configured beacon nodes sends a head event. Leaving the service
+          enabled is recommended, but disabling it can lead to reduced bandwidth
+          and more predictable usage of the primary beacon node (rather than the
+          fastest BN).
       --disable-latency-measurement-service
           Disables the service that periodically attempts to measure latency to
           BNs.
@@ -194,6 +200,11 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
+      --disable-proposer-duties-v2
+          Fetch proposer duties using the v1 beacon node endpoint instead of v2.
+          The v1 endpoint reports an incorrect dependent root which causes
+          spurious proposer duty re-org warnings. Only enable this flag if your
+          beacon node does not serve the v2 proposer duties endpoint.
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing
@@ -221,6 +232,10 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
+      --graffiti-append [<GRAFFITI_APPEND>]
+          Client version info will be appended to user custom graffiti, with a
+          space in between. This should only be set to false when using a
+          Lighthouse beacon node. [default: true] [possible values: true, false]
   -h, --help
           Prints help information
       --http

@@ -9,6 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
     },
 };
+use bls::Keypair;
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
@@ -26,7 +27,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
-type HotColdDB = store::HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
+type HotColdDB = store::HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let spec = Arc::new(test_spec::<E>());
@@ -296,6 +297,67 @@ async fn proposer_slashing_duplicate_in_state() {
             ProposerSlashingInvalid::ProposerNotSlashable(index)
         )) if index == slashed_validator
     ));
+}
+
+#[tokio::test]
+async fn slashings_cache_matches_state_after_block_import() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+
+    // Slash a spread of validators by importing proposer slashings into the op pool, exactly as
+    // they would arrive over gossip.
+    let slashed_validators = [0u64, 7, VALIDATOR_COUNT as u64 - 1];
+    for &validator_index in &slashed_validators {
+        let slashing = harness.make_proposer_slashing(validator_index);
+        let ObservationOutcome::New(verified_slashing) = harness
+            .chain
+            .verify_proposer_slashing_for_gossip(slashing)
+            .unwrap()
+        else {
+            panic!("slashing should verify");
+        };
+        harness.chain.import_proposer_slashing(verified_slashing);
+    }
+
+    // Produce and import a block that includes the slashings. This drives the production flow:
+    // `per_block_processing` -> `slash_validator` -> `SlashingsCache::record_validator_slashing`.
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let state = harness.get_current_state();
+
+    // The block processing above should have left the slashings cache initialized for the head.
+    assert!(
+        state.slashings_cache_is_initialized(),
+        "slashings cache should be initialized after block import"
+    );
+
+    // The targeted validators must actually be slashed in the state (i.e. the slashings were
+    // included and applied, not silently dropped).
+    for &validator_index in &slashed_validators {
+        assert!(
+            state
+                .get_validator(validator_index as usize)
+                .unwrap()
+                .slashed,
+            "validator {validator_index} should be slashed in the state"
+        );
+    }
+
+    // The cache must agree with the `slashed` flag of *every* validator in the state.
+    for index in 0..state.validators().len() {
+        assert_eq!(
+            state.slashings_cache().is_slashed(index),
+            state.get_validator(index).unwrap().slashed,
+            "slashings cache disagrees with state at validator {index}"
+        );
+    }
 }
 
 #[test]

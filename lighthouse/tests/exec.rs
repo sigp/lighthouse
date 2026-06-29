@@ -65,7 +65,7 @@ pub trait CommandLineTestExec {
         let spec_file =
             File::open(tmp_chain_config_path).expect("Unable to open dumped chain spec");
         let chain_config: Config =
-            serde_yaml::from_reader(spec_file).expect("Unable to deserialize config");
+            yaml_serde::from_reader(spec_file).expect("Unable to deserialize config");
 
         CompletedTest::new(config, chain_config, tmp_dir)
     }
@@ -102,7 +102,7 @@ pub trait CommandLineTestExec {
         let spec_file =
             File::open(tmp_chain_config_path).expect("Unable to open dumped chain spec");
         let chain_config: Config =
-            serde_yaml::from_reader(spec_file).expect("Unable to deserialize config");
+            yaml_serde::from_reader(spec_file).expect("Unable to deserialize config");
 
         CompletedTest::new(config, chain_config, tmp_dir)
     }
@@ -144,7 +144,6 @@ impl<C> CompletedTest<C> {
         func(&self.config, &self.dir);
     }
 
-    #[allow(dead_code)]
     pub fn with_config_and_spec<E: EthSpec, F: Fn(&C, ChainSpec)>(self, func: F) {
         let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
         func(&self.config, spec);

@@ -60,7 +60,7 @@ relays, run one of the following services and configure lighthouse to use it wit
 ## Validator Client Configuration
 
 In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
-configured, Lighthouse will use a default gas limit of 45,000,000, which is the current default value used in execution
+configured, Lighthouse will use a default gas limit of 60,000,000, which is the current default value used in execution
 engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
 `--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences for all validators.
 In order to manage these configurations per-validator, you can either make updates to the `validator_definitions.yml` file
@@ -75,7 +75,7 @@ transaction within the block to the fee recipient, so a discrepancy in fee recip
 is something afoot.
 
 > Note: The gas limit configured here is effectively a vote on block size, so the configuration should not be taken lightly.
-> 45,000,000 is currently seen as a value balancing block size with how expensive it is for
+> 60,000,000 is currently seen as a value balancing block size with how expensive it is for
 > the network to validate blocks. So if you don't feel comfortable making an informed "vote", using the default value is
 > encouraged. We will update the default value if the community reaches a rough consensus on a new value.
 

@@ -1,6 +1,7 @@
-use ethers_providers::{Http, Provider};
+use alloy_provider::ProviderBuilder;
 use execution_layer::DEFAULT_JWT_FILE;
 use network_utils::unused_port::unused_tcp4_port;
+use reqwest::Url;
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::process::Child;
@@ -34,7 +35,7 @@ pub struct ExecutionEngine<E> {
     http_port: u16,
     http_auth_port: u16,
     child: Child,
-    pub provider: Provider<Http>,
+    pub provider: Box<dyn alloy_provider::Provider + Send + Sync>,
 }
 
 impl<E> Drop for ExecutionEngine<E> {
@@ -53,8 +54,9 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         let http_port = unused_tcp4_port().unwrap();
         let http_auth_port = unused_tcp4_port().unwrap();
         let child = E::start_client(&datadir, http_port, http_auth_port, jwt_secret_path);
-        let provider = Provider::<Http>::try_from(format!("http://localhost:{}", http_port))
-            .expect("failed to instantiate ethers provider");
+        let provider = Box::new(ProviderBuilder::new().connect_http(
+            Url::parse(&format!("http://localhost:{}", http_port)).expect("failed to parse URL"),
+        ));
         Self {
             engine,
             datadir,

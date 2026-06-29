@@ -4,9 +4,9 @@ use itertools::Itertools;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use tree_hash::{MerkleHasher, TreeHash, TreeHashType};
+use types::SlotData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::slot_data::SlotData;
-use types::sync_committee_contribution::SyncContributionData;
+use types::sync_committee::SyncContributionData;
 use types::{
     Attestation, AttestationData, AttestationRef, CommitteeIndex, EthSpec, Hash256, Slot,
     SyncCommitteeContribution,
@@ -577,26 +577,25 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::BitList;
-    use store::BitVector;
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::{BitList, BitVector};
     use tree_hash::TreeHash;
     use types::{
-        Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
-        SyncCommitteeMessage,
-        test_utils::{generate_deterministic_keypair, test_random_instance},
+        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, SyncCommitteeMessage,
+        test_utils::{generate_deterministic_keypair, test_arbitrary_instance},
     };
 
     type E = types::MainnetEthSpec;
 
     fn get_attestation_base(slot: Slot) -> Attestation<E> {
-        let mut a: AttestationBase<E> = test_random_instance();
+        let mut a: AttestationBase<E> = test_arbitrary_instance();
         a.data.slot = slot;
         a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
         Attestation::Base(a)
     }
 
     fn get_attestation_electra(slot: Slot) -> Attestation<E> {
-        let mut a: AttestationElectra<E> = test_random_instance();
+        let mut a: AttestationElectra<E> = test_arbitrary_instance();
         a.data.slot = slot;
         a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
         a.committee_bits = BitVector::new();
@@ -607,7 +606,7 @@ mod tests {
     }
 
     fn get_sync_contribution(slot: Slot) -> SyncCommitteeContribution<E> {
-        let mut a: SyncCommitteeContribution<E> = test_random_instance();
+        let mut a: SyncCommitteeContribution<E> = test_arbitrary_instance();
         a.slot = slot;
         a.aggregation_bits = BitVector::new();
         a

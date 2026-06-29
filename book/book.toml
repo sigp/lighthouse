@@ -1,7 +1,6 @@
 [book]
 authors = ["Paul Hauner", "Age Manning"]
 language = "en"
-multilingual = false
 src = "src"
 title = "Lighthouse Book"
 

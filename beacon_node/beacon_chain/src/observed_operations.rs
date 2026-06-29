@@ -1,4 +1,4 @@
-use derivative::Derivative;
+use educe::Educe;
 use smallvec::{SmallVec, smallvec};
 use state_processing::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};
 use std::collections::HashSet;
@@ -14,8 +14,8 @@ pub const SMALL_VEC_SIZE: usize = 8;
 /// Stateful tracker for exit/slashing operations seen on the network.
 ///
 /// Implements the conditions for gossip verification of exits and slashings from the P2P spec.
-#[derive(Debug, Derivative)]
-#[derivative(Default(bound = "T: ObservableOperation<E>, E: EthSpec"))]
+#[derive(Debug, Educe)]
+#[educe(Default(bound(T: ObservableOperation<E>, E: EthSpec)))]
 pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// Indices of validators for whom we have already seen an instance of an operation `T`.
     ///
@@ -26,7 +26,7 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// `attestation_1.attester_indices` and `attestation_2.attester_indices`.
     observed_validator_indices: HashSet<u64>,
     /// The name of the current fork. The default will be overwritten on first use.
-    #[derivative(Default(value = "ForkName::Base"))]
+    #[educe(Default(expression = ForkName::Base))]
     current_fork: ForkName,
     _phantom: PhantomData<(T, E)>,
 }

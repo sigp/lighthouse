@@ -30,6 +30,7 @@
 //! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
 
 use beacon_node_fallback::BeaconNodeFallback;
+use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use logging::crit;
@@ -41,7 +42,7 @@ use std::sync::Arc;
 use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use tracing::{error, info};
-use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Slot};
 use validator_store::{DoppelgangerStatus, ValidatorStore};
 
 struct LivenessResponses {
@@ -597,14 +598,12 @@ impl DoppelgangerService {
 #[cfg(test)]
 mod test {
     use super::*;
+    use arbitrary::Arbitrary;
     use futures::executor::block_on;
     use slot_clock::TestingSlotClock;
     use std::future;
     use std::time::Duration;
-    use types::{
-        MainnetEthSpec,
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    };
+    use types::MainnetEthSpec;
     use validator_store::DoppelgangerStatus;
 
     const DEFAULT_VALIDATORS: usize = 8;
@@ -640,12 +639,12 @@ mod test {
 
     impl TestBuilder {
         fn build(self) -> TestScenario {
-            let mut rng = XorShiftRng::from_seed([42; 16]);
+            let mut u = types::test_utils::test_unstructured();
             let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
 
             TestScenario {
                 validators: (0..self.validator_count)
-                    .map(|_| PublicKeyBytes::random_for_test(&mut rng))
+                    .map(|_| PublicKeyBytes::arbitrary(&mut u).unwrap())
                     .collect(),
                 doppelganger: DoppelgangerService::default(),
                 slot_clock,

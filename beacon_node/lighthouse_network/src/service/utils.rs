@@ -3,11 +3,10 @@ use crate::rpc::{MetaData, MetaDataV2, MetaDataV3};
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
-use gossipsub;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{Keypair, secp256k1};
 use libp2p::metrics::Registry;
-use libp2p::{PeerId, Transport, core, noise, yamux};
+use libp2p::{PeerId, Transport, core, gossipsub, noise, yamux};
 use ssz::Decode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -35,27 +34,39 @@ pub struct Context<'a> {
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
 /// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
-/// mplex/yamux as the multiplexing layer (when using TCP).
+/// yamux as the multiplexing layer (when using TCP). Mplex can be optionally enabled.
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
+    enable_mplex: bool,
 ) -> std::io::Result<BoxedTransport> {
-    // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
-    mplex_config.set_max_buffer_size(256);
-    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
-
     // yamux config
     let yamux_config = yamux::Config::default();
+
     // Creates the TCP transport layer
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10));
+    let tcp: BoxedTransport = if enable_mplex {
+        // Enable both yamux and mplex.
+        let mut mplex_config = libp2p_mplex::Config::new();
+        mplex_config.set_max_num_streams(32);
+        mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::ResetStream);
+        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                yamux_config,
+                mplex_config,
+            ))
+            .timeout(Duration::from_secs(10))
+            .boxed()
+    } else {
+        // Yamux only
+        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(yamux_config)
+            .timeout(Duration::from_secs(10))
+            .boxed()
+    };
     let transport = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
@@ -273,6 +284,10 @@ pub(crate) fn create_whitelist_filter(
         add(AttesterSlashing);
         add(SignedContributionAndProof);
         add(BlsToExecutionChange);
+        add(ExecutionPayload);
+        add(ExecutionPayloadBid);
+        add(PayloadAttestation);
+        add(ProposerPreferences);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
         for id in 0..spec.attestation_subnet_count {
@@ -280,10 +295,6 @@ pub(crate) fn create_whitelist_filter(
         }
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
-        }
-        let blob_subnet_count = spec.blob_sidecar_subnet_count_max();
-        for id in 0..blob_subnet_count {
-            add(BlobSidecar(id));
         }
         for id in 0..spec.data_column_sidecar_subnet_count {
             add(DataColumnSidecar(DataColumnSubnetId::new(id)));

@@ -30,7 +30,7 @@ pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
-pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
     /// Record of when the last migration ran, for enforcing `epochs_per_migration`.
     prev_migration: Arc<Mutex<PrevMigration>>,
@@ -135,7 +135,7 @@ pub struct FinalizationNotification {
     pub prev_migration: Arc<Mutex<PrevMigration>>,
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
     pub fn new(db: Arc<HotColdDB<E, Hot, Cold>>, config: MigratorConfig) -> Self {
         // Estimate last migration run from DB split slot.
@@ -330,7 +330,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_block_root = notif.finalized_checkpoint.root;
 
         // The enshrined finalized state should be in the state cache.
-        let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
+        let finalized_state = match db.get_hot_state(&finalized_state_root.into(), true) {
             Ok(Some(state)) => state,
             other => {
                 error!(
@@ -773,6 +773,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeletePayloadEnvelope(block_root),
                     StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })

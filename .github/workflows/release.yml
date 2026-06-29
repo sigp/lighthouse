@@ -32,8 +32,7 @@ jobs:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
                        x86_64-unknown-linux-gnu,
-                       aarch64-apple-darwin,
-                       x86_64-windows]
+                       aarch64-apple-darwin]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
@@ -44,9 +43,6 @@ jobs:
                     -   arch: aarch64-apple-darwin
                         runner: macos-14
                         profile: maxperf
-                    -   arch: x86_64-windows
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
-                        profile: maxperf
 
         runs-on:    ${{ matrix.runner }}
         needs: extract-version
@@ -56,19 +52,6 @@ jobs:
             - name: Get latest version of stable Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
-
-            # ==============================
-            # Windows dependencies
-            # ==============================
-
-            - uses: KyleMayes/install-llvm-action@v1
-              if: env.SELF_HOSTED_RUNNERS == 'false' && startsWith(matrix.arch, 'x86_64-windows')
-              with:
-                version: "17.0"
-                directory: ${{ runner.temp }}/llvm
-            - name: Set LIBCLANG_PATH
-              if: startsWith(matrix.arch, 'x86_64-windows')
-              run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
 
             # ==============================
             #       Builds
@@ -94,12 +77,7 @@ jobs:
               if:   matrix.arch == 'aarch64-apple-darwin'
               run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
-            - name: Build Lighthouse for Windows
-              if:   matrix.arch == 'x86_64-windows'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
-
             - name: Configure GPG and create artifacts
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
               env:
                   GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
                   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -117,20 +95,6 @@ jobs:
                     done;\
                   done
                   mv *tar.gz* ..
-
-            - name: Configure GPG and create artifacts Windows
-              if: startsWith(matrix.arch, 'x86_64-windows')
-              env:
-                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
-                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-              run: |
-                  echo $env:GPG_SIGNING_KEY | gpg --batch --import
-                  mkdir artifacts
-                  move $env:USERPROFILE/.cargo/bin/lighthouse.exe ./artifacts
-                  cd artifacts
-                  tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse.exe
-                  gpg --passphrase "$env:GPG_PASSPHRASE" --batch --pinentry-mode loopback -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
-                  move *tar.gz* ..
 
             # =======================================================================
             # Upload artifacts
@@ -239,7 +203,6 @@ jobs:
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/apple/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/apple" ><img src="https://cdn.simpleicons.org/apple" width="32" alt="Apple logo">  </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/linux/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/linux/black" ><img src="https://cdn.simpleicons.org/linux" width="32" alt="Linux logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/raspberrypi/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/raspberrypi/black" > <img src="https://cdn.simpleicons.org/raspberrypi" width="32" alt="Raspberrypi logo"> </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
-                  | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://upload.wikimedia.org/wikipedia/commons/8/87/Windows_logo_-_2021.svg"> <source media="(prefers-color-scheme: light)" srcset="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg"> <img src="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg" width="32" alt="Windows logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz.asc) |
                   | | | | |
                   | **System** | **Option** | - | **Resource** |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/docker/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/docker/black" > <img src="https://cdn.simpleicons.org/docker/black" width="32" alt="Docker logo"></picture>  | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
