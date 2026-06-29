@@ -2483,8 +2483,18 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         "envelope should start missing from the store"
     );
 
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
-    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+    let data_sidecars = Some(DataSidecars::DataColumns(
+        generate_data_column_sidecars_from_block(&block, &harness.chain.spec)
+            .into_iter()
+            .map(CustodyDataColumn::from_asserted_custody)
+            .collect(),
+    ));
+    let segment = vec![build_range_sync_block(
+        block,
+        Some(Arc::new(envelope)),
+        &data_sidecars,
+        harness.chain.clone(),
+    )];
 
     let result = harness
         .chain
@@ -2544,8 +2554,18 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
         .on_valid_payload_envelope_received(block_root)
         .expect("payload should be marked received");
 
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
-    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+    let data_sidecars = Some(DataSidecars::DataColumns(
+        generate_data_column_sidecars_from_block(&block, &harness.chain.spec)
+            .into_iter()
+            .map(CustodyDataColumn::from_asserted_custody)
+            .collect(),
+    ));
+    let segment = vec![build_range_sync_block(
+        block,
+        Some(Arc::new(envelope)),
+        &data_sidecars,
+        harness.chain.clone(),
+    )];
 
     let result = harness
         .chain
@@ -2635,14 +2655,26 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
 
     // Construct directly to isolate `filter_chain_segment`: `new_gloas` would reject the
     // deliberately-mutated block root before the finalized-slot filter gets exercised.
+    let bid = checkpoint_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let columns = generate_data_column_sidecars_from_block(&checkpoint_block, &harness.chain.spec);
+    let available_envelope = AvailableEnvelope::new(
+        Arc::new(envelope),
+        columns,
+        bid,
+        &harness.chain.custody_context,
+    )
+    .unwrap();
     let range_sync_block = RangeSyncBlock::Gloas {
         block: checkpoint_block,
-        envelope: Some(AvailableEnvelope::new(Arc::new(envelope), vec![])),
+        envelope: Some(available_envelope),
     };
 
-    let filtered_blocks = match harness.chain.filter_chain_segment(vec![range_sync_block]) {
-        Ok(filtered_blocks) => filtered_blocks,
-        Err(_) => panic!("filter should succeed"),
+    let Ok(filtered_blocks) = harness.chain.filter_chain_segment(vec![range_sync_block]) else {
+        panic!("filter should succeed");
     };
 
     assert_eq!(
