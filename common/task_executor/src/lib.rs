@@ -405,7 +405,7 @@ impl TaskExecutor {
 
     /// Returns a future that completes when `async-channel::Sender` is dropped or () is sent,
     /// which translates to the exit signal being triggered.
-    pub fn exit(&self) -> impl Future<Output = ()> + 'static {
+    pub fn exit(&self) -> impl Future<Output = ()> + use<> + 'static {
         let exit = self.exit.clone();
         async move {
             let _ = exit.recv().await;
