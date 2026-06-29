@@ -263,14 +263,11 @@ impl FastConfirmationRule {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
 
-        // Track head changes (including within a slot, e.g. a late block or reorg).
+        // Rebuild the head-derived caches when the head changes (including within a slot, e.g. a
+        // late block or reorg). Each cache is keyed on the head's dependent root; rebuild it from
+        // scratch, independently, when its own dependent root is stale (a reorg past the
+        // previous-epoch boundary, or a new epoch).
         if self.current_slot_head != head_root {
-            self.previous_slot_head = self.current_slot_head;
-            self.current_slot_head = head_root;
-
-            // The head-derived caches (committee assignments + head balance source) are each keyed on
-            // the head's dependent root; rebuild each from scratch, independently, when its own
-            // dependent root is stale (a reorg past the previous-epoch boundary, or a new epoch).
             let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
 
             if self.head_assignments.dependent_root() != head_dependent_root {
@@ -287,6 +284,10 @@ impl FastConfirmationRule {
         // Spec: update_fast_confirmation_variables is called once per slot,
         // at the attestation deadline. Guard against duplicate calls within the same slot.
         if self.last_update_slot.is_none_or(|s| current_slot > s) {
+            // Rotate the slot heads unconditionally, once per slot (spec).
+            self.previous_slot_head = self.current_slot_head;
+            self.current_slot_head = head_root;
+
             // At last slot of epoch: snapshot greatest unrealized justified.
             if is_start_slot_at_epoch::<E>(current_slot.safe_add(1)?) {
                 self.previous_epoch_greatest_unrealized_checkpoint =
