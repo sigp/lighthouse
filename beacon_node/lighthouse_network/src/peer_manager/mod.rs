@@ -3195,9 +3195,9 @@ mod tests {
                                 .is_connected(&condition.peer_id)
                     });
 
-
                     (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected
                 });
+
                 prop_assert!(result);
             }
         }
