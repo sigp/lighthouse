@@ -1366,7 +1366,7 @@ impl<E: EthSpec> Tester<E> {
         expected: Checkpoint,
     ) -> Result<(), Error> {
         let actual = self.get_fcr_field("previous_epoch_observed_justified_checkpoint", |fcr| {
-            fcr.previous_epoch_observed_justified_checkpoint
+            fcr.previous_epoch_observed_justified.checkpoint()
         })?;
         check_equal(
             "previous_epoch_observed_justified_checkpoint",
@@ -1380,7 +1380,7 @@ impl<E: EthSpec> Tester<E> {
         expected: Checkpoint,
     ) -> Result<(), Error> {
         let actual = self.get_fcr_field("current_epoch_observed_justified_checkpoint", |fcr| {
-            fcr.current_epoch_observed_justified_checkpoint
+            fcr.current_epoch_observed_justified.checkpoint()
         })?;
         check_equal(
             "current_epoch_observed_justified_checkpoint",

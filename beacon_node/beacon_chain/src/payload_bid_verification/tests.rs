@@ -151,7 +151,8 @@ impl TestContext {
             PayloadStatus::Pending,
             FastConfirmationMode::Disabled,
             &spec,
-        );
+        )
+        .unwrap();
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),

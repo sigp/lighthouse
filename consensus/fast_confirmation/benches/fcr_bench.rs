@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use fast_confirmation::{BalanceSourceData, FastConfirmationRule};
+use fast_confirmation::{BalanceSourceData, CheckpointAndBalance, FastConfirmationRule};
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::{ProtoArray, VoteTracker};
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
@@ -138,34 +138,34 @@ fn build_chain(num_validators: usize) -> BenchData {
     // Build balance source.
     let total_active_balance = BALANCE.saturating_mul(num_validators as u64);
     let balance_source = BalanceSourceData {
-        checkpoint: justified_checkpoint,
+        dependent_root: justified_checkpoint.root,
         total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
         slashed: vec![false; num_validators],
     };
 
-    // Build FCR state.
+    // Build FCR state. `new` builds head assignments/balances from the state; the bench overwrites
+    // balances below, so a committee-cache-ready empty state suffices.
     let unrealized_justified_checkpoint = justified_checkpoint;
-    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, 25, 40);
+    let mut seed_state = BeaconState::<E>::new(0, Default::default(), &spec);
+    for relative_epoch in [
+        RelativeEpoch::Previous,
+        RelativeEpoch::Current,
+        RelativeEpoch::Next,
+    ] {
+        seed_state
+            .build_committee_cache(relative_epoch, &spec)
+            .expect("committee cache");
+    }
+    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, &seed_state, 25, 40)
+        .expect("fcr initialization");
     fcr.previous_slot_head = head_root;
     fcr.current_slot_head = head_root;
-    fcr.current_balance_source = balance_source.clone();
-    fcr.previous_balance_source = balance_source.clone();
-    fcr.current_epoch_observed_justified_checkpoint = justified_checkpoint;
-    fcr.previous_epoch_observed_justified_checkpoint = justified_checkpoint;
-
-    // Synthetic committee slot assignments: spread validators across the epoch.
-    // Canonical 3-column layout: column 0 (previous epoch) is left UNSET because
-    // the bench scenario runs entirely within epoch 0; columns 1 and 2 (current
-    // and next) hold the validator's slot.
-    let spe = E::slots_per_epoch() as usize;
-    let mut assignments = vec![fast_confirmation::UNSET_SLOT; num_validators * 3];
-    for val_idx in 0..num_validators {
-        let slot = Slot::new((val_idx % spe) as u64);
-        assignments[val_idx * 3 + 1] = slot;
-        assignments[val_idx * 3 + 2] = slot;
-    }
-    fcr.test_set_head_slot_assignments(assignments);
+    fcr.test_set_head_balance_source(balance_source.clone());
+    fcr.current_epoch_observed_justified =
+        CheckpointAndBalance::new(justified_checkpoint, balance_source.clone());
+    fcr.previous_epoch_observed_justified =
+        CheckpointAndBalance::new(justified_checkpoint, balance_source.clone());
 
     BenchData {
         proto_array,
@@ -189,7 +189,7 @@ fn build_chain(num_validators: usize) -> BenchData {
 fn bench_get_current_target_score(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_current_target_score");
 
-    for &n in &[64, 16_000, 100_000, 500_000] {
+    for &n in &[64, 16_000, 100_000, 500_000, 1_000_000] {
         let data = build_chain(n);
 
         if n >= 100_000 {
@@ -215,7 +215,7 @@ fn bench_get_current_target_score(c: &mut Criterion) {
 fn bench_precompute_chain_scores(c: &mut Criterion) {
     let mut group = c.benchmark_group("precompute_chain_scores");
 
-    for &n in &[64, 16_000, 100_000, 500_000] {
+    for &n in &[64, 16_000, 100_000, 500_000, 1_000_000] {
         let data = build_chain(n);
         let genesis_root = data.block_roots[0];
         // `block_roots[1..]` is exactly `get_ancestor_roots(head, genesis)` for this linear chain.
@@ -248,7 +248,7 @@ fn bench_precompute_chain_scores(c: &mut Criterion) {
 fn bench_get_latest_confirmed(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_latest_confirmed");
 
-    for &n in &[64, 16_000, 100_000, 500_000] {
+    for &n in &[64, 16_000, 100_000, 500_000, 1_000_000] {
         let data = build_chain(n);
 
         if n >= 100_000 {

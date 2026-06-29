@@ -74,9 +74,3 @@ pub(crate) static FCR_ADVANCE: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
         "Count of FCR advances of the confirmed root to a descendant",
     )
 });
-pub static FCR_BALANCE_SOURCE_AGE_EPOCHS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "beacon_fcr_balance_source_age_epochs",
-        "Age of the current balance source in epochs (current_epoch - balance_source_epoch)",
-    )
-});

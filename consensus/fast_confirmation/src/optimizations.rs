@@ -4,10 +4,75 @@
 //! per-block `get_attestation_score`) via a faster algorithm. They are deliberately kept out of
 //! `lib.rs` so that module reads as the spec algorithm.
 
-use crate::BalanceSourceData;
+use crate::{BalanceSourceData, Error};
 use proto_array::core::{ProtoArray, VoteTracker};
+use safe_arith::SafeArith;
 use std::collections::{BTreeSet, HashMap};
-use types::{Epoch, Hash256, Slot};
+use types::{Checkpoint, Epoch, Hash256, Slot};
+
+/// An observed-justified checkpoint paired with the balance snapshot anchored to it.
+///
+/// The fields are private and can only be set together through [`Self::new`], so the spec tracking
+/// variable and its `get_*_balance_source` data cannot drift apart by accident. The balances carry
+/// their own `checkpoint` (the one they were built for); [`Self::is_stale`] reports when that lags
+/// the tracked `checkpoint` and a rebuild is due.
+#[derive(Clone, Debug)]
+pub struct CheckpointAndBalance {
+    checkpoint: Checkpoint,
+    balances: BalanceSourceData,
+}
+
+impl CheckpointAndBalance {
+    pub fn new(checkpoint: Checkpoint, balances: BalanceSourceData) -> Self {
+        Self {
+            checkpoint,
+            balances,
+        }
+    }
+
+    pub fn checkpoint(&self) -> Checkpoint {
+        self.checkpoint
+    }
+
+    pub fn balances(&self) -> &BalanceSourceData {
+        &self.balances
+    }
+}
+
+/// Cached implementation of the spec's `get_attestation_score`.
+///
+/// The Python spec computes `get_attestation_score(store, node, balance_source)` independently
+/// for each candidate block. Lighthouse computes the same scores for a canonical chain segment in
+/// one pass and then serves individual `get_attestation_score` calls from this cache.
+pub(crate) struct AttestationScoreCache {
+    scores: HashMap<Hash256, u64>,
+}
+
+impl AttestationScoreCache {
+    pub(crate) fn for_chain(
+        proto_array: &ProtoArray,
+        chain: &[Hash256],
+        terminal_slot: Slot,
+        balance_source: &BalanceSourceData,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            scores: precompute_chain_attestation_scores(
+                proto_array,
+                chain,
+                terminal_slot,
+                balance_source,
+                votes,
+                equivocating_indices,
+            )?,
+        })
+    }
+
+    pub(crate) fn get_attestation_score(&self, block_root: Hash256) -> Option<u64> {
+        self.scores.get(&block_root).copied()
+    }
+}
 
 /// Identity hasher for `u64` keys that are already well-distributed (block-root byte prefixes).
 /// The per-vote memos resolve each vote's root/checkpoint at most once across the whole validator
@@ -165,7 +230,7 @@ pub fn precompute_chain_attestation_scores(
     balance_source: &BalanceSourceData,
     votes: &[VoteTracker],
     equivocating_indices: &BTreeSet<u64>,
-) -> HashMap<Hash256, u64> {
+) -> Result<HashMap<Hash256, u64>, Error> {
     let chain_len = chain.len();
     let mut score_at_position = vec![0u64; chain_len];
     let mut projector = ChainProjector::new(proto_array, chain, terminal_slot);
@@ -180,7 +245,10 @@ pub fn precompute_chain_attestation_scores(
             continue;
         }
         if let Some(pos) = projector.project(vote_root) {
-            score_at_position[pos] = score_at_position[pos].saturating_add(balance);
+            let score = score_at_position
+                .get_mut(pos)
+                .ok_or(Error::IndexOutOfBounds(pos))?;
+            *score = score.safe_add(balance)?;
         }
     }
 
@@ -188,8 +256,8 @@ pub fn precompute_chain_attestation_scores(
     let mut scores = HashMap::with_capacity(chain_len);
     let mut running = 0u64;
     for i in (0..chain_len).rev() {
-        running = running.saturating_add(score_at_position[i]);
+        running = running.safe_add(score_at_position[i])?;
         scores.insert(chain[i], running);
     }
-    scores
+    Ok(scores)
 }

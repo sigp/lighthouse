@@ -285,9 +285,23 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         head_payload_status: proto_array::PayloadStatus,
         fast_confirmation: FastConfirmationMode,
         spec: &ChainSpec,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let fcr = if fast_confirmation.is_enabled() {
+            Some(Mutex::new(
+                FastConfirmationRule::new(
+                    fork_choice_view.finalized_checkpoint,
+                    &snapshot.beacon_state,
+                    spec.confirmation_byzantine_threshold,
+                    spec.proposer_score_boost,
+                )
+                .map_err(|e| format!("Unable to initialize fast confirmation rule: {e:?}"))?,
+            ))
+        } else {
+            None
+        };
+
         let cached_head = CachedHead {
             snapshot,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
@@ -298,22 +312,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        let fcr = if fast_confirmation.is_enabled() {
-            Some(Mutex::new(FastConfirmationRule::new(
-                fork_choice_view.finalized_checkpoint,
-                spec.confirmation_byzantine_threshold,
-                spec.proposer_score_boost,
-            )))
-        } else {
-            None
-        };
-
-        Self {
+        Ok(Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
             fast_confirmation: fcr,
-        }
+        })
     }
 
     /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
@@ -383,9 +387,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         if let Some(ref fcr_mutex) = self.fast_confirmation {
             *fcr_mutex.lock() = FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
+                &self.cached_head.read().snapshot.beacon_state,
                 spec.confirmation_byzantine_threshold,
                 spec.proposer_score_boost,
-            );
+            )
+            .map_err(|e| Error::DBInconsistent(format!("fast confirmation rule reset: {e:?}")))?;
         }
 
         Ok(())
@@ -775,21 +781,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     equivocating_indices,
                     fcr_head_state,
                 ) {
-                    // During sync and just after checkpoint sync the head state can't yet
-                    // provide current-epoch committee assignments; FCR skips those ticks. These
-                    // are expected transients (never seen in steady state), so log them at debug
-                    // and don't count them as FCR errors.
-                    if matches!(
-                        e,
-                        fast_confirmation::Error::StaleStateForAssignments { .. }
-                            | fast_confirmation::Error::CommitteeCache(_)
-                    ) {
-                        debug!(error = ?e, "FCR: head state not ready, skipping tick");
-                    } else {
-                        error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
-                        let label: &'static str = (&e).into();
-                        metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
-                    }
+                    error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
+                    let label: &'static str = (&e).into();
+                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
                 } else {
                     let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
                     fcr_confirmed_root_changed = confirmed_root_changed;
@@ -839,12 +833,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             ));
                         }
                     }
-                    let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
-                    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-                    let age = current_epoch
-                        .as_u64()
-                        .saturating_sub(balance_epoch.as_u64());
-                    metrics::set_gauge(&fcr_metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
                 }
             }
         }
@@ -1034,11 +1022,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(el_update_handle))
     }
 
-    /// The current head's state pulled up to `slot` (spec `get_pulled_up_head_state`), with
-    /// committee caches built, as the Fast Confirmation Rule requires.
+    /// The current head's state pulled up as in spec `get_pulled_up_head_state`, with committee
+    /// caches built, as the Fast Confirmation Rule requires.
     ///
-    /// The state is taken from the cache (populated by `state_advance_timer`) and advanced to
-    /// `slot` if it lags behind. Returns `Ok(None)` if no state for `head_root` is cached.
+    /// Takes the best cached state for `head_root` (populated by `state_advance_timer`) and, if it
+    /// is still in an earlier epoch, advances it to the current epoch boundary. Within an epoch the
+    /// committee assignments and effective balances FCR reads are invariant, so a current-epoch
+    /// state needs no further advance. Returns `Ok(None)` if no state for `head_root` is cached.
     fn fcr_pulled_up_head_state(
         &self,
         head_root: Hash256,
@@ -1051,10 +1041,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // The cache is best-effort and may return a state at any slot <= `slot`; advance it so FCR
-        // sees the head pulled up to the current slot.
-        // TODO(fcr): Consider changing to same epoch state
-        complete_state_advance(&mut state, Some(state_root), slot, &self.spec)?;
+        // A previous-epoch head is pulled up to the current epoch boundary; a current-epoch
+        // head is already pulled up, so leave it as-is.
+        let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        if state.current_epoch() < current_epoch {
+            let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            complete_state_advance(&mut state, Some(state_root), epoch_start, &self.spec)?;
+        }
         state.build_all_caches(&self.spec)?;
         Ok(Some(state))
     }

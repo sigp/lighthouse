@@ -909,7 +909,8 @@ where
             head_payload_status,
             self.chain_config.fast_confirmation,
             &self.spec,
-        );
+        )
+        .map_err(|e| format!("Unable to initialize canonical head: {e}"))?;
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;

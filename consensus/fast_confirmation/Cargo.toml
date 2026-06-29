@@ -6,6 +6,7 @@ edition = { workspace = true }
 [dependencies]
 metrics = { workspace = true }
 proto_array = { workspace = true }
+safe_arith = { workspace = true }
 strum = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
