@@ -1,4 +1,5 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
+use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
 use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
@@ -14,6 +15,12 @@ use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, 
 use strum::IntoStaticStr;
 use tracing::{debug, debug_span, instrument};
 use types::{Hash256, Slot};
+
+/// An available block together with its optional Gloas payload envelope, as produced by
+/// `RangeSyncBlock::into_available_block` and consumed by `import_historical_block_batch`.
+///
+/// The envelope is `None` for pre-Gloas blocks (and for Gloas blocks with no payload data).
+pub type AvailableBlockWithEnvelope<E> = (AvailableBlock<E>, Option<AvailableEnvelope<E>>);
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -37,6 +44,9 @@ pub enum HistoricalBlockError {
     IndexOutOfBounds,
     /// Logic error: should never occur.
     MissingOldestBlockRoot { slot: Slot },
+    /// A Gloas block that expects blob data was provided without its payload envelope, so the
+    /// required data columns cannot be verified or persisted. Caller should retry/penalize.
+    MissingEnvelope { block_root: Hash256 },
     /// Internal store error
     StoreError(StoreError),
 }
@@ -70,7 +80,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
+        mut blocks: Vec<AvailableBlockWithEnvelope<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
@@ -80,7 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // This allows for reimport of the blobs/columns for the finalized block after checkpoint
         // sync.
-        let num_relevant = blocks.partition_point(|available_block| {
+        let num_relevant = blocks.partition_point(|(available_block, _envelope)| {
             available_block.block().slot() <= anchor_info.oldest_block_slot
         });
 
@@ -112,7 +122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
-        for available_block in blocks_to_import.into_iter().rev() {
+        for (available_block, envelope) in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
             if block.slot() == anchor_info.oldest_block_slot {
@@ -169,6 +179,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
             {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
+            }
+
+            // Persist the Gloas payload envelope and its data columns. For Gloas blocks the data
+            // columns are carried by the envelope rather than the block's `block_data`, so they
+            // must be stored from here.
+            match envelope {
+                Some(envelope) => {
+                    let (signed_envelope, columns) = envelope.deconstruct();
+                    if !columns.is_empty() {
+                        new_oldest_data_column_slot = Some(block.slot());
+                        if let Some(op) = self.get_blobs_or_columns_store_op(
+                            block_root,
+                            block.slot(),
+                            AvailableBlockData::DataColumns(columns),
+                        ) {
+                            blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
+                        }
+                    }
+                    self.store.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &signed_envelope,
+                        &mut hot_batch,
+                    );
+                }
+                None => {
+                    // A Gloas block that expects blobs must be accompanied by its envelope,
+                    // otherwise the required data columns cannot be verified or persisted.
+                    if block.num_expected_blobs() > 0 {
+                        return Err(HistoricalBlockError::MissingEnvelope { block_root });
+                    }
+                }
             }
 
             // Store block roots, including at all skip slots in the freezer DB.

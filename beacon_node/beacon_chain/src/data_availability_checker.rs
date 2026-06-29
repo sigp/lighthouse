@@ -35,6 +35,7 @@ use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
+use crate::payload_envelope_verification::AvailableEnvelope;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
@@ -502,6 +503,30 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
+        }
+
+        Ok(())
+    }
+
+    /// Batch verify the KZG proofs for the data columns carried by Gloas payload envelopes.
+    ///
+    /// For Gloas blocks the data columns are coupled to the payload envelope rather than the
+    /// block itself, so they are not covered by `batch_verify_kzg_for_available_blocks` (which
+    /// sees `AvailableBlockData::NoData` for Gloas). Each envelope's columns are verified against
+    /// the `blob_kzg_commitments` in its corresponding block's execution payload bid.
+    ///
+    /// Used during Gloas backfill sync to verify envelope columns before persisting them.
+    pub fn batch_verify_kzg_for_available_envelopes<'a>(
+        &self,
+        blocks_and_envelopes: impl Iterator<
+            Item = (
+                &'a AvailableBlock<T::EthSpec>,
+                &'a AvailableEnvelope<T::EthSpec>,
+            ),
+        >,
+    ) -> Result<(), AvailabilityCheckError> {
+        for (available_block, envelope) in blocks_and_envelopes {
+            verify_columns_against_block(&self.kzg, available_block.block(), &envelope.columns)?;
         }
 
         Ok(())

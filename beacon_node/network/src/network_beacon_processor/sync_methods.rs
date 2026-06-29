@@ -654,13 +654,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match downloaded_blocks
+
+        // Split each block into its `AvailableBlock` and (for Gloas) the coupled payload envelope.
+        // The envelope carries the data columns for Gloas blocks, so keep it paired with the block
+        // in order to verify (and later persist) it.
+        let blocks_and_envelopes = match downloaded_blocks
             .into_iter()
-            .map(|block| {
-                block
-                    .into_available_block()
-                    .map(|(available, _envelope)| available)
-            })
+            .map(|block| block.into_available_block())
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(blocks) => blocks,
@@ -675,35 +675,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        // TODO(gloas) when implementing backfill sync for gloas
-        // we need a batch verify kzg function in the new da checker
-        match self
+        let available_blocks = blocks_and_envelopes
+            .iter()
+            .map(|(available, _envelope)| available.clone())
+            .collect::<Vec<_>>();
+
+        // Map an availability check error to a chain segment failure. A `StoreError` is internal
+        // (no peer penalty); anything else is treated as a low-tolerance peer error.
+        let availability_err_to_segment_failed = |e: AvailabilityCheckError| match e {
+            AvailabilityCheckError::StoreError(_) => ChainSegmentFailed {
+                peer_action: None,
+                message: "Failed to check block availability".into(),
+            },
+            e => ChainSegmentFailed {
+                peer_action: Some(PeerAction::LowToleranceError),
+                message: format!("Failed to check block availability : {:?}", e),
+            },
+        };
+
+        // Verify the KZG proofs for the block data (blobs / Fulu columns).
+        if let Err(e) = self
             .chain
             .data_availability_checker
             .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(()) => {}
-            Err(e) => match e {
-                AvailabilityCheckError::StoreError(_) => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: None,
-                            message: "Failed to check block availability".into(),
-                        }),
-                    );
-                }
-                e => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: Some(PeerAction::LowToleranceError),
-                            message: format!("Failed to check block availability : {:?}", e),
-                        }),
-                    );
-                }
-            },
-        };
+            return (0, Err(availability_err_to_segment_failed(e)));
+        }
+
+        // Verify the KZG proofs for the data columns carried by Gloas payload envelopes. For Gloas
+        // blocks the columns live on the envelope rather than the block, so they are not covered by
+        // `batch_verify_kzg_for_available_blocks` above. The verified envelopes and their columns
+        // are persisted later by `import_historical_block_batch`.
+        if let Err(e) = self
+            .chain
+            .data_availability_checker
+            .batch_verify_kzg_for_available_envelopes(
+                blocks_and_envelopes
+                    .iter()
+                    .filter_map(|(block, envelope)| envelope.as_ref().map(|e| (block, e))),
+            )
+        {
+            return (0, Err(availability_err_to_segment_failed(e)));
+        }
 
         if available_blocks.len() != total_blocks {
             return (
@@ -719,7 +732,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         }
 
-        match self.chain.import_historical_block_batch(available_blocks) {
+        match self
+            .chain
+            .import_historical_block_batch(blocks_and_envelopes)
+        {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
@@ -761,6 +777,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         // This is an internal error, do not penalize the peer.
                         None
+                    }
+                    HistoricalBlockError::MissingEnvelope { block_root } => {
+                        debug!(
+                            ?block_root,
+                            error = "missing_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer is faulty if they send a Gloas block that expects blobs
+                        // without its payload envelope.
+                        Some(PeerAction::LowToleranceError)
                     }
 
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
