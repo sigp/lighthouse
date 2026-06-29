@@ -131,8 +131,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker
-            .custody_context()
+        self.custody_context
             .update_and_backfill_custody_count_at_epoch(epoch, expected_cgc);
 
         self.safely_backfill_data_column_custody_info(epoch)

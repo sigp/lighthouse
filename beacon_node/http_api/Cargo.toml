@@ -6,6 +6,8 @@ edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
 [dependencies]
+axum = { workspace = true }
+axum_utils = { workspace = true }
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
 bls = { workspace = true }
@@ -44,6 +46,7 @@ store = { workspace = true }
 sysinfo = { workspace = true }
 system_health = { path = "../../common/system_health" }
 task_executor = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }

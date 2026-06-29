@@ -11,7 +11,7 @@ use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::time::Duration;
 use superstruct::superstruct;
@@ -284,12 +284,12 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 /// information about the attestation.
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
-    slot: Slot,
-    attesting_indices: Vec<u64>,
-    block_root: Hash256,
-    target_epoch: Epoch,
+    pub slot: Slot,
+    pub attesting_indices: Vec<u64>,
+    pub block_root: Hash256,
+    pub target_epoch: Epoch,
     /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
-    payload_present: bool,
+    pub payload_present: bool,
 }
 
 /// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
@@ -313,25 +313,22 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
-/// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
-/// current slot. Also removes those values from `self.queued_attestations`.
-fn dequeue_attestations(
+/// Returns all attestations in `queued_attestations` with a slot earlier than the current slot,
+/// removing them from the queue.
+pub fn dequeue_attestations(
     current_slot: Slot,
-    queued_attestations: &mut Vec<QueuedAttestation>,
-) -> Vec<QueuedAttestation> {
-    let remaining = queued_attestations.split_off(
-        queued_attestations
-            .iter()
-            .position(|a| a.slot >= current_slot)
-            .unwrap_or(queued_attestations.len()),
-    );
+    queued_attestations: &mut BTreeMap<Slot, Vec<QueuedAttestation>>,
+) -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+    let remaining = queued_attestations.split_off(&current_slot);
+    let due = std::mem::replace(queued_attestations, remaining);
 
+    let dequeued_count: usize = due.values().map(Vec::len).sum();
     metrics::inc_counter_by(
         &metrics::FORK_CHOICE_DEQUEUED_ATTESTATIONS,
-        queued_attestations.len() as u64,
+        dequeued_count as u64,
     );
 
-    std::mem::replace(queued_attestations, remaining)
+    due
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
@@ -376,8 +373,9 @@ pub struct ForkChoice<T, E> {
     fc_store: T,
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
-    /// Attestations that arrived at the current slot and must be queued for later processing.
-    queued_attestations: Vec<QueuedAttestation>,
+    /// Attestations that arrived at the current slot and must be queued for later processing,
+    /// keyed by their slot.
+    queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     _phantom: PhantomData<E>,
@@ -474,7 +472,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: BTreeMap::new(),
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1349,8 +1347,11 @@ where
             // Attestations can only affect the fork choice of subsequent slots.
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
+            let queued_attestation = QueuedAttestation::from(attestation);
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .entry(queued_attestation.slot)
+                .or_default()
+                .push(queued_attestation);
         }
 
         Ok(())
@@ -1542,10 +1543,11 @@ where
     /// Processes and removes from the queue any queued attestations which may now be eligible for
     /// processing due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
-        for attestation in dequeue_attestations(
+        let dequeued = dequeue_attestations(
             self.fc_store.get_current_slot(),
             &mut self.queued_attestations,
-        ) {
+        );
+        for attestation in dequeued.into_values().flatten() {
             for validator_index in attestation.attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
@@ -1791,8 +1793,8 @@ where
         &self.fc_store
     }
 
-    /// Returns a reference to the currently queued attestations.
-    pub fn queued_attestations(&self) -> &[QueuedAttestation] {
+    /// Returns a reference to the currently queued attestations, keyed by slot.
+    pub fn queued_attestations(&self) -> &BTreeMap<Slot, Vec<QueuedAttestation>> {
         &self.queued_attestations
     }
 
@@ -1877,7 +1879,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: BTreeMap::new(),
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1990,20 +1992,33 @@ mod tests {
         }
     }
 
-    fn get_queued_attestations() -> Vec<QueuedAttestation> {
-        (1..4)
-            .map(|i| QueuedAttestation {
-                slot: Slot::new(i),
+    fn queue_from_slots(
+        slots: impl IntoIterator<Item = u64>,
+    ) -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+        let mut queued: BTreeMap<Slot, Vec<QueuedAttestation>> = BTreeMap::new();
+        for i in slots {
+            let slot = Slot::new(i);
+            queued.entry(slot).or_default().push(QueuedAttestation {
+                slot,
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
                 payload_present: false,
-            })
-            .collect()
+            });
+        }
+        queued
     }
 
-    fn get_slots(queued_attestations: &[QueuedAttestation]) -> Vec<u64> {
-        queued_attestations.iter().map(|a| a.slot.into()).collect()
+    fn get_queued_attestations() -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+        queue_from_slots(1..4)
+    }
+
+    fn get_slots(queued_attestations: &BTreeMap<Slot, Vec<QueuedAttestation>>) -> Vec<u64> {
+        queued_attestations
+            .values()
+            .flatten()
+            .map(|a| a.slot.into())
+            .collect()
     }
 
     fn test_queued_attestations(current_time: Slot) -> (Vec<u64>, Vec<u64>) {
@@ -2034,5 +2049,26 @@ mod tests {
         let (queued, dequeued) = test_queued_attestations(Slot::new(4));
         assert!(queued.is_empty());
         assert_eq!(dequeued, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn dequeue_attestations_out_of_order() {
+        // A future-slot vote enqueued before a vote that becomes due sooner must not block the
+        // due vote from being released.
+        let mut queued = queue_from_slots([4, 3]);
+
+        // At slot 4, the slot-3 vote is due (3 < 4) and must be released.
+        let dequeued = dequeue_attestations(Slot::new(4), &mut queued);
+
+        assert_eq!(
+            get_slots(&dequeued),
+            vec![3],
+            "slot-3 vote must be dequeued at slot 4"
+        );
+        assert_eq!(
+            get_slots(&queued),
+            vec![4],
+            "only the not-yet-due slot-4 vote should remain"
+        );
     }
 }

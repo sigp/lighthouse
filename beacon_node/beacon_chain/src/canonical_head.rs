@@ -1277,7 +1277,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         // Prune blobs in the background.
-        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+        if let Some(data_availability_boundary) = self.custody_context.data_availability_boundary()
+        {
             self.store_migrator
                 .process_prune_blobs(data_availability_boundary);
         }
