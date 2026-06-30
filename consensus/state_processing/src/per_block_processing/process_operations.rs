@@ -6,7 +6,7 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::{PublicKeyBytes, SignatureBytes};
+use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -967,62 +967,6 @@ pub fn is_pending_validator<'a>(
             )
             .is_ok()
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn apply_deposit_for_builder<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    builder_index_opt: Option<BuilderIndex>,
-    pubkey: PublicKeyBytes,
-    version: u8,
-    withdrawal_credentials: Hash256,
-    amount: u64,
-    signature: SignatureBytes,
-    slot: Slot,
-    spec: &ChainSpec,
-) -> Result<Option<BuilderIndex>, BeaconStateError> {
-    match builder_index_opt {
-        None => {
-            // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
-            let deposit_data = DepositData {
-                pubkey,
-                withdrawal_credentials,
-                amount,
-                signature,
-            };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                let builder_index = state.add_builder_to_registry(
-                    pubkey,
-                    version,
-                    withdrawal_credentials,
-                    amount,
-                    slot,
-                    spec,
-                )?;
-                Ok(Some(builder_index))
-            } else {
-                Ok(None)
-            }
-        }
-        Some(builder_index) => {
-            let current_epoch = state.current_epoch();
-            let builder = state
-                .builders_mut()?
-                .get_mut(builder_index as usize)
-                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?;
-
-            // Increase balance by deposit amount
-            builder.balance.safe_add_assign(amount)?;
-
-            // If exited, reset the withdrawable epoch
-            if builder.withdrawable_epoch != spec.far_future_epoch {
-                builder.withdrawable_epoch =
-                    current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
-            }
-
-            Ok(Some(builder_index))
-        }
-    }
 }
 
 // Make sure to build the pubkey cache before calling this function
