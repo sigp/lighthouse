@@ -2539,7 +2539,8 @@ mod release_tests {
             }
         }
 
-        // Advance to slot 2 without producing a block (skipped slot).
+        // Advance to Slot 2 without producing a block (skipped slot).
+        // The head is now Slot 2, but Slot 2 has no block (skipped slot)
         harness.advance_slot();
 
         let attestations_with_payload_present = harness.make_unaggregated_attestations(
@@ -2590,5 +2591,62 @@ mod release_tests {
                 );
             }
         }
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+
+        // Insert attestations with index 1
+        for committee_attestations in &attestations_with_payload_present {
+            for (attestation, _subnet_id) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        // Insert attestations with index 0
+        for (committee_attestations, _signed_aggregate_and_proof) in
+            &attestations_no_payload_present
+        {
+            for (attestation, _subnet_id) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        // Advance state to Slot 3 so that we can include attestations from Slot 2
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(3),
+            &spec,
+        )
+        .unwrap();
+
+        let attestations = op_pool
+            .get_attestations(&advanced_state, |_| true, |_| true, &spec)
+            .unwrap();
+
+        println!("attestation length = {:?}", attestations);
+        // Both sets of attestations (index=0 and index=1) should be included
+        assert!(
+            attestations.len() == 2,
+            "Expected at least 2 packed attestations (one per index value), got {}",
+            attestations.len()
+        );
+
+        // Attestations with index=1 (payload_present=true) should be included first because
+        // it matches the payload_present = true of the attested block
+        let first_attestation = &attestations[0];
+        assert_eq!(
+            first_attestation.data().index,
+            1,
+            "Attestations with index=1 (payload present) should be included first"
+        );
     }
 }
