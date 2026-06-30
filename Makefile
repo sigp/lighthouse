@@ -31,7 +31,7 @@ TEST_FEATURES ?=
 PROFILE ?= release
 
 # List of recent hard forks before Gloas. Used by tests that do not support Gloas yet.
-RECENT_FORKS_BEFORE_GLOAS=fulu
+RECENT_FORKS_BEFORE_GLOAS=gloas
 
 # List of all recent hard forks. This list is used to set env variables for several tests.
 # Include phase0 to test the code paths in sync that are pre blobs
