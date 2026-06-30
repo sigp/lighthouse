@@ -1243,6 +1243,10 @@ mod tests {
         )
     }
 
+    fn singleton_list<T: Clone, N: Unsigned>(x: &T) -> VariableList<T, N> {
+        VariableList::try_from(vec![x.clone()]).unwrap()
+    }
+
     /// Tests all error conditions except ssz decoding errors
     ///
     /// ***
@@ -1274,35 +1278,55 @@ mod tests {
         };
 
         // First check a valid request with all requests
-        assert!(
+        assert_eq!(
             ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsElectra {
+                deposits: singleton_list(&deposit_request),
+                withdrawals: singleton_list(&withdrawal_request),
+                consolidations: singleton_list(&consolidation_request),
+            }
         );
 
         // Single requests
-        assert!(
+        assert_eq!(
             ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsElectra {
+                deposits: singleton_list(&deposit_request),
+                withdrawals: Default::default(),
+                consolidations: Default::default(),
+            }
         );
 
-        assert!(
+        assert_eq!(
             ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsElectra {
+                deposits: Default::default(),
+                withdrawals: singleton_list(&withdrawal_request),
+                consolidations: Default::default(),
+            }
         );
 
-        assert!(
+        assert_eq!(
             ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsElectra {
+                deposits: Default::default(),
+                withdrawals: Default::default(),
+                consolidations: singleton_list(&consolidation_request),
+            }
         );
 
         // Out of order
@@ -1428,7 +1452,7 @@ mod tests {
         };
 
         // Valid request with all five request types, in ascending prefix order.
-        assert!(
+        assert_eq!(
             ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
@@ -1439,19 +1463,33 @@ mod tests {
                 ),
                 create_request_string(RequestType::BuilderExit.to_u8(), &builder_exit_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsGloas {
+                deposits: singleton_list(&deposit_request),
+                withdrawals: singleton_list(&withdrawal_request),
+                consolidations: singleton_list(&consolidation_request),
+                builder_deposits: singleton_list(&builder_deposit_request),
+                builder_exits: singleton_list(&builder_exit_request),
+            }
         );
 
         // A builder-less list is a valid Gloas value (builder lists are simply empty).
-        assert!(
+        assert_eq!(
             ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsGloas {
+                deposits: singleton_list(&deposit_request),
+                withdrawals: Default::default(),
+                consolidations: Default::default(),
+                builder_deposits: Default::default(),
+                builder_exits: Default::default(),
+            }
         );
 
         // Only builder requests.
-        assert!(
+        assert_eq!(
             ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
@@ -1459,7 +1497,14 @@ mod tests {
                 ),
                 create_request_string(RequestType::BuilderExit.to_u8(), &builder_exit_request),
             ]))
-            .is_ok()
+            .unwrap(),
+            ExecutionRequestsGloas {
+                deposits: Default::default(),
+                withdrawals: Default::default(),
+                consolidations: Default::default(),
+                builder_deposits: singleton_list(&builder_deposit_request),
+                builder_exits: singleton_list(&builder_exit_request),
+            }
         );
 
         // Out of order: builder exit must come after a builder deposit.
