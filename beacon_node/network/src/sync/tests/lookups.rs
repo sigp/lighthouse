@@ -1282,30 +1282,34 @@ impl TestRig {
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
-            // Gloas carries data columns in the payload envelope, not in `block_data`.
-            let envelope = self
-                .network_blocks_by_root
-                .get(&block_root)
-                .and_then(envelope_of)
-                .map(|envelope| AvailableEnvelope::new(envelope, columns.unwrap_or_default()));
-            RangeSyncBlock::new_gloas(block, envelope).unwrap()
-        } else {
-            let block_data = if let Some(columns) = columns {
-                AvailableBlockData::new_with_data_columns(columns)
-            } else if let Some(blobs) = blobs {
-                AvailableBlockData::new_with_blobs(blobs)
+        let range_sync_block =
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+                // Gloas carries data columns in the payload envelope, not in `block_data`.
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of)
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            columns.unwrap_or_default(),
+                            bid,
+                            &self.harness.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
+                RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
-                AvailableBlockData::NoData
+                let block_data = if let Some(columns) = columns {
+                    AvailableBlockData::new_with_data_columns(columns)
+                } else if let Some(blobs) = blobs {
+                    AvailableBlockData::new_with_blobs(blobs)
+                } else {
+                    AvailableBlockData::NoData
+                };
+                RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
             };
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.harness.chain.data_availability_checker,
-                self.harness.chain.spec.clone(),
-            )
-            .unwrap()
-        };
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
         self.network_blocks_by_root
@@ -1622,9 +1626,8 @@ impl TestRig {
     fn custody_columns(&self) -> &[ColumnIndex] {
         self.harness
             .chain
-            .data_availability_checker
-            .custody_context()
-            .custody_columns_for_epoch(None, &self.harness.spec)
+            .custody_context
+            .custody_columns_for_epoch(None)
     }
 
     // Test setup
@@ -2405,6 +2408,21 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
     assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
     r.assert_empty_network();
     r.assert_single_lookups_count(1);
+}
+
+#[tokio::test]
+/// A lookup that loses its only peer while still waiting to download the block must not report
+/// itself as awaiting an event, else `drop_lookups_without_peers` skips it and it gets stuck.
+/// Regression for the "Notify the devs a sync lookup is stuck" report.
+async fn peerless_lookup_awaiting_download_is_not_awaiting_event() {
+    let mut r = TestRig::default();
+    r.build_chain_and_trigger_last_block(1).await;
+    r.disconnect_all_peers();
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::Disconnected))
+        .await;
+    let lookup = &r.active_single_lookups()[0];
+    assert_eq!(lookup.peers.len(), 0);
+    assert!(!lookup.is_awaiting_event);
 }
 
 #[tokio::test]
