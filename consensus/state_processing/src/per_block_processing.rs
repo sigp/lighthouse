@@ -756,7 +756,7 @@ pub fn process_execution_payload_bid<E: EthSpec>(
         bid.slot == state.slot(),
         ExecutionPayloadBidInvalid::SlotMismatch {
             bid_slot: bid.slot,
-            block_slot: state.slot(),
+            state_slot: state.slot(),
         }
         .into()
     );

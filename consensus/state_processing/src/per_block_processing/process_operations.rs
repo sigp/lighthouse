@@ -887,6 +887,8 @@ fn process_builder_deposit_request<E: EthSpec>(
                 .get_mut(builder_index)
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index as u64))?;
 
+            // TODO(gloas): this is already different in `master`, needs an update when we go
+            // to spec 1.7.0-alpha.12+
             builder
                 .balance
                 .safe_add_assign(builder_deposit_request.amount)?;
