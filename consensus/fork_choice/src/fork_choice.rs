@@ -134,6 +134,7 @@ impl ResetPayloadStatuses {
 #[derive(Debug)]
 pub enum InvalidBlock {
     UnknownParent(Hash256),
+    ParentPayloadNotVerified(Hash256),
     FutureSlot {
         current_slot: Slot,
         block_slot: Slot,
@@ -815,6 +816,19 @@ where
             .proto_array
             .get_block(&block.parent_root())
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
+
+        // If the block builds on a full payload envelope, the envelope must be known.
+        if let Some(parent_block_hash) = parent_block.execution_payload_block_hash {
+            let builds_on_full = block
+                .body()
+                .signed_execution_payload_bid()
+                .is_ok_and(|bid| bid.message.parent_block_hash == parent_block_hash);
+            if builds_on_full && !self.is_payload_received(&block.parent_root()) {
+                return Err(Error::InvalidBlock(InvalidBlock::ParentPayloadNotVerified(
+                    block.parent_root(),
+                )));
+            }
+        }
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
         // they are in the past.
@@ -1633,9 +1647,10 @@ where
 
     /// Returns whether the proposer should extend the execution payload chain of the given block.
     pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        let current_slot = self.fc_store.get_current_slot();
         let proposer_boost_root = self.fc_store.proposer_boost_root();
         self.proto_array
-            .should_extend_payload::<E>(block_root, proposer_boost_root)
+            .should_extend_payload::<E>(block_root, current_slot, proposer_boost_root)
             .map_err(Error::ProtoArrayStringError)
     }
 
