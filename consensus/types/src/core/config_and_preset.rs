@@ -136,6 +136,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_beacon_builder".to_uppercase() => u32_hex(spec.domain_beacon_builder),
         "domain_ptc_attester".to_uppercase() => u32_hex(spec.domain_ptc_attester),
         "domain_proposer_preferences".to_uppercase() => u32_hex(spec.domain_proposer_preferences),
+        "domain_builder_deposit".to_uppercase() => u32_hex(spec.domain_builder_deposit),
         "sync_committee_subnet_count".to_uppercase() =>
             consts::altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>

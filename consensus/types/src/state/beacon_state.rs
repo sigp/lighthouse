@@ -2061,6 +2061,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn add_builder_to_registry(
         &mut self,
         pubkey: PublicKeyBytes,
+        version: u8,
         withdrawal_credentials: Hash256,
         amount: u64,
         slot: Slot,
@@ -2072,10 +2073,6 @@ impl<E: EthSpec> BeaconState<E> {
         let builder_index = self.get_index_for_new_builder()?;
         let builders = self.builders_mut()?;
 
-        let version = *withdrawal_credentials
-            .as_slice()
-            .first()
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
         let execution_address = withdrawal_credentials
             .as_slice()
             .get(12..)
