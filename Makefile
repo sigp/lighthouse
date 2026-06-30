@@ -218,7 +218,7 @@ test-http-api-%:
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
-test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-op-pool: $(patsubst %,test-op-pool-%,$(TEST_OP_POOL_FORKS))
 
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
