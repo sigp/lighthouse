@@ -503,10 +503,11 @@ pub struct ValidatorClient {
         long,
         help = "Disable the payload available monitor. This monitor listens for notifications from \
                 beacon nodes indicating when a new payload (execution block) is available and attempts \
-                to attest as soon as a notification is received. Keeping this monitor enabled can help \
-                your validator produce more timely attestations whenever payloads become available, \
-                by leveraging the fastest of your configured beacon nodes.",
+                to attest as soon as a notification is received. This monitor is enabled by default. \
+                Keeping it enabled can help your validator produce more timely attestations whenever \
+                payloads become available, by leveraging the fastest of your configured beacon nodes.",
         display_order = 0,
+        default_value = "true",
         help_heading = FLAG_HEADER
     )]
     pub disable_payload_available_monitor: bool,

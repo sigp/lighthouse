@@ -204,9 +204,10 @@ Flags:
           Disable the payload available monitor. This monitor listens for
           notifications from beacon nodes indicating when a new payload
           (execution block) is available and attempts to attest as soon as a
-          notification is received. Keeping this monitor enabled can help your
-          validator produce more timely attestations whenever payloads become
-          available, by leveraging the fastest of your configured beacon nodes.
+          notification is received. This monitor is enabled by default. Keeping
+          it enabled can help your validator produce more timely attestations
+          whenever payloads become available, by leveraging the fastest of your
+          configured beacon nodes.
       --disable-proposer-duties-v2
           Fetch proposer duties using the v1 beacon node endpoint instead of v2.
           The v1 endpoint reports an incorrect dependent root which causes

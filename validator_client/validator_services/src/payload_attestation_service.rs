@@ -487,74 +487,9 @@ mod tests {
     }
 
     impl TestHarness {
-        async fn create_validators(num_validators: usize) -> Self {
-            let mut default_spec = MainnetEthSpec::default_spec();
-            default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-            let spec = Arc::new(default_spec);
-
-            let test_runtime = TestRuntime::default();
-            let executor = test_runtime.task_executor.clone();
-            let slot_duration = spec.get_slot_duration();
-            let slot_clock =
-                ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-
-            let (validator_store, pubkeys, validator_dir) = create_validator_store(
-                slot_clock.clone(),
-                spec.clone(),
-                executor.clone(),
-                num_validators,
-            )
-            .await;
-
-            let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-            let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-            let beacon_node_1 =
-                CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-            let beacon_node_2 =
-                CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-
-            let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-                vec![beacon_node_1, beacon_node_2],
-                BeaconNodeConfig::default(),
-                vec![],
-                spec.clone(),
-            ));
-
-            let duties_service = Arc::new(
-                DutiesServiceBuilder::new()
-                    .validator_store(validator_store.clone())
-                    .slot_clock(slot_clock.clone())
-                    .beacon_nodes(beacon_node_fallback.clone())
-                    .executor(executor.clone())
-                    .spec(spec.clone())
-                    .build()
-                    .unwrap(),
-            );
-
-            let service = PayloadAttestationService::new(
-                duties_service,
-                validator_store,
-                slot_clock,
-                beacon_node_fallback,
-                executor,
-                spec,
-                None,
-            );
-
-            Self {
-                mock_beacon_node_1,
-                mock_beacon_node_2,
-                service,
-                pubkeys,
-                _test_runtime: test_runtime,
-                _validator_dir: validator_dir,
-            }
-        }
-
-        async fn create_validators_with_channel(
+        async fn create_validators(
             num_validators: usize,
-            payload_rx: mpsc::Receiver<PayloadAvailableEvent>,
+            payload_rx: Option<mpsc::Receiver<PayloadAvailableEvent>>,
         ) -> Self {
             let mut default_spec = MainnetEthSpec::default_spec();
             default_spec.gloas_fork_epoch = Some(Epoch::new(0));
@@ -600,7 +535,6 @@ mod tests {
                     .unwrap(),
             );
 
-            // Key difference: Some(Mutex::new(payload_rx)) instead of None
             let service = PayloadAttestationService::new(
                 duties_service,
                 validator_store,
@@ -608,7 +542,7 @@ mod tests {
                 beacon_node_fallback,
                 executor,
                 spec,
-                Some(Mutex::new(payload_rx)),
+                payload_rx.map(Mutex::new), // converts Option<Receiver> to Option<Mutex<Receiver>>
             );
 
             Self {
@@ -650,7 +584,7 @@ mod tests {
     async fn test_wait_for_attestation_slot() {
         tokio::time::pause();
 
-        let harness = TestHarness::create_validators(1).await;
+        let harness = TestHarness::create_validators(1, None).await;
         let service = &harness.service;
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
@@ -684,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -753,7 +687,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -815,7 +749,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_duties_no_publish() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
 
         // we do not insert any duties in this test
         let mock = harness
@@ -849,7 +783,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_payload_attestation_data_error() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
 
         let attestation_slot = Slot::new(1);
         // We have PTC duties
@@ -896,7 +830,7 @@ mod tests {
     #[tokio::test]
     async fn publish_multiple_payload_attestation_messages() {
         // Create 3 validators with 1 PTC duty for each validator
-        let mut harness = TestHarness::create_validators(3).await;
+        let mut harness = TestHarness::create_validators(3, None).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -950,7 +884,7 @@ mod tests {
 
     #[tokio::test]
     async fn early_event_uses_specific_beacon_node() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
 
@@ -964,7 +898,7 @@ mod tests {
 
         // Only node 1 (index 0) is set up for GET.
         // If the code incorrectly calls first_success and hits node 2, it would fail.
-        harness
+        let mock_get = harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
                 &payload_attestation,
@@ -988,6 +922,7 @@ mod tests {
             .unwrap();
 
         mock_ssz.expect(1).assert();
+        mock_get.expect(1).assert();
 
         let messages = harness
             .mock_beacon_node_1
@@ -1000,7 +935,7 @@ mod tests {
 
     #[tokio::test]
     async fn early_event_block_root_mismatch_falls_back_to_first_success() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
 
@@ -1017,7 +952,7 @@ mod tests {
         // Node 1 returns actual_block_root, but the event says event_block_root.
         // run_on_candidate_index should detect mismatch, warn, then fall back to first_success.
         // first_success calls node 1 again (no block root check) and succeeds.
-        harness
+        let mock_get = harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
                 &payload_attestation,
@@ -1042,6 +977,9 @@ mod tests {
 
         // Despite the mismatch, the fallback path still published successfully.
         mock_ssz.expect(1).assert();
+        // Assert GET was called twice: once in run_on_candidate_index (fails due to mismatch),
+        // once in first_success (succeeds)
+        mock_get.expect(2).assert();
 
         let messages = harness
             .mock_beacon_node_1
@@ -1053,7 +991,7 @@ mod tests {
 
     #[tokio::test]
     async fn early_event_node_error_falls_back_to_first_success() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut harness = TestHarness::create_validators(1, None).await;
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
 
@@ -1114,7 +1052,7 @@ mod tests {
     #[tokio::test]
     async fn poll_for_payload_available_event_filters_stale_events() {
         let (payload_tx, payload_rx) = mpsc::channel::<PayloadAvailableEvent>(10);
-        let harness = TestHarness::create_validators_with_channel(1, payload_rx).await;
+        let harness = TestHarness::create_validators(1, Some(payload_rx)).await;
 
         // Advance to slot 1
         let slot_duration = harness.service.chain_spec.get_slot_duration();
