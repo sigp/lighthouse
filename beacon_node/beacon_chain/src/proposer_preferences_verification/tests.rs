@@ -4,6 +4,7 @@ use std::time::Duration;
 use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use parking_lot::{Mutex, RwLock};
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, MemoryStore, StoreConfig};
@@ -14,6 +15,7 @@ use types::{
 
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
+    beacon_proposer_cache::BeaconProposerCache,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
     proposer_preferences_verification::{
@@ -24,6 +26,7 @@ use crate::{
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
     test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
+    validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
 type E = MinimalEthSpec;
@@ -38,6 +41,9 @@ struct TestContext {
     spec: ChainSpec,
     store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
     head_block_root: Hash256,
+    beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
+    genesis_validators_root: Hash256,
 }
 
 impl TestContext {
@@ -103,6 +109,12 @@ impl TestContext {
             spec.get_slot_duration(),
         );
 
+        let genesis_validators_root = state.genesis_validators_root();
+        let validator_pubkey_cache = RwLock::new(
+            ValidatorPubkeyCache::new(&state, store.clone())
+                .expect("should build validator pubkey cache"),
+        );
+
         Self {
             canonical_head,
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
@@ -110,6 +122,9 @@ impl TestContext {
             spec,
             store,
             head_block_root: block_root,
+            beacon_proposer_cache: Mutex::new(BeaconProposerCache::default()),
+            validator_pubkey_cache,
+            genesis_validators_root,
         }
     }
 
@@ -120,6 +135,9 @@ impl TestContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            beacon_proposer_cache: &self.beacon_proposer_cache,
+            validator_pubkey_cache: &self.validator_pubkey_cache,
+            genesis_validators_root: self.genesis_validators_root,
         }
     }
 
