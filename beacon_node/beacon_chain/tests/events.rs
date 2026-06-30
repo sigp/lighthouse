@@ -8,7 +8,7 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
     ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
@@ -434,9 +434,19 @@ async fn proposer_preferences_event_on_gossip_verification() {
         .get(lookahead_index)
         .expect("lookahead index should be in range");
 
+    // The dependent root must be the proposer shuffling decision block for the proposal epoch, so
+    // gossip verification can resolve the proposer shuffling from it.
+    let dependent_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            head.head_block_root(),
+            &harness.spec,
+        )
+        .expect("should compute proposer shuffling decision root");
+
     // Build and sign proposer preferences for the proposer of `proposal_slot`.
     let preferences = ProposerPreferences {
-        dependent_root: Hash256::ZERO,
+        dependent_root,
         proposal_slot,
         validator_index,
         fee_recipient: Address::repeat_byte(0xaa),
