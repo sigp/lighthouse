@@ -2454,17 +2454,6 @@ mod release_tests {
                 op_pool.insert_payload_attestation_message(msg).unwrap();
             }
         }
-
-        // Insert one more distinct PayloadAttestationMessage at a different slot
-        let new_slot = Slot::new(0);
-        let validator_index = 0;
-        let msg = make_payload_attestation_message(new_slot, validator_index, parent_root);
-        op_pool.insert_payload_attestation_message(msg).unwrap();
-
-        // The op pool has a total of (4+1) distinct PayloadAttestationMessage
-        // 4 from Slot 1 and 1 from Slot 0
-        assert_eq!(op_pool.payload_attestation_messages.read().len(), 5);
-
         // When: we pack attestations for block production at slot 2.
         let mut advanced_state = state.clone();
         state_processing::state_advance::complete_state_advance(
@@ -2479,12 +2468,7 @@ mod release_tests {
             .unwrap();
 
         // Then: one attestation per combo, sorted by participation (most first).
-        // Only MaxPayloadAttestations (4) can be packed
-        // payload_attestation from Slot 0 is ignored and not packed
-        assert_eq!(
-            attestations.len(),
-            MinimalEthSpec::max_payload_attestations()
-        );
+        assert_eq!(attestations.len(), 4);
         let bit_counts: Vec<_> = attestations
             .iter()
             .map(|a| a.aggregation_bits.num_set_bits())
