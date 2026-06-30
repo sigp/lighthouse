@@ -133,8 +133,7 @@ impl GossipVerifiedProposerPreferences {
             });
         }
 
-        // Verify the signature using the proposer's pubkey from the validator pubkey cache and the
-        // fork from the proposer cache, avoiding a state load on the hot path.
+        // Verify the signature using the proposer's pubkey from the validator pubkey cache
         let signature_is_valid = {
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let pubkey = pubkey_cache
