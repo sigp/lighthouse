@@ -1363,37 +1363,43 @@ fn estimate_committee_weight_between_slots<E: EthSpec>(
 
     let start_epoch = start_slot.as_u64().safe_div(spe)?;
     let end_epoch = end_slot.as_u64().safe_div(spe)?;
+    let committee_weight = total_active_balance.safe_div(spe)?;
 
     if start_epoch == end_epoch {
         let num_slots = end_slot
             .as_u64()
             .safe_sub(start_slot.as_u64())?
             .safe_add(1)?;
-        return Ok(total_active_balance.safe_div(spe)?.safe_mul(num_slots)?);
+        Ok(committee_weight.safe_mul(num_slots)?)
+    } else {
+        // A range that spans an epoch boundary, but does not span any full epoch
+        // needs pro-rata calculation
+
+        // See https://gist.github.com/saltiniroberto/9ee53d29c33878d79417abb2b4468c20
+        // for an explanation of the formula used below.
+
+        // First, calculate the number of committees in the end epoch
+        let slots_since_end_epoch = end_slot.as_u64().safe_rem(spe)?;
+        let num_slots_in_end_epoch = slots_since_end_epoch.safe_add(1)?;
+        // Next, calculate the number of slots remaining in the end epoch
+        let remaining_slots_in_end_epoch = spe.safe_sub(num_slots_in_end_epoch)?;
+
+        // Then, calculate the number of slots in the start epoch
+        let slots_since_start_epoch = start_slot.as_u64().safe_rem(spe)?;
+        let num_slots_in_start_epoch = spe.safe_sub(slots_since_start_epoch)?;
+
+        let start_epoch_weight = committee_weight.safe_mul(num_slots_in_start_epoch)?;
+        let end_epoch_weight = committee_weight.safe_mul(num_slots_in_end_epoch)?;
+
+        let start_epoch_weight_pro_rated = start_epoch_weight
+            .safe_div(spe)?
+            .safe_mul(remaining_slots_in_end_epoch)?;
+
+        // Each committee from the end epoch only contributes a pro-rated weight
+        adjust_committee_weight_estimate_to_ensure_safety(
+            start_epoch_weight_pro_rated.safe_add(end_epoch_weight)?,
+        )
     }
-
-    // Cross-epoch boundary but not covering a full epoch.
-    let slots_since_start_epoch = start_slot.as_u64().safe_rem(spe)?;
-    let num_slots_in_start_epoch = spe.safe_sub(slots_since_start_epoch)?;
-
-    let slots_since_end_epoch = end_slot.as_u64().safe_rem(spe)?;
-    let num_slots_in_end_epoch = slots_since_end_epoch.safe_add(1)?;
-    let remaining_slots_in_end_epoch = spe.safe_sub(num_slots_in_end_epoch)?;
-
-    let start_epoch_weight = total_active_balance
-        .safe_div(spe)?
-        .safe_mul(num_slots_in_start_epoch)?;
-    let end_epoch_weight = total_active_balance
-        .safe_div(spe)?
-        .safe_mul(num_slots_in_end_epoch)?;
-
-    let start_epoch_weight_pro_rated = start_epoch_weight
-        .safe_div(spe)?
-        .safe_mul(remaining_slots_in_end_epoch)?;
-
-    adjust_committee_weight_estimate_to_ensure_safety(
-        start_epoch_weight_pro_rated.safe_add(end_epoch_weight)?,
-    )
 }
 
 #[cfg(test)]
