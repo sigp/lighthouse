@@ -57,12 +57,14 @@ impl BalanceSourceData {
         self.effective_balances.get(val_idx).copied().unwrap_or(0)
     }
 
-    pub(crate) fn unslashed_and_active_indices(&self) -> impl Iterator<Item = usize> + '_ {
+    pub(crate) fn unslashed_and_active_indices(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
         self.effective_balances
             .iter()
+            .copied()
             .enumerate()
             .filter_map(|(i, balance)| {
-                (*balance > 0 && !self.slashed.get(i).copied().unwrap_or(false)).then_some(i)
+                (balance > 0 && !self.slashed.get(i).copied().unwrap_or(false))
+                    .then_some((i, balance))
             })
     }
 

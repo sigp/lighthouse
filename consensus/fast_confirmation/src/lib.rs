@@ -666,11 +666,6 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     /// Spec: `get_block_support_between_slots`.
-    /// Counts weight of validators whose latest vote is for EXACTLY `block_root`
-    /// (not descendants) and whose committee assignment is in [start_slot, end_slot].
-    /// Equivalent to the spec's `participants` set, but iterates validators with latest
-    /// messages and tests committee membership with precomputed head assignments instead of
-    /// materializing all committee participants for the slot range.
     fn get_block_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
@@ -680,10 +675,17 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
+        // Spec: sum effective balance of validators that:
+        // - Are assigned to attest in a committee in the `range(start_slot, end_slot + 1)`
+        // - Are active in `balance_source` tracked here as `balance > 0`
+        // - Are not slashed in `balance_source` tracked here as `slashed == false`
+        // - Do not belong to the `store.equivocating_indices` set
+        // - Their vote is for exactly `block_root`
         let mut score = 0u64;
-        for (val_idx, vote) in votes.iter().enumerate() {
-            let balance = balance_source.unslashed_balance(val_idx);
-            // `balance > 0` is the spec's active-and-unslashed validator filter.
+        for (val_idx, balance) in balance_source.unslashed_and_active_indices() {
+            let Some(vote) = votes.get(val_idx) else {
+                continue;
+            };
             if balance > 0
                 && self
                     .head_assignments
@@ -892,9 +894,9 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
         let mut score = 0u64;
-        // Spec: Sum the balance of validators that:
+        // Spec: Sum the effective balance of validators that:
         // - Belong to the `store.equivocating_indices` set
-        // - As assigned to attest in a committee in the `range(start_slot, end_slot + 1)`
+        // - Are assigned to attest in a committee in the `range(start_slot, end_slot + 1)`
         // - Are active in `balance_source` tracked here as `balance > 0`
         for &idx in equivocating_indices {
             let idx = idx as usize;
@@ -988,32 +990,28 @@ impl FastConfirmationRule {
         let mut balance_by_vote_checkpoint =
             optimizations::RootBalanceMap::<(Hash256, Epoch)>::new();
 
-        // Spec: iterate `unslashed_and_active_indices`; zero roots mean no latest message.
-        for val_idx in self.head_balance_source.unslashed_and_active_indices() {
-            let Some(vote) = votes.get(val_idx) else {
-                continue;
-            };
-            let vote_root = vote.current_root();
-            // Spec: get_latest_message_epoch(latest_messages[i]).
-            let vote_epoch = vote.current_slot().epoch(E::slots_per_epoch());
-
-            if !vote_root.is_zero()
-                && vote_epoch == target.epoch
-                && !equivocating_indices.contains(&(val_idx as u64))
-            {
-                balance_by_vote_checkpoint.add(
-                    (vote_root, vote_epoch),
-                    self.head_balance_source.balance(val_idx),
-                )?;
-            }
-        }
-
         // Spec: sum the effective balance of validators that:
         // - Are active the current epoch
         // - Are not slashed in the current epoch
         // - Don't belong in the equivocating_indices set
         // - Have a vote for the current target
         let mut score = 0u64;
+
+        for (val_idx, balance) in self.head_balance_source.unslashed_and_active_indices() {
+            let Some(vote) = votes.get(val_idx) else {
+                continue;
+            };
+            let vote_root = vote.current_root();
+            // Spec: get_latest_message_epoch(latest_messages[i]).
+            let vote_epoch = vote.current_slot().epoch(E::slots_per_epoch());
+            // vote_root.is_zero() == true means no latest message
+            if !vote_root.is_zero()
+                && vote_epoch == target.epoch
+                && !equivocating_indices.contains(&(val_idx as u64))
+            {
+                balance_by_vote_checkpoint.add((vote_root, vote_epoch), balance)?;
+            }
+        }
 
         for ((vote_root, vote_epoch), balance) in balance_by_vote_checkpoint.iter() {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
