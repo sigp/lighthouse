@@ -137,6 +137,19 @@ fn operations_consolidations() {
 }
 
 #[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn operations_builder_deposit_requests() {
+    OperationsHandler::<MinimalEthSpec, BuilderDepositRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, BuilderDepositRequest>::default().run();
+}
+
+#[test]
+fn operations_builder_exit_requests() {
+    OperationsHandler::<MinimalEthSpec, BuilderExitRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, BuilderExitRequest>::default().run();
+}
+
+#[test]
 fn operations_bls_to_execution_change() {
     OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();
     OperationsHandler::<MainnetEthSpec, SignedBlsToExecutionChange>::default().run();
@@ -792,9 +805,19 @@ mod ssz_static {
 
     #[test]
     fn execution_requests() {
-        SszStaticHandler::<ExecutionRequests<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<ExecutionRequestsElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<ExecutionRequestsElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<ExecutionRequestsElectra<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
             .run();
-        SszStaticHandler::<ExecutionRequests<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<ExecutionRequestsElectra<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
+            .run();
+        SszStaticHandler::<ExecutionRequestsGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<ExecutionRequestsGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
     }
 
@@ -803,6 +826,18 @@ mod ssz_static {
     fn builder() {
         SszStaticHandler::<Builder, MinimalEthSpec>::gloas_and_later().run();
         SszStaticHandler::<Builder, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn builder_deposit_request() {
+        SszStaticHandler::<BuilderDepositRequest, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderDepositRequest, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn builder_exit_request() {
+        SszStaticHandler::<BuilderExitRequest, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderExitRequest, MainnetEthSpec>::gloas_and_later().run();
     }
 
     #[test]
@@ -1111,6 +1146,18 @@ fn fork_choice_get_parent_payload_status() {
 fn fork_choice_on_payload_attestation_message() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_payload_attestation_message").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("on_payload_attestation_message").run();
+}
+
+#[test]
+fn fork_choice_payload_timeliness() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("payload_timeliness").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("payload_timeliness").run();
+}
+
+#[test]
+fn fork_choice_payload_data_availability() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("payload_data_availability").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("payload_data_availability").run();
 }
 
 #[test]

@@ -41,13 +41,13 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::data::BlobIdentifier;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256, MainnetEthSpec,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
+use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;
@@ -1968,7 +1968,7 @@ fn make_test_payload_envelope(
                 slot_number: slot,
                 ..ExecutionPayloadGloas::default()
             },
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: ExecutionRequestsGloas::default(),
             builder_index: 0,
             beacon_block_root,
             parent_beacon_block_root: Hash256::ZERO,

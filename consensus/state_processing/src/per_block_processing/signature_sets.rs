@@ -2,7 +2,6 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use super::builder::{convert_validator_index_to_builder_index, is_builder_index};
 use bls::{AggregateSignature, PublicKey, PublicKeyBytes, Signature, SignatureSet};
 use ssz::DecodeError;
 use std::borrow::Cow;
@@ -520,7 +519,10 @@ pub fn deposit_pubkey_signature_message(
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
-/// validator (or builder, in the case of a builder exit).
+/// validator.
+///
+/// It is invalid for voluntary exits to be signed by builders. Builder exits are made via execution
+/// requests per EIP-8282.
 pub fn exit_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
@@ -534,16 +536,8 @@ where
     let exit = &signed_exit.message;
     let validator_index = exit.validator_index;
 
-    let is_builder_exit =
-        state.fork_name_unchecked().gloas_enabled() && is_builder_index(validator_index);
-
-    let pubkey = if is_builder_exit {
-        let builder_index = convert_validator_index_to_builder_index(validator_index);
-        get_builder_pubkey_from_state(state, builder_index)
-            .ok_or(Error::ValidatorUnknown(validator_index))?
-    } else {
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?
-    };
+    let pubkey =
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?;
 
     let domain = if state.fork_name_unchecked().deneb_enabled() {
         // EIP-7044

@@ -35,8 +35,9 @@ use types::builder::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
-    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
+    ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use warp::{
     Filter, Rejection,
@@ -606,7 +607,13 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: maybe_requests
+                            .map(|r| ExecutionRequestsElectra {
+                                deposits: r.deposits().clone(),
+                                withdrawals: r.withdrawals().clone(),
+                                consolidations: r.consolidations().clone(),
+                            })
+                            .unwrap_or_default(),
                     }),
                     ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                         header: payload
@@ -618,7 +625,13 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: maybe_requests
+                            .map(|r| ExecutionRequestsElectra {
+                                deposits: r.deposits().clone(),
+                                withdrawals: r.withdrawals().clone(),
+                                consolidations: r.consolidations().clone(),
+                            })
+                            .unwrap_or_default(),
                     }),
                     ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                         header: payload
