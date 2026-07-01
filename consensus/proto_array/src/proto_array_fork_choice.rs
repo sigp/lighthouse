@@ -259,20 +259,6 @@ pub struct Block {
 }
 
 impl Block {
-    /// The execution block hash to advertise to the execution layer when this block is used
-    /// as a justified, finalized, or FCR-confirmed checkpoint.
-    ///
-    /// Returns the block's own payload hash when known (`execution_status`), falling back to
-    /// the parent payload hash. The fallback matters for Gloas blocks, whose `execution_status`
-    /// is `Irrelevant` (the payload is decoupled from the block): the payload of a checkpoint
-    /// block is not itself justified/finalized, since it is applied immediately prior to the
-    /// next block.
-    pub fn justified_finalized_payload_hash(&self) -> Option<ExecutionBlockHash> {
-        self.execution_status
-            .block_hash()
-            .or(self.execution_payload_parent_hash)
-    }
-
     /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
     ///
     /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
