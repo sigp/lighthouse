@@ -282,8 +282,7 @@ impl FastConfirmationRule {
             }
         }
 
-        // Spec: update_fast_confirmation_variables is called once per slot,
-        // at the attestation deadline. Guard against duplicate calls within the same slot.
+        // Spec: update_fast_confirmation_variables must be called at most once per slot.
         if self.last_update_slot.is_none_or(|s| current_slot > s) {
             // Rotate the slot heads unconditionally, once per slot (spec).
             self.previous_slot_head = self.current_slot_head;
