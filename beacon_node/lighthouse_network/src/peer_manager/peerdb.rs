@@ -29,10 +29,6 @@ const MAX_DC_PEERS: usize = 500;
 pub const MAX_BANNED_PEERS: usize = 1000;
 /// We ban an IP if there are more than `BANNED_PEERS_PER_IP_THRESHOLD` banned peers with this IP.
 const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
-/// The prefix length for grouping IPv6 addresses when banning peers.
-/// Most ISPs allocate /56 prefixes to users, so we group banned peers under this prefix
-/// to prevent attackers from generating new IPv6 addresses within their allocation to avoid bans.
-const IPV6_BANNED_GROUPING_PREFIX: u8 = 56;
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
