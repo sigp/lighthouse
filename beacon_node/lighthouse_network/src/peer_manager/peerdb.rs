@@ -1419,33 +1419,24 @@ pub struct BannedPeersCount {
     banned_peers_per_ip: HashMap<IpAddr, usize>,
 }
 
-/// Normalizes an IP address for banning purposes.
-/// For IPv4 addresses, returns the address unchanged.
-/// For IPv6 addresses, returns the address masked to the /X prefix specified by IPV6_BANNED_GROUPING_PREFIX.
-/// This groups IPv6 addresses by subnet to prevent attackers from generating new addresses to avoid bans.
+/// Normalizes an IP address for grouped ban counting.
+///
+/// For [`IpAddr::V4`] the address is returned unchanged.
+///
+/// For [`IpAddr::V6`] the address is masked to the /56 prefix (typical ISP
+/// allocation size for residential users), zeroing out the lower 72 host bits.
+/// This groups all addresses from the same ISP-allocated /56 subnet under a
+/// single key in the ban counter map, preventing attackers from evading bans
+/// by cycling through addresses in their allocation.
 fn normalize_ip_for_banning(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V4(_) => ip,
         IpAddr::V6(ipv6) => {
-            const PREFIX_BITS: u8 = IPV6_BANNED_GROUPING_PREFIX;
-            const FULL_SEGMENTS: usize = (PREFIX_BITS / 16) as usize;
-            const REMAINING_BITS: u8 = PREFIX_BITS % 16;
-
-            let segments = ipv6.segments();
-            let mut masked_segments = [0u16; 8];
-
-            masked_segments[..FULL_SEGMENTS].copy_from_slice(&segments[..FULL_SEGMENTS]);
-
-            if FULL_SEGMENTS < 8 && REMAINING_BITS > 0 {
-                const MASK: u16 = !((1u16 << (16 - REMAINING_BITS)) - 1);
-                masked_segments[FULL_SEGMENTS] = segments[FULL_SEGMENTS] & MASK;
-            }
-
-            IpAddr::V6(std::net::Ipv6Addr::from(masked_segments))
+            const MASK: u128 = 0xFFFF_FFFF_FFFF_FF00_0000_0000_0000_0000;
+            IpAddr::V6(std::net::Ipv6Addr::from(u128::from(ipv6) & MASK))
         }
     }
 }
-
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
