@@ -13,6 +13,8 @@ pub struct BuilderPendingPayment {
     #[serde(with = "serde_utils::quoted_u64")]
     pub weight: u64,
     pub withdrawal: BuilderPendingWithdrawal,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub proposer_index: u64,
 }
 
 #[cfg(test)]
