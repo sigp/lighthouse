@@ -117,6 +117,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
+        // Track the child block's bid `parent_block_hash` while iterating backwards, in order to
+        // determine each Gloas block's payload status. Per `process_parent_execution_payload` in
+        // the spec, a block's payload was revealed on chain (the block is "full") iff its child's
+        // bid `parent_block_hash` equals its own bid `block_hash`. A withheld ("empty") payload
+        // never has an envelope or data columns, so none can be required during backfill.
+        //
+        // Initialize from the current anchor block, which is the child of the newest block in the
+        // batch. If the newest block *is* the anchor block being re-imported, this yields a
+        // self-comparison that is always false, making its envelope optional — its data was
+        // already stored during checkpoint sync.
+        let mut child_bid_parent_hash = blocks_to_import
+            .last()
+            .filter(|(available_block, _envelope)| {
+                available_block.block().fork_name_unchecked().gloas_enabled()
+            })
+            .and_then(|_| {
+                self.block_root_at_slot(anchor_info.oldest_block_slot, WhenSlotSkipped::None)
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|root| self.get_blinded_block(&root).ok().flatten())
+            .and_then(|child_block| {
+                child_block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .ok()
+                    .map(|bid| bid.message.parent_block_hash)
+            });
+
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
@@ -181,6 +211,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
+            // Whether this block's execution payload was revealed on chain ("full" block). Only
+            // ever true for Gloas blocks, as earlier forks have no bid. See the comment on
+            // `child_bid_parent_hash` above.
+            let payload_revealed = block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .ok()
+                .zip(child_bid_parent_hash)
+                .is_some_and(|(bid, child_parent_hash)| {
+                    bid.message.block_hash == child_parent_hash
+                });
+
             // Persist the Gloas payload envelope and its data columns. For Gloas blocks the data
             // columns are carried by the envelope rather than the block's `block_data`, so they
             // must be stored from here.
@@ -204,9 +247,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 }
                 None => {
-                    // A Gloas block that expects blobs must be accompanied by its envelope,
-                    // otherwise the required data columns cannot be verified or persisted.
-                    if block.num_expected_blobs() > 0 {
+                    // A Gloas block whose payload was revealed must be accompanied by its
+                    // envelope: the spec requires envelopes to be served over the same retention
+                    // window as blocks, and we must persist it to serve it over RPC and for
+                    // state reconstruction — even when it carries no blobs. Blocks with withheld
+                    // ("empty") payloads never have an envelope, and pre-Gloas blocks carry
+                    // their blob data in `block_data`.
+                    if payload_revealed {
                         return Err(HistoricalBlockError::MissingEnvelope { block_root });
                     }
                 }
@@ -224,6 +271,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
+            // This block is the child of the next (older) block in the iteration.
+            child_bid_parent_hash = block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .ok()
+                .map(|bid| bid.message.parent_block_hash);
             signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
