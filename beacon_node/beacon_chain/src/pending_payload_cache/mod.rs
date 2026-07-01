@@ -631,11 +631,10 @@ mod data_availability_checker_tests {
     use slot_clock::{SlotClock, TestingSlotClock};
     use ssz_types::VariableList;
     use std::time::Duration;
-    use types::test_utils::test_unstructured;
     use types::{
-        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests,
+        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
         ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
-        SignedExecutionPayloadEnvelope, Slot,
+        SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
     };
 
     type E = MinimalEthSpec;
@@ -741,7 +740,7 @@ mod data_availability_checker_tests {
             envelope: Arc::new(SignedExecutionPayloadEnvelope {
                 message: ExecutionPayloadEnvelope {
                     payload: ExecutionPayloadGloas::default(),
-                    execution_requests: ExecutionRequests::default(),
+                    execution_requests: ExecutionRequestsGloas::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::random(),
