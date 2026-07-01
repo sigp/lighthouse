@@ -21,3 +21,10 @@ BUILDER_PENDING_WITHDRAWALS_LIMIT: 1048576
 # ---------------------------------------------------------------
 # [customized] 2**4 (= 16) builders
 MAX_BUILDERS_PER_WITHDRAWALS_SWEEP: 16
+
+# Execution
+# ---------------------------------------------------------------
+# 2**8 (= 256) builder deposit requests
+MAX_BUILDER_DEPOSIT_REQUESTS_PER_PAYLOAD: 256
+# 2**4 (= 16) builder exit requests
+MAX_BUILDER_EXIT_REQUESTS_PER_PAYLOAD: 16
