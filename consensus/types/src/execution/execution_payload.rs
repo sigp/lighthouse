@@ -131,8 +131,6 @@ pub type WithdrawalsRef<'a, E> = ListRef<'a, Withdrawal, <E as EthSpec>::MaxWith
         ),
     ),
     specific_variant_attributes(Gloas(
-        // EIP-7688: the Gloas `ExecutionPayload` is a `ProgressiveContainer` with all 19
-        // spec fields active.
         tree_hash(
             struct_behaviour = "progressive_container",
             active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)

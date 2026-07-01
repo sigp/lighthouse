@@ -593,8 +593,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     randao_reveal,
                     eth1_data,
                     graffiti,
-                    // [Modified in Gloas:EIP7688] the operation lists are progressive. Their
-                    // lengths are bounded by the op pool packing limits above.
+                    // [Modified in Gloas:EIP7688] the operation list lengths are bounded by the op
+                    // pool packing limits above.
                     proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
                     attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
                     attestations: ProgressiveVariableList::from_iter(attestations),

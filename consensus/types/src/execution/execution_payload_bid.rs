@@ -17,7 +17,6 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/beacon-chain.md#executionpayloadbid
-// EIP-7688: the Gloas `ExecutionPayloadBid` is a `ProgressiveContainer` with all 12 fields active.
 #[tree_hash(
     struct_behaviour = "progressive_container",
     active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)

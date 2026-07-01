@@ -11,8 +11,6 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", arbitrary(bound = "E: EthSpec"))]
 #[context_deserialize(ForkName)]
-// EIP-7688: the Gloas `IndexedPayloadAttestation` is a `ProgressiveContainer` with all 3 fields
-// active.
 #[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))]
 pub struct IndexedPayloadAttestation<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]

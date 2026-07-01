@@ -43,8 +43,6 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
         ),
     ),
     specific_variant_attributes(Gloas(
-        // EIP-7688: the Gloas `IndexedAttestation` is a `ProgressiveContainer` with all 3
-        // fields active.
         tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))
     ))
 )]

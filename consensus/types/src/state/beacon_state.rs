@@ -430,8 +430,6 @@ impl From<BeaconStateHash> for Hash256 {
                 )),
                 num_fields(all()),
             ),
-            // EIP-7688: the Gloas `BeaconState` is a `ProgressiveContainer` with all 46 spec
-            // fields active. The cache fields are excluded via `tree_hash(skip_hashing)`.
             tree_hash(
                 struct_behaviour = "progressive_container",
                 active_fields(

@@ -17,8 +17,6 @@ use tree_hash_derive::TreeHash;
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
-// EIP-7688: the Gloas `ExecutionPayloadEnvelope` is a `ProgressiveContainer` with all 5 fields
-// active.
 #[tree_hash(
     struct_behaviour = "progressive_container",
     active_fields(1, 1, 1, 1, 1)

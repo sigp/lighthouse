@@ -90,8 +90,6 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         Fulu(metastruct(mappings(beacon_block_body_fulu_fields(groups(fields))))),
         Gloas(
             metastruct(mappings(beacon_block_body_gloas_fields(groups(fields)))),
-            // EIP-7688: the Gloas `BeaconBlockBody` is a `ProgressiveContainer` with all 13
-            // spec fields active.
             tree_hash(
                 struct_behaviour = "progressive_container",
                 active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)

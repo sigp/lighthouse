@@ -61,8 +61,6 @@ impl From<ssz_types::Error> for Error {
         )
     ),
     specific_variant_attributes(Gloas(
-        // EIP-7688: the Gloas `Attestation` is a `ProgressiveContainer` with all 4 fields
-        // active.
         tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))
     )),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),

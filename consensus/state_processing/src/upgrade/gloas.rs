@@ -55,7 +55,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
         eth1_deposit_index: pre.eth1_deposit_index,
         // Registry
-        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
         validators: ProgressiveList::try_from_iter(pre.validators.iter().cloned())?,
         balances: ProgressiveList::try_from_iter(pre.balances.iter().copied())?,
         // Randomness
@@ -63,7 +62,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Slashings
         slashings: pre.slashings.clone(),
         // Participation
-        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
         previous_epoch_participation: ProgressiveList::try_from_iter(
             pre.previous_epoch_participation.iter().cloned(),
         )?,
@@ -76,7 +74,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_justified_checkpoint: pre.current_justified_checkpoint,
         finalized_checkpoint: pre.finalized_checkpoint,
         // Inactivity
-        // [Modified in Gloas:EIP7688] rebuild as a progressive list.
         inactivity_scores: ProgressiveList::try_from_iter(pre.inactivity_scores.iter().copied())?,
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
@@ -99,7 +96,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         earliest_exit_epoch: pre.earliest_exit_epoch,
         consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
         earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
-        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
         pending_deposits: ProgressiveList::try_from_iter(pre.pending_deposits.iter().cloned())?,
         pending_partial_withdrawals: ProgressiveList::try_from_iter(
             pre.pending_partial_withdrawals.iter().cloned(),

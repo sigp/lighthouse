@@ -556,7 +556,6 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
             |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
                 Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
                     index: index as u64,
-                    // [Modified in Gloas:EIP7688] the column and proofs lists are progressive.
                     column: ProgressiveVariableList::from_iter(col),
                     kzg_proofs: ProgressiveVariableList::from_iter(proofs),
                     beacon_block_root,

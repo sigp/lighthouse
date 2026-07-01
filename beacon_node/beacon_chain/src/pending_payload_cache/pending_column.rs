@@ -54,7 +54,6 @@ impl<E: EthSpec> PendingColumn<E> {
         // post-Gloas variants are introduced (or move construction to a fork-aware helper).
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
-            // [Modified in Gloas:EIP7688] the column and proofs lists are progressive.
             column: ProgressiveVariableList::from_iter(column),
             kzg_proofs: ProgressiveVariableList::from_iter(kzg_proofs),
             slot,
