@@ -324,21 +324,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             store
                 .get_payload_envelope(&beacon_block_root)?
                 .map(Arc::new)
-        } else if spec
-            .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
-            .gloas_enabled()
-        {
-            let latest_full_block_root_opt =
-                fork_choice.latest_parent_full_block(beacon_block_root, spec)?;
-
-            if let Some(latest_full_block_root) = latest_full_block_root_opt {
-                store
-                    .get_payload_envelope(&latest_full_block_root)?
-                    .map(Arc::new)
-            } else {
-                // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
-                None
-            }
         } else {
             None
         };
@@ -738,29 +723,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         ))?;
 
                     Some(envelope)
-                } else if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
-                    .gloas_enabled()
-                {
-                    let fork_choice = self.canonical_head.fork_choice_read_lock();
-                    let latest_full_block_root_opt = fork_choice
-                        .latest_parent_full_block(new_view.head_block_root, &self.spec)?;
-                    drop(fork_choice);
-
-                    if let Some(latest_full_block_root) = latest_full_block_root_opt {
-                        let envelope = self
-                            .store
-                            .get_payload_envelope(&latest_full_block_root)?
-                            .map(Arc::new)
-                            .ok_or(Error::MissingExecutionPayloadEnvelope(
-                                latest_full_block_root,
-                            ))?;
-                        Some(envelope)
-                    } else {
-                        // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
-                        None
-                    }
                 } else {
                     None
                 };

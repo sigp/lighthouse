@@ -1648,22 +1648,6 @@ where
         }
     }
 
-    /// Returns the latest ancestor of `block_root` whose `PayloadStatus` is `Full`.
-    pub fn latest_parent_full_block(
-        &self,
-        block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<Option<Hash256>, Error<T::Error>> {
-        if self.is_finalized_checkpoint_or_descendant(block_root) {
-            let proposer_boost_root = self.fc_store.proposer_boost_root();
-            self.proto_array
-                .latest_parent_full_block::<E>(block_root, proposer_boost_root, spec)
-                .map_err(Error::ProtoArrayError)
-        } else {
-            Err(Error::DoesNotDescendFromFinalizedCheckpoint)
-        }
-    }
-
     /// Returns the canonical payload status of a block. See
     /// `ProtoArrayForkChoice::get_canonical_payload_status`.
     pub fn get_canonical_payload_status(

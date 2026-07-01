@@ -124,14 +124,6 @@ pub enum Operation {
         #[serde(default)]
         proposer_boost_root: Option<Hash256>,
     },
-    /// Assert the root returned by `latest_parent_full_block` for `block_root`.
-    AssertLatestFullPayloadBlock {
-        block_root: Hash256,
-        expected: Option<Hash256>,
-        /// Override the proposer boost root. Defaults to `Hash256::zero()`.
-        #[serde(default)]
-        proposer_boost_root: Option<Hash256>,
-    },
     /// Assert the result of `should_build_on_full` for the parent `block_root`, where
     /// `parent_payload_status` is the status the proposer would build on and `proposal_slot`
     /// is the slot being proposed.
@@ -622,24 +614,6 @@ impl ForkChoiceTestDefinition {
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
                         op_index
-                    );
-                }
-                Operation::AssertLatestFullPayloadBlock {
-                    block_root,
-                    expected,
-                    proposer_boost_root,
-                } => {
-                    let actual = fork_choice
-                        .latest_parent_full_block::<MainnetEthSpec>(
-                            block_root,
-                            proposer_boost_root.unwrap_or_else(Hash256::zero),
-                            &spec,
-                        )
-                        .unwrap();
-                    assert_eq!(
-                        actual, expected,
-                        "latest_parent_full_block mismatch at op index {}",
-                        op_index,
                     );
                 }
                 Operation::AssertShouldBuildOnFull {
