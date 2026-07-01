@@ -48,14 +48,13 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, KzgProofs, SignedBlindedBeaconBlock,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
-use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;

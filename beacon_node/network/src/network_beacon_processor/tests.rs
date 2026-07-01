@@ -43,11 +43,11 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256,
+    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    data::BlobIdentifier,
 };
-use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;

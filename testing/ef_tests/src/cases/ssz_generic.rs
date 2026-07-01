@@ -23,12 +23,8 @@ struct CompatibleUnionYaml {
     data: JsonValue,
 }
 
-/// Implements `Deserialize` for compatible union types to handle the EF test YAML format.
-///
-/// Deserialize into `CompatibleUnionYaml` which captures `selector` (`u8`) and
-///    `data` (`JsonValue`).
-/// Match on the selector to determine which variant to construct.
-/// Deserialize the `data` field into the appropriate inner type.
+/// Implements `Deserialize` for a compatible-union type by reading the `{selector, data}` EF-test
+/// YAML and dispatching on the selector to construct the matching variant.
 macro_rules! impl_compatible_union_deserialize {
     ($type:ty, { $($selector:literal => $variant:ident($inner:ty)),+ $(,)? }) => {
         impl<'de> Deserialize<'de> for $type {
