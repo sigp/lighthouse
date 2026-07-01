@@ -5058,12 +5058,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
