@@ -97,7 +97,6 @@ struct BenchData {
     balance_source: BalanceSourceData,
     fcr: FastConfirmationRule,
     finalized_checkpoint: Checkpoint,
-    /// Head's unrealized justification — the epoch-1 boundary, shared by all scenarios.
     unrealized_justified_checkpoint: Checkpoint,
     observed_justified_checkpoint: Checkpoint,
     genesis_checkpoint: Checkpoint,
@@ -127,7 +126,6 @@ impl BenchData {
 /// recent blocks, plus an FCR seeded with the shared balances/checkpoints.
 fn build_chain(num_validators: usize) -> BenchData {
     let spec = E::default_spec();
-    let slots_per_epoch = E::slots_per_epoch();
     let genesis_root = block_root_at(0);
 
     let genesis_checkpoint = Checkpoint {
@@ -163,11 +161,11 @@ fn build_chain(num_validators: usize) -> BenchData {
 
     for slot_u in 1..=CHAIN_TIP_SLOT {
         let slot = Slot::new(slot_u);
-        let epoch = slot.epoch(slots_per_epoch);
+        let epoch = slot.epoch(E::slots_per_epoch());
         let root = block_root_at(slot_u);
         let parent_root = block_roots[(slot_u - 1) as usize];
         // Target is the block at the first slot of this block's epoch.
-        let target_root = block_root_at(epoch.as_u64() * slots_per_epoch);
+        let target_root = block_root_at(epoch.as_u64() * E::slots_per_epoch());
         // Epoch-0 blocks have nothing justified beyond genesis; later blocks see the epoch-1
         // boundary as unrealized-justified, matching the FCR's observed-justified checkpoint.
         let unrealized_justified_checkpoint = if epoch == Epoch::new(0) {

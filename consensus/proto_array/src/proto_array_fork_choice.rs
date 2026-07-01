@@ -48,8 +48,8 @@ impl VoteTracker {
     }
 
     /// The slot of this validator's latest message.
-    pub fn latest_message_slot(&self) -> Slot {
-        self.next_slot
+    pub fn current_slot(&self) -> Slot {
+        self.current_slot
     }
 }
 

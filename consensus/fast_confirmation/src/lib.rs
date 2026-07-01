@@ -995,7 +995,7 @@ impl FastConfirmationRule {
                 continue;
             }
             // Spec: get_latest_message_epoch(latest_messages[i]).
-            let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
+            let vote_epoch = vote.current_slot().epoch(E::slots_per_epoch());
             if vote_epoch != target.epoch {
                 continue;
             }
