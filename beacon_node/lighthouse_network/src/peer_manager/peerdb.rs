@@ -1437,6 +1437,7 @@ fn normalize_ip_for_banning(ip: IpAddr) -> IpAddr {
         }
     }
 }
+
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
