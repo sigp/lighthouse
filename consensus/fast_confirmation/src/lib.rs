@@ -643,7 +643,7 @@ impl FastConfirmationRule {
         )?;
 
         for root in &chain_roots {
-            let one_confirmation = self.one_confirmation::<E>(
+            if !self.is_one_confirmed::<E>(
                 self.get_previous_balance_source(),
                 *root,
                 &attestation_scores,
@@ -651,13 +651,30 @@ impl FastConfirmationRule {
                 proto_array,
                 votes,
                 equivocating_indices,
-            )?;
-            if !one_confirmation.is_one_confirmed() {
-                let not_confirmed = one_confirmation.not_confirmed();
-                if let Some(ratio) = not_confirmed.support_ratio {
-                    metrics::observe(&metrics::FCR_UNCONFIRMED_SUPPORT_RATIO, ratio);
+            )? {
+                // `root` is not confirmed. Figure out why for debugging purposes. Duplicates code
+                // of `is_one_confirmed` to keep the original function spec identical. This block
+                // just needs to return `Some(_)` to match spec logic.
+                if is_optimistic_or_invalid(*root, proto_array)? {
+                    return Ok(Some("unconfirmed_optimistic"));
+                } else {
+                    let support = get_attestation_score(*root, &attestation_scores)?;
+                    let safety_threshold = self.compute_safety_threshold::<E>(
+                        self.get_previous_balance_source(),
+                        *root,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    )?;
+                    if safety_threshold > 0 {
+                        metrics::observe(
+                            &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                            support as f64 / safety_threshold as f64,
+                        );
+                    }
+                    return Ok(Some("unconfirmed_below_threshold"));
                 }
-                return Ok(Some(not_confirmed.reason));
             }
         }
         Ok(None)
@@ -1076,56 +1093,19 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<bool, Error> {
         // Spec MUST: return false if the block's execution status is not VALID.
-        Ok(self
-            .one_confirmation::<E>(
-                balance_source,
-                block_root,
-                attestation_scores,
-                current_slot,
-                proto_array,
-                votes,
-                equivocating_indices,
-            )?
-            .is_one_confirmed())
-    }
-
-    // -----------------------------------------------------------------------
-    // Implementation caches / diagnostics
-    // -----------------------------------------------------------------------
-
-    /// Cached `is_one_confirmed` evaluation for metrics.
-    #[allow(clippy::too_many_arguments)]
-    fn one_confirmation<E: EthSpec>(
-        &self,
-        balance_source: &BalanceSourceData,
-        block_root: Hash256,
-        attestation_scores: &AttestationScoreCache,
-        current_slot: Slot,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<OneConfirmation, Error> {
-        let optimistic_or_invalid = is_optimistic_or_invalid(block_root, proto_array)?;
-        if optimistic_or_invalid {
-            return Ok(OneConfirmation {
-                optimistic_or_invalid,
-                support: 0,
-                safety_threshold: 0,
-            });
+        if is_optimistic_or_invalid(block_root, proto_array)? {
+            return Ok(false);
         }
-
-        Ok(OneConfirmation {
-            optimistic_or_invalid,
-            support: get_attestation_score(block_root, attestation_scores)?,
-            safety_threshold: self.compute_safety_threshold::<E>(
-                balance_source,
-                block_root,
-                current_slot,
-                proto_array,
-                votes,
-                equivocating_indices,
-            )?,
-        })
+        let support = get_attestation_score(block_root, attestation_scores)?;
+        let safety_threshold = self.compute_safety_threshold::<E>(
+            balance_source,
+            block_root,
+            current_slot,
+            proto_array,
+            votes,
+            equivocating_indices,
+        )?;
+        Ok(support > safety_threshold)
     }
 }
 
@@ -1313,42 +1293,6 @@ fn get_attestation_score(
     attestation_scores
         .get_attestation_score(block_root)
         .ok_or(Error::MissingPrecomputedScore(block_root))
-}
-
-struct OneConfirmation {
-    optimistic_or_invalid: bool,
-    support: u64,
-    safety_threshold: u64,
-}
-
-impl OneConfirmation {
-    fn is_one_confirmed(&self) -> bool {
-        !self.optimistic_or_invalid && self.support > self.safety_threshold
-    }
-
-    fn not_confirmed(&self) -> NotOneConfirmed {
-        if self.optimistic_or_invalid {
-            return NotOneConfirmed {
-                reason: "unconfirmed_optimistic",
-                support_ratio: None,
-            };
-        }
-
-        NotOneConfirmed {
-            reason: "unconfirmed_below_threshold",
-            support_ratio: (self.safety_threshold > 0)
-                .then(|| self.support as f64 / self.safety_threshold as f64),
-        }
-    }
-}
-
-/// Outcome of a failed one-confirmed check.
-struct NotOneConfirmed {
-    /// Revert reason tag, surfaced as the `FCR_REVERT_TO_FINALIZED` label.
-    reason: &'static str,
-    /// `support / safety_threshold`; `None` for the optimistic/missing-parent cases or when the
-    /// threshold is 0.
-    support_ratio: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
