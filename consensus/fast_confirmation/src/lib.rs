@@ -4,21 +4,16 @@
 //! observer of fork-choice state that computes a `confirmed_root` — a block guaranteed
 //! to remain canonical under standard assumptions (synchrony + <25% Byzantine).
 //!
-//! This module has **zero dependency on fork-choice internals**. It reads proto_array,
-//! votes, and checkpoints via shared references and writes only its own state.
+//! This module just reads proto_array, votes, and checkpoints via shared references and writes
+//! only its own state.
 //!
 //! ## Spec divergences (performance optimizations)
-//!
-//! The spec's `is_one_confirmed` calls `get_attestation_score` per block, each of which
-//! iterates all validators and walks ancestors — O(B × V × depth) total. This is too
-//! expensive at mainnet scale (500k+ validators).
 //!
 //! We diverge in several ways, all behaviorally equivalent:
 //!
 //! 1. **Batch score precomputation** (`precompute_chain_attestation_scores`): iterates
 //!    validators once, walks each vote to the deepest canonical chain block, then builds
-//!    a suffix-sum score array. Reduces cost from O(B × V × depth) to O(V × depth + B).
-//!    Used by `find_latest_confirmed_descendant` and `is_confirmed_chain_safe`.
+//!    a suffix-sum score array.
 //!
 //! 2. **Cached spec helpers**: `is_one_confirmed` still reads as
 //!    `support > compute_safety_threshold`, but `get_attestation_score` is backed by a
@@ -65,20 +60,14 @@ pub enum Error {
     NodeHasNoBlockHash(Hash256),
     ParentRootNotFound(Hash256),
     UnableToObtainHeadState(String),
-    AncestorNotFound {
-        block: Hash256,
-        slot: Slot,
-    },
+    AncestorNotFound { block: Hash256, slot: Slot },
     UnrealizedJustificationNotFound(Hash256),
-    CheckpointBlockNotFound {
-        block: Hash256,
-        epoch: types::Epoch,
-    },
+    CheckpointBlockNotFound { block: Hash256, epoch: types::Epoch },
+    HeadCheckpointNotFound(Hash256),
     MissingPrecomputedScore(Hash256),
     BlockEpochNone(Hash256),
     CommitteeCacheUninitialized(String),
     BlockRootsOutOfBounds(String),
-    /// A computed index was out of bounds. Indicates a broken internal invariant, not bad input.
     IndexOutOfBounds(usize),
     ArithError(ArithError),
 }
@@ -89,17 +78,9 @@ impl From<ArithError> for Error {
     }
 }
 
-/// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
 const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 
-// ---------------------------------------------------------------------------
-// Data types
-// ---------------------------------------------------------------------------
-
-/// The Fast Confirmation Rule state machine.
-///
-/// Lives as an `Option<FastConfirmationRule>` on `BeaconChain`.
-/// `None` = FCR disabled.
+/// The Fast Confirmation Rule state
 #[derive(Debug)]
 pub struct FastConfirmationRule {
     // === Output ===
@@ -593,12 +574,12 @@ impl FastConfirmationRule {
     ) -> Result<Option<&'static str>, Error> {
         // `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
         // isn't, with `reason` naming which check failed (surfaced as the revert metric label).
-        if self.current_epoch_observed_justified.checkpoint()
-            != get_checkpoint_for_block::<E>(
-                confirmed_root,
-                self.current_epoch_observed_justified.checkpoint().epoch,
-                proto_array,
-            )?
+        if !get_checkpoint_for_block::<E>(
+            confirmed_root,
+            self.current_epoch_observed_justified.checkpoint().epoch,
+            proto_array,
+        )
+        .is_some_and(|checkpoint| checkpoint == self.current_epoch_observed_justified.checkpoint())
         {
             return Ok(Some("off_justified_chain"));
         }
@@ -850,9 +831,11 @@ impl FastConfirmationRule {
         let block_epoch = get_block_epoch::<E>(block_root, proto_array)?;
 
         if block_epoch > get_block_epoch::<E>(parent_root, proto_array)? {
+            let start_slot =
+                compute_start_slot_at_epoch::<E>(get_block_epoch::<E>(block_root, proto_array)?);
             self.compute_adversarial_weight::<E>(
                 balance_source,
-                compute_start_slot_at_epoch::<E>(block_epoch),
+                start_slot,
                 current_slot.safe_sub(1)?,
                 equivocating_indices,
             )
@@ -909,11 +892,15 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
         let mut score = 0u64;
-        for idx in balance_source.active_indices() {
-            if equivocating_indices.contains(&(idx as u64))
-                && self
-                    .head_assignments
-                    .is_in_range(idx, start_slot, end_slot)?
+        // Spec: Sum the balance of validators that:
+        // - Belong to the `store.equivocating_indices` set
+        // - As assigned to attest in a committee in the `range(start_slot, end_slot + 1)`
+        // - Are active in `balance_source` tracked here as `balance > 0`
+        for &idx in equivocating_indices {
+            let idx = idx as usize;
+            if self
+                .head_assignments
+                .is_in_range(idx, start_slot, end_slot)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
             }
@@ -994,7 +981,6 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
         let target = get_current_target::<E>(head_root, current_slot, proto_array)?;
-        let mut score = 0u64;
 
         // Aggregate balances by (vote root, vote epoch): most validators share a small set of
         // latest-message checkpoints, so each O(depth) checkpoint lookup runs once per distinct
@@ -1008,24 +994,31 @@ impl FastConfirmationRule {
                 continue;
             };
             let vote_root = vote.current_root();
-            if vote_root.is_zero() || equivocating_indices.contains(&(val_idx as u64)) {
-                continue;
-            }
             // Spec: get_latest_message_epoch(latest_messages[i]).
             let vote_epoch = vote.current_slot().epoch(E::slots_per_epoch());
-            if vote_epoch != target.epoch {
-                continue;
+
+            if !vote_root.is_zero()
+                && vote_epoch == target.epoch
+                && !equivocating_indices.contains(&(val_idx as u64))
+            {
+                balance_by_vote_checkpoint.add(
+                    (vote_root, vote_epoch),
+                    self.head_balance_source.balance(val_idx),
+                )?;
             }
-            balance_by_vote_checkpoint.add(
-                (vote_root, vote_epoch),
-                self.head_balance_source.balance(val_idx),
-            )?;
         }
+
+        // Spec: sum the effective balance of validators that:
+        // - Are active the current epoch
+        // - Are not slashed in the current epoch
+        // - Don't belong in the equivocating_indices set
+        // - Have a vote for the current target
+        let mut score = 0u64;
 
         for ((vote_root, vote_epoch), balance) in balance_by_vote_checkpoint.iter() {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
             //        get_latest_message_epoch(latest_messages[i])).
-            if get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array)? == target {
+            if get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) == Some(target) {
                 score = score.safe_add(balance)?;
             }
         }
@@ -1253,34 +1246,33 @@ fn get_current_target<E: EthSpec>(
 ) -> Result<Checkpoint, Error> {
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     get_checkpoint_for_block::<E>(head_root, current_epoch, proto_array)
+        .ok_or(Error::HeadCheckpointNotFound(head_root))
 }
 
 /// Spec: `get_checkpoint_for_block`.
+/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
 fn get_checkpoint_for_block<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,
     proto_array: &ProtoArray,
-) -> Result<Checkpoint, Error> {
-    Ok(Checkpoint {
+) -> Option<Checkpoint> {
+    Some(Checkpoint {
         epoch,
         root: get_checkpoint_block_root::<E>(block_root, epoch, proto_array)?,
     })
 }
 
 /// Spec: `get_checkpoint_block`.
+/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
 fn get_checkpoint_block_root<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,
     proto_array: &ProtoArray,
-) -> Result<Hash256, Error> {
+) -> Option<Hash256> {
     proto_array
         .iter_block_roots(&block_root)
         .find(|(_, slot)| *slot <= compute_start_slot_at_epoch::<E>(epoch))
         .map(|(root, _)| root)
-        .ok_or(Error::CheckpointBlockNotFound {
-            block: block_root,
-            epoch,
-        })
 }
 
 /// Spec: `get_attestation_score`.
@@ -1341,7 +1333,7 @@ fn is_full_validator_set_covered<E: EthSpec>(
 /// conservatively over-estimate committee weight; flooring would under-estimate and
 /// weaken the safety threshold.
 fn adjust_committee_weight_estimate_to_ensure_safety(estimate: u64) -> Result<u64, Error> {
-    let ceil = estimate.div_ceil(1000);
+    let ceil = estimate.safe_add(999)?.safe_div(1000)?;
     Ok(ceil.safe_mul(1000u64.safe_add(COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR)?)?)
 }
 

@@ -57,13 +57,6 @@ impl BalanceSourceData {
         self.effective_balances.get(val_idx).copied().unwrap_or(0)
     }
 
-    pub(crate) fn active_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.effective_balances
-            .iter()
-            .enumerate()
-            .filter_map(|(i, balance)| (*balance > 0).then_some(i))
-    }
-
     pub(crate) fn unslashed_and_active_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.effective_balances
             .iter()
