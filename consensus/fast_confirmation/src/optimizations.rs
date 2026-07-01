@@ -181,8 +181,23 @@ impl<K: RootKey> RootBalanceMap<K> {
     }
 }
 
-/// Projects a vote root onto the canonical chain: resolves it to the deepest chain position it
-/// descends from.
+/// Projects a vote root onto the canonical chain segment: the deepest segment position the vote
+/// descends from (the deepest block it "covers"). An off-segment vote walks up its ancestors until
+/// it rejoins the segment; a vote deeper than the tip resolves to the tip; a vote touching only
+/// blocks at/below the terminal resolves to `None`.
+///
+/// ```text
+///   segment (terminal T excluded), positions A=0, B=1, C=2 (C = tip):
+///
+///       Z ── T ── [ A ── B ── C ] ── D
+///                        \
+///                         X ── Y   (X ── Y = side branch off B; D = child of tip C)
+///
+///   project(C) -> 2     C is on the segment
+///   project(Y) -> 1     walk Y → X → B; B is the deepest on-segment ancestor
+///   project(D) -> 2     D (deeper than the tip) walks up to the tip C
+///   project(Z) -> None  Z is below the terminal T; covers nothing on the segment
+/// ```
 struct ChainProjector<'a> {
     proto_array: &'a ProtoArray,
     /// node index → position on the canonical chain segment.
@@ -228,10 +243,8 @@ impl<'a> ChainProjector<'a> {
 /// `chain`, ordered `terminal_root`-exclusive .. `chain_tip`-inclusive, with `terminal_slot` the
 /// terminal's slot.
 ///
-/// Replaces B separate O(V × depth) `get_attestation_score` calls with one pass: each vote is
-/// charged to the deepest canonical block it covers, then a suffix-sum propagates that weight up
-/// to all ancestors. Votes are first aggregated by root so the ancestor projection runs once per
-/// distinct vote root rather than once per validator. Pure optimization — not a spec function.
+/// One pass in place of B separate O(V × depth) `get_attestation_score` calls. Pure optimization —
+/// not a spec function.
 pub fn precompute_chain_attestation_scores(
     proto_array: &ProtoArray,
     chain: &[Hash256],
@@ -241,42 +254,9 @@ pub fn precompute_chain_attestation_scores(
     equivocating_indices: &BTreeSet<u64>,
 ) -> Result<HashMap<Hash256, u64>, Error> {
     let vote_balances = aggregate_vote_balances(balance_source, votes, equivocating_indices)?;
-    precompute_chain_attestation_scores_from_vote_balances(
-        proto_array,
-        chain,
-        terminal_slot,
-        &vote_balances,
-    )
-}
 
-pub(crate) fn aggregate_vote_balances(
-    balance_source: &BalanceSourceData,
-    votes: &[VoteTracker],
-    equivocating_indices: &BTreeSet<u64>,
-) -> Result<RootBalanceMap<Hash256>, Error> {
-    let mut balance_by_vote_root = RootBalanceMap::<Hash256>::new();
-
-    for (val_idx, vote) in votes.iter().enumerate() {
-        let vote_root = vote.current_root();
-        if vote_root.is_zero() || equivocating_indices.contains(&(val_idx as u64)) {
-            continue;
-        }
-        let balance = balance_source.unslashed_balance(val_idx);
-        if balance == 0 {
-            continue;
-        }
-        balance_by_vote_root.add(vote_root, balance)?;
-    }
-
-    Ok(balance_by_vote_root)
-}
-
-fn precompute_chain_attestation_scores_from_vote_balances(
-    proto_array: &ProtoArray,
-    chain: &[Hash256],
-    terminal_slot: Slot,
-    vote_balances: &RootBalanceMap<Hash256>,
-) -> Result<HashMap<Hash256, u64>, Error> {
+    // Charge each vote root's balance to the deepest chain block it covers, then suffix-sum so every
+    // block inherits its descendants' weight — one O(V × depth) pass instead of B ancestor walks.
     let chain_len = chain.len();
     let mut score_at_position = vec![0u64; chain_len];
     let projector = ChainProjector::new(proto_array, chain, terminal_slot);
@@ -299,4 +279,28 @@ fn precompute_chain_attestation_scores_from_vote_balances(
         scores.insert(chain[i], running);
     }
     Ok(scores)
+}
+
+/// Sum unslashed balances by LMD vote root (skipping zero and equivocating votes), so the ancestor
+/// projection runs once per distinct root rather than once per validator.
+pub(crate) fn aggregate_vote_balances(
+    balance_source: &BalanceSourceData,
+    votes: &[VoteTracker],
+    equivocating_indices: &BTreeSet<u64>,
+) -> Result<RootBalanceMap<Hash256>, Error> {
+    let mut balance_by_vote_root = RootBalanceMap::<Hash256>::new();
+
+    for (val_idx, vote) in votes.iter().enumerate() {
+        let vote_root = vote.current_root();
+        if vote_root.is_zero() || equivocating_indices.contains(&(val_idx as u64)) {
+            continue;
+        }
+        let balance = balance_source.unslashed_balance(val_idx);
+        if balance == 0 {
+            continue;
+        }
+        balance_by_vote_root.add(vote_root, balance)?;
+    }
+
+    Ok(balance_by_vote_root)
 }
