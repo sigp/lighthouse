@@ -3537,6 +3537,7 @@ name = "fast_confirmation"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "ethereum_hashing",
  "fixed_bytes",
  "metrics",
  "proto_array",

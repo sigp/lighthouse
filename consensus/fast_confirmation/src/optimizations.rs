@@ -7,6 +7,7 @@
 use crate::{BalanceSourceData, Error};
 use proto_array::core::{ProtoArray, VoteTracker};
 use safe_arith::SafeArith;
+use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
 use types::{Checkpoint, Epoch, Hash256, Slot};
 
@@ -74,11 +75,38 @@ impl AttestationScoreCache {
     }
 }
 
-/// Identity hasher for `u64` keys that are already well-distributed (block-root byte prefixes).
-/// The per-vote memos resolve each vote's root/checkpoint at most once across the whole validator
-/// set; keying them on a root prefix with this no-op hasher avoids SipHashing a 32-byte `Hash256`
-/// per validator (~1M times). Hash quality is irrelevant to correctness — the memo stores and
-/// compares the full key.
+/// Memoizes one O(V) `compute_honest_ffg_support` sweep so both FFG predicates can share it within
+/// a single `get_latest_confirmed` call. The cache owns no FCR logic; callers provide the spec
+/// computation as a closure.
+pub(crate) struct HonestFfgSupportCache {
+    support: OnceCell<u64>,
+}
+
+impl HonestFfgSupportCache {
+    pub(crate) fn new() -> Self {
+        Self {
+            support: OnceCell::new(),
+        }
+    }
+
+    pub(crate) fn get_or_compute(
+        &self,
+        compute: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<u64, Error> {
+        if let Some(support) = self.support.get() {
+            return Ok(*support);
+        }
+        let support = compute()?;
+        let _ = self.support.set(support);
+        Ok(support)
+    }
+}
+
+/// Identity hasher for `u64` keys derived from block-root byte prefixes.
+///
+/// The aggregation and projection maps below already store/compare the full key, so the prefix only
+/// chooses a bucket. Avoiding SipHash over 32-byte roots matters in the same per-validator loops that
+/// dominate the 1M-validator FCR benchmarks.
 #[derive(Default)]
 struct IdentityU64Hasher(u64);
 impl std::hash::Hasher for IdentityU64Hasher {
@@ -118,58 +146,48 @@ impl RootKey for (Hash256, Epoch) {
     }
 }
 
-/// Memoizes `K -> V`, hashing on the root's own bytes (via [`IdentityU64Hasher`]) and storing the
-/// full key to resolve the rare prefix collision. Avoids re-hashing 32-byte keys in the
-/// per-validator loops.
-pub(crate) struct RootMemo<K: RootKey, V> {
-    map: HashMap<u64, (K, V), std::hash::BuildHasherDefault<IdentityU64Hasher>>,
+/// Aggregates validator balances by vote key before running expensive per-key work.
+///
+/// This intentionally changes the shape of the spec's per-validator loops, but not the result:
+/// summing balances before projection/checkpoint lookup is equivalent to summing matching
+/// validators after lookup, and avoids repeating the same ancestor walk for every validator with
+/// the same latest message.
+pub(crate) struct RootBalanceMap<K: RootKey> {
+    map: HashMap<u64, Vec<(K, u64)>, std::hash::BuildHasherDefault<IdentityU64Hasher>>,
 }
 
-impl<K: RootKey, V: Copy> RootMemo<K, V> {
+impl<K: RootKey> RootBalanceMap<K> {
     pub(crate) fn new() -> Self {
         Self {
             map: HashMap::default(),
         }
     }
 
-    /// Returns the memoized value for `key`, computing and storing it with `f` on a miss.
-    pub(crate) fn get_or_insert_with(&mut self, key: K, f: impl FnOnce() -> V) -> V {
-        if let Some((k, v)) = self.map.get(&key.prefix_hash())
-            && *k == key
+    pub(crate) fn add(&mut self, key: K, balance: u64) -> Result<(), Error> {
+        let bucket = self.map.entry(key.prefix_hash()).or_default();
+        if let Some((_, existing_balance)) = bucket
+            .iter_mut()
+            .find(|(existing_key, _)| *existing_key == key)
         {
-            return *v;
+            *existing_balance = existing_balance.safe_add(balance)?;
+        } else {
+            bucket.push((key, balance));
         }
-        let v = f();
-        self.map.insert(key.prefix_hash(), (key, v));
-        v
+        Ok(())
     }
 
-    /// Like [`Self::get_or_insert_with`] but `f` may fail; the error is propagated and not stored.
-    pub(crate) fn get_or_try_insert_with<E>(
-        &mut self,
-        key: K,
-        f: impl FnOnce() -> Result<V, E>,
-    ) -> Result<V, E> {
-        if let Some((k, v)) = self.map.get(&key.prefix_hash())
-            && *k == key
-        {
-            return Ok(*v);
-        }
-        let v = f()?;
-        self.map.insert(key.prefix_hash(), (key, v));
-        Ok(v)
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (K, u64)> + '_ {
+        self.map.values().flat_map(|bucket| bucket.iter().copied())
     }
 }
 
 /// Projects a vote root onto the canonical chain: resolves it to the deepest chain position it
-/// descends from, memoizing the proto-array ancestor walk (each distinct root resolved at most
-/// once across the validator set).
+/// descends from.
 struct ChainProjector<'a> {
     proto_array: &'a ProtoArray,
     /// node index → position on the canonical chain segment.
     index_to_position: HashMap<usize, usize>,
     terminal_slot: Slot,
-    memo: RootMemo<Hash256, Option<usize>>,
 }
 
 impl<'a> ChainProjector<'a> {
@@ -184,35 +202,25 @@ impl<'a> ChainProjector<'a> {
             proto_array,
             index_to_position,
             terminal_slot,
-            memo: RootMemo::new(),
         }
     }
 
     /// The deepest canonical position `vote_root` descends from, or `None` if it covers no block
     /// on the segment.
-    fn project(&mut self, vote_root: Hash256) -> Option<usize> {
-        // Destructure so the borrow checker sees `memo` (mut) and the read-only fields as disjoint.
-        let Self {
-            proto_array,
-            index_to_position,
-            terminal_slot,
-            memo,
-        } = self;
-        memo.get_or_insert_with(vote_root, || {
-            let &start_idx = proto_array.indices.get(&vote_root)?;
-            let mut idx = start_idx;
-            loop {
-                if let Some(&pos) = index_to_position.get(&idx) {
-                    return Some(pos);
-                }
-                let node = proto_array.nodes.get(idx)?;
-                if node.slot() <= *terminal_slot {
-                    break;
-                }
-                idx = node.parent()?;
+    fn project(&self, vote_root: Hash256) -> Option<usize> {
+        let &start_idx = self.proto_array.indices.get(&vote_root)?;
+        let mut idx = start_idx;
+        loop {
+            if let Some(&pos) = self.index_to_position.get(&idx) {
+                return Some(pos);
             }
-            None
-        })
+            let node = self.proto_array.nodes.get(idx)?;
+            if node.slot() <= self.terminal_slot {
+                break;
+            }
+            idx = node.parent()?;
+        }
+        None
     }
 }
 
@@ -222,7 +230,8 @@ impl<'a> ChainProjector<'a> {
 ///
 /// Replaces B separate O(V × depth) `get_attestation_score` calls with one pass: each vote is
 /// charged to the deepest canonical block it covers, then a suffix-sum propagates that weight up
-/// to all ancestors. Pure optimization — not a spec function.
+/// to all ancestors. Votes are first aggregated by root so the ancestor projection runs once per
+/// distinct vote root rather than once per validator. Pure optimization — not a spec function.
 pub fn precompute_chain_attestation_scores(
     proto_array: &ProtoArray,
     chain: &[Hash256],
@@ -231,9 +240,21 @@ pub fn precompute_chain_attestation_scores(
     votes: &[VoteTracker],
     equivocating_indices: &BTreeSet<u64>,
 ) -> Result<HashMap<Hash256, u64>, Error> {
-    let chain_len = chain.len();
-    let mut score_at_position = vec![0u64; chain_len];
-    let mut projector = ChainProjector::new(proto_array, chain, terminal_slot);
+    let vote_balances = aggregate_vote_balances(balance_source, votes, equivocating_indices)?;
+    precompute_chain_attestation_scores_from_vote_balances(
+        proto_array,
+        chain,
+        terminal_slot,
+        &vote_balances,
+    )
+}
+
+pub(crate) fn aggregate_vote_balances(
+    balance_source: &BalanceSourceData,
+    votes: &[VoteTracker],
+    equivocating_indices: &BTreeSet<u64>,
+) -> Result<RootBalanceMap<Hash256>, Error> {
+    let mut balance_by_vote_root = RootBalanceMap::<Hash256>::new();
 
     for (val_idx, vote) in votes.iter().enumerate() {
         let vote_root = vote.current_root();
@@ -244,12 +265,30 @@ pub fn precompute_chain_attestation_scores(
         if balance == 0 {
             continue;
         }
-        if let Some(pos) = projector.project(vote_root) {
-            let score = score_at_position
-                .get_mut(pos)
-                .ok_or(Error::IndexOutOfBounds(pos))?;
-            *score = score.safe_add(balance)?;
-        }
+        balance_by_vote_root.add(vote_root, balance)?;
+    }
+
+    Ok(balance_by_vote_root)
+}
+
+fn precompute_chain_attestation_scores_from_vote_balances(
+    proto_array: &ProtoArray,
+    chain: &[Hash256],
+    terminal_slot: Slot,
+    vote_balances: &RootBalanceMap<Hash256>,
+) -> Result<HashMap<Hash256, u64>, Error> {
+    let chain_len = chain.len();
+    let mut score_at_position = vec![0u64; chain_len];
+    let projector = ChainProjector::new(proto_array, chain, terminal_slot);
+
+    for (vote_root, balance) in vote_balances.iter() {
+        let Some(pos) = projector.project(vote_root) else {
+            continue;
+        };
+        let score = score_at_position
+            .get_mut(pos)
+            .ok_or(Error::IndexOutOfBounds(pos))?;
+        *score = score.safe_add(balance)?;
     }
 
     // Suffix sum: a vote covering position j also covers all ancestors at positions 0..j.

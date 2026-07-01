@@ -26,13 +26,12 @@
 //!    internally; their call sites are short-circuited, so the O(V) FFG sweep only runs near
 //!    epoch boundaries (and at most a couple of times) rather than every slot.
 //!
-//! 3. **Multi-entry vote-root / checkpoint memos** (`optimizations::RootMemo`): inside
-//!    `precompute_chain_attestation_scores` and `get_current_target_score`, each distinct
-//!    vote root (or root+epoch) is resolved (HashMap lookup + ancestor walk) at most once
-//!    across the whole validator set and memoized. Real mainnet votes are scattered by
-//!    validator index, so a single-element cache thrashes; the memos turn ~1M ancestor
-//!    walks into ~tens. Keyed on the root prefix via an identity hasher to avoid
-//!    SipHashing 32-byte roots per validator (full key stored for collision safety).
+//! 3. **Vote-root balance aggregation** (`optimizations::RootBalanceMap`): before ancestor
+//!    lookups, validators with the same vote root (or root+epoch) are collapsed into one
+//!    balance. Real mainnet votes are scattered by validator index, so caching only the previous
+//!    root thrashes; aggregation turns ~1M per-validator ancestor/checkpoint lookups into one
+//!    lookup per distinct vote. This is a readability deviation from the spec loop, but is kept
+//!    because the 1M-validator `get_latest_confirmed` benches improve by ~28-82%.
 //!
 //! 4. **Snapshot balance sources** (`BalanceSourceData`): the current/previous observed-justified
 //!    sources are rebuilt only at the epoch-boundary rotation (bundled with their checkpoint in
@@ -48,8 +47,8 @@ pub mod optimizations;
 mod slot_assignments;
 
 pub use balance_source::BalanceSourceData;
-use optimizations::AttestationScoreCache;
 pub use optimizations::CheckpointAndBalance;
+use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::SlotAssignments;
 pub use slot_assignments::UNSET_SLOT;
 
@@ -449,6 +448,9 @@ impl FastConfirmationRule {
             )?
         };
 
+        // Shared across both FFG predicates so the O(V) honest-support sweep runs at most once.
+        let honest_ffg_support = HonestFfgSupportCache::new();
+
         if get_block_epoch::<E>(confirmed_root, proto_array)?.safe_add(1)? == current_epoch
             && get_voting_source_epoch::<E>(self.previous_slot_head, current_slot, proto_array)?
                 .safe_add(2)?
@@ -461,6 +463,7 @@ impl FastConfirmationRule {
                     proto_array,
                     votes,
                     equivocating_indices,
+                    &honest_ffg_support,
                 )? && (unrealized_justification_of(self.previous_slot_head, proto_array)?
                     .epoch
                     .safe_add(1)?
@@ -521,6 +524,7 @@ impl FastConfirmationRule {
                         proto_array,
                         votes,
                         equivocating_indices,
+                        &honest_ffg_support,
                     )?
                 {
                     break;
@@ -556,6 +560,7 @@ impl FastConfirmationRule {
                             proto_array,
                             votes,
                             equivocating_indices,
+                            &honest_ffg_support,
                         )?))
             {
                 confirmed_root = tentative_confirmed_root;
@@ -904,6 +909,7 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     /// Spec: `will_no_conflicting_checkpoint_be_justified`.
+    #[allow(clippy::too_many_arguments)]
     fn will_no_conflicting_checkpoint_be_justified<E: EthSpec>(
         &self,
         head_root: Hash256,
@@ -912,6 +918,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
+        honest_ffg_support: &HonestFfgSupportCache,
     ) -> Result<bool, Error> {
         if get_current_target::<E>(head_root, current_slot, proto_array)?
             == *unrealized_justified_checkpoint
@@ -920,13 +927,15 @@ impl FastConfirmationRule {
         }
 
         let total_active_balance = self.head_balance_source.total_active_balance;
-        let honest_ffg = self.compute_honest_ffg_support::<E>(
-            head_root,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
+        let honest_ffg = honest_ffg_support.get_or_compute(|| {
+            self.compute_honest_ffg_support::<E>(
+                head_root,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )
+        })?;
         Ok(3u128 * honest_ffg as u128 > total_active_balance as u128)
     }
 
@@ -938,15 +947,18 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
+        honest_ffg_support: &HonestFfgSupportCache,
     ) -> Result<bool, Error> {
         let total_active_balance = self.head_balance_source.total_active_balance;
-        let honest_ffg = self.compute_honest_ffg_support::<E>(
-            head_root,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
+        let honest_ffg = honest_ffg_support.get_or_compute(|| {
+            self.compute_honest_ffg_support::<E>(
+                head_root,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )
+        })?;
         Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active_balance as u128)
     }
 
@@ -966,11 +978,11 @@ impl FastConfirmationRule {
         let target = get_current_target::<E>(head_root, current_slot, proto_array)?;
         let mut score = 0u64;
 
-        // Memoize get_checkpoint_for_block by (vote root, vote epoch): most validators share a
-        // small set of (root, epoch) pairs, so each O(depth) ancestor walk runs at most once
-        // across the validator set rather than once per validator.
-        let mut memo: optimizations::RootMemo<(Hash256, Epoch), Checkpoint> =
-            optimizations::RootMemo::new();
+        // Aggregate balances by (vote root, vote epoch): most validators share a small set of
+        // latest-message checkpoints, so each O(depth) checkpoint lookup runs once per distinct
+        // key rather than once per validator.
+        let mut balance_by_vote_checkpoint =
+            optimizations::RootBalanceMap::<(Hash256, Epoch)>::new();
 
         // Spec: iterate `unslashed_and_active_indices`; zero roots mean no latest message.
         for val_idx in self.head_balance_source.unslashed_and_active_indices() {
@@ -978,15 +990,25 @@ impl FastConfirmationRule {
                 continue;
             };
             let vote_root = vote.current_root();
-            if !vote_root.is_zero() && !equivocating_indices.contains(&(val_idx as u64)) && {
-                // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
-                //        get_latest_message_epoch(latest_messages[i]))
-                let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
-                memo.get_or_try_insert_with((vote_root, vote_epoch), || {
-                    get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array)
-                })? == target
-            } {
-                score = score.safe_add(self.head_balance_source.balance(val_idx))?;
+            if vote_root.is_zero() || equivocating_indices.contains(&(val_idx as u64)) {
+                continue;
+            }
+            // Spec: get_latest_message_epoch(latest_messages[i]).
+            let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
+            if vote_epoch != target.epoch {
+                continue;
+            }
+            balance_by_vote_checkpoint.add(
+                (vote_root, vote_epoch),
+                self.head_balance_source.balance(val_idx),
+            )?;
+        }
+
+        for ((vote_root, vote_epoch), balance) in balance_by_vote_checkpoint.iter() {
+            // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
+            //        get_latest_message_epoch(latest_messages[i])).
+            if get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array)? == target {
+                score = score.safe_add(balance)?;
             }
         }
         Ok(score)

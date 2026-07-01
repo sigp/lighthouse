@@ -13,6 +13,7 @@ types = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+ethereum_hashing = { workspace = true }
 fixed_bytes = { workspace = true }
 state_processing = { workspace = true }
 
