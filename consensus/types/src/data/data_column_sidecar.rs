@@ -85,7 +85,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     #[superstruct(only(Fulu), partial_getter(rename = "column_fulu"))]
     pub column: DataColumn<E>,
     // [Modified in Gloas:EIP7688]
-    #[serde(with = "ssz_types::serde_utils::list_of_hex_prog_fixed_vec")]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_fixed_vec")]
     #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
     pub column: ProgressiveVariableList<Cell<E>>,
     /// All the KZG commitments associated with the block, used for verifying sample cells.

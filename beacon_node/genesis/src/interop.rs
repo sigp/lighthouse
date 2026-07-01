@@ -349,7 +349,7 @@ mod test {
         let mut active_fields = [0u8; 32];
         active_fields[..5].fill(0xff);
         active_fields[5] = 0x3f;
-        let expected = tree_hash::mix_in_active_fields(container_root, active_fields);
+        let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
 
         assert_eq!(derived_root, expected);
     }

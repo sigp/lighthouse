@@ -11,7 +11,10 @@ use signature_sets::{
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
-use types::{consts::gloas::BUILDER_INDEX_SELF_BUILD, *};
+use types::{
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
+    *,
+};
 
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
@@ -189,7 +192,8 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
-            process_execution_payload_bid(state, block, verify_signatures, spec)?;
+            let signed_bid = block.body().signed_execution_payload_bid()?;
+            process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
                 withdrawals::capella_electra::process_withdrawals::<E, Payload>(
@@ -597,7 +601,8 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 
     // [New in Gloas:EIP7688] the request lists are progressive and unbounded at the type level,
     // so the spec's per-payload limits must be enforced at runtime.
-    let request_checks: [(&str, usize, usize); 3] = [
+    // [New in Gloas:EIP8282] the builder request lists must be checked as well.
+    let request_checks: [(&str, usize, usize); 5] = [
         (
             "deposit_requests",
             requests.deposits.len(),
@@ -613,6 +618,16 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
             requests.consolidations.len(),
             E::MaxConsolidationRequestsPerPayload::to_usize(),
         ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::MaxBuilderDepositRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::MaxBuilderExitRequestsPerPayload::to_usize(),
+        ),
     ];
     for (kind, length, max) in request_checks {
         block_verify!(
@@ -622,13 +637,11 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     }
 
     // Process execution requests from the parent's payload
-    process_operations::process_deposit_requests_post_gloas(state, requests.deposits.iter(), spec)?;
-    process_operations::process_withdrawal_requests(state, requests.withdrawals.iter(), spec)?;
-    process_operations::process_consolidation_requests(
-        state,
-        requests.consolidations.iter(),
-        spec,
-    )?;
+    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
+    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
+    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
+    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
+    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
 
     // Queue the builder payment
     if parent_epoch == state.current_epoch() {
@@ -696,15 +709,13 @@ pub fn settle_builder_payment<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
+pub fn process_execution_payload_bid<E: EthSpec>(
     state: &mut BeaconState<E>,
-    block: BeaconBlockRef<'_, E, Payload>,
+    signed_bid: &SignedExecutionPayloadBid<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify the bid signature
-    let signed_bid = block.body().signed_execution_payload_bid()?;
-
     let bid = &signed_bid.message;
     let amount = bid.value;
     let builder_index = bid.builder_index;
@@ -726,6 +737,16 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         block_verify!(
             state.is_active_builder(builder_index, spec)?,
             ExecutionPayloadBidInvalid::BuilderNotActive(builder_index).into()
+        );
+
+        // Verify that the builder is a payload builder
+        block_verify!(
+            builder.version == PAYLOAD_BUILDER_VERSION,
+            ExecutionPayloadBidInvalid::InvalidBuilderVersion {
+                builder_index,
+                version: builder.version,
+            }
+            .into()
         );
 
         // Verify that the builder has funds to cover the bid
@@ -769,10 +790,10 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
     // Verify that the bid is for the current slot
     block_verify!(
-        bid.slot == block.slot(),
+        bid.slot == state.slot(),
         ExecutionPayloadBidInvalid::SlotMismatch {
             bid_slot: bid.slot,
-            block_slot: block.slot(),
+            state_slot: state.slot(),
         }
         .into()
     );
@@ -788,10 +809,11 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         .into()
     );
 
+    let expected_parent_root = *state.get_block_root(state.slot().safe_sub(1)?)?;
     block_verify!(
-        bid.parent_block_root == block.parent_root(),
+        bid.parent_block_root == expected_parent_root,
         ExecutionPayloadBidInvalid::ParentBlockRootMismatch {
-            block_parent_root: block.parent_root(),
+            block_parent_root: expected_parent_root,
             bid_parent_root: bid.parent_block_root,
         }
         .into()
@@ -809,6 +831,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
     // Record the pending payment if there is some payment
     if amount > 0 {
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         let pending_payment = BuilderPendingPayment {
             weight: 0,
             withdrawal: BuilderPendingWithdrawal {
@@ -816,6 +839,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
                 amount,
                 builder_index,
             },
+            proposer_index,
         };
 
         let payment_index = E::SlotsPerEpoch::to_usize()

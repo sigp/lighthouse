@@ -14,6 +14,8 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary", arbitrary(bound = "E: EthSpec"))]
 #[educe(PartialEq, Hash)]
 #[context_deserialize(ForkName)]
+// EIP-7688: the Gloas `PayloadAttestation` is a `ProgressiveContainer` with all 3 fields active.
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))]
 pub struct PayloadAttestation<E: EthSpec> {
     pub aggregation_bits: BitVector<E::PTCSize>,
     pub data: PayloadAttestationData,

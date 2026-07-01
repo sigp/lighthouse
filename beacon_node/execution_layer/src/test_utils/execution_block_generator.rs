@@ -26,8 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequestsElectra, ForkName, Hash256,
-    KzgProofs, Transaction, Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequests, ForkName, Hash256, KzgProofs,
+    Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -172,10 +172,10 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
      * Execution requests (electra+)
      */
     /// Per-payload execution requests returned by `getPayload`.
-    execution_requests: HashMap<PayloadId, ExecutionRequestsElectra<E>>,
+    execution_requests: HashMap<PayloadId, ExecutionRequests<E>>,
     /// If set, the next call to `build_new_execution_payload` will associate these
     /// execution requests with the generated payload ID.
-    next_execution_requests: Option<ExecutionRequestsElectra<E>>,
+    next_execution_requests: Option<ExecutionRequests<E>>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -475,12 +475,12 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.blobs_bundles.get(id).cloned()
     }
 
-    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequestsElectra<E>> {
+    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests<E>> {
         self.execution_requests.get(id).cloned()
     }
 
     /// Set execution requests to be returned alongside the next generated payload.
-    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequestsElectra<E>) {
+    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
         self.next_execution_requests = Some(requests);
     }
 

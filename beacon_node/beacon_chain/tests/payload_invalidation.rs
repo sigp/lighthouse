@@ -1077,7 +1077,6 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            block.message().proposer_index(),
             &rig.harness.chain.spec,
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))

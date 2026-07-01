@@ -43,19 +43,19 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequestsElectra, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
+    ExecutionRequestsElectra, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
     ProposerPreparationData, Slot,
 };
+use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;
@@ -206,7 +206,7 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload_value: Uint256,
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequestsElectra<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
@@ -282,7 +282,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
+                // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
+                requests: match maybe_requests {
+                    Some(ExecutionRequests::Electra(requests)) => Some(requests),
+                    Some(ExecutionRequests::Gloas(_)) => {
+                        return Err(Error::InvalidPayloadConversion);
+                    }
+                    None => None,
+                },
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),

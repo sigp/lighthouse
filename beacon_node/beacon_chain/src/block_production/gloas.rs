@@ -166,7 +166,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let should_build_on_full = self
             .canonical_head
             .fork_choice_read_lock()
-            .should_build_on_full(&parent_root, parent_payload_status)
+            .should_build_on_full(&parent_root, parent_payload_status, produce_at_slot)
             .map_err(|e| {
                 BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
             })?;
@@ -819,10 +819,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
-        // [Modified in Gloas:EIP7688] convert the EL-derived execution requests and blob
-        // commitments to their progressive representations. The bid's requests root commits to
-        // the progressive merkleization.
-        let execution_requests = ExecutionRequestsGloas::from(&execution_requests);
+        // [Modified in Gloas:EIP7688] convert the EL-derived blob commitments to their progressive
+        // representation. The bid's requests root commits to the progressive merkleization, and the
+        // execution requests are already carried as their progressive `Gloas` representation.
         let blob_kzg_commitments =
             ProgressiveVariableList::from_iter(blob_kzg_commitments.iter().cloned());
 
@@ -1184,6 +1183,8 @@ mod tests {
             deposits: ProgressiveVariableList::empty(),
             withdrawals: ProgressiveVariableList::new(withdrawals),
             consolidations: ProgressiveVariableList::new(consolidations),
+            builder_deposits: ProgressiveVariableList::empty(),
+            builder_exits: ProgressiveVariableList::empty(),
             _phantom: PhantomData,
         }
     }

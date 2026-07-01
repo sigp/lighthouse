@@ -10,7 +10,7 @@ use types::{
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
-    ExecutionRequestsGloas,
+    ExecutionRequestsGloas, ExecutionRequestsRef,
 };
 
 #[superstruct(
@@ -50,7 +50,7 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub parent_beacon_block_root: Hash256,
     #[superstruct(
         only(Electra, Fulu),
-        partial_getter(rename = "execution_requests_basic")
+        partial_getter(rename = "execution_requests_electra")
     )]
     pub execution_requests: &'block ExecutionRequestsElectra<E>,
     // [Modified in Gloas:EIP7688]
@@ -92,16 +92,6 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         }
     }
 
-    /// Return the EIP-7685 `requests_hash` for the execution requests, if any.
-    pub fn requests_hash(&self) -> Option<Hash256> {
-        match self {
-            Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
-            Self::Electra(request) => Some(request.execution_requests.requests_hash()),
-            Self::Fulu(request) => Some(request.execution_requests.requests_hash()),
-            Self::Gloas(request) => Some(request.execution_requests.requests_hash()),
-        }
-    }
-
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
         match self {
             Self::Bellatrix(request) => ExecutionPayloadRef::Bellatrix(request.execution_payload),
@@ -140,6 +130,15 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         Ok(())
     }
 
+    pub fn execution_requests_ref(&self) -> Option<ExecutionRequestsRef<'block, E>> {
+        match self {
+            Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
+            Self::Electra(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Fulu(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Gloas(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
+        }
+    }
+
     /// Verify the block hash is consistent locally within Lighthouse.
     ///
     /// ## Specification
@@ -157,8 +156,11 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             return Err(Error::ZeroLengthTransaction);
         }
 
-        let (header_hash, rlp_transactions_root) =
-            calculate_execution_block_hash(payload, parent_beacon_block_root, self.requests_hash());
+        let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
+            payload,
+            parent_beacon_block_root,
+            self.execution_requests_ref(),
+        );
 
         if header_hash != self.block_hash() {
             return Err(Error::BlockHashMismatch {

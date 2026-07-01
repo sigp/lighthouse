@@ -196,8 +196,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    // TODO(spec fix): enable once spec is updated
-    // #[serde(with = "ssz_types::serde_utils::list_of_hex_prog_var_list")]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     #[superstruct(only(Gloas), partial_getter(rename = "transactions_progressive"))]
     pub transactions: ProgressiveTransactions,
     #[superstruct(
@@ -214,8 +213,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     /// EIP-7928: Block access list
-    // TODO(spec fix): enable once spec is updated
-    // #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
     #[superstruct(only(Gloas))]
     pub block_access_list: BlockAccessList,
     #[superstruct(only(Gloas), partial_getter(copy))]

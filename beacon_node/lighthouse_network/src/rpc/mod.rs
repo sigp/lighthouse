@@ -46,7 +46,7 @@ mod response_limiter;
 mod self_limiter;
 
 // Maximum number of concurrent requests per protocol ID that a client may issue.
-const MAX_CONCURRENT_REQUESTS: usize = 2;
+pub const MAX_CONCURRENT_REQUESTS: usize = 2;
 
 /// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
