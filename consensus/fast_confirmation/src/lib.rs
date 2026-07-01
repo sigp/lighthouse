@@ -103,7 +103,7 @@ const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 #[derive(Clone, Debug)]
 pub struct FastConfirmationRule {
     // === Output ===
-    /// The latest confirmed block root. Fed into `safe_block_hash` for the EL.
+    /// Fed into `safe_block_hash` for the EL.
     pub confirmed_root: Hash256,
 
     // === Tracking state (spec's 6 new store fields) ===
@@ -851,7 +851,6 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `compute_adversarial_weight`.
-    ///
     fn compute_adversarial_weight<E: EthSpec>(
         &self,
         balance_source: &BalanceSourceData,
@@ -964,11 +963,12 @@ impl FastConfirmationRule {
         Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active_balance as u128)
     }
 
-    /// Spec: `get_current_target_score` — estimates FFG support for current epoch target.
+    /// Spec: `get_current_target_score` — estimates FFG support for the current-epoch target.
     ///
-    /// For each validator with a latest message, computes the checkpoint at the
-    /// **vote's own epoch** for the vote's root, and checks if it matches the
-    /// current target. This ensures only votes from the current epoch count.
+    /// Sums the balance of validators whose latest-message checkpoint (resolved from the vote
+    /// root at the vote's epoch) matches the current target. Votes are epoch-filtered and
+    /// aggregated by `(root, epoch)`, so each checkpoint lookup runs once per distinct vote
+    /// rather than once per validator.
     pub fn get_current_target_score<E: EthSpec>(
         &self,
         head_root: Hash256,

@@ -282,7 +282,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Fast Confirmation Rule state. `None` = FCR disabled.
     ///
     /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
-    /// the fork-choice write lock is still held. The Mutex is only locked briefly during
+    /// the fork-choice read lock is still held. The Mutex is only locked briefly during
     /// FCR computation, which is already serialized by `recompute_head_lock`.
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
 }
@@ -792,7 +792,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Emit a `fast_confirmation` event on every FCR run, regardless of
                     // whether the confirmed block changed (beacon-APIs#616). `block`/`slot`
                     // identify the most recent confirmed block; `current_slot` is the
-                    // wall-clock slot the algorithm ran at.
+                    // slot the algorithm ran at.
                     if let Some(event_handler) = self.event_handler.as_ref()
                         && event_handler.has_fast_confirmation_subscribers()
                     {

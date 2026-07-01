@@ -31,15 +31,11 @@ const CHAIN_TIP_SLOT: u64 = 69;
 const OBSERVED_JUSTIFIED_SLOT: u64 = 32;
 
 /// A realistic FCR evaluation: where the chain head and last-confirmed block sit, and the
-/// wall-clock slot at which FCR runs. All scenarios sit in epoch 2 (current_epoch = 2).
+/// slot at which FCR runs. All scenarios sit in epoch 2 (current_epoch = 2).
 struct Scenario {
-    /// Short, descriptive name used in the benchmark id.
     name: &'static str,
-    /// Slot of the fork-choice head block (where the chain is).
     head_slot: u64,
-    /// Wall-clock slot at which FCR runs (where we run the FCR).
     current_slot: u64,
-    /// Slot of the latest already-confirmed block.
     confirmed_slot: u64,
 }
 
@@ -261,15 +257,9 @@ fn build_chain(num_validators: usize) -> BenchData {
             .push(spec.max_effective_balance)
             .expect("push balance");
     }
-    for relative_epoch in [
-        RelativeEpoch::Previous,
-        RelativeEpoch::Current,
-        RelativeEpoch::Next,
-    ] {
-        seed_state
-            .build_committee_cache(relative_epoch, &spec)
-            .expect("committee cache");
-    }
+    seed_state
+        .build_all_committee_caches(&spec)
+        .expect("committee caches");
     let mut fcr = FastConfirmationRule::new(finalized_checkpoint, &seed_state, 25, 40)
         .expect("fcr initialization");
     fcr.test_set_head_balance_source(balance_source.clone());

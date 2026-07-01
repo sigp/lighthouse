@@ -7,14 +7,14 @@ use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 /// Per-validator committee slot assignments across a 3-epoch window.
 ///
 /// Each active validator is assigned to exactly one committee slot per epoch.
-/// This structure tracks those assignments for epochs `[current-2, current-1, current]`,
+/// This structure tracks those assignments for epochs `[current-1, current, current+1]`,
 /// stored as a flat `Vec<Slot>` with stride 3 for cache-friendly iteration over all
 /// validators.
 ///
 /// # Layout
 ///
 /// ```text
-///                    epoch-2    epoch-1    current
+///                    previous   current    next
 /// validator 0:       slot_a     slot_b     slot_c
 /// validator 1:       slot_d     slot_e     slot_f
 /// ...
@@ -31,7 +31,7 @@ use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 /// slot via `is_in_range` returns an error, catching rebuild bugs early.
 #[derive(Clone, Debug)]
 pub(crate) struct SlotAssignments {
-    /// Flat array of slot assignments. Length = `validator_count * 3`.
+    /// Length is `validator_count * 3` (stride-3 layout, see the type-level docs).
     slots: Vec<Slot>,
     /// Shuffling decision root the table was built for. The owner rebuilds when it changes.
     dependent_root: Hash256,
@@ -133,8 +133,6 @@ impl SlotAssignments {
             let Some(slot) = self.get(val_idx, col) else {
                 continue;
             };
-            // UNSET_SLOT means no assignment in this epoch column (inactive validator
-            // or epoch not yet loaded). Treat as "not in range".
             if slot == UNSET_SLOT {
                 continue;
             }
@@ -181,14 +179,8 @@ mod tests {
         }
 
         state
-            .build_committee_cache(RelativeEpoch::Previous, &spec)
-            .expect("prev cache");
-        state
-            .build_committee_cache(RelativeEpoch::Current, &spec)
-            .expect("current cache");
-        state
-            .build_committee_cache(RelativeEpoch::Next, &spec)
-            .expect("next cache");
+            .build_all_committee_caches(&spec)
+            .expect("committee caches");
 
         (state, spec)
     }
@@ -199,14 +191,8 @@ mod tests {
             per_slot_processing(state, None, spec).expect("should advance slot");
         }
         state
-            .build_committee_cache(RelativeEpoch::Previous, spec)
-            .expect("prev cache");
-        state
-            .build_committee_cache(RelativeEpoch::Current, spec)
-            .expect("current cache");
-        state
-            .build_committee_cache(RelativeEpoch::Next, spec)
-            .expect("next cache");
+            .build_all_committee_caches(spec)
+            .expect("committee caches");
     }
 
     #[test]

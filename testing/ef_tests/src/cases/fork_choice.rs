@@ -496,7 +496,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
                     }
 
-                    // Fast Confirmation Rule checks
                     if let Some(expected) = confirmed_root {
                         tester.check_confirmed_root(*expected)?;
                     }

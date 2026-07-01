@@ -13,7 +13,7 @@ pub struct BalanceSourceData {
     pub total_active_balance: u64,
     /// Effective balance per validator index. 0 for inactive.
     pub effective_balances: Vec<u64>,
-    /// True if the validator has been slashed. Used to filter support votes
+    /// Used to filter support votes
     /// (spec: `get_block_support_between_slots` excludes slashed validators).
     pub slashed: Vec<bool>,
 }
