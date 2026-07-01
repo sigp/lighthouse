@@ -517,41 +517,32 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, E, Payload> {
-    /// Apply a mutation to every attestation in the block body.
-    pub fn attestations_apply(&mut self, mut f: impl FnMut(AttestationRefMut<'_, E>)) {
+    pub fn attestations_mut(
+        &'a mut self,
+    ) -> Box<dyn Iterator<Item = AttestationRefMut<'a, E>> + 'a> {
         match self {
-            Self::Base(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Base(att))),
-            Self::Altair(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Base(att))),
-            Self::Bellatrix(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Base(att))),
-            Self::Capella(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Base(att))),
-            Self::Deneb(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Base(att))),
-            Self::Electra(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Electra(att))),
-            Self::Fulu(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Electra(att))),
-            Self::Gloas(body) => body
-                .attestations
-                .iter_mut()
-                .for_each(|att| f(AttestationRefMut::Gloas(att))),
+            Self::Base(body) => Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base)),
+            Self::Altair(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Bellatrix(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Capella(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Deneb(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Electra(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
+            }
+            Self::Fulu(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
+            }
+            Self::Gloas(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Gloas))
+            }
         }
     }
 
@@ -716,17 +707,17 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
         Ok(())
     }
 
-    /// Apply a mutation to every voluntary exit in the block body.
-    pub fn voluntary_exits_apply(&mut self, mut f: impl FnMut(&mut SignedVoluntaryExit)) {
+    /// Mutable slice over the block body's voluntary exits.
+    pub fn voluntary_exits_mut(&mut self) -> &mut [SignedVoluntaryExit] {
         match self {
-            Self::Base(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Altair(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Bellatrix(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Capella(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Deneb(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Electra(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Fulu(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
-            Self::Gloas(body) => body.voluntary_exits.iter_mut().for_each(&mut f),
+            Self::Base(body) => &mut body.voluntary_exits,
+            Self::Altair(body) => &mut body.voluntary_exits,
+            Self::Bellatrix(body) => &mut body.voluntary_exits,
+            Self::Capella(body) => &mut body.voluntary_exits,
+            Self::Deneb(body) => &mut body.voluntary_exits,
+            Self::Electra(body) => &mut body.voluntary_exits,
+            Self::Fulu(body) => &mut body.voluntary_exits,
+            Self::Gloas(body) => &mut body.voluntary_exits,
         }
     }
 }

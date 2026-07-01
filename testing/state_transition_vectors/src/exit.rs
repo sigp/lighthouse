@@ -145,9 +145,9 @@ vectors_and_tests!(
     invalid_validator_unknown,
     ExitTest {
         block_modifier: Box::new(|_, block| {
-            block.body_mut().voluntary_exits_apply(|exit| {
+            for exit in block.body_mut().voluntary_exits_mut() {
                 exit.message.validator_index = VALIDATOR_COUNT as u64;
-            });
+            }
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -305,9 +305,9 @@ vectors_and_tests!(
         block_modifier: Box::new(|_, block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
-            block.body_mut().voluntary_exits_apply(|exit| {
+            for exit in block.body_mut().voluntary_exits_mut() {
                 exit.message.validator_index = VALIDATOR_INDEX + 1;
-            });
+            }
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,

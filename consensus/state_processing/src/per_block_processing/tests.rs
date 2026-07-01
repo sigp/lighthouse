@@ -12,7 +12,7 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
-use ssz_types::Bitfield;
+use ssz_types::BitList;
 use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
@@ -432,12 +432,14 @@ async fn invalid_attestation_no_committee_for_index() {
         .clone()
         .deconstruct()
         .0;
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            att.into_data_mut().index += 1;
-        }
-    });
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .into_data_mut()
+        .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
@@ -479,12 +481,14 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .source;
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            att.into_data_mut().source = new_justified_checkpoint;
-        }
-    });
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .into_data_mut()
+        .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -524,18 +528,21 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .deconstruct()
         .0;
     // Use Electra method since harness runs at Electra fork
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            let AttestationRefMut::Electra(att) = att else {
-                panic!("harness should produce Electra attestations");
-            };
-            att.aggregation_bits = Bitfield::<
-                ssz_types::length::Variable<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>,
-            >::with_capacity(spec.target_committee_size)
+    if let AttestationRefMut::Electra(att) = head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+    {
+        att.aggregation_bits =
+            BitList::<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>::with_capacity(
+                spec.target_committee_size,
+            )
             .unwrap();
-        }
-    });
+    } else {
+        panic!("harness should produce Electra attestations");
+    }
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -569,12 +576,13 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            *att.into_signature_mut() = AggregateSignature::empty();
-        }
-    });
+    *head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .into_signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -611,12 +619,14 @@ async fn invalid_attestation_included_too_early() {
         .0;
     let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
         + Slot::new(MainnetEthSpec::slots_per_epoch());
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            att.into_data_mut().slot = new_attesation_slot;
-        }
-    });
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .into_data_mut()
+        .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -659,12 +669,15 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .clone()
         .deconstruct()
         .0;
-    let mut first = true;
-    head_block.to_mut().body_mut().attestations_apply(|att| {
-        if std::mem::take(&mut first) {
-            att.into_data_mut().target.epoch += Epoch::new(1);
-        }
-    });
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .into_data_mut()
+        .target
+        .epoch += Epoch::new(1);
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
