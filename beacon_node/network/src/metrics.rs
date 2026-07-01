@@ -485,6 +485,30 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_downloading_seconds",
+        "Time range sync batches spend downloading",
+        Ok(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_PROCESSING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_processing_seconds",
+        "Time range sync batches spend in processing",
+        Ok(vec![
+            0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0,
+        ]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING_COUNT: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_range_chain_batch_awaiting_processing_count",
+            "Number of batches in AwaitingProcessing when a batch starts processing",
+            Ok(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+        )
+    });
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",
@@ -664,22 +688,6 @@ pub static BEACON_BLOB_DELAY_FULL_VERIFICATION: LazyLock<Result<IntGauge>> = Laz
         "The time it takes to verify a beacon blob",
     )
 });
-
-pub static BEACON_BLOB_RPC_SLOT_START_DELAY_TIME: LazyLock<Result<Histogram>> = LazyLock::new(
-    || {
-        try_create_histogram_with_buckets(
-            "beacon_blob_rpc_slot_start_delay_time",
-            "Duration between when a blob is received over rpc and the start of the slot it belongs to.",
-            // Create a custom bucket list for greater granularity in block delay
-            Ok(vec![
-                0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0,
-                6.0, 7.0, 8.0, 9.0, 10.0, 15.0, 20.0,
-            ]), // NOTE: Previous values, which we may want to switch back to.
-                // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-                //decimal_buckets(-1,2)
-        )
-    },
-);
 
 /*
  * Light client update reprocessing queue metrics.
