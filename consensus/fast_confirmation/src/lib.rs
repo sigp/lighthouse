@@ -62,7 +62,9 @@ use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 #[strum(serialize_all = "snake_case")]
 pub enum Error {
     NodeNotFound(Hash256),
+    NodeHasNoBlockHash(Hash256),
     ParentRootNotFound(Hash256),
+    UnableToObtainHeadState(String),
     AncestorNotFound {
         block: Hash256,
         slot: Slot,

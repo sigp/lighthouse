@@ -1818,19 +1818,18 @@ impl ProtoArray {
             .unwrap_or(false)
     }
 
+    pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {
+        self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
+    }
+
     /// Slot of the block `root`, or `None` if `root` is unknown.
     pub fn block_slot(&self, root: Hash256) -> Option<Slot> {
-        self.indices
-            .get(&root)
-            .and_then(|&idx| self.nodes.get(idx))
-            .map(|node| node.slot())
+        self.get_block(root).map(|node| node.slot())
     }
 
     /// Root of the parent of `root`, or `None` if `root` is unknown or has no parent.
     pub fn parent_root(&self, root: Hash256) -> Option<Hash256> {
-        self.indices
-            .get(&root)
-            .and_then(|&idx| self.nodes.get(idx))
+        self.get_block(root)
             .and_then(|node| node.parent())
             .and_then(|parent_idx| self.nodes.get(parent_idx))
             .map(|parent| parent.root())
@@ -1846,9 +1845,7 @@ impl ProtoArray {
     /// Execution status of `root`, or `None` if `root` is unknown or its node variant carries no
     /// execution status.
     pub fn execution_status_of(&self, root: Hash256) -> Option<ExecutionStatus> {
-        self.indices
-            .get(&root)
-            .and_then(|&idx| self.nodes.get(idx))
+        self.get_block(root)
             .and_then(|node| node.execution_status().ok())
     }
 
