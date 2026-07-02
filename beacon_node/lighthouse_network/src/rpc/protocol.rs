@@ -800,10 +800,14 @@ where
                     {
                         Err(e) => Err((versioned_protocol.protocol(), RPCError::from(e), None)),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(e)), stream)) => Err((versioned_protocol.protocol(), e, Some(stream))),
-                        Ok((None, _)) => {
-                            Err((versioned_protocol.protocol(), RPCError::IncompleteStream, None))
+                        Ok((Some(Err(e)), stream)) => {
+                            Err((versioned_protocol.protocol(), e, Some(stream)))
                         }
+                        Ok((None, _)) => Err((
+                            versioned_protocol.protocol(),
+                            RPCError::IncompleteStream,
+                            None,
+                        )),
                     }
                 }
             }

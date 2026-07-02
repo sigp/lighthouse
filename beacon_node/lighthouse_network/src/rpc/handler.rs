@@ -892,9 +892,7 @@ where
             ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
                 error: (proto, error, stream),
                 ..
-            }) => {
-                self.on_listen_upgrade_error(proto, error, stream)
-            }
+            }) => self.on_listen_upgrade_error(proto, error, stream),
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
                 // release notes more than compiler feedback
@@ -1138,9 +1136,16 @@ where
             }));
     }
 
-    fn on_listen_upgrade_error(&mut self, protocol: Protocol, error: RPCError, substream: Option<InboundFramed<Stream, E>>) {
+    fn on_listen_upgrade_error(
+        &mut self,
+        protocol: Protocol,
+        error: RPCError,
+        substream: Option<InboundFramed<Stream, E>>,
+    ) {
         // Respond with `InvalidRequest` error.
-        if let Some(stream) = substream && let RPCError::InvalidData(err) = &error {
+        if let Some(stream) = substream
+            && let RPCError::InvalidData(err) = &error
+        {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 let delay_key = self
                     .inbound_substreams_delay
