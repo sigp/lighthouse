@@ -1259,7 +1259,7 @@ where
                 None
             };
 
-            let (block, post_block_state, _consensus_block_value) = self
+            let (block, post_block_state, _consensus_block_value, _payload_contents) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,

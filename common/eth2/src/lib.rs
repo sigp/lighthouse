@@ -2565,7 +2565,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
@@ -2590,10 +2590,8 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
-        if let Some(include_payload) = include_payload {
-            path.query_pairs_mut()
-                .append_pair("include_payload", &include_payload.to_string());
-        }
+        path.query_pairs_mut()
+            .append_pair("include_payload", &include_payload.to_string());
 
         if let Some(builder_booster_factor) = builder_booster_factor {
             path.query_pairs_mut()
@@ -2617,16 +2615,10 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<
-        (
-            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
-            ProduceBlockV4Metadata,
-        ),
-        Error,
-    > {
+    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         self.get_validator_blocks_v4_modular(
             slot,
             randao_reveal,
@@ -2640,6 +2632,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v4/validator/blocks/{slot}`
+    ///
+    /// Returns either a bare block or the full [`BlockAndEnvelope`] (block + execution payload
+    /// envelope + blobs + KZG proofs) depending on the `Eth-Execution-Payload-Included` response
+    /// header. Note that a builder bid yields a bare block even when `include_payload=true`.
     #[allow(clippy::too_many_arguments)]
     pub async fn get_validator_blocks_v4_modular<E: EthSpec>(
         &self,
@@ -2647,16 +2643,10 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<
-        (
-            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
-            ProduceBlockV4Metadata,
-        ),
-        Error,
-    > {
+    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         let path = self
             .get_validator_blocks_v4_path(
                 slot,
@@ -2675,12 +2665,30 @@ impl BeaconNodeHttpClient {
                 Accept::Json,
                 self.timeouts.get_validator_block,
                 |response, headers| async move {
-                    let header_metadata = ProduceBlockV4Metadata::try_from(&headers)
+                    let metadata = ProduceBlockV4Metadata::try_from(&headers)
                         .map_err(Error::InvalidHeaders)?;
-                    let block_response = response
-                        .json::<ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>>()
-                        .await?;
-                    Ok((block_response, header_metadata))
+                    let block_response = if metadata.execution_payload_included {
+                        ProduceBlockV4Response::BlockAndEnvelope(
+                            response
+                                .json::<ForkVersionedResponse<
+                                    BlockAndEnvelope<E>,
+                                    ProduceBlockV4Metadata,
+                                >>()
+                                .await?
+                                .data,
+                        )
+                    } else {
+                        ProduceBlockV4Response::BlockOnly(
+                            response
+                                .json::<ForkVersionedResponse<
+                                    BeaconBlock<E>,
+                                    ProduceBlockV4Metadata,
+                                >>()
+                                .await?
+                                .data,
+                        )
+                    };
+                    Ok((block_response, metadata))
                 },
             )
             .await?;
@@ -2694,10 +2702,10 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         self.get_validator_blocks_v4_modular_ssz::<E>(
             slot,
             randao_reveal,
@@ -2711,6 +2719,8 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v4/validator/blocks/{slot}` in ssz format
+    ///
+    /// See [`Self::get_validator_blocks_v4_modular`] for the response semantics.
     #[allow(clippy::too_many_arguments)]
     pub async fn get_validator_blocks_v4_modular_ssz<E: EthSpec>(
         &self,
@@ -2718,10 +2728,10 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         let path = self
             .get_validator_blocks_v4_path(
                 slot,
@@ -2743,14 +2753,25 @@ impl BeaconNodeHttpClient {
                     let metadata = ProduceBlockV4Metadata::try_from(&headers)
                         .map_err(Error::InvalidHeaders)?;
                     let response_bytes = response.bytes().await?;
+                    let block_response = if metadata.execution_payload_included {
+                        ProduceBlockV4Response::BlockAndEnvelope(
+                            BlockAndEnvelope::from_ssz_bytes_for_fork(
+                                &response_bytes,
+                                metadata.consensus_version,
+                            )
+                            .map_err(Error::InvalidSsz)?,
+                        )
+                    } else {
+                        ProduceBlockV4Response::BlockOnly(
+                            BeaconBlock::from_ssz_bytes_for_fork(
+                                &response_bytes,
+                                metadata.consensus_version,
+                            )
+                            .map_err(Error::InvalidSsz)?,
+                        )
+                    };
 
-                    let block = BeaconBlock::from_ssz_bytes_for_fork(
-                        &response_bytes,
-                        metadata.consensus_version,
-                    )
-                    .map_err(Error::InvalidSsz)?;
-
-                    Ok((block, metadata))
+                    Ok((block_response, metadata))
                 },
             )
             .await?;
