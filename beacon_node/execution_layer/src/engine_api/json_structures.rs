@@ -966,42 +966,6 @@ pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
 /// EIP-8070 parameters are 128-bit bitarrays (=16 bytes).
 pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
 
-// TODO(dknopik): use updated ethereum_serde_utils instead
-mod bytes_16_hex {
-    use serde::{Deserializer, Serializer};
-    use serde_utils::hex::PrefixedHexVisitor;
-
-    const BYTES_LEN: usize = super::CUSTODY_COLUMNS_BITARRAY_BYTES;
-
-    pub fn serialize<S>(bytes: &[u8; BYTES_LEN], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = String::with_capacity(2 + BYTES_LEN * 2);
-        s.push_str("0x");
-        s.push_str(&hex::encode(bytes));
-        serializer.serialize_str(&s)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; BYTES_LEN], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de::Error;
-        let decoded = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        if decoded.len() != BYTES_LEN {
-            return Err(D::Error::custom(format!(
-                "expected {} bytes for custody bitarray, got {}",
-                BYTES_LEN,
-                decoded.len()
-            )));
-        }
-        let mut array = [0u8; BYTES_LEN];
-        array.copy_from_slice(&decoded);
-        Ok(array)
-    }
-}
-
 /// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
 /// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
 /// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
@@ -1010,7 +974,8 @@ mod bytes_16_hex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CustodyColumnsBitArray(
-    #[serde(with = "bytes_16_hex")] [u8; CUSTODY_COLUMNS_BITARRAY_BYTES],
+    #[serde(with = "serde_utils::fixed_bytes_hex::bytes_16_hex")]
+    [u8; CUSTODY_COLUMNS_BITARRAY_BYTES],
 );
 
 impl CustodyColumnsBitArray {
