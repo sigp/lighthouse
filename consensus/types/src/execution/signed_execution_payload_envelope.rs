@@ -1,7 +1,7 @@
 use crate::{
     BeaconState, BeaconStateError, ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Fork, ForkName, Hash256, SignedRoot, Slot,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    ExecutionPayloadEnvelope, Fork, ForkName, Hash256, SignedBlindedExecutionPayloadEnvelope,
+    SignedRoot, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
@@ -58,6 +58,16 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         self.message.payload.block_hash
+    }
+
+    /// Convert to the blinded form, retaining the signature.
+    ///
+    /// The signature is valid over both forms as they have the same hash tree root.
+    pub fn clone_as_blinded(&self) -> SignedBlindedExecutionPayloadEnvelope<E> {
+        SignedBlindedExecutionPayloadEnvelope {
+            message: (&self.message).into(),
+            signature: self.signature.clone(),
+        }
     }
 
     /// Verify `self.signature`.

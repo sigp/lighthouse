@@ -6,7 +6,7 @@
 //! and publishes the payload.
 
 use std::collections::HashMap;
-use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Slot};
+use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Hash256, Slot};
 
 pub struct PendingEnvelopeData<E: EthSpec> {
     pub envelope: ExecutionPayloadEnvelope<E>,
@@ -51,6 +51,17 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     /// Get a pending envelope by slot.
     pub fn get(&self, slot: Slot) -> Option<&ExecutionPayloadEnvelope<E>> {
         self.envelopes.get(&slot).map(|d| &d.envelope)
+    }
+
+    /// Find a pending envelope by the beacon block root it commits to.
+    pub fn find_by_block_root(
+        &self,
+        beacon_block_root: Hash256,
+    ) -> Option<&ExecutionPayloadEnvelope<E>> {
+        self.envelopes
+            .values()
+            .map(|d| &d.envelope)
+            .find(|envelope| envelope.beacon_block_root == beacon_block_root)
     }
 
     /// Remove and return the blobs and proofs for a slot, leaving the envelope in place.
@@ -126,6 +137,24 @@ mod tests {
         assert!(cache.contains(slot));
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.get(slot), Some(&expected_envelope));
+    }
+
+    #[test]
+    fn find_by_block_root() {
+        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let slot = Slot::new(1);
+        let block_root = Hash256::repeat_byte(42);
+
+        let mut data = make_envelope(slot);
+        data.envelope.beacon_block_root = block_root;
+        let expected_envelope = data.envelope.clone();
+        cache.insert(slot, data);
+
+        assert_eq!(
+            cache.find_by_block_root(block_root),
+            Some(&expected_envelope)
+        );
+        assert_eq!(cache.find_by_block_root(Hash256::repeat_byte(43)), None);
     }
 
     #[test]

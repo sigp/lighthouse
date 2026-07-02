@@ -4556,7 +4556,12 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            let (block, envelope) = self.unwrap_v4_block_contents(response, &metadata, slot);
+            let BlockAndEnvelope {
+                block,
+                execution_payload_envelope: envelope,
+                kzg_proofs,
+                blobs,
+            } = self.unwrap_v4_block_contents(response, &metadata, slot);
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
@@ -4567,11 +4572,18 @@ impl ApiTester {
                 .unwrap();
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
 
-            // Publish the bundled envelope directly (stateless flow: no separate fetch needed).
+            // Clear the pending cache to simulate publishing via a beacon node that did not
+            // produce the block, then publish the bundled envelope, blobs and proofs.
+            self.chain.pending_payload_envelopes.write().remove(slot);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            let contents = SignedExecutionPayloadEnvelopeContents {
+                signed_execution_payload_envelope: signed_envelope,
+                kzg_proofs,
+                blobs,
+            };
             self.client
-                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelope_contents(&contents, fork_name)
                 .await
                 .unwrap();
 
@@ -4610,7 +4622,12 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            let (block, envelope) = self.unwrap_v4_block_contents(response, &metadata, slot);
+            let BlockAndEnvelope {
+                block,
+                execution_payload_envelope: envelope,
+                kzg_proofs,
+                blobs,
+            } = self.unwrap_v4_block_contents(response, &metadata, slot);
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
@@ -4621,10 +4638,18 @@ impl ApiTester {
                 .unwrap();
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
 
+            // Clear the pending cache to simulate publishing via a beacon node that did not
+            // produce the block, then publish the bundled envelope, blobs and proofs.
+            self.chain.pending_payload_envelopes.write().remove(slot);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            let contents = SignedExecutionPayloadEnvelopeContents {
+                signed_execution_payload_envelope: signed_envelope,
+                kzg_proofs,
+                blobs,
+            };
             self.client
-                .post_beacon_execution_payload_envelopes_ssz(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name)
                 .await
                 .unwrap();
 
@@ -4634,14 +4659,72 @@ impl ApiTester {
         self
     }
 
+    /// Test that a blinded envelope submission is rejected when the beacon node has no cached
+    /// envelope to reconstruct from. Only runs if Gloas is scheduled.
+    pub async fn test_block_production_v4_blinded_envelope_no_cache(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            let (response, _metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .await
+                .unwrap();
+            let block = response.into_block();
+
+            let envelope = self
+                .client
+                .get_validator_execution_payload_envelopes::<E>(slot)
+                .await
+                .unwrap()
+                .data;
+            self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+
+            // Clear the cache so there is no envelope to reconstruct the blinded
+            // submission from.
+            self.chain.pending_payload_envelopes.write().remove(slot);
+
+            let signed_envelope =
+                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            let err = self
+                .client
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
+                .await
+                .unwrap_err();
+            assert_eq!(err.status().unwrap(), 400);
+
+            return self;
+        }
+
+        panic!("Gloas fork was never reached");
+    }
+
     /// Assert an `include_payload=true` v4 response carries the full block contents, verify the
-    /// bundled envelope, and return the block and envelope for signing/publishing.
+    /// bundled envelope, and return the block contents for signing/publishing.
     fn unwrap_v4_block_contents(
         &self,
         response: ProduceBlockV4Response<E>,
         metadata: &ProduceBlockV4Metadata,
         slot: Slot,
-    ) -> (BeaconBlock<E>, ExecutionPayloadEnvelope<E>) {
+    ) -> BlockAndEnvelope<E> {
         // Local building always has a payload to include.
         assert!(metadata.execution_payload_included);
         let block_contents = match response {
@@ -4650,13 +4733,12 @@ impl ApiTester {
                 panic!("expected block contents when include_payload=true")
             }
         };
-        let BlockAndEnvelope {
-            block,
-            execution_payload_envelope: envelope,
-            ..
-        } = block_contents;
 
-        self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+        self.assert_envelope_fields(
+            &block_contents.execution_payload_envelope,
+            block_contents.block.tree_hash_root(),
+            slot,
+        );
 
         // The bundled envelope should match the one cached for the stateful flow.
         let cached_envelope = self
@@ -4666,9 +4748,9 @@ impl ApiTester {
             .get(slot)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
-        assert_eq!(envelope, cached_envelope);
+        assert_eq!(block_contents.execution_payload_envelope, cached_envelope);
 
-        (block, envelope)
+        block_contents
     }
 
     pub async fn test_block_production_no_verify_randao(self) -> Self {
@@ -8860,6 +8942,8 @@ async fn block_production_v4() {
         .test_block_production_v4_with_payload()
         .await
         .test_block_production_v4_with_payload_ssz()
+        .await
+        .test_block_production_v4_blinded_envelope_no_cache()
         .await;
 }
 

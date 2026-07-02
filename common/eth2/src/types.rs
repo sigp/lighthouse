@@ -1952,6 +1952,18 @@ impl<E: EthSpec> ProduceBlockV4Response<E> {
     }
 }
 
+/// A signed execution payload envelope bundled with blobs and KZG proofs for stateless
+/// publishing via `POST beacon/execution_payload_envelopes`, used when the receiving beacon node
+/// does not have the blobs cached.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
+    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
+}
+
 impl<E: EthSpec> FullBlockContents<E> {
     pub fn new(block: BeaconBlock<E>, blob_data: Option<(KzgProofs<E>, BlobsList<E>)>) -> Self {
         match blob_data {
