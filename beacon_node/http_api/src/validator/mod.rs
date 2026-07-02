@@ -664,25 +664,14 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .unzip();
 
                         // Update the prepare beacon proposer cache based on this request.
+                        // This data will get picked up by the next scheduled run of
+                        // `prepare_beacon_proposer`.
                         execution_layer
                             .update_proposer_preparation(
                                 current_epoch,
                                 preparation_data.iter().map(|(data, limit)| (data, limit)),
                             )
                             .await;
-
-                        // Call prepare beacon proposer blocking with the latest update in order to make
-                        // sure we have a local payload to fall back to in the event of the blinded block
-                        // flow failing.
-                        chain
-                            .prepare_beacon_proposer(current_slot)
-                            .await
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "error updating proposer preparations: {:?}",
-                                    e
-                                ))
-                            })?;
 
                         info!(
                             count = filtered_registration_data.len(),
