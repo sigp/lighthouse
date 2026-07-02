@@ -196,6 +196,19 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
+                // Per the consensus-spec, bytes remaining after the declared SSZ payload are
+                // invalid input and must be rejected.
+                //
+                // Best-effort: only catches trailing bytes already buffered in `src` here (i.e.
+                // delivered in the same read). Bytes split into a later read go undetected, as
+                // the request stream decodes a single frame and is not polled again. This gap is
+                // accepted to avoid an extra read just to probe for EOF.
+                if !src.is_empty() {
+                    return Err(RPCError::InvalidData(format!(
+                        "Trailing bytes detected after request payload for protocol {:?}",
+                        self.protocol.versioned_protocol,
+                    )));
+                }
                 handle_rpc_request(
                     self.protocol.versioned_protocol,
                     &decoded_buffer,
