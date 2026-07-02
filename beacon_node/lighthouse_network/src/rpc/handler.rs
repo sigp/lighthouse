@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
+use super::methods::{ErrorType, GoodbyeReason, RpcErrorResponse, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
 use super::{RPCReceived, RPCSend, ReqId};
@@ -890,14 +890,10 @@ where
                 self.on_dial_upgrade_error(info, error)
             }
             ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
-                error: (proto, error),
+                error: (proto, error, stream),
                 ..
             }) => {
-                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                    id: self.current_inbound_substream_id,
-                    proto,
-                    error,
-                }));
+                self.on_listen_upgrade_error(proto, error, stream)
             }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
@@ -1140,6 +1136,48 @@ where
                 proto: req.versioned_protocol().protocol(),
                 id,
             }));
+    }
+
+    fn on_listen_upgrade_error(&mut self, protocol: Protocol, error: RPCError, substream: Option<InboundFramed<Stream, E>>) {
+        // Respond with `InvalidRequest` error.
+        if let Some(stream) = substream && let RPCError::InvalidData(err) = &error {
+            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+                let delay_key = self
+                    .inbound_substreams_delay
+                    .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
+                let mut pending_items = VecDeque::new();
+                pending_items.push_front(RpcResponse::Error(
+                    RpcErrorResponse::InvalidRequest,
+                    ErrorType::from(err.as_str()),
+                ));
+                self.inbound_substreams.insert(
+                    self.current_inbound_substream_id,
+                    InboundInfo {
+                        state: InboundState::Idle(stream),
+                        pending_items,
+                        delay_key: Some(delay_key),
+                        protocol,
+                        request_start_time: Instant::now(),
+                        max_remaining_chunks: 1,
+                    },
+                );
+            } else {
+                debug!(
+                    %protocol,
+                    %error,
+                    max = MAX_INBOUND_SUBSTREAMS,
+                    "Dropping InvalidRequest response; inbound substream limit reached"
+                );
+            }
+        }
+
+        // Report the error to the behaviour so it can penalise the peer.
+        self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+            id: self.current_inbound_substream_id,
+            proto: protocol,
+            error,
+        }));
+        self.current_inbound_substream_id.0 += 1;
     }
 }
 

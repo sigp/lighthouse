@@ -756,7 +756,7 @@ where
     E: EthSpec,
 {
     type Output = InboundOutput<TSocket, E>;
-    type Error = (Protocol, RPCError);
+    type Error = (Protocol, RPCError, Option<InboundFramed<TSocket, E>>);
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
@@ -798,11 +798,11 @@ where
                     )
                     .await
                     {
-                        Err(e) => Err((versioned_protocol.protocol(), RPCError::from(e))),
+                        Err(e) => Err((versioned_protocol.protocol(), RPCError::from(e), None)),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(e)), _)) => Err((versioned_protocol.protocol(), e)),
+                        Ok((Some(Err(e)), stream)) => Err((versioned_protocol.protocol(), e, Some(stream))),
                         Ok((None, _)) => {
-                            Err((versioned_protocol.protocol(), RPCError::IncompleteStream))
+                            Err((versioned_protocol.protocol(), RPCError::IncompleteStream, None))
                         }
                     }
                 }
