@@ -69,11 +69,7 @@ impl TestContext {
             .update_tree_hash_cache()
             .expect("should hash genesis state");
 
-        let mut anchor_header = state.latest_block_header().clone();
-        if anchor_header.state_root.is_zero() {
-            anchor_header.state_root = genesis_state_root;
-        }
-        let block_root = anchor_header.canonical_root();
+        let block_root = state.get_latest_block_root(genesis_state_root);
 
         // Build a signed block with the correct state root for the snapshot.
         let mut genesis_block = BeaconBlock::empty(&spec);
