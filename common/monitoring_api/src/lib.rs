@@ -227,11 +227,11 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_error_display_redacts_monitoring_endpoint_query() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let accept_thread = std::thread::spawn(move || {
-            let _ = listener.accept();
-        });
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
 
         let client = MonitoringHttpClient::new(&Config {
             monitoring_endpoint: "http://127.0.0.1/".to_string(),
@@ -247,7 +247,6 @@ mod tests {
             .post(url, &Vec::<MonitoringMetrics>::new())
             .await
             .unwrap_err();
-        accept_thread.join().unwrap();
 
         let formatted_error = error.to_string();
 
