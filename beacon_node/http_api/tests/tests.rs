@@ -4358,7 +4358,7 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_slot(slot)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
         assert_eq!(envelope.beacon_block_root, block_root);
@@ -4453,7 +4453,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes_blinded(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4574,7 +4574,10 @@ impl ApiTester {
 
             // Clear the pending cache to simulate publishing via a beacon node that did not
             // produce the block, then publish the bundled envelope, blobs and proofs.
-            self.chain.pending_payload_envelopes.write().remove(slot);
+            self.chain
+                .pending_payload_envelopes
+                .write()
+                .remove_by_slot(slot);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let contents = SignedExecutionPayloadEnvelopeContents {
@@ -4640,7 +4643,10 @@ impl ApiTester {
 
             // Clear the pending cache to simulate publishing via a beacon node that did not
             // produce the block, then publish the bundled envelope, blobs and proofs.
-            self.chain.pending_payload_envelopes.write().remove(slot);
+            self.chain
+                .pending_payload_envelopes
+                .write()
+                .remove_by_slot(slot);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let contents = SignedExecutionPayloadEnvelopeContents {
@@ -4700,13 +4706,16 @@ impl ApiTester {
 
             // Clear the cache so there is no envelope to reconstruct the blinded
             // submission from.
-            self.chain.pending_payload_envelopes.write().remove(slot);
+            self.chain
+                .pending_payload_envelopes
+                .write()
+                .remove_by_slot(slot);
 
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let err = self
                 .client
-                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes_blinded(&signed_envelope, fork_name)
                 .await
                 .unwrap_err();
             assert_eq!(err.status().unwrap(), 400);
@@ -4745,10 +4754,10 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_slot(slot)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
-        assert_eq!(block_contents.execution_payload_envelope, cached_envelope);
+        assert_eq!(block_contents.execution_payload_envelope, *cached_envelope);
 
         block_contents
     }

@@ -178,9 +178,9 @@ pub fn build_response_v4<T: BeaconChainTypes>(
             let ssz_bytes = match payload_contents {
                 Some((execution_payload_envelope, kzg_proofs, blobs)) => BlockAndEnvelope {
                     block,
-                    execution_payload_envelope,
+                    execution_payload_envelope: Arc::unwrap_or_clone(execution_payload_envelope),
                     kzg_proofs,
-                    blobs,
+                    blobs: Arc::unwrap_or_clone(blobs),
                 }
                 .as_ssz_bytes(),
                 None => block.as_ssz_bytes(),
@@ -205,9 +205,11 @@ pub fn build_response_v4<T: BeaconChainTypes>(
                         metadata,
                         data: BlockAndEnvelope {
                             block,
-                            execution_payload_envelope,
+                            execution_payload_envelope: Arc::unwrap_or_clone(
+                                execution_payload_envelope,
+                            ),
                             kzg_proofs,
-                            blobs,
+                            blobs: Arc::unwrap_or_clone(blobs),
                         },
                     })
                     .into_response()

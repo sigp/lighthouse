@@ -1931,6 +1931,7 @@ impl<E: EthSpec> BlockAndEnvelope<E> {
 /// [`BlockAndEnvelope`]. Callers should branch on the `Eth-Execution-Payload-Included` header to
 /// decide which variant to expect.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ProduceBlockV4Response<E: EthSpec> {
     BlockOnly(BeaconBlock<E>),
     BlockAndEnvelope(BlockAndEnvelope<E>),

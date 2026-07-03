@@ -455,53 +455,44 @@ impl BeaconNodeHttpClient {
         timeout: Option<Duration>,
         fork: ForkName,
     ) -> Result<Response, Error> {
-        let builder = self
-            .client
-            .post(url)
-            .timeout(timeout.unwrap_or(self.timeouts.default));
-        let response = builder
-            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
-            .json(body)
-            .send()
-            .await?;
-        success_or_error(response).await
+        self.post_generic_with_envelope_headers(url, body, timeout, fork, None)
+            .await
     }
 
-    /// Generic POST function with `Eth-Consensus-Version` and `Eth-Execution-Payload-Blinded`
-    /// headers.
+    /// Generic POST function with `Eth-Consensus-Version` and optional
+    /// `Eth-Execution-Payload-Blinded` headers.
     async fn post_generic_with_envelope_headers<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
         body: &T,
         timeout: Option<Duration>,
         fork: ForkName,
-        payload_blinded: bool,
+        payload_blinded: Option<bool>,
     ) -> Result<Response, Error> {
-        let builder = self
+        let mut builder = self
             .client
             .post(url)
-            .timeout(timeout.unwrap_or(self.timeouts.default));
-        let response = builder
-            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
-            .header(
+            .timeout(timeout.unwrap_or(self.timeouts.default))
+            .header(CONSENSUS_VERSION_HEADER, fork.to_string());
+        if let Some(payload_blinded) = payload_blinded {
+            builder = builder.header(
                 EXECUTION_PAYLOAD_BLINDED_HEADER,
                 payload_blinded.to_string(),
-            )
-            .json(body)
-            .send()
-            .await?;
+            );
+        }
+        let response = builder.json(body).send().await?;
         success_or_error(response).await
     }
 
-    /// Generic POST function with `Eth-Consensus-Version` and `Eth-Execution-Payload-Blinded`
-    /// headers and an SSZ body.
+    /// Generic POST function with `Eth-Consensus-Version` and optional
+    /// `Eth-Execution-Payload-Blinded` headers and an SSZ body.
     async fn post_generic_with_envelope_headers_and_ssz_body<T: Into<Body>, U: IntoUrl>(
         &self,
         url: U,
         body: T,
         timeout: Option<Duration>,
         fork: ForkName,
-        payload_blinded: bool,
+        payload_blinded: Option<bool>,
     ) -> Result<Response, Error> {
         let builder = self
             .client
@@ -512,11 +503,13 @@ impl BeaconNodeHttpClient {
             CONSENSUS_VERSION_HEADER,
             HeaderValue::from_str(&fork.to_string()).expect("Failed to create header value"),
         );
-        headers.insert(
-            EXECUTION_PAYLOAD_BLINDED_HEADER,
-            HeaderValue::from_str(&payload_blinded.to_string())
-                .expect("Failed to create header value"),
-        );
+        if let Some(payload_blinded) = payload_blinded {
+            headers.insert(
+                EXECUTION_PAYLOAD_BLINDED_HEADER,
+                HeaderValue::from_str(&payload_blinded.to_string())
+                    .expect("Failed to create header value"),
+            );
+        }
         headers.insert(
             "Content-Type",
             HeaderValue::from_static("application/octet-stream"),
@@ -550,21 +543,8 @@ impl BeaconNodeHttpClient {
         timeout: Option<Duration>,
         fork: ForkName,
     ) -> Result<Response, Error> {
-        let builder = self
-            .client
-            .post(url)
-            .timeout(timeout.unwrap_or(self.timeouts.default));
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            CONSENSUS_VERSION_HEADER,
-            HeaderValue::from_str(&fork.to_string()).expect("Failed to create header value"),
-        );
-        headers.insert(
-            "Content-Type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let response = builder.headers(headers).body(body).send().await?;
-        success_or_error(response).await
+        self.post_generic_with_envelope_headers_and_ssz_body(url, body, timeout, fork, None)
+            .await
     }
 
     /// `GET beacon/genesis`
@@ -2888,11 +2868,49 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v1/beacon/execution_payload_envelopes`
+    pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let path = self.post_beacon_execution_payload_envelopes_path()?;
+
+        self.post_generic_with_consensus_version(
+            path,
+            envelope,
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_envelopes` in SSZ format
+    pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let path = self.post_beacon_execution_payload_envelopes_path()?;
+
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_envelopes`
     ///
     /// Submits the blinded form of the envelope (stateful flow); the beacon node reconstructs
     /// the full envelope and blobs from the cache populated during block production, so this
     /// must be sent to the beacon node that produced the block.
-    pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
+    pub async fn post_beacon_execution_payload_envelopes_blinded<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
@@ -2904,7 +2922,7 @@ impl BeaconNodeHttpClient {
             &envelope.clone_as_blinded(),
             Some(self.timeouts.proposal),
             fork_name,
-            true,
+            Some(true),
         )
         .await?;
 
@@ -2913,8 +2931,8 @@ impl BeaconNodeHttpClient {
 
     /// `POST v1/beacon/execution_payload_envelopes` in SSZ format
     ///
-    /// See [`Self::post_beacon_execution_payload_envelopes`] for the request semantics.
-    pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
+    /// See [`Self::post_beacon_execution_payload_envelopes_blinded`] for the request semantics.
+    pub async fn post_beacon_execution_payload_envelopes_blinded_ssz<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
@@ -2926,7 +2944,7 @@ impl BeaconNodeHttpClient {
             envelope.clone_as_blinded().as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
-            true,
+            Some(true),
         )
         .await?;
 
@@ -2949,7 +2967,7 @@ impl BeaconNodeHttpClient {
             contents,
             Some(self.timeouts.proposal),
             fork_name,
-            false,
+            Some(false),
         )
         .await?;
 
@@ -2971,7 +2989,7 @@ impl BeaconNodeHttpClient {
             contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
-            false,
+            Some(false),
         )
         .await?;
 

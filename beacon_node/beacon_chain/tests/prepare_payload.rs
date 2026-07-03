@@ -638,21 +638,20 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .unwrap();
 
     // The envelope + blobs should now be in the pending cache.
-    assert!(
-        harness
-            .chain
-            .pending_payload_envelopes
-            .read()
-            .contains(slot),
-        "Pending cache should contain an envelope for the produced slot"
-    );
+    let block_root = harness
+        .chain
+        .pending_payload_envelopes
+        .read()
+        .get_by_slot(slot)
+        .expect("Pending cache should contain an envelope for the produced slot")
+        .beacon_block_root;
 
     // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
     let blobs = harness
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
 
     assert!(
         blobs.is_some(),
@@ -670,7 +669,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
     assert!(
         second_take.is_none(),
         "Blobs should only be consumable once"
@@ -682,7 +681,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_slot(slot)
             .is_some(),
         "Envelope should remain in cache after taking blobs"
     );

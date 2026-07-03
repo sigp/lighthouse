@@ -49,7 +49,11 @@ pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
 
-pub type PayloadEnvelopeContents<E> = (ExecutionPayloadEnvelope<E>, KzgProofs<E>, BlobsList<E>);
+pub type PayloadEnvelopeContents<E> = (
+    Arc<ExecutionPayloadEnvelope<E>>,
+    KzgProofs<E>,
+    Arc<BlobsList<E>>,
+);
 
 type BlockProductionResult<E> = (
     BeaconBlock<E>,
@@ -689,23 +693,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
-            // TODO(gloas) might be safer to cache by root instead of by slot.
-            // We should revisit this once this code path + beacon api spec matures
             let (blobs, kzg_proofs) = payload_data.blobs_and_proofs;
-            self.pending_payload_envelopes.write().insert(
-                envelope_slot,
-                PendingEnvelopeData {
-                    envelope: signed_envelope.message.clone(),
+            let envelope = Arc::new(signed_envelope.message);
+            let blobs = Arc::new(blobs);
+            self.pending_payload_envelopes
+                .write()
+                .insert(PendingEnvelopeData {
+                    envelope: envelope.clone(),
                     blobs: Some(blobs.clone()),
-                },
-            );
+                });
 
             debug!(
                 %beacon_block_root,
                 slot = %envelope_slot,
                 "Cached pending execution payload envelope"
             );
-            Some((signed_envelope.message, kzg_proofs, blobs))
+            Some((envelope, kzg_proofs, blobs))
         } else {
             None
         };

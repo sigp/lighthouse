@@ -47,7 +47,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                     let envelope = chain
                         .pending_payload_envelopes
                         .read()
-                        .get(slot)
+                        .get_by_slot(slot)
                         .cloned()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(format!(
@@ -72,7 +72,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                             let json_response = ForkVersionedResponse {
                                 version: fork_name,
                                 metadata: EmptyMetadata {},
-                                data: envelope,
+                                data: envelope.as_ref(),
                             };
                             Response::builder()
                                 .status(200)
