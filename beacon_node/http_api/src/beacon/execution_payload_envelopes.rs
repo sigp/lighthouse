@@ -40,42 +40,35 @@ pub enum SignedEnvelopeSubmission<E: EthSpec> {
     /// Blinded envelope; the full envelope and blobs are reconstructed from the pending
     /// envelope cache (stateful flow).
     Blinded(Box<SignedBlindedExecutionPayloadEnvelope<E>>),
-    /// Bare full envelope without blobs, submitted with no `Eth-Execution-Payload-Blinded`
-    /// header; blobs are taken from the pending envelope cache if present.
-    Legacy(Box<SignedExecutionPayloadEnvelope<E>>),
 }
 
 impl<E: EthSpec> SignedEnvelopeSubmission<E> {
-    fn from_ssz_bytes(payload_blinded: Option<bool>, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_ssz_bytes(payload_blinded: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
-        Ok(match payload_blinded {
-            Some(true) => Self::Blinded(Box::new(
+        Ok(if payload_blinded {
+            Self::Blinded(Box::new(
                 SignedBlindedExecutionPayloadEnvelope::from_ssz_bytes(bytes)
                     .map_err(invalid_ssz)?,
-            )),
-            Some(false) => Self::Full(Box::new(
+            ))
+        } else {
+            Self::Full(Box::new(
                 SignedExecutionPayloadEnvelopeContents::from_ssz_bytes(bytes)
                     .map_err(invalid_ssz)?,
-            )),
-            None => Self::Legacy(Box::new(
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
-            )),
+            ))
         })
     }
 
-    fn from_json(payload_blinded: Option<bool>, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_json(payload_blinded: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_json =
             |e| warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"));
-        Ok(match payload_blinded {
-            Some(true) => Self::Blinded(Box::new(
+        Ok(if payload_blinded {
+            Self::Blinded(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
-            )),
-            Some(false) => Self::Full(Box::new(
+            ))
+        } else {
+            Self::Full(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
-            )),
-            None => Self::Legacy(Box::new(
-                serde_json::from_slice(bytes).map_err(invalid_json)?,
-            )),
+            ))
         })
     }
 }
@@ -91,7 +84,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
-        .and(warp::header::optional::<bool>(
+        .and(warp::header::header::<bool>(
             EXECUTION_PAYLOAD_BLINDED_HEADER,
         ))
         .and(warp::body::bytes())
@@ -99,7 +92,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |payload_blinded: Option<bool>,
+            |payload_blinded: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -125,7 +118,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
-        .and(warp::header::optional::<bool>(
+        .and(warp::header::header::<bool>(
             EXECUTION_PAYLOAD_BLINDED_HEADER,
         ))
         .and(warp::body::bytes())
@@ -133,7 +126,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
-            |payload_blinded: Option<bool>,
+            |payload_blinded: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -182,13 +175,6 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         SignedEnvelopeSubmission::Blinded(blinded) => {
             let (envelope, blobs) = unblind_envelope_from_cache(&chain, &blinded)?;
             (envelope, blobs.map(|blobs| (blobs, None)))
-        }
-        SignedEnvelopeSubmission::Legacy(envelope) => {
-            let blobs = chain
-                .pending_payload_envelopes
-                .write()
-                .take_blobs(envelope.message.beacon_block_root);
-            (*envelope, blobs.map(|blobs| (blobs, None)))
         }
     };
 
@@ -280,7 +266,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // From here on the envelope is on the wire. For full (stateless) submissions the caller
     // still holds the blobs, so return an error on column-build/publish failure to allow a
-    // retry or failover to another beacon node. For blinded/legacy submissions `take_blobs`
+    // retry or failover to another beacon node. For blinded submissions `take_blobs`
     // already consumed the cache entry, so a retry would not republish columns; returning
     // Err would mislead the caller — log and fall through to `Ok`.
     if let Some(column_build_future) = column_build_future {

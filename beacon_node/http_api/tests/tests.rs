@@ -4453,7 +4453,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelopes_blinded(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4715,7 +4715,7 @@ impl ApiTester {
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let err = self
                 .client
-                .post_beacon_execution_payload_envelopes_blinded(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap_err();
             assert_eq!(err.status().unwrap(), 400);
