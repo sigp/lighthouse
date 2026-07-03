@@ -124,6 +124,15 @@ pub enum Operation {
         #[serde(default)]
         proposer_boost_root: Option<Hash256>,
     },
+    /// Assert the result of `should_build_on_full` for the parent `block_root`, where
+    /// `parent_payload_status` is the status the proposer would build on and `proposal_slot`
+    /// is the slot being proposed.
+    AssertShouldBuildOnFull {
+        block_root: Hash256,
+        parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
+        expected: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +153,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
             let mut spec = MainnetEthSpec::default_spec();
-            spec.proposer_score_boost = Some(50);
+            spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
             spec
@@ -321,6 +330,7 @@ impl ForkChoiceTestDefinition {
                         execution_payload_parent_hash,
                         execution_payload_block_hash,
                         proposer_index: Some(0),
+                        payload_received: false,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)
@@ -603,6 +613,30 @@ impl ForkChoiceTestDefinition {
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertShouldBuildOnFull {
+                    block_root,
+                    parent_payload_status,
+                    proposal_slot,
+                    expected,
+                } => {
+                    let actual = fork_choice
+                        .should_build_on_full::<MainnetEthSpec>(
+                            &block_root,
+                            parent_payload_status,
+                            proposal_slot,
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "should_build_on_full op at index {} returned error: {}",
+                                op_index, e
+                            )
+                        });
+                    assert_eq!(
+                        actual, expected,
+                        "should_build_on_full mismatch at op index {}",
                         op_index
                     );
                 }

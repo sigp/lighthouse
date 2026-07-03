@@ -708,13 +708,6 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // No FCU override tests prior to bellatrix, and removed in Gloas.
-        if self.handler_name == "should_override_forkchoice_update"
-            && (!fork_name.bellatrix_enabled() || fork_name.gloas_enabled())
-        {
-            return false;
-        }
-
         // Deposit tests exist only for Electra and later.
         if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
             return false;
@@ -725,11 +718,15 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_execution_payload_envelope, get_parent_payload_status, and
-        // on_payload_attestation_message tests exist only for Gloas and later.
-        if (self.handler_name == "on_execution_payload_envelope"
+        // on_attestation, on_execution_payload_envelope, get_parent_payload_status,
+        // on_payload_attestation_message, payload_timeliness, and payload_data_availability
+        // tests exist only for Gloas and later.
+        if (self.handler_name == "on_attestation"
+            || self.handler_name == "on_execution_payload_envelope"
             || self.handler_name == "get_parent_payload_status"
-            || self.handler_name == "on_payload_attestation_message")
+            || self.handler_name == "on_payload_attestation_message"
+            || self.handler_name == "payload_timeliness"
+            || self.handler_name == "payload_data_availability")
             && !fork_name.gloas_enabled()
         {
             return false;

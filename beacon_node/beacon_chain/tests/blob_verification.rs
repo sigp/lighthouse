@@ -69,6 +69,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
     let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
     assert!(!blobs.is_empty());
+    let block_root = signed_block.canonical_root();
 
     // Advance to the block slot, but process the invalid blobs before importing the block. This
     // checks that invalid blob header signatures are rejected before availability caching.

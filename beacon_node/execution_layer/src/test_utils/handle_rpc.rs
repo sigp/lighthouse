@@ -438,7 +438,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
                                     .clone()
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
@@ -461,7 +463,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
                                     .clone()
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
@@ -483,7 +487,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                     .into(),
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
