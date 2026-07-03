@@ -207,6 +207,24 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return Ok(());
         };
+
+        // For Gloas batches, wait for the payload envelope response before requesting custody
+        // columns: a block whose payload was withheld ("empty") never has an envelope or data
+        // columns on the network, and bid commitments alone cannot distinguish it from a "full"
+        // block. The envelope response tells us which payloads were actually revealed, so custody
+        // columns are only requested for those. If the envelope peer lies by omission, the
+        // reveal-status check in `import_historical_block_batch` catches it and penalizes them.
+        let revealed_block_roots = match &self.payloads_request {
+            Some(ByRangeRequest::Active(_)) => return Ok(()),
+            Some(ByRangeRequest::Complete(envelopes)) => Some(
+                envelopes
+                    .iter()
+                    .map(|envelope| envelope.beacon_block_root())
+                    .collect::<HashSet<_>>(),
+            ),
+            None => None,
+        };
+
         let RangeBlockDataRequest::DataColumns(state @ DataColumnsRequest::NotStarted) =
             &mut self.block_data_request
         else {
@@ -219,6 +237,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             .iter()
             .filter(|block| block.num_expected_blobs() > 0)
             .map(|block| get_block_root(block))
+            .filter(|root| {
+                revealed_block_roots
+                    .as_ref()
+                    .is_none_or(|revealed| revealed.contains(root))
+            })
             .collect::<Vec<_>>();
 
         if block_roots.is_empty() {
