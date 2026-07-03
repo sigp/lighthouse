@@ -1250,11 +1250,15 @@ async fn import_gossip_block_at_current_slot() {
     );
 }
 
-/// Initialise a test rig with blobs disabled if fulu_fork_epoch is not set.
-/// This is used for pre-deneb tests, where importing gossip & rpc lookup blobs is no longer supported.
+fn fork_from_env_starts_at_fulu_or_later(spec: &ChainSpec) -> bool {
+    spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+}
+
+/// Initialise a test rig with blobs disabled when the fork-from-env spec starts pre-Fulu.
+/// This is used for pre-Fulu tests, where importing gossip & rpc lookup blobs is no longer supported.
 async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
     let spec = test_spec::<E>();
-    let enable_blobs = spec.fulu_fork_epoch.is_some();
+    let enable_blobs = fork_from_env_starts_at_fulu_or_later(&spec);
 
     TestRig::new_parametric(TestRigParams {
         chain_length: SMALL_CHAIN,
