@@ -1262,11 +1262,23 @@ impl ProtoArray {
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
-            let children: Vec<_> = self
-                .get_node_children(&head)?
-                .into_iter()
-                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
-                .collect();
+            // Spec: for a PENDING node, `get_node_children` returns the same-root
+            // EMPTY (and, iff the payload was received, FULL) virtual children
+            // unconditionally. These payload-status children are not part of the
+            // filtered block tree and must not be gated on `viable_nodes`. Only real
+            // block children are filtered. Filtering the virtual children drops them
+            // when the seed justified node is itself non-viable (deep non-finality,
+            // whole subtree below the viability horizon), which strands the head at
+            // PENDING and aborts block production, making every scheduled proposer
+            // miss its slot.
+            let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
+                self.get_node_children(&head)?
+            } else {
+                self.get_node_children(&head)?
+                    .into_iter()
+                    .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 return Ok(head);

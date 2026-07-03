@@ -1325,4 +1325,71 @@ mod tests {
         }
         .run();
     }
+
+    /// Regression test for lighthouse#9544: a PENDING head under extended non-finality.
+    ///
+    /// When the chain is in deep non-finality the head reverts to the justified checkpoint,
+    /// whose entire subtree has fallen below the viability horizon
+    /// (`voting_source.epoch + 2 < current_epoch`). The justified seed is an interior node
+    /// with no viable descendant, so it is absent from the filtered block tree. `find_head`
+    /// must still resolve the seed's payload status: `get_node_children` synthesizes a
+    /// same-root virtual EMPTY child for the PENDING seed, and that virtual child must not be
+    /// filtered against the block tree (only real block children are). Before the fix the
+    /// virtual EMPTY child, which carries the seed's own non-viable index, was filtered out,
+    /// so `find_head` returned the seed still marked `PayloadStatus::Pending`. That aborts
+    /// block production, making every scheduled proposer miss its slot. The head must instead
+    /// resolve to EMPTY (the seed's payload was never received).
+    #[test]
+    fn pending_head_resolves_when_justified_subtree_non_viable() {
+        let mut ops = vec![];
+
+        // Justified seed J at slot 32 (epoch 1): the checkpoint the head reverts to.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(32),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(1)),
+        });
+
+        // Descendant C of J at slot 64 (epoch 2), whose voting source is the genesis
+        // checkpoint (epoch 0). With `current_slot` in epoch 3 below, C is below the
+        // viability horizon (0 + 2 < 3), so the whole subtree under J is non-viable and
+        // J, an interior node, is excluded from the filtered block tree.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(64),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        });
+
+        // Justified at epoch 1 (the seed J = root 1), finalized still at genesis (epoch 0),
+        // current slot in epoch 3 (deep non-finality). The head is J, and its payload status
+        // must resolve to EMPTY rather than stall at PENDING.
+        ops.push(Operation::FindHead {
+            justified_checkpoint: get_checkpoint(1),
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: vec![1],
+            expected_head: get_root(1),
+            current_slot: Slot::new(96),
+            expected_payload_status: Some(PayloadStatus::Empty),
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            // Genesis anchor is a V29 (Gloas) node, so it needs execution payload hashes.
+            execution_payload_parent_hash: Some(get_hash(42)),
+            execution_payload_block_hash: Some(get_hash(0)),
+            spec: Some(gloas_spec()),
+        }
+        .run();
+    }
 }
