@@ -115,7 +115,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequests, Hash256, MainnetEthSpec};
+    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -126,7 +126,7 @@ mod tests {
                     slot_number: slot,
                     ..ExecutionPayloadGloas::default()
                 },
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsGloas::default(),
                 builder_index: 0,
                 beacon_block_root,
                 parent_beacon_block_root: Hash256::ZERO,

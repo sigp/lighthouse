@@ -341,8 +341,13 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub requests: ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_electra")
+    )]
+    pub requests: types::ExecutionRequestsElectra<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    pub requests: types::ExecutionRequestsGloas<E>,
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
@@ -407,19 +412,19 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
                 ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Gloas(inner) => (
                 ExecutionPayload::Gloas(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Gloas(inner.requests)),
             ),
         }
     }

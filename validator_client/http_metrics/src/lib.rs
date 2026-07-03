@@ -2,8 +2,15 @@
 //!
 //! For other endpoints, see the `http_api` crate.
 
+use axum::{
+    Router,
+    extract::State,
+    http::{Method, StatusCode, header},
+    response::IntoResponse,
+    routing::get,
+};
+use axum_utils::{Server, cors::build_cors_layer, middleware::add_server_header};
 use lighthouse_validator_store::LighthouseValidatorStore;
-use lighthouse_version::version_with_platform;
 use logging::crit;
 use malloc_utils::scrape_allocator_metrics;
 use parking_lot::RwLock;
@@ -13,21 +20,20 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::info;
+use tracing::{error, info};
 use types::EthSpec;
 use validator_services::duties_service::DutiesService;
-use warp::{Filter, http::Response};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Warp(#[allow(dead_code)] warp::Error),
-    Other(#[allow(dead_code)] String),
-}
-
-impl From<warp::Error> for Error {
-    fn from(e: warp::Error) -> Self {
-        Error::Warp(e)
-    }
+    #[error("Builder error: {0}")]
+    Builder(#[from] axum_utils::server::BuilderError),
+    #[error("Server error: {0}")]
+    Server(#[from] axum_utils::server::ServerError),
+    #[error("CORS error: {0}")]
+    Cors(#[from] axum_utils::cors::CorsError),
+    #[error("{0}")]
+    Other(String),
 }
 
 impl From<String> for Error {
@@ -90,26 +96,12 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<E: EthSpec>(
+pub async fn serve<E: EthSpec>(
     ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
 
-    // Configure CORS.
-    let cors_builder = {
-        let builder = warp::cors()
-            .allow_method("GET")
-            .allow_headers(vec!["Content-Type"]);
-
-        warp_utils::cors::set_builder_origins(
-            builder,
-            config.allow_origin.as_deref(),
-            (config.listen_addr, config.listen_port),
-        )?
-    };
-
-    // Sanity check.
     if !config.enabled {
         crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
@@ -117,46 +109,52 @@ pub fn serve<E: EthSpec>(
         ));
     }
 
-    let inner_ctx = ctx.clone();
-    let routes = warp::get()
-        .and(warp::path("metrics"))
-        .map(move || inner_ctx.clone())
-        .and_then(|ctx: Arc<Context<E>>| async move {
-            Ok::<_, warp::Rejection>(
-                gather_prometheus_metrics(&ctx)
-                    .map(|body| {
-                        Response::builder()
-                            .status(200)
-                            .header("Content-Type", "text/plain")
-                            .body(body)
-                            .unwrap()
-                    })
-                    .unwrap_or_else(|e| {
-                        Response::builder()
-                            .status(500)
-                            .header("Content-Type", "text/plain")
-                            .body(format!("Unable to gather metrics: {:?}", e))
-                            .unwrap()
-                    }),
-            )
-        })
-        // Add a `Server` header.
-        .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        .with(cors_builder.build());
+    let cors_layer = build_cors_layer(
+        config.allow_origin.as_deref(),
+        config.listen_addr,
+        config.listen_port,
+    )?
+    .allow_methods([Method::GET])
+    .allow_headers([header::CONTENT_TYPE]);
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddr::new(config.listen_addr, config.listen_port),
-        async {
-            shutdown.await;
-        },
-    )?;
+    let server_header: header::HeaderValue = lighthouse_version::version_with_platform()
+        .parse()
+        .map_err(|e| Error::Other(format!("invalid version header value: {e}")))?;
+
+    let router = Router::new()
+        .route("/metrics", get(metrics_handler::<E>))
+        .with_state(ctx.clone())
+        .layer(add_server_header(server_header))
+        .layer(cors_layer);
+
+    let address = SocketAddr::new(config.listen_addr, config.listen_port);
+    let server = Server::builder(router, address).build().await?;
+
+    let (address, server) = server.serve_with_shutdown(shutdown).await?;
 
     info!(
-        listen_address = listening_socket.to_string(),
+        listen_address = %address,
         "Metrics HTTP server started"
     );
 
-    Ok((listening_socket, server))
+    let server_future = async move {
+        if let Err(e) = server.await {
+            error!(error = ?e, "Metrics HTTP server error");
+        }
+    };
+
+    Ok((address, server_future))
+}
+
+async fn metrics_handler<E: EthSpec>(State(ctx): State<Arc<Context<E>>>) -> impl IntoResponse {
+    match gather_prometheus_metrics(&ctx) {
+        Ok(body) => (StatusCode::OK, [(header::CONTENT_TYPE, "text/plain")], body),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(header::CONTENT_TYPE, "text/plain")],
+            format!("Unable to gather metrics: {:?}", e),
+        ),
+    }
 }
 
 pub fn gather_prometheus_metrics<E: EthSpec>(

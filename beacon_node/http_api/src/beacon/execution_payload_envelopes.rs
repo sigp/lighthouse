@@ -27,8 +27,9 @@ use types::{
     SignedExecutionPayloadEnvelope,
 };
 use warp::{
-    Filter, Rejection, Reply,
-    hyper::{Body, Response, StatusCode},
+    Filter, Rejection,
+    http::response::Builder,
+    reply::{Reply, Response},
 };
 
 /// Request body for `POST beacon/execution_payload_envelopes`, selected via the
@@ -153,7 +154,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     submission: SignedEnvelopeSubmission<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<Response, Rejection> {
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(
             "Execution payload envelopes are not supported before the Gloas fork".into(),
@@ -265,7 +266,10 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             warn!(%slot, error = ?e, "Failed to import execution payload envelope");
             // Per the spec, return 202 if the envelope was broadcast but failed integration.
             return if publish_fn_completed.load(Ordering::SeqCst) {
-                Ok(warp::reply::with_status(warp::reply(), StatusCode::ACCEPTED).into_response())
+                Ok(
+                    warp::reply::with_status(warp::reply(), warp::http::StatusCode::ACCEPTED)
+                        .into_response(),
+                )
             } else {
                 Err(warp_utils::reject::custom_server_error(format!(
                     "envelope import failed: {e}"
@@ -510,10 +514,10 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(envelope.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(envelope.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",

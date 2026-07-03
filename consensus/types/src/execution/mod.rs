@@ -32,7 +32,9 @@ pub use execution_payload_header::{
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
-    ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
+    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
+    ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    RequestType, WithdrawalRequests,
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,

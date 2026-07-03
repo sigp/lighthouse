@@ -1,4 +1,4 @@
-use crate::execution::ExecutionRequests;
+use crate::execution::ExecutionRequestsGloas;
 use crate::{EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256, SignedRoot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec")]
 pub struct BlindedExecutionPayloadEnvelope<E: EthSpec> {
     pub payload_root: Hash256,
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
@@ -58,7 +58,7 @@ mod tests {
                 slot_number: Slot::new(42),
                 ..ExecutionPayloadGloas::default()
             },
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: ExecutionRequestsGloas::default(),
             builder_index: 7,
             beacon_block_root: Hash256::repeat_byte(1),
             parent_beacon_block_root: Hash256::repeat_byte(2),

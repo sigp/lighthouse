@@ -26,7 +26,7 @@ fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-igd-next = { version = "0.16", features = ["aio_tokio"] }
+igd-next = { version = "0.17", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
 logging = { workspace = true }
