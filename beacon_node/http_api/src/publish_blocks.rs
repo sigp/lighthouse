@@ -14,7 +14,7 @@ use eth2::types::{
 };
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
-use lighthouse_network::PubsubMessage;
+use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
@@ -217,7 +217,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
+        let sampling_columns_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
@@ -266,7 +266,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::DuplicateFullyImported(root)) => {
             if publish_fn_completed.load(Ordering::SeqCst) {
                 post_block_import_logging_and_response(
-                    Ok(AvailabilityProcessingStatus::Imported(root)),
+                    Ok(AvailabilityProcessingStatus::Imported(slot, root)),
                     validation_level,
                     block,
                     is_locally_built_block,
@@ -442,12 +442,22 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     // Publish partial messages
     if !partial_columns.is_empty() {
         if let Some(header) = partial_header {
+            let header = Arc::new(header);
+            let messages = partial_columns
+                .into_iter()
+                .map(|column| {
+                    let mut request_cells = column.sidecar.cells_present_bitmap.clone();
+                    request_cells.not_inplace();
+                    PubsubPartialMessage::DataColumnFulu {
+                        column,
+                        request_cells,
+                        header: header.clone(),
+                    }
+                })
+                .collect();
             crate::utils::publish_network_message(
                 sender_clone,
-                NetworkMessage::PublishPartialColumns {
-                    columns: partial_columns,
-                    header: Arc::new(header),
-                },
+                NetworkMessage::PublishPartialColumns { messages },
             )
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
@@ -474,7 +484,7 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
         // result of the block being imported from gossip, OR it could be that it finished importing
         // after processing of a gossip blob. In the latter case we MUST run fork choice to
         // re-compute the head.
-        Ok(AvailabilityProcessingStatus::Imported(root))
+        Ok(AvailabilityProcessingStatus::Imported(_, root))
         | Err(BlockError::DuplicateFullyImported(root)) => {
             let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
             info!(

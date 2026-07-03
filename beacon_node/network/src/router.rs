@@ -659,7 +659,6 @@ impl<T: BeaconChainTypes> Router<T> {
             peer_id,
             sync_request_id,
             beacon_block,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -679,7 +678,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 peer_id,
                 sync_request_id,
                 blob_sidecar,
-                seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
             });
         } else {
             crit!("All blobs by range responses should belong to sync");
@@ -716,7 +714,6 @@ impl<T: BeaconChainTypes> Router<T> {
             peer_id,
             sync_request_id,
             beacon_block,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -750,7 +747,6 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             data_column,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -770,7 +766,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 peer_id,
                 sync_request_id,
                 data_column,
-                seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
             });
         } else {
             crit!("All data columns by range responses should belong to sync");
@@ -796,7 +791,6 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             envelope,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -819,7 +813,6 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             envelope,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 

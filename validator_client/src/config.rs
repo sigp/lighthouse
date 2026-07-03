@@ -92,6 +92,8 @@ pub struct Config {
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
     pub disable_attesting: bool,
+    /// Fetch proposer duties using the v1 endpoint instead of v2.
+    pub disable_proposer_duties_v2: bool,
 }
 
 impl Default for Config {
@@ -139,6 +141,7 @@ impl Default for Config {
             distributed: false,
             initialized_validators: <_>::default(),
             disable_attesting: false,
+            disable_proposer_duties_v2: false,
         }
     }
 }
@@ -239,7 +242,7 @@ impl Config {
             }
         }
 
-        config.graffiti_policy = if validator_client_config.graffiti_append {
+        config.graffiti_policy = if validator_client_config.graffiti_append.unwrap_or(true) {
             Some(GraffitiPolicy::AppendClientVersions)
         } else {
             Some(GraffitiPolicy::PreserveUserGraffiti)
@@ -402,6 +405,7 @@ impl Config {
             };
 
         config.disable_attesting = validator_client_config.disable_attesting;
+        config.disable_proposer_duties_v2 = validator_client_config.disable_proposer_duties_v2;
 
         Ok(config)
     }

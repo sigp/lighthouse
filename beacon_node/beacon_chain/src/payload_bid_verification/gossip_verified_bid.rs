@@ -14,7 +14,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot,
+    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 /// Verify that an execution payload bid is consistent with the current chain state
@@ -62,6 +62,14 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
     if !is_active_builder {
         return Err(PayloadBidError::InvalidBuilder { builder_index });
+    }
+
+    let builder_version = head_state.get_builder(builder_index)?.version;
+    if builder_version != PAYLOAD_BUILDER_VERSION {
+        return Err(PayloadBidError::InvalidBuilderVersion {
+            builder_index,
+            version: builder_version,
+        });
     }
 
     if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
@@ -144,10 +152,26 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
         // TODO(gloas) reprocess bids whose parent_block_root becomes known & canonical after a reorg?
-        if !fork_choice.contains_block(&bid_parent_block_root) {
-            return Err(PayloadBidError::ParentBlockRootUnknown {
+        let parent_block = fork_choice.get_block(&bid_parent_block_root).ok_or(
+            PayloadBidError::ParentBlockRootUnknown {
                 parent_block_root: bid_parent_block_root,
+            },
+        )?;
+
+        // [REJECT] The bid is for a higher slot than its parent block.
+        if bid_slot <= parent_block.slot {
+            return Err(PayloadBidError::BidNotDescendantOfParent {
+                bid_slot,
+                parent_slot: parent_block.slot,
             });
+        }
+
+        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
+        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        if signed_bid.message.prev_randao
+            != *head_state.get_randao_mix(current_slot.epoch(T::EthSpec::slots_per_epoch()))?
+        {
+            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
         // TODO(gloas) reprocess bids whose parent_block_root becomes canonical after a reorg.

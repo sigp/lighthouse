@@ -1,3 +1,5 @@
+use crate::beacon_chain::BeaconChainTypes;
+use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
@@ -27,8 +29,15 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-    pub fn num_blobs_expected(&self) -> usize {
-        self.bid.message.blob_kzg_commitments.len()
+    pub fn num_columns_required<T>(&self, custody_context: &CustodyContext<T>) -> usize
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        if custody_context.data_columns_required_for_bid(&self.bid) {
+            custody_context.num_of_data_columns_to_sample(self.bid.epoch())
+        } else {
+            0
+        }
     }
 
     /// Returns columns that have all cells present.
@@ -59,7 +68,7 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
     ) {
-        let num_blobs_expected = self.num_blobs_expected();
+        let num_blobs_expected = self.bid.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
             // The Vec-backed `PendingColumn` keys cells by index, so we have to allocate up to
@@ -95,10 +104,13 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns `Some` if the envelope and all required data columns have been received.
-    pub fn make_available(
+    pub fn make_available<T>(
         &self,
-        num_expected_columns: usize,
-    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError> {
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         // Check if the payload has been received and executed
         let Some(envelope) = &self.envelope else {
             return Ok(None);
@@ -110,17 +122,24 @@ impl<E: EthSpec> PendingComponents<E> {
             payload_verification_outcome,
         } = envelope;
 
-        let columns = if self.num_blobs_expected() == 0 {
-            self.span.in_scope(|| {
-                debug!("Bid has no blobs, data is available");
-            });
+        let num_columns_required = self.num_columns_required(custody_context);
+        let columns = if num_columns_required == 0 {
+            if self.bid.num_blobs_expected() == 0 {
+                self.span.in_scope(|| {
+                    debug!("Bid has no blobs, data is available");
+                });
+            } else {
+                self.span.in_scope(|| {
+                    debug!("No data columns required for this epoch");
+                });
+            }
             vec![]
         } else {
             let columns = self.get_cached_data_columns();
-            match columns.len().cmp(&num_expected_columns) {
+            match columns.len().cmp(&num_columns_required) {
                 Ordering::Greater => {
                     return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many columns: got {} expected {num_expected_columns}",
+                        "too many columns: got {} expected {num_columns_required}",
                         columns.len()
                     )));
                 }
@@ -137,7 +156,8 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope = AvailableEnvelope::new(envelope.clone(), columns);
+        let available_envelope =
+            AvailableEnvelope::new(envelope.clone(), columns, &self.bid, custody_context)?;
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
@@ -160,12 +180,16 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    pub fn status_str(&self, num_expected_columns: usize) -> String {
+    pub fn status_str<T>(&self, custody_context: &CustodyContext<T>) -> String
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        let num_columns_required = self.num_columns_required(custody_context);
         format!(
             "envelope {}, data_columns {}/{}",
             self.envelope.is_some(),
             self.num_completed_columns(),
-            num_expected_columns
+            num_columns_required
         )
     }
 }
