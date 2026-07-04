@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -1356,43 +1356,6 @@ impl<E: EthSpec> BeaconState<E> {
 
             self.compute_proposer_index(&indices, &seed, spec)
         }
-    }
-
-    /// Check if the validator is the proposer for the given slot in the current or next epoch.
-    pub fn is_valid_proposal_slot(
-        &self,
-        preferences: &ProposerPreferences,
-        spec: &ChainSpec,
-    ) -> Result<bool, BeaconStateError> {
-        let current_epoch = self.current_epoch();
-        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
-
-        if proposal_epoch < current_epoch {
-            return Ok(false);
-        }
-
-        if proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead) {
-            return Ok(false);
-        }
-
-        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
-
-        let slot_in_epoch = preferences
-            .proposal_slot
-            .as_u64()
-            .safe_rem(E::slots_per_epoch())?;
-
-        let index = epoch_offset
-            .safe_mul(E::slots_per_epoch())
-            .and_then(|v| v.safe_add(slot_in_epoch))?;
-
-        let proposer_lookahead = self.proposer_lookahead()?;
-
-        let proposer = proposer_lookahead
-            .get(index as usize)
-            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
-
-        Ok(*proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.
