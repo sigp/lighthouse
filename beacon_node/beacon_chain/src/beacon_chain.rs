@@ -65,6 +65,7 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::payload_envelope_verification::gossip_verified_envelope_cache::GossipVerifiedEnvelopeCache;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -485,6 +486,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
     pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    /// A cache used to deduplicate gossip verified execution payload envelopes.
+    pub gossip_verified_envelope_cache: GossipVerifiedEnvelopeCache,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -6952,6 +6955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.block_times_cache.write().prune(slot);
             self.envelope_times_cache.write().prune(slot);
             self.gossip_verified_payload_bid_cache.prune(slot);
+            self.gossip_verified_envelope_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
 
             // Don't run heavy-weight tasks during sync.

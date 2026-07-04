@@ -15,7 +15,8 @@ use crate::{
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeProcessingSnapshot, load_snapshot_from_state_root,
+        EnvelopeError, EnvelopeProcessingSnapshot,
+        gossip_verified_envelope_cache::GossipVerifiedEnvelopeCache, load_snapshot_from_state_root,
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
@@ -30,6 +31,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
+    pub gossip_verified_envelope_cache: &'a GossipVerifiedEnvelopeCache,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -120,8 +122,22 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
-        //                 for this block root from this builder - envelope status table check
+        // Ignore a second valid `SignedExecutionPayloadEnvelope` for this block root from this
+        // builder, per the Gloas `execution_payload` gossip rules. Only envelopes that pass the
+        // full verification below are recorded (see the insert before returning `Ok`), so an
+        // earlier invalid envelope from this builder never suppresses a later valid one. Checking
+        // here, before the state load and signature verification, keeps duplicates cheap.
+        if ctx.gossip_verified_envelope_cache.seen_envelope(
+            &envelope.slot(),
+            beacon_block_root,
+            envelope.builder_index,
+        ) {
+            return Err(EnvelopeError::EnvelopeAlreadySeen {
+                block_root: beacon_block_root,
+                builder_index: envelope.builder_index,
+            });
+        }
+
         let block = match ctx.store.try_get_full_block(&beacon_block_root)? {
             Some(DatabaseBlock::Full(block)) => Arc::new(block),
             Some(DatabaseBlock::Blinded(_)) | None => {
@@ -215,6 +231,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
+        // Record this now fully-verified envelope so any subsequent duplicate for the same block
+        // root from the same builder is ignored by the `seen_envelope` check above.
+        ctx.gossip_verified_envelope_cache.insert_seen_envelope(
+            block_slot,
+            beacon_block_root,
+            builder_index,
+        );
+
         if let Some(event_handler) = ctx.event_handler.as_ref()
             && event_handler.has_execution_payload_gossip_subscribers()
         {
@@ -251,6 +275,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             validator_pubkey_cache: &self.validator_pubkey_cache,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
+            gossip_verified_envelope_cache: &self.gossip_verified_envelope_cache,
         }
     }
 

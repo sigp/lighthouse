@@ -1,5 +1,6 @@
 use arbitrary::Arbitrary;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
@@ -333,6 +334,69 @@ async fn execution_payload_envelope_events() {
     assert!(
         gossip_receiver.try_recv().is_err(),
         "no extra gossip events should fire during import"
+    );
+}
+
+/// Verifies that a second valid `SignedExecutionPayloadEnvelope` for the same block root from the
+/// same builder is ignored (`EnvelopeAlreadySeen`) during gossip verification, per the Gloas
+/// `execution_payload` gossip deduplication rule.
+#[tokio::test]
+async fn duplicate_execution_payload_envelope_is_ignored() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _new_state) =
+        harness.make_block_with_envelope(state, target_slot).await;
+
+    let block_root = block_contents.0.canonical_root();
+
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let envelope = Arc::new(signed_envelope);
+
+    let event_handler = harness.chain.event_handler.as_ref().unwrap();
+    let mut gossip_receiver = event_handler.subscribe_execution_payload_gossip();
+
+    // The first envelope passes gossip verification and fires the gossip event.
+    harness
+        .chain
+        .verify_envelope_for_gossip(envelope.clone())
+        .await
+        .expect("first envelope gossip verification should succeed");
+    assert!(
+        gossip_receiver.try_recv().is_ok(),
+        "the first envelope should fire an execution_payload_gossip event"
+    );
+
+    // A second, identical envelope is ignored as a duplicate and does not re-propagate.
+    let duplicate_result = harness.chain.verify_envelope_for_gossip(envelope).await;
+    assert!(
+        matches!(
+            duplicate_result,
+            Err(EnvelopeError::EnvelopeAlreadySeen { .. })
+        ),
+        "the duplicate envelope should be ignored, got {duplicate_result:?}"
+    );
+    assert!(
+        gossip_receiver.try_recv().is_err(),
+        "the duplicate envelope should not fire another gossip event"
     );
 }
 

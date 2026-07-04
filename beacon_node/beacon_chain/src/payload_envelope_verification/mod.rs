@@ -36,6 +36,7 @@ use types::{
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
+pub mod gossip_verified_envelope_cache;
 pub mod import;
 mod payload_notifier;
 
@@ -200,6 +201,15 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// A valid envelope for this block root from this builder has already been seen over gossip.
+    ///
+    /// Per the Gloas `execution_payload` gossip rules, a node forwards at most one valid
+    /// `SignedExecutionPayloadEnvelope` for a given `(block_root, builder_index)`, so duplicates
+    /// are ignored (not penalized).
+    EnvelopeAlreadySeen {
+        block_root: Hash256,
+        builder_index: u64,
+    },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -262,6 +272,7 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)

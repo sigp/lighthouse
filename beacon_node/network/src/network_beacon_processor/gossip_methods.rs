@@ -3833,6 +3833,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
 
+                    EnvelopeError::EnvelopeAlreadySeen {
+                        block_root,
+                        builder_index,
+                    } => {
+                        debug!(
+                            ?block_root,
+                            %builder_index,
+                            "Ignoring duplicate execution payload envelope"
+                        );
+
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
