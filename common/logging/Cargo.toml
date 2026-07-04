@@ -4,12 +4,11 @@ version = "0.2.0"
 authors = ["blacktemplar <blacktemplar@a1.net>"]
 edition = { workspace = true }
 
-[features]
-# Print log output to stderr when running tests instead of dropping it.
-test_logger = []
-
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
 logroller = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }

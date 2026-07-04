@@ -1,5 +1,4 @@
-use crate::execution::{ExecutionPayloadGloas, ExecutionRequests};
-use crate::test_utils::TestRandom;
+use crate::execution::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -7,16 +6,20 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{BYTES_PER_LENGTH_OFFSET, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
 pub struct ExecutionPayloadEnvelope<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
@@ -28,7 +31,7 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
     pub fn empty() -> Self {
         Self {
             payload: ExecutionPayloadGloas::default(),
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: ExecutionRequestsGloas::default(),
             builder_index: 0,
             beacon_block_root: Hash256::zero(),
             parent_beacon_block_root: Hash256::zero(),

@@ -2,7 +2,7 @@ use super::*;
 
 fn heze_spec() -> ChainSpec {
     let mut spec = MainnetEthSpec::default_spec();
-    spec.proposer_score_boost = Some(50);
+    spec.proposer_score_boost = 50;
     spec.gloas_fork_epoch = Some(Epoch::new(0));
     spec.heze_fork_epoch = Some(Epoch::new(0));
     spec
@@ -978,7 +978,7 @@ mod tests {
 
     fn heze_fork_boundary_spec() -> ChainSpec {
         let mut spec = MainnetEthSpec::default_spec();
-        spec.proposer_score_boost = Some(50);
+        spec.proposer_score_boost = 50;
         spec.heze_fork_epoch = Some(Epoch::new(1));
         spec
     }

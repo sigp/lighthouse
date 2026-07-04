@@ -69,6 +69,13 @@ impl<E: EthSpec> Block<E> {
         }
     }
 
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Block::PoW(block) => block.timestamp,
+            Block::PoS(payload) => payload.timestamp(),
+        }
+    }
+
     pub fn total_difficulty(&self) -> Option<Uint256> {
         match self {
             Block::PoW(block) => Some(block.total_difficulty),
@@ -560,6 +567,19 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         if let Some(payload) = self.pending_payloads.remove(&head_block_hash) {
             self.insert_block(Block::PoS(payload))?;
+        }
+
+        // If Gloas was enabled from genesis, the justified and finalized block hashes must be
+        // non-zero, since the CL always has a known parent_block_hash to reference.
+        if self.get_fork_at_timestamp(0).gloas_enabled() {
+            assert!(
+                forkchoice_state.safe_block_hash != ExecutionBlockHash::zero(),
+                "for Gloas genesis safe_block_hash must not be zero"
+            );
+            assert!(
+                forkchoice_state.finalized_block_hash != ExecutionBlockHash::zero(),
+                "for Gloas genesis finalized_block_hash must not be zero"
+            );
         }
 
         let unknown_head_block_hash = !self.blocks.contains_key(&head_block_hash);

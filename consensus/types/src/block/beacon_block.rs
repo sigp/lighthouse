@@ -9,7 +9,6 @@ use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
@@ -26,15 +25,14 @@ use crate::{
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
-        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
-        FullPayload,
+        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
+        ExecutionRequestsGloas, FullPayload,
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
     slashing::{AttesterSlashingBase, ProposerSlashing},
     state::BeaconStateError,
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// A block of the `BeaconChain`.
@@ -49,7 +47,6 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
@@ -665,7 +662,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -699,7 +696,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
                 execution_payload: Payload::Fulu::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -728,7 +725,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
-                parent_execution_requests: ExecutionRequests::default(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,
@@ -760,7 +757,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
-                parent_execution_requests: ExecutionRequests::default(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,
@@ -1004,10 +1001,8 @@ impl fmt::Display for BlockImportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        core::MainnetEthSpec,
-        test_utils::{SeedableRng, XorShiftRng, test_ssz_tree_hash_pair_with},
-    };
+    use crate::{core::MainnetEthSpec, test_utils::test_ssz_tree_hash_pair_with};
+    use arbitrary::Arbitrary;
     use ssz::Encode;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
@@ -1016,16 +1011,10 @@ mod tests {
 
     #[test]
     fn roundtrip_base_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Base.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockBase {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyBase::random_for_test(rng),
-        };
+        let inner_block = BeaconBlockBase::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Base(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1035,16 +1024,10 @@ mod tests {
 
     #[test]
     fn roundtrip_altair_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Altair.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockAltair {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyAltair::random_for_test(rng),
-        };
+        let inner_block = BeaconBlockAltair::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Altair(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1054,16 +1037,10 @@ mod tests {
 
     #[test]
     fn roundtrip_capella_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockCapella {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyCapella::random_for_test(rng),
-        };
+        let inner_block = BeaconBlockCapella::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Capella(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1073,16 +1050,10 @@ mod tests {
 
     #[test]
     fn roundtrip_deneb_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockDeneb {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyDeneb::random_for_test(rng),
-        };
+        let inner_block = BeaconBlockDeneb::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Deneb(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1092,17 +1063,10 @@ mod tests {
 
     #[test]
     fn roundtrip_electra_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Electra.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockElectra {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyElectra::random_for_test(rng),
-        };
-
+        let inner_block = BeaconBlockElectra::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Electra(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1112,17 +1076,10 @@ mod tests {
 
     #[test]
     fn roundtrip_fulu_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockFulu {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyFulu::random_for_test(rng),
-        };
-
+        let inner_block = BeaconBlockFulu::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Fulu(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1132,17 +1089,10 @@ mod tests {
 
     #[test]
     fn roundtrip_heze_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockHeze {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyHeze::random_for_test(rng),
-        };
-
+        let inner_block = BeaconBlockHeze::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Heze(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1152,17 +1102,10 @@ mod tests {
 
     #[test]
     fn roundtrip_gloas_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let spec = &ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = BeaconBlockGloas {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyGloas::random_for_test(rng),
-        };
-
+        let inner_block = BeaconBlockGloas::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Gloas(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
@@ -1175,7 +1118,7 @@ mod tests {
         type E = MainnetEthSpec;
         let mut spec = E::default_spec();
 
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
 
         let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
 
@@ -1208,7 +1151,7 @@ mod tests {
         {
             let good_base_block = BeaconBlock::Base(BeaconBlockBase {
                 slot: base_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have a base block with a slot higher than the fork epoch.
             let bad_base_block = {
@@ -1230,7 +1173,7 @@ mod tests {
         {
             let good_altair_block = BeaconBlock::Altair(BeaconBlockAltair {
                 slot: altair_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have an Altair block with a epoch lower than the fork epoch.
             let bad_altair_block = {
@@ -1252,7 +1195,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Capella(BeaconBlockCapella {
                 slot: capella_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have an Capella block with a epoch lower than the fork epoch.
             let bad_block = {
@@ -1274,7 +1217,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Deneb(BeaconBlockDeneb {
                 slot: deneb_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have a Deneb block with a epoch lower than the fork epoch.
             let bad_block = {
@@ -1296,7 +1239,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Electra(BeaconBlockElectra {
                 slot: electra_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have an Electra block with a epoch lower than the fork epoch.
             let bad_block = {
@@ -1318,7 +1261,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Fulu(BeaconBlockFulu {
                 slot: fulu_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
 
             assert_eq!(
@@ -1332,7 +1275,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Gloas(BeaconBlockGloas {
                 slot: gloas_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             // It's invalid to have a Fulu block with a epoch lower than the fork epoch.
             let _bad_block = {
@@ -1357,7 +1300,7 @@ mod tests {
         {
             let good_block = BeaconBlock::Heze(BeaconBlockHeze {
                 slot: heze_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
             let _bad_block = {
                 let mut bad = good_block.clone();

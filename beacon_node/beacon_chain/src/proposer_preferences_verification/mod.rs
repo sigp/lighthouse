@@ -24,7 +24,7 @@ mod tests;
 
 #[derive(Debug)]
 pub enum ProposerPreferencesError {
-    /// The proposal slot is not in the current or next epoch.
+    /// The proposal slot is not within the proposer lookahead.
     InvalidProposalEpoch { proposal_epoch: Epoch },
     /// The proposal slot has already passed.
     ProposalSlotAlreadyPassed {

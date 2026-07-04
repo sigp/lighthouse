@@ -1,0 +1,66 @@
+name: Bake warpbuild snapshot (lighthouse-ubuntu-latest)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every week (Sunday at 00:00 UTC)
+    - cron: "0 0 * * 0"
+  push:
+    # The warpbuild snapshot is global across all branches, so only `stable`
+    # bakes it. This avoids non-stable branches (and Mergify merge-queue PRs)
+    # clobbering the shared snapshot and racking up duplicate bakes.
+    branches: [stable]
+    paths:
+      - '.github/workflows/warpbuild-ubuntu-latest-snapshot.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bake:
+    runs-on: warp-ubuntu-latest-x64-8x;snapshot.enabled=true
+    steps:
+      - name: Install system deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libssl-dev \
+            build-essential \
+            cmake \
+            clang \
+            llvm-dev \
+            libclang-dev \
+            protobuf-compiler \
+            git \
+            gcc \
+            g++ \
+            make
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - name: Install cargo bins
+        run: |
+          cargo install --locked cargo-nextest
+          cargo install --locked cargo-audit
+          cargo install --locked cargo-deny
+          cargo install --locked cargo-sort
+          cargo install --locked cargo-hack
+
+      - name: Install Java (Temurin 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Save snapshot
+        uses: WarpBuilds/snapshot-save@v1
+        with:
+          alias: 'lighthouse-ubuntu-latest-v1'
+          fail-on-error: true
+          wait-timeout-minutes: 60

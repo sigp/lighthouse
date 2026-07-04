@@ -9,7 +9,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -25,9 +24,10 @@ use crate::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
         BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
-        FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb,
-        FullPayloadElectra, FullPayloadFulu, SignedBlsToExecutionChange,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix,
+        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
+        SignedBlsToExecutionChange,
     },
     exit::SignedVoluntaryExit,
     fork::{ForkName, map_fork_name},
@@ -38,7 +38,6 @@ use crate::{
     },
     state::BeaconStateError,
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
@@ -65,7 +64,6 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
@@ -167,13 +165,13 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsElectra<E>,
     #[superstruct(only(Gloas, Heze))]
     pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas, Heze))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
     #[superstruct(only(Gloas, Heze))]
-    pub parent_execution_requests: ExecutionRequests<E>,
+    pub parent_execution_requests: ExecutionRequestsGloas<E>,
     #[superstruct(only(Base, Altair, Gloas, Heze))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]

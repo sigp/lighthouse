@@ -12,6 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -29,7 +30,6 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -46,8 +46,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -59,8 +59,8 @@ pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
 impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
     for Witness<TSlotClock, E, THotStore, TColdStore>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -114,8 +114,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 impl<TSlotClock, E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -172,30 +172,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_head_threshold = threshold;
-        self
-    }
-
-    /// Sets the proposer re-org max epochs since finalization.
-    pub fn proposer_re_org_max_epochs_since_finalization(
-        mut self,
-        epochs_since_finalization: Epoch,
-    ) -> Self {
-        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
-        self
-    }
-
-    /// Sets the proposer re-org disallowed offsets list.
-    pub fn proposer_re_org_disallowed_offsets(
-        mut self,
-        disallowed_offsets: DisallowedReOrgOffsets,
-    ) -> Self {
-        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 
@@ -849,12 +825,13 @@ where
                     It is highly recommended to purge your db and checkpoint sync. For more information please \
                     read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
                 )
+            } else {
+                return Err(
+                    "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                    checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+                );
             }
-            return Err(
-                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
-                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
-                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
-            );
         }
 
         let validator_pubkey_cache = self
@@ -931,6 +908,7 @@ where
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;
+        let disable_get_blobs = self.chain_config.disable_get_blobs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -973,19 +951,24 @@ where
                 self.node_custody_type,
                 head_epoch,
                 ordered_custody_column_indices,
-                &self.spec,
+                slot_clock.clone(),
+                complete_blob_backfill,
+                self.spec.clone(),
             )
         } else {
             (
                 CustodyContext::new(
                     self.node_custody_type,
                     ordered_custody_column_indices,
-                    &self.spec,
+                    slot_clock.clone(),
+                    complete_blob_backfill,
+                    self.spec.clone(),
                 ),
                 None,
             )
         };
         debug!(?custody_context, "Loaded persisted custody context");
+        let custody_context = Arc::new(custody_context);
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1019,7 +1002,6 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
-            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
@@ -1058,16 +1040,20 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            custody_context: custody_context.clone(),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
-                    complete_blob_backfill,
-                    slot_clock,
                     self.kzg.clone(),
-                    Arc::new(custody_context),
-                    self.spec,
+                    custody_context.clone(),
+                    self.spec.clone(),
                     enable_partial_columns,
+                    disable_get_blobs,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+            ),
+            pending_payload_cache: Arc::new(
+                PendingPayloadCache::new(self.kzg.clone(), custody_context, self.spec.clone())
+                    .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
@@ -1138,7 +1124,9 @@ where
         }
 
         // Prune blobs older than the blob data availability boundary in the background.
-        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+        if let Some(data_availability_boundary) =
+            beacon_chain.custody_context.data_availability_boundary()
+        {
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
@@ -1151,8 +1139,8 @@ where
 impl<E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1290,11 +1278,8 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<
-            MinimalEthSpec,
-            MemoryStore<MinimalEthSpec>,
-            MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

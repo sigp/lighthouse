@@ -2,9 +2,9 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
-    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{
-        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
+        fork_name_from_env, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -61,10 +61,7 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
-    // Issue is that this test does block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
-    // This will be resolved in a subsequent block processing PR
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -184,8 +181,6 @@ pub struct ReOrgTest {
     parent_distance: u64,
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
-    re_org_threshold: u64,
-    max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
     percent_head_votes: usize,
@@ -193,8 +188,6 @@ pub struct ReOrgTest {
     misprediction: bool,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
-    /// Epoch offsets to avoid proposing reorg blocks at.
-    disallowed_offsets: Vec<u64>,
 }
 
 impl Default for ReOrgTest {
@@ -204,15 +197,12 @@ impl Default for ReOrgTest {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
-            re_org_threshold: 20,
-            max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
             percent_head_votes: 0,
             should_re_org: true,
             misprediction: false,
             expect_withdrawals_change_on_epoch: false,
-            disallowed_offsets: vec![],
         }
     }
 }
@@ -224,11 +214,13 @@ pub async fn proposer_boost_re_org_zero_weight() {
     proposer_boost_re_org_test(ReOrgTest::default()).await;
 }
 
+// Since Fulu, proposer shuffling is stable across epoch boundaries, so re-orgs of the last block
+// in an epoch are permitted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_epoch_boundary() {
     proposer_boost_re_org_test(ReOrgTest {
         head_slot: Slot::new(E::slots_per_epoch() - 1),
-        should_re_org: false,
+        should_re_org: true,
         ..Default::default()
     })
     .await;
@@ -324,32 +316,6 @@ pub async fn proposer_boost_re_org_head_distance() {
     .await;
 }
 
-// Check that a re-org at a disallowed offset fails.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_disallowed_offset() {
-    let offset = 4;
-    proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
-        disallowed_offsets: vec![offset],
-        should_re_org: false,
-        ..Default::default()
-    })
-    .await;
-}
-
-// Check that a re-org at the *only* allowed offset succeeds.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_disallowed_offset_exact() {
-    let offset = 4;
-    let disallowed_offsets = (0..E::slots_per_epoch()).filter(|o| *o != offset).collect();
-    proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
-        disallowed_offsets,
-        ..Default::default()
-    })
-    .await;
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_very_unhealthy() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -391,25 +357,23 @@ pub async fn proposer_boost_re_org_test(
         head_slot,
         parent_distance,
         head_distance,
-        re_org_threshold,
-        max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
         percent_head_votes,
         should_re_org,
         misprediction,
         expect_withdrawals_change_on_epoch,
-        disallowed_offsets,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
 
-    // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
-    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
-    // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
-    // This will be resolved in a subsequent block processing PR
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = Uint256::from(1);
+    // We don't run these test for post-Gloas forks because of the FcU changes that were
+    // applied in the gloas. Gloas adopted tests can be found in `gloas_re_org_test.rs`
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let spec = test_spec::<E>();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
@@ -431,16 +395,7 @@ pub async fn proposer_boost_re_org_test(
         Some(spec),
         validator_count,
         None,
-        Some(Box::new(move |builder| {
-            builder
-                .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
-                .proposer_re_org_max_epochs_since_finalization(Epoch::new(
-                    max_epochs_since_finalization,
-                ))
-                .proposer_re_org_disallowed_offsets(
-                    DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
-                )
-        })),
+        None,
         Default::default(),
         false,
         NodeCustodyType::Fullnode,
@@ -926,7 +881,6 @@ async fn queue_attestations_from_http() {
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.
-    let parent_root = block.0.parent_root();
     harness
         .process_block(attestation_slot, block_root, block)
         .await
@@ -938,10 +892,7 @@ async fn queue_attestations_from_http() {
         .unwrap()
         .try_send(WorkEvent {
             drop_during_sync: false,
-            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-                block_root,
-                parent_root,
-            }),
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
         })
         .unwrap();
 
@@ -952,7 +903,7 @@ async fn queue_attestations_from_http() {
 // gossip clock disparity (500ms) of the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_with_gossip_tolerance() {
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
@@ -1059,7 +1010,7 @@ async fn proposer_duties_with_gossip_tolerance() {
 // within gossip clock disparity (500ms) of the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_v2_with_gossip_tolerance() {
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
@@ -1301,7 +1252,7 @@ async fn lighthouse_restart_custody_backfill() {
         return;
     }
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new_supernode(Some(spec), validator_count).await;
     let harness = &tester.harness;
@@ -1311,8 +1262,7 @@ async fn lighthouse_restart_custody_backfill() {
     let max_cgc = spec.number_of_custody_groups;
 
     let num_blocks = 2 * E::slots_per_epoch();
-
-    let custody_context = harness.chain.data_availability_checker.custody_context();
+    let custody_context = &harness.chain.custody_context;
 
     harness.advance_slot();
     harness
@@ -1325,7 +1275,7 @@ async fn lighthouse_restart_custody_backfill() {
         )
         .await;
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head();
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     assert_eq!(cgc_at_head, max_cgc);
@@ -1335,9 +1285,9 @@ async fn lighthouse_restart_custody_backfill() {
         .update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap(), cgc_at_head);
     client.post_lighthouse_custody_backfill().await.unwrap();
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head();
     let cgc_at_previous_epoch =
-        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, spec);
+        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1);
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     // `DataColumnCustodyInfo` should have been updated to the head epoch
@@ -1368,7 +1318,7 @@ async fn lighthouse_custody_info() {
     spec.min_epochs_for_blob_sidecars_requests = 2;
     spec.min_epochs_for_data_column_sidecars_requests = 2;
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
     let harness = &tester.harness;

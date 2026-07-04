@@ -1,15 +1,13 @@
 use crate::execution::ExecutionPayloadBid;
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
+#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
@@ -25,11 +23,23 @@ pub struct SignedExecutionPayloadBid<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedExecutionPayloadBid<E> {
+    pub fn epoch(&self) -> crate::Epoch {
+        self.message.slot.epoch(E::slots_per_epoch())
+    }
+
+    pub fn slot(&self) -> crate::Slot {
+        self.message.slot
+    }
+
     pub fn empty() -> Self {
         Self {
             message: ExecutionPayloadBid::default(),
             signature: Signature::empty(),
         }
+    }
+
+    pub fn num_blobs_expected(&self) -> usize {
+        self.message.blob_kzg_commitments.len()
     }
 }
 

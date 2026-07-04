@@ -629,6 +629,13 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
                         "Payload attestation invalid for fork choice"
                     );
                 }
+
+                if let Err(e) = chain.add_payload_attestation_to_pool(&verified) {
+                    warn!(
+                        reason = ?e,
+                        "Failed to add payload attestation to pool"
+                    );
+                }
             }
             Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. }) => {
                 num_already_known += 1;
