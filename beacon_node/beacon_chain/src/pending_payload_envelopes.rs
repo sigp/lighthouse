@@ -1,10 +1,9 @@
-//! Provides the `PendingPayloadEnvelopes` cache for storing execution payload envelopes
-//! that have been produced during local block production.
+//! Provides the `PendingPayloadEnvelopes` cache for storing execution payload envelopes for
+//! payloads built by this beacon node.
 //!
-//! For local building, the envelope is created during block production.
-//! This cache holds the envelopes temporarily until the validator fetches, signs,
-//! and publishes the payload.
-
+//! The cache is populated during self-build block production or by builder bid
+//! production. It holds the envelopes temporarily until the payload builder fetches,
+//!  signs, and publishes the envelope.
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Hash256, Slot};

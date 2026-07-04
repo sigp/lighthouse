@@ -38,7 +38,8 @@ pub enum SignedEnvelopeSubmission<E: EthSpec> {
     /// Full envelope with blobs and KZG proofs (stateless flow).
     Full(Box<SignedExecutionPayloadEnvelopeContents<E>>),
     /// Blinded envelope; the full envelope and blobs are reconstructed from the pending
-    /// envelope cache (stateful flow).
+    /// envelope cache (stateful flow). Used during self-build block production, or builder
+    /// bid production.
     Blinded(Box<SignedBlindedExecutionPayloadEnvelope<E>>),
 }
 
