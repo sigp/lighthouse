@@ -184,6 +184,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxBuilderDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuilderExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    type MaxExecutionRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxErrorBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVersionedHashesPerRequest: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     fn default_spec() -> ChainSpec;
 
     fn spec_name() -> EthSpecId;
@@ -543,6 +547,9 @@ impl EthSpec for MainnetEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U256;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type MaxExecutionRequestsPerPayload = U256;
+    type MaxErrorBytes = U1024;
+    type MaxVersionedHashesPerRequest = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -589,6 +596,9 @@ impl EthSpec for MinimalEthSpec {
     type PTCSize = U16;
     type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
+    type MaxExecutionRequestsPerPayload = U256;
+    type MaxErrorBytes = U1024;
+    type MaxVersionedHashesPerRequest = U128;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -702,6 +712,9 @@ impl EthSpec for GnosisEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U256;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type MaxExecutionRequestsPerPayload = U256;
+    type MaxErrorBytes = U1024;
+    type MaxVersionedHashesPerRequest = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

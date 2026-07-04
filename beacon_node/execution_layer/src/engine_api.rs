@@ -29,11 +29,13 @@ use types::{
     KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
+use ssz_derive::{Encode, Decode};
 
 pub mod auth;
 pub mod http;
 pub mod json_structures;
 mod new_payload_request;
+pub mod ssz_structures;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
@@ -159,11 +161,12 @@ impl ExecutionBlock {
 
 #[superstruct(
     variants(V1, V2, V3, V4),
-    variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
+    variant_attributes(derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
