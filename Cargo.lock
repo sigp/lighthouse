@@ -6062,6 +6062,7 @@ dependencies = [
  "health_metrics",
  "lighthouse_version",
  "metrics",
+ "pretty_reqwest_error",
  "regex",
  "reqwest",
  "sensitive_url",
