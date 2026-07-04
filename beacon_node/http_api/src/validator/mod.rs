@@ -6,7 +6,7 @@ use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
-use crate::version::{V1, V2, V3, unsupported_version_rejection};
+use crate::version::{V1, V2, V3, V4, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
@@ -464,6 +464,12 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
                     // Use V4 block production for Gloas fork
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
                     if fork_name.gloas_enabled() {
+                        let mut query = query;
+                        // `include_payload` (default `true`) is a v4-only concept; v2/v3
+                        // responses must remain block-only.
+                        if endpoint_version != V4 {
+                            query.include_payload = Some(false);
+                        }
                         produce_block_v4(accept_header, chain, slot, query).await
                     } else if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
