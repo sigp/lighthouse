@@ -61,7 +61,8 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(heze): use `ForkName::latest()` once Heze block production is wired up.
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
