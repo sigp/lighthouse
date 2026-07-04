@@ -127,9 +127,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V5 => {
-                    // TODO(heze): decode Heze here once it diverges from Gloas. While the two
-                    // variants are JSON-identical, trying Heze first would mislabel every Gloas
-                    // payload as Heze. Dispatch on `get_fork_at_timestamp` like getPayload does.
+                    // TODO(heze):impl heze variant (probably new payload v6?)
                     get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
                         .map(|jep| JsonExecutionPayload::Gloas(jep))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
