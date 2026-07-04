@@ -2871,49 +2871,11 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v1/beacon/execution_payload_envelopes`
-    pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
-        &self,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
-        fork_name: ForkName,
-    ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
-
-        self.post_generic_with_consensus_version(
-            path,
-            envelope,
-            Some(self.timeouts.proposal),
-            fork_name,
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    /// `POST v1/beacon/execution_payload_envelopes` in SSZ format
-    pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
-        &self,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
-        fork_name: ForkName,
-    ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
-
-        self.post_generic_with_consensus_version_and_ssz_body(
-            path,
-            envelope.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            fork_name,
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    /// `POST v1/beacon/execution_payload_envelopes`
     ///
     /// Submits the blinded form of the envelope (stateful flow); the beacon node reconstructs
-    /// the full envelope and blobs from the cache populated during block production, so this
-    /// must be sent to the beacon node that produced the block.
-    pub async fn post_beacon_execution_payload_envelopes_blinded<E: EthSpec>(
+    /// the full envelope and blobs from its cache, so this must be sent to the beacon node
+    /// that built the payload (self-build block production or builder bid production).
+    pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
@@ -2934,8 +2896,8 @@ impl BeaconNodeHttpClient {
 
     /// `POST v1/beacon/execution_payload_envelopes` in SSZ format
     ///
-    /// See [`Self::post_beacon_execution_payload_envelopes_blinded`] for the request semantics.
-    pub async fn post_beacon_execution_payload_envelopes_blinded_ssz<E: EthSpec>(
+    /// See [`Self::post_beacon_execution_payload_envelopes`] for the request semantics.
+    pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
@@ -2957,7 +2919,7 @@ impl BeaconNodeHttpClient {
     /// `POST v1/beacon/execution_payload_envelopes`
     ///
     /// Submits the full envelope bundled with blobs and KZG proofs (stateless flow), allowing
-    /// publication via a beacon node that did not produce the block.
+    /// publication via a beacon node that did not build the payload.
     pub async fn post_beacon_execution_payload_envelope_contents<E: EthSpec>(
         &self,
         contents: &SignedExecutionPayloadEnvelopeContents<E>,
