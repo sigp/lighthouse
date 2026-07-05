@@ -4056,6 +4056,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4120,6 +4124,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_ssz(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4213,6 +4221,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_v3_ssz(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4771,6 +4783,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_no_verify_randao(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
@@ -4795,6 +4811,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_verify_randao_invalid(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -5909,6 +5929,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_respects_registration(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -5936,6 +5960,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_zero_builder_boost_factor(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -5964,6 +5992,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_max_builder_boost_factor(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -6115,6 +6147,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_accepts_mutated_gas_limit(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate gas limit.
         self.mock_builder
             .as_ref()
@@ -6192,6 +6228,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_accepts_changed_fee_recipient(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let test_fee_recipient = "0x4242424242424242424242424242424242424242"
             .parse::<Address>()
             .unwrap();
@@ -6279,6 +6319,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_parent_hash(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_parent_hash =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
                 .parse::<Hash256>()
@@ -6372,6 +6416,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_prev_randao(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_prev_randao =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
                 .parse::<Hash256>()
@@ -6463,6 +6511,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_block_number(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_block_number = 2;
 
         // Mutate block number.
@@ -6553,6 +6605,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_timestamp(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_timestamp = 2;
 
         // Mutate timestamp.
@@ -6627,6 +6683,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_signature(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         self.mock_builder.as_ref().unwrap().invalid_signatures();
 
         let slot = self.chain.slot().unwrap();
@@ -6691,6 +6751,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_skips(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
 
         // Since we are proposing this slot, start the count from the previous slot.
@@ -6800,6 +6864,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_skips_per_epoch(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Fill an epoch with `builder_fallback_skips_per_epoch` skip slots.
         for i in 0..E::slots_per_epoch() {
             if i == 0 || i as usize > self.chain.config.builder_fallback_skips_per_epoch {
@@ -6951,6 +7019,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_epochs_since_finalization(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let skips = E::slots_per_epoch()
             * self.chain.config.builder_fallback_epochs_since_finalization as u64;
 
@@ -7071,6 +7143,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_optimistic_head(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Make sure the next payload verification will return optimistic before advancing the chain.
         self.harness.mock_execution_layer.as_ref().inspect(|el| {
             el.server.all_payloads_syncing(true);
@@ -7150,6 +7226,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7219,6 +7299,10 @@ impl ApiTester {
     }
 
     pub async fn test_local_payload_v3_chosen_when_equally_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7288,6 +7372,10 @@ impl ApiTester {
     }
 
     pub async fn test_local_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7356,6 +7444,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_works_post_deneb(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Ensure builder payload is chosen
         self.mock_builder
             .as_ref()
@@ -7425,6 +7517,10 @@ impl ApiTester {
     }
 
     pub async fn test_lighthouse_rejects_invalid_withdrawals_root_v3(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Ensure builder payload *would be* chosen
         self.mock_builder
             .as_ref()
@@ -8084,6 +8180,10 @@ impl ApiTester {
     }
 
     pub async fn test_check_optimistic_responses(&mut self) {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return;
+        }
         // Check responses are not optimistic.
         let result = self
             .client

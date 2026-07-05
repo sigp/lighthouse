@@ -461,15 +461,7 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
 
                     not_synced_filter?;
 
-                    // Use V4 block production for Gloas fork
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
-                    if fork_name.gloas_enabled() {
-                        let mut query = query;
-                        // `include_payload` (default `true`) is a v4-only concept; v2/v3
-                        // responses must remain block-only.
-                        if endpoint_version != V4 {
-                            query.include_payload = Some(false);
-                        }
+                    if endpoint_version == V4 {
                         produce_block_v4(accept_header, chain, slot, query).await
                     } else if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
