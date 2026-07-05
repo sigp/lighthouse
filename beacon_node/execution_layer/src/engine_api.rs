@@ -35,6 +35,7 @@ pub mod auth;
 pub mod http;
 pub mod json_structures;
 mod new_payload_request;
+pub mod rest;
 pub mod ssz_structures;
 
 pub use new_payload_request::{
@@ -73,6 +74,8 @@ pub enum Error {
     UnsupportedForkVariant(String),
     InvalidClientVersion(String),
     TooManyConsolidationRequests(usize),
+    SszDecode(ssz::DecodeError),
+    RestProblem { status: u16, problem: String, detail: Option<String> }
 }
 
 impl From<reqwest::Error> for Error {

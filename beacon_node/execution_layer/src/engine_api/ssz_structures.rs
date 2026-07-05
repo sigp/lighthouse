@@ -2,7 +2,9 @@ use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 
 use super::*;
 use super::json_structures::RequestsError;
+use serde::Deserialize;
 use ssz::{Decode, DecodeError};
+use std::collections::HashSet;
 use ssz_types::{BitVector, VariableList};
 use superstruct::superstruct;
 use ssz_derive::{Encode, Decode};
@@ -581,7 +583,7 @@ pub struct SszBlobsRequest<E: EthSpec> {
 }
 
 impl<E: EthSpec> SszBlobsRequest<E> {
-    fn new_blobs_request_v1(
+    pub fn new_blobs_request_v1(
         versioned_hashes: Vec<Hash256>
     )-> Result<SszBlobsRequestV1<E>, ssz_types::Error>
     {
@@ -590,7 +592,7 @@ impl<E: EthSpec> SszBlobsRequest<E> {
         })
     }
 
-    fn new_blobs_request_v2(
+    pub fn new_blobs_request_v2(
         versioned_hashes: Vec<Hash256>,
         indices_bitarray: BitVector<E::CellsPerExtBlob>
     ) -> Result<SszBlobsRequestV2<E>, ssz_types::Error> {
@@ -720,6 +722,139 @@ impl<E: EthSpec> SszBodiesResponse<E> {
             Self::V3(_resp) => {
                 Err("Amsterdam (Gloas) execution payload bodies are not yet supported".to_string())
             }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SszLimits {
+    pub bodies_max_count: Option<u64>,
+    pub blobs_max_versioned_hashes: Option<u64>,
+    pub payload_max_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SszCapabilities {
+    pub supported_forks: HashSet<ForkName>,
+    pub payloads: bool,
+    pub forkchoice: bool,
+    pub bodies: bool,
+    pub blobs_v1: bool,
+    pub blobs_v2: bool,
+    pub blobs_v3: bool,
+    pub blobs_v4: bool,
+    pub unscoped_endpoints: Vec<String>,
+    pub limits: SszLimits,
+}
+
+impl SszCapabilities {
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        self.supported_forks.contains(&fork) && self.payloads
+    }
+
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        self.supported_forks.contains(&fork) && self.payloads
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        self.supported_forks.contains(&fork) && self.forkchoice
+    }
+
+    pub fn get_payload_bodies(&self, fork: ForkName) -> bool {
+        self.supported_forks.contains(&fork) && self.bodies
+    }
+
+    pub fn get_blobs_v2(&self) -> bool {
+        self.blobs_v2
+    }
+
+    pub fn get_blobs_v3(&self) -> bool {
+        self.blobs_v3
+    }
+
+    pub fn get_client_version_v1(&self) -> bool {
+        self.unscoped_endpoints
+            .iter()
+            .any(|endpoint| endpoint == "identity")
+    }
+
+    pub fn highest_supported_fork(&self) -> Option<ForkName> {
+        self.supported_forks.iter().copied().max()
+    }
+}
+
+#[derive(Deserialize)]
+pub struct JsonCapabilities {
+    #[serde(default)]
+    supported_forks: Vec<String>,
+    #[serde(default)]
+    fork_scoped_endpoints: Vec<String>,
+    #[serde(default)]
+    independently_versioned: JsonIndependentlyVersioned,
+    #[serde(default)]
+    unscoped_endpoints: Vec<String>,
+    #[serde(default)]
+    limits: JsonLimits,
+}
+
+#[derive(Deserialize, Default)]
+struct JsonIndependentlyVersioned {
+    #[serde(default)]
+    blobs: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct JsonLimits {
+    #[serde(rename = "bodies.max_count")]
+    bodies_max_count: Option<u64>,
+    #[serde(rename = "blobs.max_versioned_hashes")]
+    blobs_max_versioned_hashes: Option<u64>,
+    #[serde(rename = "payload.max_bytes")]
+    payload_max_bytes: Option<u64>,
+}
+
+fn fork_from_header(header: &str) -> Option<ForkName> {
+    Some(match header {
+        "paris" => ForkName::Bellatrix,
+        "shanghai" => ForkName::Capella,
+        "cancun" => ForkName::Deneb,
+        "prague" => ForkName::Electra,
+        "osaka" => ForkName::Fulu,
+        "amsterdam" => ForkName::Gloas,
+        _ => return None,
+    })
+}
+
+impl From<JsonCapabilities> for SszCapabilities {
+    fn from(capabilities: JsonCapabilities) -> Self {
+        let supported_forks = capabilities
+            .supported_forks
+            .iter()
+            .filter_map(|fork| fork_from_header(fork))
+            .collect();
+        let endpoint = |name: &str| capabilities.fork_scoped_endpoints.iter().any(|e| e == name);
+        let blob = |rev: &str| {
+            capabilities
+                .independently_versioned
+                .blobs
+                .iter()
+                .any(|b| b == rev)
+        };
+        SszCapabilities {
+            supported_forks,
+            payloads: endpoint("payloads"),
+            forkchoice: endpoint("forkchoice"),
+            bodies: endpoint("bodies"),
+            blobs_v1: blob("v1"),
+            blobs_v2: blob("v2"),
+            blobs_v3: blob("v3"),
+            blobs_v4: blob("v4"),
+            unscoped_endpoints: capabilities.unscoped_endpoints,
+            limits: SszLimits {
+                bodies_max_count: capabilities.limits.bodies_max_count,
+                blobs_max_versioned_hashes: capabilities.limits.blobs_max_versioned_hashes,
+                payload_max_bytes: capabilities.limits.payload_max_bytes,
+            },
         }
     }
 }
