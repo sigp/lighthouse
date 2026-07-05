@@ -188,8 +188,9 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mut mainnet_spec = ChainSpec::mainnet();
-        // setting heze_fork_epoch because we are roundtripping a heze config
-        mainnet_spec.heze_fork_epoch = Some(Epoch::new(42));
+        // TODO(heze): bump this test to roundtrip a heze config once Heze is enabled.
+        // setting gloas_fork_epoch because we are roundtripping a gloas config
+        mainnet_spec.gloas_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
@@ -207,9 +208,9 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetHeze =
+        let from: ConfigAndPresetGloas =
             yaml_serde::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Heze(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
     }
 
     #[test]

@@ -480,7 +480,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 return Err("invalid fork".to_string());
             }
             SignedBlindedBeaconBlock::Heze(_) => {
-                // TODO(EIP7732) Check if this is how we want to do error handling for heze
+                // TODO(heze) Check if this is how we want to do error handling for heze
                 return Err("invalid fork".to_string());
             }
         };
@@ -602,7 +602,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         return Err("invalid fork".to_string());
                     }
                     ForkName::Heze => {
-                        // TODO(EIP7732) Check if this is how we want to do error handling for heze
+                        // TODO(heze) Check if this is how we want to do error handling for heze
                         return Err("invalid fork".to_string());
                     }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {

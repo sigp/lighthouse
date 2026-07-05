@@ -573,7 +573,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
 }
 
 // Post-Fulu block bodies without payloads can be converted into block bodies with payloads
-// TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
+// TODO(heze) Look into whether we can remove this in the future since no blinded blocks post-gloas
 impl<E: EthSpec> From<BeaconBlockBodyHeze<E, BlindedPayload<E>>>
     for BeaconBlockBodyHeze<E, FullPayload<E>>
 {

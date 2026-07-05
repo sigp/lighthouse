@@ -1,7 +1,6 @@
 mod execution_status;
 mod ffg_updates;
 mod gloas_payload;
-mod heze_payload;
 mod no_votes;
 mod votes;
 
@@ -21,7 +20,6 @@ use types::{
 pub use execution_status::*;
 pub use ffg_updates::*;
 pub use gloas_payload::*;
-pub use heze_payload::*;
 pub use no_votes::*;
 pub use votes::*;
 

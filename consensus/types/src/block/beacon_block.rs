@@ -793,7 +793,7 @@ impl<E: EthSpec> From<BeaconBlockGloas<E, BlindedPayload<E>>>
     }
 }
 
-// TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
+// TODO(heze) Look into whether we can remove this in the future since no blinded blocks post-gloas
 impl<E: EthSpec> From<BeaconBlockHeze<E, BlindedPayload<E>>>
     for BeaconBlockHeze<E, FullPayload<E>>
 {
