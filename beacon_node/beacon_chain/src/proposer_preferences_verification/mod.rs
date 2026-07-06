@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use types::{BeaconStateError, Epoch, Slot};
+use types::{BeaconStateError, Epoch, Hash256, Slot};
 
 use crate::BeaconChainError;
 
@@ -24,7 +24,7 @@ mod tests;
 
 #[derive(Debug)]
 pub enum ProposerPreferencesError {
-    /// The proposal slot is not in the current or next epoch.
+    /// The proposal slot is not within the proposer lookahead.
     InvalidProposalEpoch { proposal_epoch: Epoch },
     /// The proposal slot has already passed.
     ProposalSlotAlreadyPassed {
@@ -38,6 +38,8 @@ pub enum ProposerPreferencesError {
     },
     /// The slot clock cannot be read.
     UnableToReadSlot,
+    /// The block with root `dependent_root` has not been seen.
+    DependentRootUnknown { dependent_root: Hash256 },
     /// A valid message from this validator for this slot has already been seen.
     AlreadySeen {
         validator_index: u64,

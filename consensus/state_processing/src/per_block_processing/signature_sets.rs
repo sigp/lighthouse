@@ -2,7 +2,6 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use super::builder::{convert_validator_index_to_builder_index, is_builder_index};
 use bls::{AggregateSignature, PublicKey, PublicKeyBytes, Signature, SignatureSet};
 use ssz::DecodeError;
 use std::borrow::Cow;
@@ -367,6 +366,26 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    indexed_payload_attestation_signature_set_from_pubkeys(
+        get_pubkey,
+        signature,
+        indexed_payload_attestation,
+        state.genesis_validators_root(),
+        spec,
+    )
+}
+
+pub fn indexed_payload_attestation_signature_set_from_pubkeys<'a, 'b, E, F>(
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
     let mut pubkeys = Vec::with_capacity(indexed_payload_attestation.attesting_indices.len());
     for &validator_idx in indexed_payload_attestation.attesting_indices.iter() {
         pubkeys.push(
@@ -378,12 +397,8 @@ where
         .data
         .slot
         .epoch(E::slots_per_epoch());
-    let domain = spec.get_domain(
-        epoch,
-        Domain::PTCAttester,
-        &state.fork(),
-        state.genesis_validators_root(),
-    );
+    let fork = spec.fork_at_epoch(epoch);
+    let domain = spec.get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
 
     let message = indexed_payload_attestation.data.signing_root(domain);
 
@@ -504,7 +519,10 @@ pub fn deposit_pubkey_signature_message(
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
-/// validator (or builder, in the case of a builder exit).
+/// validator.
+///
+/// It is invalid for voluntary exits to be signed by builders. Builder exits are made via execution
+/// requests per EIP-8282.
 pub fn exit_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
@@ -518,16 +536,8 @@ where
     let exit = &signed_exit.message;
     let validator_index = exit.validator_index;
 
-    let is_builder_exit =
-        state.fork_name_unchecked().gloas_enabled() && is_builder_index(validator_index);
-
-    let pubkey = if is_builder_exit {
-        let builder_index = convert_validator_index_to_builder_index(validator_index);
-        get_builder_pubkey_from_state(state, builder_index)
-            .ok_or(Error::ValidatorUnknown(validator_index))?
-    } else {
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?
-    };
+    let pubkey =
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?;
 
     let domain = if state.fork_name_unchecked().deneb_enabled() {
         // EIP-7044

@@ -5,7 +5,7 @@ pub use types::*;
 
 use crate::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
+    EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::ContextDeserialize;
@@ -758,10 +758,10 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, Default, Debug, PartialEq)]
 pub enum GraffitiPolicy {
-    #[default]
     PreserveUserGraffiti,
+    #[default]
     AppendClientVersions,
 }
 
@@ -778,6 +778,7 @@ pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
+    pub include_payload: Option<bool>,
     pub builder_boost_factor: Option<u64>,
     pub graffiti_policy: Option<GraffitiPolicy>,
 }
@@ -1153,9 +1154,9 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub parent_block_number: u64,
-
+    // TODO(gloas) can remove this field once we fork to gloas
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
@@ -1163,6 +1164,7 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
@@ -1244,6 +1246,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadGossip(SseExecutionPayloadGossip),
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
 }
 
@@ -1272,6 +1275,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
             EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
         }
     }
@@ -1388,6 +1392,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
                 })?,
             ))),
+            "proposer_preferences" => Ok(EventKind::ProposerPreferences(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Preferences: {:?}", e))
+                })?,
+            ))),
             "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!(
@@ -1435,6 +1444,7 @@ pub enum EventTopic {
     ExecutionPayloadGossip,
     ExecutionPayloadAvailable,
     ExecutionPayloadBid,
+    ProposerPreferences,
     PayloadAttestationMessage,
 }
 
@@ -1465,6 +1475,7 @@ impl FromStr for EventTopic {
             "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
             "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
@@ -1498,6 +1509,7 @@ impl fmt::Display for EventTopic {
                 write!(f, "execution_payload_available")
             }
             EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::ProposerPreferences => write!(f, "proposer_preferences"),
             EventTopic::PayloadAttestationMessage => {
                 write!(f, "payload_attestation_message")
             }
@@ -1848,6 +1860,7 @@ pub struct ProduceBlockV4Metadata {
     pub consensus_version: ForkName,
     #[serde(with = "serde_utils::u256_dec")]
     pub consensus_block_value: Uint256,
+    pub execution_payload_included: bool,
 }
 
 impl<E: EthSpec> FullBlockContents<E> {
@@ -2021,10 +2034,16 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
+        let execution_payload_included =
+            parse_required_header(headers, EXECUTION_PAYLOAD_INCLUDED_HEADER, |s| {
+                s.parse::<bool>()
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_INCLUDED_HEADER}: {e:?}"))
+            })?;
 
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
+            execution_payload_included,
         })
     }
 }

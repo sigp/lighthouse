@@ -9,8 +9,8 @@ use crate::{
 };
 use bls::AggregateSignature;
 use byteorder::{BigEndian, ByteOrder};
+use hashlink::lru_cache::LruCache;
 use interface::{Environment, OpenDatabases, RwTransaction};
-use lru::LruCache;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use ssz::{Decode, Encode};
@@ -305,7 +305,8 @@ impl<E: EthSpec> SlasherDB<E> {
             }
         }
 
-        let attestation_root_cache = Mutex::new(LruCache::new(config.attestation_root_cache_size));
+        let attestation_root_cache =
+            Mutex::new(LruCache::new(config.attestation_root_cache_size.get()));
 
         let mut db = Self {
             env,
@@ -559,7 +560,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let indexed_attestation = self.get_indexed_attestation(txn, indexed_id)?;
         let attestation_data_root = indexed_attestation.data().tree_hash_root();
 
-        cache.put(indexed_id, attestation_data_root);
+        cache.insert(indexed_id, attestation_data_root);
 
         Ok((attestation_data_root, Some(indexed_attestation)))
     }
@@ -570,13 +571,13 @@ impl<E: EthSpec> SlasherDB<E> {
         attestation_data_root: Hash256,
     ) {
         let mut cache = self.attestation_root_cache.lock();
-        cache.put(indexed_attestation_id, attestation_data_root);
+        cache.insert(indexed_attestation_id, attestation_data_root);
     }
 
     fn delete_attestation_data_roots(&self, ids: impl IntoIterator<Item = IndexedAttestationId>) {
         let mut cache = self.attestation_root_cache.lock();
         for indexed_id in ids {
-            cache.pop(&indexed_id);
+            cache.remove(&indexed_id);
         }
     }
 

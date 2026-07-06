@@ -71,7 +71,15 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
         - name: Check that the pull request is not targeting the stable branch
-          run: test ${{ github.base_ref }} != "stable"
+          env:
+            BASE_REF: ${{ github.base_ref }}
+            HEAD_REF: ${{ github.head_ref }}
+            HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          run: |
+            if [[ "$BASE_REF" == "stable" && ! ( "$HEAD_REF" == release-* && "$HEAD_REPO" == "sigp/lighthouse" ) ]]; then
+              echo "::error::Pull requests must target unstable, not stable (sigp/lighthouse release-* branches excepted)."
+              exit 1
+            fi
 
   forbidden-files-check:
     name: forbidden-files-check
@@ -304,7 +312,7 @@ jobs:
           cache-target: release
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/basic_simulator_logs
-    - name: Run a basic beacon chain sim that starts from Deneb
+    - name: Run a basic beacon chain sim
       run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
       if: always()

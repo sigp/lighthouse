@@ -9,7 +9,7 @@
 
 use crate::BeaconChainError;
 use strum::AsRefStr;
-use types::{BeaconStateError, Hash256, Slot};
+use types::{Hash256, Slot};
 
 pub mod gossip_verified_payload_attestation;
 
@@ -60,6 +60,18 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the
     /// attestation is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The block referenced by `data.beacon_block_root` is not at slot `data.slot`, i.e. the
+    /// PTC member's assigned slot was likely empty.
+    ///
+    /// ## Peer scoring
+    ///
+    /// PTC members should not attest for empty slots, so we
+    /// ignore the message.
+    BlockNotAtSlot {
+        beacon_block_root: Hash256,
+        block_slot: Slot,
+        data_slot: Slot,
+    },
     /// The validator index is not a member of the PTC for this slot.
     ///
     /// ## Peer scoring
@@ -86,23 +98,11 @@ pub enum Error {
     /// We were unable to process this message due to an internal error. It's unclear if the
     /// message is valid.
     BeaconChainError(Box<BeaconChainError>),
-    /// An error reading beacon state.
-    ///
-    /// ## Peer scoring
-    ///
-    /// We were unable to process this message due to an internal error.
-    BeaconStateError(BeaconStateError),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChainError(Box::new(e))
-    }
-}
-
-impl From<BeaconStateError> for Error {
-    fn from(e: BeaconStateError) -> Self {
-        Error::BeaconStateError(e)
     }
 }
 

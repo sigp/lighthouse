@@ -163,22 +163,29 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the randao mix for the parent of the block at the head of the chain.
     ///
-    /// This is useful for re-orging the current head. The parent's RANDAO value is read from
-    /// the head's execution payload because it is unavailable in the beacon state's RANDAO mixes
-    /// array after being overwritten by the head block's RANDAO mix.
+    /// This is useful for re-orging the current head.
     ///
+    /// Pre-gloas: The parent's RANDAO value is read from the head's execution payload because
+    /// it is unavailable in the beacon state's RANDAO mixes array after being overwritten by the head
+    /// block's RANDAO mix.
+    ///
+    /// Post-gloas: The parent's RANDAO value is read from the beacon states latest execution payload bid.
     /// This will error if the head block is not execution-enabled (post Bellatrix).
     pub fn parent_random(&self) -> Result<Hash256, BeaconStateError> {
-        self.snapshot
-            .beacon_block
-            .message()
-            .execution_payload()
-            .map(|payload| payload.prev_randao())
+        let block = self.snapshot.beacon_block.message();
+        if block.fork_name_unchecked().gloas_enabled() {
+            self.snapshot
+                .beacon_state
+                .latest_execution_payload_bid()
+                .map(|bid| bid.prev_randao)
+        } else {
+            block.body().execution_payload().map(|p| p.prev_randao())
+        }
     }
 
     /// Returns the execution block number of the block at the head of the chain.
     ///
-    /// Returns an error if the chain is prior to Bellatrix.
+    /// Returns an error if the chain is prior to Bellatrix or post-Gloas
     pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
         self.snapshot
             .beacon_block
@@ -726,6 +733,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 } else {
                     None
                 };
+
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
@@ -967,13 +975,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.observed_blob_sidecars.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
-
         self.observed_column_sidecars.write().prune(
             new_view
                 .finalized_checkpoint
@@ -987,6 +988,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
+
+        // Prune the Gloas pending-payload cache. Anything older than the data-availability
+        // boundary cannot still be in flight; finalised entries are also safe to drop.
+        if self.spec.gloas_fork_epoch.is_some() {
+            let finalized_epoch = new_view.finalized_checkpoint.epoch;
+            let current_epoch = new_snapshot
+                .beacon_state
+                .slot()
+                .epoch(T::EthSpec::slots_per_epoch());
+            if let Some(min_epochs_for_blobs) = self
+                .spec
+                .min_epoch_data_availability_boundary(current_epoch)
+            {
+                let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
+                if let Err(e) = self.pending_payload_cache.do_maintenance(cutoff_epoch) {
+                    error!(error = ?e, "Failed to prune pending payload cache on finalization");
+                }
+            }
+        }
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
@@ -1053,7 +1073,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         // Prune blobs in the background.
-        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+        if let Some(data_availability_boundary) = self.custody_context.data_availability_boundary()
+        {
             self.store_migrator
                 .process_prune_blobs(data_availability_boundary);
         }
