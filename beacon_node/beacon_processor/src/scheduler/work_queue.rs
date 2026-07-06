@@ -98,6 +98,11 @@ impl<T> LifoQueue<T> {
         }
     }
 
+    /// Peek at the next item in the queue.
+    pub fn peek(&self) -> Option<&T> {
+        self.queue.front()
+    }
+
     /// Add a new item to the front of the queue.
     ///
     /// If the queue is full, the item at the back of the queue is dropped.
@@ -108,7 +113,7 @@ impl<T> LifoQueue<T> {
         self.queue.push_front(item);
     }
 
-    /// Remove at the next item in the queue.
+    /// Remove the next item from the queue.
     pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
     }
@@ -313,10 +318,6 @@ pub struct WorkQueues<E: EthSpec> {
     pub lc_update_range_queue: FifoQueue<Work<E>>,
     pub api_request_p0_queue: FifoQueue<Work<E>>,
     pub api_request_p1_queue: FifoQueue<Work<E>>,
-}
-
-impl<E: EthSpec> WorkQueues<E> {
-    pub fn get_next_work(&mut self) {}
 }
 
 impl<E: EthSpec> WorkQueues<E> {

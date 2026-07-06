@@ -1030,7 +1030,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // aggregates are more valuable to local validators and effectively give us
             // more information with less signature verification time.
             .or_else(|| {
-                if !work_queues.aggregate_queue.is_empty() {
+                if work_queues
+                    .aggregate_queue
+                    .peek()
+                    .is_some_and(can_spawn_predicate)
+                {
                     let batch_size = cmp::min(
                         work_queues.aggregate_queue.len(),
                         self.config.max_gossip_aggregate_batch_size,
@@ -1093,7 +1097,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             //
             // Potentially use batching.
             .or_else(|| {
-                if !work_queues.attestation_queue.is_empty() {
+                if work_queues
+                    .attestation_queue
+                    .peek()
+                    .is_some_and(can_spawn_predicate)
+                {
                     let batch_size = cmp::min(
                         work_queues.attestation_queue.len(),
                         self.config.max_gossip_attestation_batch_size,
@@ -1220,7 +1228,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // following head.
             //
             // Check attester slashings before proposer slashings since they have the
-            // potential to slash multiple validators at ongice.
+            // potential to slash multiple validators at once.
             .or_else(|| {
                 work_queues
                     .gossip_attester_slashing_queue
