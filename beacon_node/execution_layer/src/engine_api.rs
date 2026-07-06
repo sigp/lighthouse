@@ -37,6 +37,7 @@ pub mod json_structures;
 mod new_payload_request;
 pub mod rest;
 pub mod ssz_structures;
+pub mod transport;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,

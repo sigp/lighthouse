@@ -15,6 +15,7 @@ pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
+use engine_api::transport::EngineApi;
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -556,8 +557,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let json_rpc =
+                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                    .map_err(Error::ApiError)?;
+            let api = EngineApi::new(json_rpc, None);
             Engine::new(api, executor.clone())
         };
 

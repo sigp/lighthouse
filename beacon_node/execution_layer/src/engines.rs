@@ -1,10 +1,11 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
+use crate::engine_api::transport::EngineApi;
 use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::{ClientVersionV1, HttpJsonRpc};
+use crate::ClientVersionV1;
 use hashlink::lru_cache::LruCache;
 use ssz_derive::{Decode, Encode};
 use std::future::Future;
@@ -122,7 +123,7 @@ pub enum EngineError {
 
 /// An execution engine.
 pub struct Engine {
-    pub api: HttpJsonRpc,
+    pub api: EngineApi,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
@@ -131,7 +132,7 @@ pub struct Engine {
 
 impl Engine {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
+    pub fn new(api: EngineApi, executor: TaskExecutor) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
