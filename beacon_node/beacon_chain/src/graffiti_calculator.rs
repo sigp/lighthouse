@@ -256,8 +256,8 @@ mod tests {
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
     use eth2::types::GraffitiPolicy;
-    use execution_layer::EngineCapabilities;
-    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
+    use execution_layer::{EngineCapabilities, JsonRpcCapabilities};
+    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_JSON_RPC_CAPABILITIES};
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -295,10 +295,10 @@ mod tests {
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
         mock_execution_layer
             .server
-            .set_engine_capabilities(EngineCapabilities {
+            .set_engine_capabilities(EngineCapabilities::JsonRpc(JsonRpcCapabilities {
                 get_client_version_v1: false,
-                ..DEFAULT_ENGINE_CAPABILITIES
-            });
+                ..DEFAULT_JSON_RPC_CAPABILITIES
+            }));
         // refresh capabilities cache
         harness
             .chain

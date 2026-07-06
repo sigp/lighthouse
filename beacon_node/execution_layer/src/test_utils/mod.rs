@@ -25,7 +25,7 @@ use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
-use crate::EngineCapabilities;
+use crate::{EngineCapabilities, JsonRpcCapabilities};
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
@@ -38,7 +38,7 @@ pub use mock_execution_layer::MockExecutionLayer;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
-pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+pub const DEFAULT_JSON_RPC_CAPABILITIES: JsonRpcCapabilities = JsonRpcCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
     new_payload_v3: true,
@@ -60,6 +60,8 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_blobs_v2: true,
     get_blobs_v3: true,
 };
+
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities::JsonRpc(DEFAULT_JSON_RPC_CAPABILITIES);
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     LazyLock::new(|| JsonClientVersionV1 {

@@ -609,7 +609,7 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
+    pub engine_capabilities_cache: Mutex<Option<CachedResponse<JsonRpcCapabilities>>>,
     pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
     auth: Option<Auth>,
 }
@@ -1221,7 +1221,7 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
+    pub async fn exchange_capabilities(&self) -> Result<JsonRpcCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
         let capabilities: HashSet<String> = self
@@ -1232,7 +1232,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(EngineCapabilities {
+        Ok(JsonRpcCapabilities {
             new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
             new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
@@ -1275,6 +1275,15 @@ impl HttpJsonRpc {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<EngineCapabilities, Error> {
+        Ok(EngineCapabilities::JsonRpc(
+            self.json_rpc_capabilities(age_limit).await?,
+        ))
+    }
+
+    async fn json_rpc_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<JsonRpcCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
         if let Some(lock) = lock
@@ -1329,7 +1338,7 @@ impl HttpJsonRpc {
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
         // check engine capabilities first (avoids holding two locks at once)
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         if !engine_capabilities.get_client_version_v1 {
             // We choose an empty vec to denote that this method is not
             // supported instead of an error since this method is optional
@@ -1359,7 +1368,7 @@ impl HttpJsonRpc {
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         match new_payload_request {
             NewPayloadRequest::Bellatrix(_) | NewPayloadRequest::Capella(_) => {
                 if engine_capabilities.new_payload_v2 {
@@ -1411,7 +1420,7 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         match fork_name {
             ForkName::Bellatrix | ForkName::Capella => {
                 if engine_capabilities.get_payload_v2 {
@@ -1464,7 +1473,7 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         maybe_payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
             match payload_attributes {
                 PayloadAttributes::V1(_) | PayloadAttributes::V2(_) => {

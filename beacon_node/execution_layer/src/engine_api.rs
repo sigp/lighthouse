@@ -1,12 +1,6 @@
 use crate::engines::ForkchoiceState;
-use crate::http::{
-    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
-    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
-};
+pub use crate::json_structures::JsonRpcCapabilities;
+use crate::ssz_structures::SszCapabilities;
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
@@ -598,92 +592,67 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct EngineCapabilities {
-    pub new_payload_v1: bool,
-    pub new_payload_v2: bool,
-    pub new_payload_v3: bool,
-    pub new_payload_v4: bool,
-    pub new_payload_v5: bool,
-    pub forkchoice_updated_v1: bool,
-    pub forkchoice_updated_v2: bool,
-    pub forkchoice_updated_v3: bool,
-    pub forkchoice_updated_v4: bool,
-    pub get_payload_bodies_by_hash_v1: bool,
-    pub get_payload_bodies_by_range_v1: bool,
-    pub get_payload_v1: bool,
-    pub get_payload_v2: bool,
-    pub get_payload_v3: bool,
-    pub get_payload_v4: bool,
-    pub get_payload_v5: bool,
-    pub get_payload_v6: bool,
-    pub get_client_version_v1: bool,
-    pub get_blobs_v2: bool,
-    pub get_blobs_v3: bool,
+#[derive(Clone, Debug)]
+pub enum EngineCapabilities {
+    JsonRpc(JsonRpcCapabilities),
+    Ssz(SszCapabilities),
 }
 
 impl EngineCapabilities {
-    pub fn to_response(&self) -> Vec<&str> {
-        let mut response = Vec::new();
-        if self.new_payload_v1 {
-            response.push(ENGINE_NEW_PAYLOAD_V1);
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.new_payload(fork),
+            Self::Ssz(capabilities) => capabilities.new_payload(fork),
         }
-        if self.new_payload_v2 {
-            response.push(ENGINE_NEW_PAYLOAD_V2);
-        }
-        if self.new_payload_v3 {
-            response.push(ENGINE_NEW_PAYLOAD_V3);
-        }
-        if self.new_payload_v4 {
-            response.push(ENGINE_NEW_PAYLOAD_V4);
-        }
-        if self.new_payload_v5 {
-            response.push(ENGINE_NEW_PAYLOAD_V5);
-        }
-        if self.forkchoice_updated_v1 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
-        }
-        if self.forkchoice_updated_v2 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
-        }
-        if self.forkchoice_updated_v3 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V3);
-        }
-        if self.forkchoice_updated_v4 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
-        }
-        if self.get_payload_bodies_by_hash_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
-        }
-        if self.get_payload_bodies_by_range_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
-        }
-        if self.get_payload_v1 {
-            response.push(ENGINE_GET_PAYLOAD_V1);
-        }
-        if self.get_payload_v2 {
-            response.push(ENGINE_GET_PAYLOAD_V2);
-        }
-        if self.get_payload_v3 {
-            response.push(ENGINE_GET_PAYLOAD_V3);
-        }
-        if self.get_payload_v4 {
-            response.push(ENGINE_GET_PAYLOAD_V4);
-        }
-        if self.get_payload_v5 {
-            response.push(ENGINE_GET_PAYLOAD_V5);
-        }
-        if self.get_payload_v6 {
-            response.push(ENGINE_GET_PAYLOAD_V6);
-        }
-        if self.get_client_version_v1 {
-            response.push(ENGINE_GET_CLIENT_VERSION_V1);
-        }
-        if self.get_blobs_v2 {
-            response.push(ENGINE_GET_BLOBS_V2);
-        }
+    }
 
-        response
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload(fork),
+            Self::Ssz(capabilities) => capabilities.get_payload(fork),
+        }
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.forkchoice_updated(fork),
+            Self::Ssz(capabilities) => capabilities.forkchoice_updated(fork),
+        }
+    }
+
+    pub fn get_payload_bodies_by_range(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
+            Self::Ssz(capabilities) => capabilities.bodies,
+        }
+    }
+
+    pub fn get_blobs_v2(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_blobs_v2,
+            Self::Ssz(capabilities) => capabilities.get_blobs_v2(),
+        }
+    }
+
+    pub fn get_blobs_v3(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_blobs_v3,
+            Self::Ssz(capabilities) => capabilities.get_blobs_v3(),
+        }
+    }
+
+    pub fn get_client_version_v1(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_client_version_v1,
+            Self::Ssz(capabilities) => capabilities.get_client_version_v1(),
+        }
+    }
+
+    pub fn to_response(&self) -> Vec<&str> {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.to_response(),
+            Self::Ssz(_capabilities) => vec![]
+        }
     }
 }
 

@@ -1710,7 +1710,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
+        if capabilities.get_payload_bodies_by_range() {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
@@ -1735,7 +1735,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v2 {
+        if capabilities.get_blobs_v2() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
@@ -1752,7 +1752,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v3 {
+        if capabilities.get_blobs_v3() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await

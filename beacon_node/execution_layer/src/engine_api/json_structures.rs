@@ -13,6 +13,136 @@ use types::execution::{
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
+use crate::http::{
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+};
+
+#[derive(Clone, Copy, Debug)]
+pub struct JsonRpcCapabilities {
+    pub new_payload_v1: bool,
+    pub new_payload_v2: bool,
+    pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
+    pub new_payload_v5: bool,
+    pub forkchoice_updated_v1: bool,
+    pub forkchoice_updated_v2: bool,
+    pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
+    pub get_payload_bodies_by_hash_v1: bool,
+    pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_v1: bool,
+    pub get_payload_v2: bool,
+    pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
+    pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
+    pub get_client_version_v1: bool,
+    pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
+}
+
+impl JsonRpcCapabilities {
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.new_payload_v1,
+            ForkName::Capella => self.new_payload_v2,
+            ForkName::Deneb => self.new_payload_v3,
+            ForkName::Electra | ForkName::Fulu => self.new_payload_v4,
+            ForkName::Gloas => self.new_payload_v5,
+            ForkName::Base | ForkName::Altair => false,
+        }
+    }
+
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.get_payload_v1,
+            ForkName::Capella => self.get_payload_v2,
+            ForkName::Deneb => self.get_payload_v3,
+            ForkName::Electra => self.get_payload_v4,
+            ForkName::Fulu => self.get_payload_v5,
+            ForkName::Gloas => self.get_payload_v6,
+            ForkName::Base | ForkName::Altair => false,
+        }
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.forkchoice_updated_v1,
+            ForkName::Capella => self.forkchoice_updated_v2,
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => self.forkchoice_updated_v3,
+            ForkName::Gloas => self.forkchoice_updated_v4,
+            ForkName::Base | ForkName::Altair => false,
+        }
+    }
+
+    pub fn to_response(&self) -> Vec<&str> {
+        let mut response = Vec::new();
+        if self.new_payload_v1 {
+            response.push(ENGINE_NEW_PAYLOAD_V1);
+        }
+        if self.new_payload_v2 {
+            response.push(ENGINE_NEW_PAYLOAD_V2);
+        }
+        if self.new_payload_v3 {
+            response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
+        }
+        if self.new_payload_v5 {
+            response.push(ENGINE_NEW_PAYLOAD_V5);
+        }
+        if self.forkchoice_updated_v1 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
+        }
+        if self.forkchoice_updated_v2 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
+        }
+        if self.forkchoice_updated_v3 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V3);
+        }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
+        }
+        if self.get_payload_bodies_by_hash_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
+        }
+        if self.get_payload_bodies_by_range_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        }
+        if self.get_payload_v1 {
+            response.push(ENGINE_GET_PAYLOAD_V1);
+        }
+        if self.get_payload_v2 {
+            response.push(ENGINE_GET_PAYLOAD_V2);
+        }
+        if self.get_payload_v3 {
+            response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
+        }
+        if self.get_payload_v5 {
+            response.push(ENGINE_GET_PAYLOAD_V5);
+        }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
+        }
+        if self.get_client_version_v1 {
+            response.push(ENGINE_GET_CLIENT_VERSION_V1);
+        }
+        if self.get_blobs_v2 {
+            response.push(ENGINE_GET_BLOBS_V2);
+        }
+
+        response
+    }
+}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

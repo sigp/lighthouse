@@ -1,5 +1,6 @@
 //! Contains an implementation of the Engine API over REST + SSZ (execution-apis#793).
 
+use crate::EngineCapabilities;
 use crate::auth::Auth;
 use crate::engine_api::{
     ClientVersionV1, Error, ExecutionPayloadBodyV1, ForkchoiceUpdatedResponse, GetPayloadResponse,
@@ -145,6 +146,15 @@ impl HttpRestSsz {
                 })
             }
         }
+    }
+
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        Ok(EngineCapabilities::Ssz(
+            self.get_ssz_capabilities(age_limit).await?,
+        ))
     }
 
     pub async fn get_ssz_capabilities(
