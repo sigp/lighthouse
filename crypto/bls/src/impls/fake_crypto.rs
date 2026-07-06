@@ -49,7 +49,9 @@ impl TPublicKey for PublicKey {
     }
 
     fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
-        panic!("fake_crypto does not support uncompressed keys")
+        let mut bytes = [0; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN];
+        bytes[0..PUBLIC_KEY_BYTES_LEN].copy_from_slice(&self.0);
+        bytes
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -58,8 +60,17 @@ impl TPublicKey for PublicKey {
         Ok(pubkey)
     }
 
-    fn deserialize_uncompressed(_: &[u8]) -> Result<Self, Error> {
-        panic!("fake_crypto does not support uncompressed keys")
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() == PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN {
+            let mut pubkey = Self([0; PUBLIC_KEY_BYTES_LEN]);
+            pubkey.0.copy_from_slice(&bytes[0..PUBLIC_KEY_BYTES_LEN]);
+            Ok(pubkey)
+        } else {
+            Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+            })
+        }
     }
 }
 
@@ -97,7 +108,7 @@ pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
 impl Signature {
     fn infinity() -> Self {
-        Self([0; SIGNATURE_BYTES_LEN])
+        Self(INFINITY_SIGNATURE)
     }
 }
 
@@ -213,7 +224,11 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
     }
 
     fn public_key(&self) -> PublicKey {
-        PublicKey::infinity()
+        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
+        bytes[0] = 0x01;
+        let to_copy = std::cmp::min(self.0.len(), bytes.len() - 1);
+        bytes[1..1 + to_copy].copy_from_slice(&self.0[..to_copy]);
+        PublicKey(bytes)
     }
 
     fn sign(&self, _msg: Hash256) -> Signature {

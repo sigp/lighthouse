@@ -1,15 +1,9 @@
 use crate::custody_context::NodeCustodyType;
-pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Checkpoint, Hash256};
 
-pub const DEFAULT_RE_ORG_HEAD_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
-pub const DEFAULT_RE_ORG_PARENT_THRESHOLD: ReOrgThreshold = ReOrgThreshold(160);
-pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
-/// Default to 1/12th of the slot, which is 1 second on mainnet.
-pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
 
 /// Default fraction of a slot lookahead for payload preparation (12/3 = 4 seconds on mainnet).
@@ -38,22 +32,9 @@ pub struct ChainConfig {
     /// If `None`, there is no weak subjectivity verification.
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
-    pub reconstruct_historic_states: bool,
+    pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
-    pub re_org_head_threshold: Option<ReOrgThreshold>,
-    /// Minimum percentage of the parent committee weight at which to attempt re-orging the canonical head.
-    pub re_org_parent_threshold: Option<ReOrgThreshold>,
-    /// Maximum number of epochs since finalization for attempting a proposer re-org.
-    pub re_org_max_epochs_since_finalization: Epoch,
-    /// Maximum delay after the start of the slot at which to propose a reorging block.
-    pub re_org_cutoff_millis: Option<u64>,
-    /// Additional epoch offsets at which re-orging block proposals are not permitted.
-    ///
-    /// By default this list is empty, but it can be useful for reacting to network conditions, e.g.
-    /// slow gossip of re-org blocks at slot 1 in the epoch.
-    pub re_org_disallowed_offsets: DisallowedReOrgOffsets,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -117,10 +98,16 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// When set to true, the beacon node can be started even if the head state is outside the weak subjectivity period.
+    pub ignore_ws_check: bool,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
+    /// Whether to enable partial data column support.
+    pub enable_partial_columns: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
+    /// Disable proposer re-org
+    pub disable_proposer_reorg: bool,
 }
 
 impl Default for ChainConfig {
@@ -128,13 +115,8 @@ impl Default for ChainConfig {
         Self {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
-            reconstruct_historic_states: false,
+            archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-            re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-            re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-            re_org_cutoff_millis: None,
-            re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,
@@ -160,19 +142,11 @@ impl Default for ChainConfig {
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            ignore_ws_check: false,
             disable_get_blobs: false,
+            enable_partial_columns: false,
             node_custody_type: NodeCustodyType::Fullnode,
+            disable_proposer_reorg: false,
         }
-    }
-}
-
-impl ChainConfig {
-    /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-    pub fn re_org_cutoff(&self, seconds_per_slot: u64) -> Duration {
-        self.re_org_cutoff_millis
-            .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                Duration::from_secs(seconds_per_slot) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
-            })
     }
 }

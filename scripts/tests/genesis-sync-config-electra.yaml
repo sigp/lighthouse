@@ -11,7 +11,7 @@ participants:
     cl_image: lighthouse:local
     validator_count: 0
 network_params:
-  seconds_per_slot: 6
+  slot_duration_ms: 6000
   electra_fork_epoch: 0
   fulu_fork_epoch: 100000 # a really big number so this test stays in electra
   preset: "minimal"

@@ -31,7 +31,7 @@ impl SignedValidatorRegistrationData {
             .pubkey
             .decompress()
             .map(|pubkey| {
-                let domain = spec.get_builder_domain();
+                let domain = spec.get_builder_application_domain();
                 let message = self.message.signing_root(domain);
                 self.signature.verify(&pubkey, message)
             })

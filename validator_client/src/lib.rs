@@ -9,19 +9,21 @@ use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
+use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
+    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
+    start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts, reqwest::ClientBuilder};
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use lighthouse_validator_store::LighthouseValidatorStore;
 use parking_lot::RwLock;
-use reqwest::Certificate;
+use reqwest::{Certificate, ClientBuilder, StatusCode};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
@@ -43,7 +45,9 @@ use validator_services::{
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
     latency_service,
+    payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
+    proposer_preferences_service::ProposerPreferencesService,
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore as ValidatorStoreTrait;
@@ -70,6 +74,8 @@ pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
 /// Number of slots in advance to compute sync selection proofs when in `distributed` mode.
 pub const AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED: u64 = 1;
 
+const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
+
 type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
 #[derive(Clone)]
@@ -79,6 +85,9 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
     attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
     sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
+    payload_attestation_service: PayloadAttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    proposer_preferences_service:
+        ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
@@ -144,6 +153,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let exit = context.executor.exit();
 
             let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
+                .await
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -182,6 +192,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             })?;
             info!(new_validators, "Completed validator discovery");
         }
+
+        // Check for all validators' fee recipient
+        validator_defs.check_all_fee_recipients(config.validator_store.fee_recipient)?;
 
         let validators = InitializedValidators::from_definitions(
             validator_defs,
@@ -268,7 +281,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+            let slot_duration = context.eth2_config.spec.get_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -389,11 +402,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+            context.eth2_config.spec.get_slot_duration(),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
+
+        // Only the beacon_nodes are used for attestation duties and thus biconditionally
+        // proposer_nodes do not need head_send ref.
+        let head_monitor_rx = if config.enable_beacon_head_monitor {
+            let (head_monitor_tx, head_receiver) =
+                mpsc::channel::<HeadEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
+            beacon_nodes.set_head_send(Arc::new(head_monitor_tx));
+            Some(Mutex::new(head_receiver))
+        } else {
+            None
+        };
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
@@ -479,6 +503,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .attestation_selection_proof_config(attestation_selection_proof_config)
                 .sync_selection_proof_config(sync_selection_proof_config)
                 .disable_attesting(config.disable_attesting)
+                .disable_proposer_duties_v2(config.disable_proposer_duties_v2)
                 .build()?,
         );
 
@@ -505,15 +530,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let block_service = block_service_builder.build()?;
 
-        let attestation_service = AttestationServiceBuilder::new()
+        let attestation_builder = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
+            .head_monitor_rx(head_monitor_rx)
             .chain_spec(context.eth2_config.spec.clone())
-            .disable(config.disable_attesting)
-            .build()?;
+            .disable(config.disable_attesting);
+
+        let attestation_service = attestation_builder.build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
@@ -532,12 +559,32 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.executor.clone(),
         );
 
+        let payload_attestation_service = PayloadAttestationService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
+        let proposer_preferences_service = ProposerPreferencesService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
             block_service,
             attestation_service,
             sync_committee_service,
+            payload_attestation_service,
+            proposer_preferences_service,
             doppelganger_service,
             preparation_service,
             validator_store,
@@ -576,6 +623,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let exit = self.context.executor.exit();
 
             let (listen_addr, server) = validator_http_api::serve::<_, E>(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context
@@ -608,6 +656,18 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
+
+        if self.context.eth2_config.spec.is_gloas_scheduled() {
+            self.payload_attestation_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
+
+            self.proposer_preferences_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start proposer preferences service: {}", e))?;
+        }
 
         self.preparation_service
             .clone()

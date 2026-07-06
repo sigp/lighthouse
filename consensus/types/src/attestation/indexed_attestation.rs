@@ -11,10 +11,9 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_utils::TestRandom};
+use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 
 /// Details an attestation that can be slashable.
 ///
@@ -31,7 +30,6 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_ut
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),
@@ -212,10 +210,8 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        core::{Epoch, MainnetEthSpec},
-        test_utils::{SeedableRng, XorShiftRng},
-    };
+    use crate::core::{Epoch, MainnetEthSpec};
+    use arbitrary::Arbitrary;
 
     #[test]
     pub fn test_is_double_vote_true() {
@@ -278,9 +274,9 @@ mod tests {
         target_epoch: u64,
         source_epoch: u64,
     ) -> IndexedAttestation<MainnetEthSpec> {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = crate::test_utils::test_unstructured();
         let mut indexed_vote =
-            IndexedAttestation::Base(IndexedAttestationBase::random_for_test(&mut rng));
+            IndexedAttestation::Base(IndexedAttestationBase::arbitrary(&mut u).unwrap());
 
         indexed_vote.data_mut().source.epoch = Epoch::new(source_epoch);
         indexed_vote.data_mut().target.epoch = Epoch::new(target_epoch);

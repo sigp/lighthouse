@@ -397,6 +397,7 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
     Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
 }
 
+// Read a PKCS12 identity certificate and parse it into a PEM certificate.
 pub fn load_pkcs12_identity<P: AsRef<Path>>(
     pkcs12_path: P,
     password: &str,
@@ -406,7 +407,29 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?
         .read_to_end(&mut buf)
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
-    Identity::from_pkcs12_der(&buf, password)
+
+    let keystore = p12_keystore::KeyStore::from_pkcs12(&buf, password).map_err(|e| {
+        Error::InvalidWeb3SignerClientIdentityCertificateFile(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PKCS12 parse error: {e:?}"),
+        ))
+    })?;
+
+    let (_alias, key_chain) = keystore
+        .private_key_chain()
+        .ok_or(Error::MissingWeb3SignerClientIdentityCertificateFile)?;
+
+    let key_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", key_chain.key()));
+    let certs_pem: String = key_chain
+        .chain()
+        .iter()
+        .map(|cert| pem::encode(&pem::Pem::new("CERTIFICATE", cert.as_der())))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let combined_pem = format!("{key_pem}\n{certs_pem}");
+
+    Identity::from_pem(combined_pem.as_bytes())
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificate)
 }
 

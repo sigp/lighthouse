@@ -11,23 +11,11 @@ attestations and transactions that can be included.
 
 ## Command line flags
 
-There are three flags which control the re-orging behaviour:
+There is one flag which controls the re-orging behaviour:
 
 * `--disable-proposer-reorgs`: turn re-orging off (it's on by default).
-* `--proposer-reorg-threshold N`: attempt to orphan blocks with less than N% of the committee vote. If this parameter isn't set then N defaults to 20% when the feature is enabled.
-* `--proposer-reorg-epochs-since-finalization N`: only attempt to re-org late blocks when the number of epochs since finalization is less than or equal to N. The default is 2 epochs,
-  meaning re-orgs will only be attempted when the chain is finalizing optimally.
-* `--proposer-reorg-cutoff T`: only attempt to re-org late blocks when the proposal is being made
-  before T milliseconds into the slot. Delays between the validator client and the beacon node can
-  cause some blocks to be requested later than the start of the slot, which makes them more likely
-  to fail. The default cutoff is 1000ms on mainnet, which gives blocks 3000ms to be signed and
-  propagated before the attestation deadline at 4000ms.
-* `--proposer-reorg-disallowed-offsets N1,N2,N3...`: Prohibit Lighthouse from attempting to reorg at
-  specific offsets in each epoch. A disallowed offset `N` prevents reorging blocks from being
-  proposed at any `slot` such that `slot % SLOTS_PER_EPOCH == N`. The value to this flag is a
-  comma-separated list of integer offsets.
 
-All flags should be applied to `lighthouse bn`. The default configuration is recommended as it
+This flag should be applied to `lighthouse bn`. The default configuration is recommended as it
 balances the chance of the re-org succeeding against the chance of failure due to attestations
 arriving late and making the re-org block non-viable.
 
@@ -40,8 +28,6 @@ The full conditions are described in [the spec][] but the most important ones ar
 
 * Only single-slot re-orgs: Lighthouse will build a block at N + 1 to re-org N by building on the
   parent N - 1. The result is a chain with exactly one skipped slot.
-* No epoch boundaries: to ensure that the selected proposer does not change, Lighthouse will
-  not propose a re-orging block in the 0th slot of an epoch.
 
 ## Logs
 

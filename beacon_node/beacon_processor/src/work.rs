@@ -30,6 +30,9 @@ pub enum Work<E: EthSpec> {
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
+    UnknownBlockDataColumn {
+        process_fn: BlockingFn,
+    },
     GossipAttestationBatch {
         attestations: GossipAttestationBatch,
         process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
@@ -51,9 +54,14 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
+    GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
+        beacon_block_slot: Slot,
+        beacon_block_root: Hash256,
+        process_fn: AsyncFn,
+    },
+    DelayedImportEnvelope {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
@@ -66,26 +74,39 @@ pub enum Work<E: EthSpec> {
     GossipLightClientFinalityUpdate(BlockingFn),
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
+        beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
     RpcBlobs {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
+    RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
-    ChainSegment(AsyncFn),
+    ChainSegment {
+        process_fn: AsyncFn,
+        /// (chain_id, batch_epoch) for test observability
+        process_id: (u32, u64),
+    },
     ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
+    BlocksByHeadRequest(AsyncFn),
+    PayloadEnvelopesByRangeRequest(AsyncFn),
+    PayloadEnvelopesByRootRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
     DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
+    GossipExecutionPayload(AsyncFn),
+    GossipExecutionPayloadBid(BlockingFn),
+    GossipPayloadAttestation(BlockingFn),
+    GossipProposerPreferences(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
@@ -113,15 +134,17 @@ pub enum WorkType {
     GossipAttestation,
     GossipAttestationToConvert,
     UnknownBlockAttestation,
+    UnknownBlockDataColumn,
     GossipAttestationBatch,
     GossipAggregate,
     UnknownBlockAggregate,
     UnknownLightClientOptimisticUpdate,
     GossipAggregateBatch,
     GossipBlock,
-    GossipBlobSidecar,
     GossipDataColumnSidecar,
+    GossipPartialDataColumnSidecar,
     DelayedImportBlock,
+    DelayedImportEnvelope,
     GossipVoluntaryExit,
     GossipProposerSlashing,
     GossipAttesterSlashing,
@@ -132,6 +155,7 @@ pub enum WorkType {
     RpcBlock,
     RpcBlobs,
     RpcCustodyColumn,
+    RpcEnvelope,
     ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
@@ -139,11 +163,18 @@ pub enum WorkType {
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
+    BlocksByHeadRequest,
+    PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
     BlobsByRangeRequest,
     BlobsByRootsRequest,
     DataColumnsByRootsRequest,
     DataColumnsByRangeRequest,
     GossipBlsToExecutionChange,
+    GossipExecutionPayload,
+    GossipExecutionPayloadBid,
+    GossipPayloadAttestation,
+    GossipProposerPreferences,
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
@@ -178,11 +209,17 @@ impl WorkCategory {
             | WorkType::Status
             | WorkType::BlocksByRangeRequest
             | WorkType::BlocksByRootsRequest
+            | WorkType::BlocksByHeadRequest
+            | WorkType::PayloadEnvelopesByRangeRequest
+            | WorkType::PayloadEnvelopesByRootRequest
             | WorkType::BlobsByRangeRequest
             | WorkType::BlobsByRootsRequest
             | WorkType::DataColumnsByRootsRequest
             | WorkType::DataColumnsByRangeRequest
             | WorkType::GossipBlsToExecutionChange
+            | WorkType::GossipExecutionPayloadBid
+            | WorkType::GossipPayloadAttestation
+            | WorkType::GossipProposerPreferences
             | WorkType::LightClientBootstrapRequest
             | WorkType::LightClientOptimisticUpdateRequest
             | WorkType::LightClientFinalityUpdateRequest
@@ -193,17 +230,21 @@ impl WorkCategory {
             // CPU bound tasks
             WorkType::GossipBlock
             | WorkType::UnknownBlockAttestation
+            | WorkType::UnknownBlockDataColumn
             | WorkType::UnknownBlockAggregate
             | WorkType::GossipAttestation
             | WorkType::GossipAttestationBatch
             | WorkType::GossipAggregate
             | WorkType::GossipAggregateBatch
-            | WorkType::GossipBlobSidecar
             | WorkType::GossipDataColumnSidecar
+            | WorkType::GossipPartialDataColumnSidecar
+            | WorkType::GossipExecutionPayload
             | WorkType::DelayedImportBlock
+            | WorkType::DelayedImportEnvelope
             | WorkType::RpcBlock
             | WorkType::RpcBlobs
             | WorkType::RpcCustodyColumn
+            | WorkType::RpcEnvelope
             | WorkType::ColumnReconstruction
             | WorkType::ChainSegment
             | WorkType::ChainSegmentBackfill => Self::CpuBound,
@@ -224,9 +265,10 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
             Work::GossipBlock(_) => WorkType::GossipBlock,
-            Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
+            Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
+            Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
             Work::GossipProposerSlashing(_) => WorkType::GossipProposerSlashing,
             Work::GossipAttesterSlashing(_) => WorkType::GossipAttesterSlashing,
@@ -237,9 +279,14 @@ impl<E: EthSpec> Work<E> {
                 WorkType::GossipLightClientOptimisticUpdate
             }
             Work::GossipBlsToExecutionChange(_) => WorkType::GossipBlsToExecutionChange,
+            Work::GossipExecutionPayload(_) => WorkType::GossipExecutionPayload,
+            Work::GossipExecutionPayloadBid(_) => WorkType::GossipExecutionPayloadBid,
+            Work::GossipPayloadAttestation(_) => WorkType::GossipPayloadAttestation,
+            Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
+            Work::RpcEnvelope(_) => WorkType::RpcEnvelope,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
@@ -247,6 +294,9 @@ impl<E: EthSpec> Work<E> {
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
+            Work::BlocksByHeadRequest(_) => WorkType::BlocksByHeadRequest,
+            Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
+            Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
             Work::BlobsByRootsRequest(_) => WorkType::BlobsByRootsRequest,
             Work::DataColumnsByRootsRequest(_) => WorkType::DataColumnsByRootsRequest,
@@ -258,6 +308,7 @@ impl<E: EthSpec> Work<E> {
             Work::LightClientFinalityUpdateRequest(_) => WorkType::LightClientFinalityUpdateRequest,
             Work::LightClientUpdatesByRangeRequest(_) => WorkType::LightClientUpdatesByRangeRequest,
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
+            Work::UnknownBlockDataColumn { .. } => WorkType::UnknownBlockDataColumn,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
             Work::UnknownLightClientOptimisticUpdate { .. } => {
                 WorkType::UnknownLightClientOptimisticUpdate

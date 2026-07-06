@@ -26,13 +26,15 @@ fork_choice = { workspace = true }
 fs2 = { workspace = true }
 hex = { workspace = true }
 kzg = { workspace = true }
+lighthouse_network = { workspace = true }
 logging = { workspace = true }
 milhouse = { workspace = true }
+network = { workspace = true }
+proto_array = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
-serde_yaml = { workspace = true }
 snap = { workspace = true }
 ssz_types = { workspace = true }
 state_processing = { workspace = true }
@@ -41,3 +43,4 @@ tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
+yaml_serde = { workspace = true }

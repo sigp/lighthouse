@@ -35,15 +35,13 @@
 //! appears that this validator is capable of producing valid
 //! attestations and there's no immediate cause for concern.
 use crate::task_spawner::{Priority, TaskSpawner};
-use beacon_chain::{
-    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    validator_monitor::timestamp_now,
-};
+use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
 use beacon_processor::{Work, WorkEvent};
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
@@ -138,7 +136,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.
-    let seen_timestamp = timestamp_now();
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let mut prelim_results = task_spawner
         .clone()
         .blocking_task(Priority::P0, move || {
@@ -179,6 +177,46 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                                     beacon_block_root,
                                     process_fn: Box::new(reprocess_fn),
                                 });
+                            if task_spawner
+                                .try_send(WorkEvent {
+                                    drop_during_sync: false,
+                                    work: Work::Reprocess(reprocess_msg),
+                                })
+                                .is_err()
+                            {
+                                PublishAttestationResult::Failure(Error::ReprocessFull)
+                            } else {
+                                PublishAttestationResult::Reprocessing(rx)
+                            }
+                        }
+                        Err(Error::Validation(AttestationError::UnknownPayloadEnvelope {
+                            beacon_block_root,
+                        })) => {
+                            if !allow_reprocess {
+                                return PublishAttestationResult::Failure(Error::ReprocessDisabled);
+                            };
+                            // Re-process once the block's payload envelope is seen (Gloas).
+                            let (tx, rx) = oneshot::channel();
+                            let reprocess_chain = chain.clone();
+                            let reprocess_network_tx = network_tx.clone();
+                            let reprocess_fn = move || {
+                                let result = verify_and_publish_attestation(
+                                    &reprocess_chain,
+                                    &attestation,
+                                    seen_timestamp,
+                                    &reprocess_network_tx,
+                                );
+                                // Ignore failure on the oneshot that reports the result. This
+                                // shouldn't happen unless some catastrophe befalls the waiting
+                                // thread which causes it to drop.
+                                let _ = tx.send(result);
+                            };
+                            let reprocess_msg = ReprocessQueueMessage::UnknownPayloadUnaggregate(
+                                QueuedUnaggregate {
+                                    beacon_block_root,
+                                    process_fn: Box::new(reprocess_fn),
+                                },
+                            );
                             if task_spawner
                                 .try_send(WorkEvent {
                                     drop_during_sync: false,

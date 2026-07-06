@@ -364,7 +364,7 @@ pub fn cli_app() -> Command {
                 .long("libp2p-addresses")
                 .value_name("MULTIADDR")
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR.")
+                       without an ENR. DEPRECATED. The --libp2p-addresses flag is deprecated and replaced by --boot-nodes")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -385,6 +385,17 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-mplex")
+                .long("enable-mplex")
+                .value_name("BOOLEAN")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_value("true")
+                .default_missing_value("true")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
                 .display_order(0)
         )
         .arg(
@@ -668,6 +679,18 @@ pub fn cli_app() -> Command {
                 This an optimization strategy to not send IDONTWANT messages for smaller messages.")
                 .action(ArgAction::Set)
                 .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-partial-columns")
+                .long("enable-partial-columns")
+                .value_name("BOOLEAN")
+                .help("Enable partial messages for data columns. This can reduce the amount of \
+                data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
+                \"false\" to opt out.")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         /*
@@ -1246,9 +1269,12 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("reconstruct-historic-states")
-                .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
+            Arg::new("archive")
+                .long("archive")
+                .alias("reconstruct-historic-states")
+                .help("Store all beacon states in the database. When checkpoint syncing, \
+                    states are reconstructed after backfill completes. This requires \
+                    syncing all the way back to genesis.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -1308,8 +1334,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-threshold")
                 .action(ArgAction::Set)
                 .value_name("PERCENT")
-                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
-                       Default: 20%")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1317,8 +1342,7 @@ pub fn cli_app() -> Command {
             Arg::new("proposer-reorg-parent-threshold")
                 .long("proposer-reorg-parent-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
-                       Default: 160%")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -1328,8 +1352,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-epochs-since-finalization")
                 .action(ArgAction::Set)
                 .value_name("EPOCHS")
-                .help("Maximum number of epochs since finalization at which proposer reorgs are \
-                       allowed. Default: 2")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1338,10 +1361,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-cutoff")
                 .value_name("MILLISECONDS")
                 .action(ArgAction::Set)
-                .help("Maximum delay after the start of the slot at which to propose a reorging \
-                       block. Lower values can prevent failed reorgs by ensuring the block has \
-                       ample time to propagate and be processed by the network. The default is \
-                       1/12th of a slot (1 second on mainnet)")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1350,12 +1370,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-disallowed-offsets")
                 .action(ArgAction::Set)
                 .value_name("N1,N2,...")
-                .help("Comma-separated list of integer offsets which can be used to avoid \
-                       proposing reorging blocks at certain slots. An offset of N means that \
-                       reorging proposals will not be attempted at any slot such that \
-                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
-                       avoided. Any offsets supplied with this flag will impose additional \
-                       restrictions.")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1400,6 +1415,16 @@ pub fn cli_app() -> Command {
                        it includes super thoroughly. This may be useful in an emergency, but not \
                        otherwise.")
                 .hide(true)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("ignore-ws-check")
+                .long("ignore-ws-check")
+                .help("Using this flag allows a node to run in a state that may expose it to long-range attacks. \
+                    For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, you can use this flag to disable the Weak Subjectivity check at startup.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

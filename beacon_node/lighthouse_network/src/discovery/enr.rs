@@ -200,11 +200,23 @@ pub fn build_enr<E: EthSpec>(
         builder.ip6(*ip);
     }
 
-    if let Some(udp4_port) = config.enr_udp4_port {
+    // If the ENR port is not set, and we are listening over that ip version, use the listening
+    // discovery port instead.
+    if let Some(udp4_port) = config.enr_udp4_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v4()
+            .and_then(|v4_addr| v4_addr.disc_port.try_into().ok())
+    }) {
         builder.udp4(udp4_port.get());
     }
 
-    if let Some(udp6_port) = config.enr_udp6_port {
+    if let Some(udp6_port) = config.enr_udp6_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v6()
+            .and_then(|v6_addr| v6_addr.disc_port.try_into().ok())
+    }) {
         builder.udp6(udp6_port.get());
     }
 
@@ -308,11 +320,12 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY and
-        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
-        // likely only be true for non-validating nodes.
+        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY and NEXT_FORK_DIGEST_ENR_KEY keys to match,
+        // otherwise we use a new ENR. This will likely only be true for non-validating nodes.
         && local_enr.get_decodable::<Bytes>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(NEXT_FORK_DIGEST_ENR_KEY) == disk_enr.get_decodable(NEXT_FORK_DIGEST_ENR_KEY)
 }
 
 /// Loads enr from the given directory

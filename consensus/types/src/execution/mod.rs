@@ -1,5 +1,4 @@
 mod eth1_data;
-mod execution_block_hash;
 mod execution_block_header;
 #[macro_use]
 mod execution_payload;
@@ -16,7 +15,6 @@ mod signed_execution_payload_envelope;
 
 pub use bls_to_execution_change::BlsToExecutionChange;
 pub use eth1_data::Eth1Data;
-pub use execution_block_hash::ExecutionBlockHash;
 pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -31,7 +29,9 @@ pub use execution_payload_header::{
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
-    ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
+    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
+    ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    RequestType, WithdrawalRequests,
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,

@@ -45,6 +45,7 @@ Fusaka
 Geth
 GiB
 Gitcoin
+Gloas
 Gnosis
 Goerli
 Grafana
@@ -58,6 +59,7 @@ JSON
 KeyManager
 Kurtosis
 LMDB
+LLM
 LLVM
 LRU
 LTO

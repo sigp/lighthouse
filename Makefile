@@ -30,13 +30,15 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# List of all hard forks up to gloas. This list is used to set env variables for several tests so that
-# they run for different forks.
-# TODO(EIP-7732) Remove this once we extend network tests to support gloas and use RECENT_FORKS instead
-RECENT_FORKS_BEFORE_GLOAS=electra fulu
+# List of recent hard forks before Gloas. Used by tests that do not support Gloas yet.
+RECENT_FORKS_BEFORE_GLOAS=fulu
 
-# List of all recent hard forks. This list is used to set env variables for http_api tests
-RECENT_FORKS=electra fulu gloas
+# List of all recent hard forks. This list is used to set env variables for several tests.
+# Include phase0 to test the code paths in sync that are pre blobs
+RECENT_FORKS=fulu gloas
+
+# For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
+TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS)
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -203,14 +205,13 @@ run-ef-tests:
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
-# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
 
 # Run the tests in the `http_api` crate for recent forks.
-test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
 	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
@@ -225,13 +226,15 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for all known forks.
-# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-network: $(patsubst %,test-network-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
-	env FORK_NAME=$* cargo nextest run --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
 		-p network
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,$(TEST_FEATURES)" \
+		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
@@ -314,8 +317,8 @@ make-ef-tests-nightly:
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check -p state_processing --features arbitrary-fuzz,$(TEST_FEATURES)
-	cargo check -p slashing_protection --features arbitrary-fuzz,$(TEST_FEATURES)
+	cargo check -p state_processing --features arbitrary,$(TEST_FEATURES)
+	cargo check -p slashing_protection --features arbitrary,$(TEST_FEATURES)
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit: install-audit audit-CI
@@ -343,8 +346,20 @@ vendor:
 udeps:
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release --features "$(TEST_FEATURES)"
 
+# Checks Cargo.toml files for unencrypted HTTP links
+insecure-deps:
+	@ BAD_LINKS=$$(find . -name Cargo.toml | xargs grep -n "http://" || true); \
+	if [ -z "$$BAD_LINKS" ]; then echo "No insecure HTTP links found"; \
+	else echo "$$BAD_LINKS"; echo "Using plain HTTP in Cargo.toml files is forbidden"; exit 1; fi
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean
 	make -C $(EF_TESTS) clean
 	make -C $(STATE_TRANSITION_VECTORS) clean
+
+# Installs git hooks from .githooks/ directory
+install-hooks:
+	@ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .githooks/pre-commit
+	@echo "Git hooks installed. Pre-commit hook runs 'cargo fmt --check'."

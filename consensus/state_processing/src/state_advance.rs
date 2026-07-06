@@ -77,6 +77,11 @@ pub fn partial_state_advance<E: EthSpec>(
     // (all-zeros) state root.
     let mut initial_state_root = Some(if state.slot() > state.latest_block_header().slot {
         state_root_opt.unwrap_or_else(Hash256::zero)
+    } else if state.slot() == state.latest_block_header().slot
+        && !state.latest_block_header().state_root.is_zero()
+    {
+        // Post-Gloas Full state case.
+        state.latest_block_header().state_root
     } else {
         state_root_opt.ok_or(Error::StateRootNotProvided)?
     });

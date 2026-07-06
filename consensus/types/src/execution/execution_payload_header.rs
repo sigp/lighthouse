@@ -6,21 +6,18 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, Hash256, Uint256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
     execution::{
-        ExecutionBlockHash, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef,
-        Transactions,
+        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef, Transactions,
     },
     fork::ForkName,
     map_execution_payload_ref_into_execution_payload_header,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[superstruct(
@@ -35,7 +32,6 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),

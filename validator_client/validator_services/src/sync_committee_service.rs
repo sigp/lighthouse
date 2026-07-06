@@ -2,8 +2,8 @@ use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
 use eth2::types::BlockId;
+use futures::StreamExt;
 use futures::future::FutureExt;
-use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use types::{
     ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
     SyncSelectionProof, SyncSubnetId,
 };
-use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+use validator_store::{ContributionToSign, SyncMessageToSign, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
@@ -93,7 +93,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -106,18 +106,20 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
+        let sync_message_slot_component = spec.get_sync_message_due();
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(duration_to_next_slot + sync_message_slot_component).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks().await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -140,7 +142,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self) -> Result<(), String> {
+        let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -151,7 +154,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // through the slot. This delay triggers at this time
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(spec.get_contribution_message_due())
+                .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let Some(slot_duties) = self
@@ -210,7 +214,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .map(|_| ())
                     .await
             }
-            .instrument(info_span!("sync_committee_signature_publish", %slot)),
+            .instrument(info_span!("lh_sync_committee_signature_publish", %slot)),
             "sync_committee_signature_publish",
         );
 
@@ -228,7 +232,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .map(|_| ())
                     .await
             }
-            .instrument(info_span!("sync_committee_aggregate_publish", %slot)),
+            .instrument(info_span!("lh_sync_committee_aggregate_publish", %slot)),
             "sync_committee_aggregate_publish",
         );
 
@@ -243,78 +247,57 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         beacon_block_root: Hash256,
         validator_duties: Vec<SyncDuty>,
     ) -> Result<(), ()> {
-        // Create futures to produce sync committee signatures.
-        let signature_futures = validator_duties.iter().map(|duty| async move {
-            match self
-                .validator_store
-                .produce_sync_committee_signature(
-                    slot,
-                    beacon_block_root,
-                    duty.validator_index,
-                    &duty.pubkey,
-                )
-                .await
-            {
-                Ok(signature) => Some(signature),
-                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                    // A pubkey can be missing when a validator was recently
-                    // removed via the API.
-                    debug!(
-                        ?pubkey,
-                        validator_index = duty.validator_index,
-                        %slot,
-                        "Missing pubkey for sync committee signature"
-                    );
-                    None
+        let messages_to_sign: Vec<_> = validator_duties
+            .iter()
+            .map(|duty| SyncMessageToSign {
+                slot,
+                beacon_block_root,
+                validator_index: duty.validator_index,
+                pubkey: duty.pubkey,
+            })
+            .collect();
+
+        let signature_stream = self
+            .validator_store
+            .sign_sync_committee_signatures(messages_to_sign);
+        tokio::pin!(signature_stream);
+
+        while let Some(result) = signature_stream.next().await {
+            match result {
+                Ok(committee_signatures) if !committee_signatures.is_empty() => {
+                    let committee_signatures = &committee_signatures;
+                    match self
+                        .beacon_nodes
+                        .request(ApiTopic::SyncCommittee, |beacon_node| async move {
+                            beacon_node
+                                .post_beacon_pool_sync_committee_signatures(committee_signatures)
+                                .await
+                        })
+                        .instrument(info_span!(
+                            "publish_sync_signatures",
+                            count = committee_signatures.len()
+                        ))
+                        .await
+                    {
+                        Ok(()) => info!(
+                            count = committee_signatures.len(),
+                            head_block = ?beacon_block_root,
+                            %slot,
+                            "Successfully published sync committee messages"
+                        ),
+                        Err(e) => error!(
+                            %slot,
+                            error = %e,
+                            "Unable to publish sync committee messages"
+                        ),
+                    }
                 }
                 Err(e) => {
-                    crit!(
-                        validator_index = duty.validator_index,
-                        %slot,
-                        error = ?e,
-                        "Failed to sign sync committee signature"
-                    );
-                    None
+                    crit!(%slot, error = ?e, "Failed to sign sync committee signatures");
                 }
+                _ => {}
             }
-        });
-
-        // Execute all the futures in parallel, collecting any successful results.
-        let committee_signatures = &join_all(signature_futures)
-            .instrument(info_span!(
-                "sign_sync_signatures",
-                count = validator_duties.len()
-            ))
-            .await
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        self.beacon_nodes
-            .request(ApiTopic::SyncCommittee, |beacon_node| async move {
-                beacon_node
-                    .post_beacon_pool_sync_committee_signatures(committee_signatures)
-                    .await
-            })
-            .instrument(info_span!(
-                "publish_sync_signatures",
-                count = committee_signatures.len()
-            ))
-            .await
-            .map_err(|e| {
-                error!(
-                    %slot,
-                    error = %e,
-                    "Unable to publish sync committee messages"
-                );
-            })?;
-
-        info!(
-            count = committee_signatures.len(),
-            head_block = ?beacon_block_root,
-            %slot,
-            "Successfully published sync committee messages"
-        );
+        }
 
         Ok(())
     }
@@ -341,7 +324,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         .map(|_| ())
                         .await
                 }
-                .instrument(info_span!("publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
+                .instrument(info_span!("lh_publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
                 "sync_committee_aggregate_publish_subnet",
             );
         }
@@ -385,77 +368,61 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             })?
             .data;
 
-        // Create futures to produce signed contributions.
-        let aggregator_count = subnet_aggregators.len();
-        let signature_futures = subnet_aggregators.into_iter().map(
-            |(aggregator_index, aggregator_pk, selection_proof)| async move {
-                match self
-                    .validator_store
-                    .produce_signed_contribution_and_proof(
-                        aggregator_index,
-                        aggregator_pk,
-                        contribution.clone(),
-                        selection_proof,
-                    )
-                    .await
-                {
-                    Ok(signed_contribution) => Some(signed_contribution),
-                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                        // A pubkey can be missing when a validator was recently
-                        // removed via the API.
-                        debug!(?pubkey, %slot, "Missing pubkey for sync contribution");
-                        None
-                    }
-                    Err(e) => {
-                        crit!(
+        let contributions_to_sign: Vec<_> = subnet_aggregators
+            .into_iter()
+            .map(
+                |(aggregator_index, aggregator_pk, selection_proof)| ContributionToSign {
+                    aggregator_index,
+                    aggregator_pubkey: aggregator_pk,
+                    contribution: contribution.clone(),
+                    selection_proof,
+                },
+            )
+            .collect();
+
+        let contribution_stream = self
+            .validator_store
+            .sign_sync_committee_contributions(contributions_to_sign);
+        tokio::pin!(contribution_stream);
+
+        while let Some(result) = contribution_stream.next().await {
+            match result {
+                Ok(signed_contributions) if !signed_contributions.is_empty() => {
+                    let signed_contributions = &signed_contributions;
+                    // Publish to the beacon node.
+                    match self
+                        .beacon_nodes
+                        .first_success(|beacon_node| async move {
+                            beacon_node
+                                .post_validator_contribution_and_proofs(signed_contributions)
+                                .await
+                        })
+                        .instrument(info_span!(
+                            "publish_sync_contributions",
+                            count = signed_contributions.len()
+                        ))
+                        .await
+                    {
+                        Ok(()) => info!(
+                            subnet = %subnet_id,
+                            beacon_block_root = %beacon_block_root,
+                            num_signers = contribution.aggregation_bits.num_set_bits(),
                             %slot,
-                            error = ?e,
-                            "Unable to sign sync committee contribution"
-                        );
-                        None
+                            "Successfully published sync contributions"
+                        ),
+                        Err(e) => error!(
+                            %slot,
+                            error = %e,
+                            "Unable to publish signed contributions and proofs"
+                        ),
                     }
                 }
-            },
-        );
-
-        // Execute all the futures in parallel, collecting any successful results.
-        let signed_contributions = &join_all(signature_futures)
-            .instrument(info_span!(
-                "sign_sync_contributions",
-                count = aggregator_count
-            ))
-            .await
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        // Publish to the beacon node.
-        self.beacon_nodes
-            .first_success(|beacon_node| async move {
-                beacon_node
-                    .post_validator_contribution_and_proofs(signed_contributions)
-                    .await
-            })
-            .instrument(info_span!(
-                "publish_sync_contributions",
-                count = signed_contributions.len()
-            ))
-            .await
-            .map_err(|e| {
-                error!(
-                    %slot,
-                    error = %e,
-                    "Unable to publish signed contributions and proofs"
-                );
-            })?;
-
-        info!(
-            subnet = %subnet_id,
-            beacon_block_root = %beacon_block_root,
-            num_signers = contribution.aggregation_bits.num_set_bits(),
-            %slot,
-            "Successfully published sync contributions"
-        );
+                Err(e) => {
+                    crit!(%slot, error = ?e, "Failed to sign sync committee contributions");
+                }
+                _ => {}
+            }
+        }
 
         Ok(())
     }

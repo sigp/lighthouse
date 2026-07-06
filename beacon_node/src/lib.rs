@@ -20,16 +20,11 @@ use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>;
 
-/// The beacon node `Client` that will be used in production.
+/// The beacon node `Client` that is used in production.
 ///
 /// Generic over some `EthSpec`.
-///
-/// ## Notes:
-///
-/// Despite being titled `Production...`, this code is not ready for production. The name
-/// demonstrates an intention, not a promise.
 pub struct ProductionBeaconNode<E: EthSpec>(ProductionClient<E>);
 
 impl<E: EthSpec> ProductionBeaconNode<E> {
@@ -144,6 +139,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
+            .await
             .map(Self)
     }
 

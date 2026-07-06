@@ -5,8 +5,8 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use libp2p::Multiaddr;
-use local_ip_address::local_ipv6;
+use if_addrs::get_if_addrs;
+use libp2p::{Multiaddr, gossipsub};
 use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -125,6 +125,9 @@ pub struct Config {
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
 
+    /// Whether to enable the mplex multiplexer alongside yamux. Enabled by default.
+    pub enable_mplex: bool,
+
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 
@@ -140,6 +143,9 @@ pub struct Config {
 
     /// Flag for advertising a fake CGC to peers for testing ONLY.
     pub advertise_false_custody_group_count: Option<u64>,
+
+    /// Whether to enable partial data column support.
+    pub enable_partial_columns: bool,
 }
 
 impl Config {
@@ -262,13 +268,13 @@ impl Config {
     /// A helper function to check if the local host has a globally routeable IPv6 address. If so,
     /// returns true.
     pub fn is_ipv6_supported() -> bool {
-        // If IPv6 is supported
-        let Ok(std::net::IpAddr::V6(local_ip)) = local_ipv6() else {
+        let Ok(addrs) = get_if_addrs() else {
             return false;
         };
 
-        // If its globally routable, return true
-        is_global_ipv6(&local_ip)
+        addrs.iter().any(
+            |iface| matches!(iface.addr, if_addrs::IfAddr::V6(ref v6) if is_global_ipv6(&v6.ip)),
+        )
     }
 
     pub fn listen_addrs(&self) -> &ListenAddress {
@@ -359,11 +365,13 @@ impl Default for Config {
             proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: true,
+            enable_mplex: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
+            enable_partial_columns: false,
         }
     }
 }
@@ -443,7 +451,7 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
-    seconds_per_slot: u64,
+    slot_duration: Duration,
     slots_per_epoch: u64,
     idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
@@ -487,7 +495,7 @@ pub fn gossipsub_config(
     // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
     // 2 epochs is quite sane for pre-deneb network parameters as well.
     // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
-    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
+    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * slot_duration.as_secs() * 2);
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)
@@ -500,7 +508,9 @@ pub fn gossipsub_config(
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .flood_publish(false)
-        .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
+        .max_publish_messages(500) // Responses to IWANT can be quite large
+        .max_control_messages_sent(500)
+        .max_control_message_size(128 << 10) // 128KB
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)

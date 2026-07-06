@@ -7,9 +7,11 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
+use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+    AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
+    InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -19,8 +21,8 @@ use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
-    test_utils::generate_deterministic_keypair,
+    IndexedAttestation, IndexedPayloadAttestation, MainnetEthSpec, PayloadAttestationData,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -71,10 +73,13 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    /// Creates a new tester with the Gloas fork active at epoch 1.
+    /// Genesis is a standard Fulu block (epoch 0), so block production works normally.
+    /// Tests that need Gloas semantics should advance the chain into epoch 1 first.
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
-        T: Fn(&BeaconForkChoiceStore<E, MemoryStore<E>, MemoryStore<E>>) -> U,
+        T: Fn(&BeaconForkChoiceStore<E, MemoryStore, MemoryStore>) -> U,
     {
         func(
             self.harness
@@ -144,13 +149,17 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
-        func(
-            self.harness
-                .chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .queued_attestations(),
-        );
+        let queued = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .queued_attestations()
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        func(&queued);
         self
     }
 
@@ -410,6 +419,24 @@ impl ForkChoiceTest {
     async fn apply_attestation_to_chain<F, G>(
         self,
         delay: MutationDelay,
+        mutation_func: F,
+        comparison_func: G,
+    ) -> Self
+    where
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
+        G: FnMut(Result<(), BeaconChainError>),
+    {
+        self.apply_nth_attestation_to_chain(0, delay, mutation_func, comparison_func)
+            .await
+    }
+
+    /// Like `apply_attestation_to_chain`, but attests with the validator at
+    /// `validator_index_in_committee` within the committee. Lets a test enqueue multiple distinct
+    /// votes for the same slot without tripping `PriorAttestationKnown`.
+    async fn apply_nth_attestation_to_chain<F, G>(
+        self,
+        validator_index_in_committee: usize,
+        delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
@@ -426,18 +453,16 @@ impl ForkChoiceTest {
             .produce_unaggregated_attestation(current_slot, 0)
             .expect("should not error while producing attestation");
 
-        let validator_committee_index = 0;
+        // For these tests we always use committee index 0, which also matches the "dummy" committee
+        // index used post-Electra.
+        let committee_index = 0;
+
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(
-                current_slot,
-                attestation
-                    .committee_index()
-                    .expect("should get committee index"),
-            )
+            .get_beacon_committee(current_slot, committee_index)
             .expect("should get committees")
             .committee
-            .get(validator_committee_index)
+            .get(validator_index_in_committee)
             .expect("there should be an attesting validator");
 
         let committee_count = head
@@ -447,7 +472,7 @@ impl ForkChoiceTest {
 
         let subnet_id = SubnetId::compute_subnet::<E>(
             current_slot,
-            0,
+            committee_index,
             committee_count,
             &self.harness.chain.spec,
         )
@@ -458,7 +483,7 @@ impl ForkChoiceTest {
         attestation
             .sign(
                 &validator_sk,
-                validator_committee_index,
+                committee_index as usize,
                 &head.beacon_state.fork(),
                 self.harness.chain.genesis_validators_root,
                 &self.harness.chain.spec,
@@ -467,7 +492,7 @@ impl ForkChoiceTest {
 
         let single_attestation = SingleAttestation {
             attester_index: validator_index as u64,
-            committee_index: validator_committee_index as u64,
+            committee_index,
             data: attestation.data().clone(),
             signature: attestation.signature().clone(),
         };
@@ -923,6 +948,56 @@ async fn invalid_attestation_future_block() {
         .await;
 }
 
+/// Gossip payload attestations must be for the current slot. A payload attestation for slot S
+/// received at slot S+1 should be rejected per the spec.
+#[tokio::test]
+async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await;
+
+    let chain = &test.harness.chain;
+    let block_a = chain
+        .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
+        .expect("lookup should succeed")
+        .expect("block A should exist");
+    let block_a_root = block_a.canonical_root();
+    let s_plus_1 = block_a.slot().saturating_add(1_u64);
+
+    let payload_attestation = IndexedPayloadAttestation::<E> {
+        attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
+        data: PayloadAttestationData {
+            beacon_block_root: block_a_root,
+            slot: Slot::new(1),
+            payload_present: true,
+            blob_data_available: true,
+        },
+        signature: AggregateSignature::empty(),
+    };
+
+    let ptc = &[0_usize];
+
+    let result = chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_payload_attestation(
+            s_plus_1,
+            &payload_attestation,
+            AttestationFromBlock::False,
+            ptc,
+        );
+    assert!(
+        matches!(
+            result,
+            Err(ForkChoiceError::InvalidPayloadAttestation(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot { .. }
+            ))
+        ),
+        "gossip payload attestation for previous slot should be rejected, got: {:?}",
+        result
+    );
+}
+
 /// Specification v0.12.1:
 ///
 /// assert target.root == get_ancestor(store, attestation.data.beacon_block_root, target_slot)
@@ -982,6 +1057,100 @@ async fn invalid_attestation_delayed_slot() {
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
         .skip_slot()
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
+}
+
+/// Regression test for dequeuing when votes for two different future slots are queued.
+///
+/// With votes queued for consecutive slots, advancing the clock past the earlier one must release
+/// only that vote and leave the later one queued until its own slot is in the past.
+#[tokio::test]
+async fn dequeue_attestations_consecutive_slot_divergence() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Queue a vote for `slot + 2`.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Queue a vote for `slot + 1`, which becomes due sooner.
+        // A different committee position avoids `PriorAttestationKnown`.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance so the slot+1 vote is due (in the past) but the slot+2 vote is not yet.
+        .skip_slots(2)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                1,
+                "only the due slot+1 vote should be dequeued"
+            );
+            assert_eq!(
+                queue[0].slot,
+                Slot::new(3),
+                "the surviving vote must be the not-yet-due slot+2 vote"
+            );
+        });
+}
+
+/// Companion to `dequeue_attestations_consecutive_slot_divergence`: votes for two different slots
+/// are queued, but the clock is advanced far enough that *both* are due at dequeue time.
+///
+/// When every queued vote is in the past, the whole queue drains in a single dequeue.
+#[tokio::test]
+async fn dequeue_attestations_conciliation() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Queue a vote for `slot + 2`.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Queue a vote for `slot + 1`.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance past both votes (to slot + 3) so the whole queue drains.
+        .skip_slots(3)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                0,
+                "all votes are due, so the entire queue must drain"
+            );
+        });
 }
 
 /// Tests that the correct target root is used when the attested-to block is in a prior epoch to

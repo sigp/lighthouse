@@ -1,8 +1,8 @@
 use crate::AvailabilityProcessingStatus;
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
-use crate::fetch_blobs::{
-    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs_inner,
-};
+use crate::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs_inner};
+use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;
 use eth2::types::BlobsBundle;
@@ -21,11 +21,11 @@ type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
     use super::*;
-    use types::ColumnIndex;
+    use types::{ColumnIndex, PartialDataColumnHeader};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, _s) = mock_publish_fn();
         let block = SignedBeaconBlock::<E>::Fulu(SignedBeaconBlockFulu {
             message: BeaconBlockFulu::empty(mock_adapter.spec()),
@@ -41,7 +41,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(block),
+            Arc::new((&block).try_into().unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -53,7 +53,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, _) = mock_publish_fn();
         let (block, _blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -66,7 +66,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -78,7 +78,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_partial_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, mut blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -94,7 +94,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -111,7 +111,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_block_imported_after_el_response() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -127,7 +127,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -144,7 +144,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_new_columns_to_import() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -156,7 +156,7 @@ mod get_blobs_v2 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All data columns already seen on gossip
         mock_adapter
-            .expect_data_column_known_for_proposal()
+            .expect_data_column_known_for_observation_key()
             .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
         mock_adapter.expect_process_engine_blobs().times(0);
@@ -166,7 +166,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -184,7 +184,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_success() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -193,14 +193,17 @@ mod get_blobs_v2 {
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         mock_adapter
-            .expect_data_column_known_for_proposal()
+            .expect_data_column_known_for_observation_key()
             .returning(|_| None);
         mock_adapter
             .expect_cached_data_column_indexes()
-            .returning(|_| None);
+            .returning(|_, _| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
-            Ok(AvailabilityProcessingStatus::Imported(block_root)),
+            Ok(AvailabilityProcessingStatus::Imported(
+                block.slot(),
+                block_root,
+            )),
         );
 
         // Trigger fetch blobs on the block
@@ -208,7 +211,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -217,14 +220,17 @@ mod get_blobs_v2 {
 
         assert_eq!(
             processing_status,
-            Some(AvailabilityProcessingStatus::Imported(block_root))
+            Some(AvailabilityProcessingStatus::Imported(
+                block.slot(),
+                block_root
+            ))
         );
 
         let published_columns = extract_published_blobs(publish_fn_args);
         assert!(
             matches!(
                 published_columns,
-                EngineGetBlobsOutput::CustodyColumns(columns) if columns.len() == custody_columns.len()
+                columns if columns.len() == custody_columns.len()
             ),
             "should publish custody columns"
         );
@@ -249,282 +255,10 @@ mod get_blobs_v2 {
     }
 }
 
-mod get_blobs_v1 {
-    use super::*;
-    use crate::block_verification_types::AsBlock;
-    use std::collections::HashSet;
-    use types::ColumnIndex;
-
-    const ELECTRA_FORK: ForkName = ForkName::Electra;
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_no_blobs_in_block() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let spec = mock_adapter.spec();
-        let (publish_fn, _s) = mock_publish_fn();
-        let block_no_blobs =
-            SignedBeaconBlock::from_block(BeaconBlock::empty(spec), Signature::empty());
-        let block_root = block_no_blobs.canonical_root();
-
-        // Expectations: engine fetch blobs should not be triggered
-        mock_adapter.expect_get_blobs_v1().times(0);
-
-        // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            Arc::new(block_no_blobs),
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // THEN: No blob is processed
-        assert_eq!(processing_status, None);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_no_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let (publish_fn, _) = mock_publish_fn();
-        let (block, _blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
-        let block_root = block.canonical_root();
-
-        // GIVEN: No blobs in EL response
-        let expected_blob_count = block.message().body().blob_kzg_commitments().unwrap().len();
-        mock_get_blobs_v1_response(&mut mock_adapter, vec![None; expected_blob_count]);
-
-        // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // THEN: No blob is processed
-        assert_eq!(processing_status, None);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_partial_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let (publish_fn, publish_fn_args) = mock_publish_fn();
-        let blob_count = 2;
-        let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, blob_count);
-        let block_slot = block.slot();
-        let block_root = block.canonical_root();
-
-        // GIVEN: Missing a blob in EL response (remove 1 blob from response)
-        let mut blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
-        blob_and_proof_opts.first_mut().unwrap().take();
-        mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
-        // AND block is not imported into fork choice
-        mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        // AND all blobs have not yet been seen
-        mock_adapter
-            .expect_cached_blob_indexes()
-            .returning(|_| None);
-        mock_adapter
-            .expect_blobs_known_for_proposal()
-            .returning(|_, _| None);
-        // Returned blobs should be processed
-        mock_process_engine_blobs_result(
-            &mut mock_adapter,
-            Ok(AvailabilityProcessingStatus::MissingComponents(
-                block_slot, block_root,
-            )),
-        );
-
-        // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // THEN: Returned blobs are processed and published
-        assert_eq!(
-            processing_status,
-            Some(AvailabilityProcessingStatus::MissingComponents(
-                block_slot, block_root,
-            ))
-        );
-        assert!(
-            matches!(
-                extract_published_blobs(publish_fn_args),
-                EngineGetBlobsOutput::Blobs(blobs) if blobs.len() == blob_count - 1
-            ),
-            "partial blob results should still be published"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_block_imported_after_el_response() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let (publish_fn, publish_fn_args) = mock_publish_fn();
-        let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
-        let block_root = block.canonical_root();
-
-        // GIVEN: All blobs returned, but fork choice already imported the block
-        let blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
-        mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
-        mock_fork_choice_contains_block(&mut mock_adapter, vec![block.canonical_root()]);
-
-        // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // THEN: Returned blobs should NOT be processed or published.
-        assert_eq!(processing_status, None);
-        assert_eq!(
-            publish_fn_args.lock().unwrap().len(),
-            0,
-            "no blobs should be published"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_no_new_blobs_to_import() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let (publish_fn, publish_fn_args) = mock_publish_fn();
-        let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
-        let block_root = block.canonical_root();
-
-        // **GIVEN**:
-        // All blobs returned
-        let blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
-        let all_blob_indices = blob_and_proof_opts
-            .iter()
-            .enumerate()
-            .map(|(i, _)| i as u64)
-            .collect::<HashSet<_>>();
-
-        mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
-        // block not yet imported into fork choice
-        mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        // All blobs already seen on gossip
-        mock_adapter
-            .expect_cached_blob_indexes()
-            .returning(|_| None);
-        mock_adapter
-            .expect_blobs_known_for_proposal()
-            .returning(move |_, _| Some(all_blob_indices.clone()));
-
-        // **WHEN**: Trigger `fetch_blobs` on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // **THEN**: Should NOT be processed and no blobs should be published.
-        assert_eq!(processing_status, None);
-        assert_eq!(
-            publish_fn_args.lock().unwrap().len(),
-            0,
-            "no blobs should be published"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fetch_blobs_v1_success() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
-        let (publish_fn, publish_fn_args) = mock_publish_fn();
-        let blob_count = 2;
-        let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, blob_count);
-        let block_root = block.canonical_root();
-
-        // All blobs returned, fork choice doesn't contain block
-        let blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
-        mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
-        mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        mock_adapter
-            .expect_cached_blob_indexes()
-            .returning(|_| None);
-        mock_adapter
-            .expect_blobs_known_for_proposal()
-            .returning(|_, _| None);
-        mock_process_engine_blobs_result(
-            &mut mock_adapter,
-            Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        );
-
-        // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
-
-        // THEN all fetched blobs are processed and published
-        assert_eq!(
-            processing_status,
-            Some(AvailabilityProcessingStatus::Imported(block_root))
-        );
-
-        let published_blobs = extract_published_blobs(publish_fn_args);
-        assert!(
-            matches!(
-                published_blobs,
-                EngineGetBlobsOutput::Blobs(blobs) if blobs.len() == blob_count
-            ),
-            "should publish fetched blobs"
-        );
-    }
-
-    fn mock_get_blobs_v1_response(
-        mock_adapter: &mut MockFetchBlobsBeaconAdapter<T>,
-        blobs_and_proofs_opt: Vec<Option<BlobAndProof<E>>>,
-    ) {
-        let blobs_and_proofs_v1 = blobs_and_proofs_opt
-            .into_iter()
-            .map(|blob_and_proof_opt| {
-                blob_and_proof_opt.map(|blob_and_proof| match blob_and_proof {
-                    BlobAndProof::V1(inner) => inner,
-                    _ => panic!("BlobAndProofV1 not expected"),
-                })
-            })
-            .collect();
-        mock_adapter
-            .expect_get_blobs_v1()
-            .return_once(move |_| Ok(blobs_and_proofs_v1));
-    }
-}
-
-/// Extract the `EngineGetBlobsOutput` passed to the `publish_fn`.
+/// Extract the `Vec<KzgVerifiedCustodyDataColumn<E>>` passed to the `publish_fn`.
 fn extract_published_blobs(
-    publish_fn_args: Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
-) -> EngineGetBlobsOutput<T> {
+    publish_fn_args: Arc<Mutex<Vec<Vec<KzgVerifiedCustodyDataColumn<E>>>>>,
+) -> Vec<KzgVerifiedCustodyDataColumn<E>> {
     let mut calls = publish_fn_args.lock().unwrap();
     assert_eq!(calls.len(), 1);
     calls.pop().unwrap()
@@ -593,8 +327,8 @@ fn create_test_block_and_blobs(
 
 #[allow(clippy::type_complexity)]
 fn mock_publish_fn() -> (
-    impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
-    Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
+    impl Fn(Vec<KzgVerifiedCustodyDataColumn<E>>) + Send + 'static,
+    Arc<Mutex<Vec<Vec<KzgVerifiedCustodyDataColumn<E>>>>>,
 ) {
     // Keep track of the arguments captured by `publish_fn`.
     let captured_args = Arc::new(Mutex::new(vec![]));
@@ -606,10 +340,11 @@ fn mock_publish_fn() -> (
     (publish_fn, captured_args)
 }
 
-fn mock_beacon_adapter(fork_name: ForkName) -> MockFetchBlobsBeaconAdapter<T> {
+fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlobsBeaconAdapter<T> {
     let test_runtime = TestRuntime::default();
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let kzg = get_kzg(&spec);
+    let partial_assembler = PartialDataColumnAssembler::new(32, false);
 
     let mut mock_adapter = MockFetchBlobsBeaconAdapter::default();
     mock_adapter.expect_spec().return_const(spec.clone());
@@ -617,5 +352,11 @@ fn mock_beacon_adapter(fork_name: ForkName) -> MockFetchBlobsBeaconAdapter<T> {
     mock_adapter
         .expect_executor()
         .return_const(test_runtime.task_executor.clone());
+    mock_adapter
+        .expect_supports_get_blobs_v3()
+        .returning(move || Ok(get_blobs_v3));
+    mock_adapter
+        .expect_partial_assembler()
+        .return_const(Some(Arc::new(partial_assembler)));
     mock_adapter
 }

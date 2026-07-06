@@ -1,20 +1,22 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use libp2p::gossipsub::{DataTransform, Message, RawMessage, TopicHash};
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, CellBitmap, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnHeader,
+    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -22,8 +24,6 @@ use types::{
 pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<E>>),
-    /// Gossipsub message providing notification of a [`BlobSidecar`] along with the subnet id where it was received.
-    BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
@@ -42,10 +42,36 @@ pub enum PubsubMessage<E: EthSpec> {
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
     /// Gossipsub message for BLS to execution change messages.
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
+    /// Gossipsub message providing notification of a signed execution payload envelope.
+    ExecutionPayload(Box<SignedExecutionPayloadEnvelope<E>>),
+    /// Gossipsub message providing notification of a payload attestation message.
+    PayloadAttestation(Box<PayloadAttestationMessage>),
+    /// Gossipsub message providing notification of a signed execution payload bid.
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
+    /// Gossipsub message providing notification of signed proposer preferences.
+    ProposerPreferences(Arc<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
     LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+}
+
+/// A message published via the partial gossipsub protocol.
+#[derive(Debug, Clone)]
+pub enum PubsubPartialMessage<E: EthSpec> {
+    /// A partial data column sidecar from the Fulu fork.
+    DataColumnFulu {
+        /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
+        /// asks for data within it.
+        column: Arc<PartialDataColumn<E>>,
+        /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
+        /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
+        /// requested to conserve bandwidth.
+        request_cells: CellBitmap<E>,
+        /// The header associated with the column above. This is set separately here, as the column
+        /// to be published does not contain the header - it is stored without.
+        header: Arc<PartialDataColumnHeader<E>>,
+    },
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -65,12 +91,9 @@ impl SnappyTransform {
     }
 }
 
-impl gossipsub::DataTransform for SnappyTransform {
+impl DataTransform for SnappyTransform {
     // Provides the snappy decompression from RawGossipsubMessages
-    fn inbound_transform(
-        &self,
-        raw_message: gossipsub::RawMessage,
-    ) -> Result<gossipsub::Message, std::io::Error> {
+    fn inbound_transform(&self, raw_message: RawMessage) -> Result<Message, std::io::Error> {
         // first check the size of the compressed payload
         if raw_message.data.len() > self.max_compressed_len {
             return Err(Error::new(
@@ -91,7 +114,7 @@ impl gossipsub::DataTransform for SnappyTransform {
         let decompressed_data = decoder.decompress_vec(&raw_message.data)?;
 
         // Build the GossipsubMessage struct
-        Ok(gossipsub::Message {
+        Ok(Message {
             source: raw_message.source,
             data: decompressed_data,
             sequence_number: raw_message.sequence_number,
@@ -129,9 +152,6 @@ impl<E: EthSpec> PubsubMessage<E> {
     pub fn kind(&self) -> GossipKind {
         match self {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
-            PubsubMessage::BlobSidecar(blob_sidecar_data) => {
-                GossipKind::BlobSidecar(blob_sidecar_data.0)
-            }
             PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
                 GossipKind::DataColumnSidecar(column_sidecar_data.0)
             }
@@ -145,6 +165,10 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
             PubsubMessage::BlsToExecutionChange(_) => GossipKind::BlsToExecutionChange,
+            PubsubMessage::ExecutionPayload(_) => GossipKind::ExecutionPayload,
+            PubsubMessage::PayloadAttestation(_) => GossipKind::PayloadAttestation,
+            PubsubMessage::ExecutionPayloadBid(_) => GossipKind::ExecutionPayloadBid,
+            PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
             PubsubMessage::LightClientOptimisticUpdate(_) => {
                 GossipKind::LightClientOptimisticUpdate
@@ -252,31 +276,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
-                    GossipKind::BlobSidecar(blob_index) => {
-                        if let Some(fork_name) =
-                            fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
-                            && fork_name.deneb_enabled()
-                        {
-                            let blob_sidecar = Arc::new(
-                                BlobSidecar::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            );
-                            return Ok(PubsubMessage::BlobSidecar(Box::new((
-                                *blob_index,
-                                blob_sidecar,
-                            ))));
-                        }
-
-                        Err(format!(
-                            "beacon_blobs_and_sidecar topic invalid for given fork digest {:?}",
-                            gossip_topic.fork_digest
-                        ))
-                    }
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 let col_sidecar = Arc::new(
-                                    DataColumnSidecar::from_ssz_bytes(data)
+                                    DataColumnSidecar::from_ssz_bytes_for_fork(data, *fork)
                                         .map_err(|e| format!("{:?}", e))?,
                                 );
                                 Ok(PubsubMessage::DataColumnSidecar(Box::new((
@@ -349,6 +353,35 @@ impl<E: EthSpec> PubsubMessage<E> {
                             bls_to_execution_change,
                         )))
                     }
+                    GossipKind::ExecutionPayload => {
+                        let execution_payload_envelope =
+                            SignedExecutionPayloadEnvelope::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ExecutionPayload(Box::new(
+                            execution_payload_envelope,
+                        )))
+                    }
+                    GossipKind::ExecutionPayloadBid => {
+                        let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
+                            execution_payload_bid,
+                        )))
+                    }
+                    GossipKind::PayloadAttestation => {
+                        let payload_attestation = PayloadAttestationMessage::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::PayloadAttestation(Box::new(
+                            payload_attestation,
+                        )))
+                    }
+                    GossipKind::ProposerPreferences => {
+                        let proposer_preferences = SignedProposerPreferences::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ProposerPreferences(Arc::new(
+                            proposer_preferences,
+                        )))
+                    }
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
@@ -401,7 +434,6 @@ impl<E: EthSpec> PubsubMessage<E> {
         // messages for us.
         match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
-            PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
@@ -411,9 +443,42 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
             PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
+            PubsubMessage::ExecutionPayload(data) => data.as_ssz_bytes(),
+            PubsubMessage::PayloadAttestation(data) => data.as_ssz_bytes(),
+            PubsubMessage::ExecutionPayloadBid(data) => data.as_ssz_bytes(),
+            PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
+    }
+}
+
+/// Decodes incoming partial data column sidecar from gossipsub partial protocol.
+/// Note: Currently, data columns are the only supported partial messages. In future this could
+/// return an enum.
+pub fn decode_partial<E: EthSpec>(
+    topic: &GossipTopic,
+    group: &[u8],
+    data: &[u8],
+) -> Result<PartialDataColumn<E>, String> {
+    match topic.kind() {
+        GossipKind::DataColumnSidecar(id) => {
+            if group.first() != Some(&0) {
+                return Err(format!("Unknown data column format: {:?}", group.first()));
+            }
+            let block_root = Hash256::from_ssz_bytes(&group[1..])
+                .map_err(|e| format!("Error decoding group: {:?}", e))?;
+            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
+                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+            let data_column = PartialDataColumn {
+                block_root,
+                // Partial messages are spec'd under the assumption that there is one column per subnet.
+                index: **id,
+                sidecar,
+            };
+            Ok(data_column)
+        }
+        other => Err(format!("Partial message unsupported for topic: {other}")),
     }
 }
 
@@ -426,17 +491,11 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 block.slot(),
                 block.message().proposer_index()
             ),
-            PubsubMessage::BlobSidecar(data) => write!(
-                f,
-                "BlobSidecar: slot: {}, blob index: {}",
-                data.1.slot(),
-                data.1.index,
-            ),
             PubsubMessage::DataColumnSidecar(data) => write!(
                 f,
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
-                data.1.index,
+                data.1.index(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
@@ -464,6 +523,38 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     f,
                     "Signed BLS to execution change: validator_index: {}, address: {:?}",
                     data.message.validator_index, data.message.to_execution_address
+                )
+            }
+            PubsubMessage::ExecutionPayload(data) => {
+                write!(
+                    f,
+                    "Signed Execution Payload Envelope: slot: {:?}, beacon block root: {:?}",
+                    data.slot(),
+                    data.beacon_block_root()
+                )
+            }
+            PubsubMessage::PayloadAttestation(data) => {
+                write!(
+                    f,
+                    "Payload Attestation Message: slot: {:?}, beacon block root: {:?}, payload present: {:?}, blob data available: {:?}",
+                    data.data.slot,
+                    data.data.beacon_block_root,
+                    data.data.payload_present,
+                    data.data.blob_data_available
+                )
+            }
+            PubsubMessage::ExecutionPayloadBid(data) => {
+                write!(
+                    f,
+                    "Execution payload bid: slot: {:?} value: {:?}",
+                    data.message.slot, data.message.value
+                )
+            }
+            PubsubMessage::ProposerPreferences(data) => {
+                write!(
+                    f,
+                    "Proposer preferences: slot: {:?}, validator_index: {:?}",
+                    data.message.proposal_slot, data.message.validator_index
                 )
             }
             PubsubMessage::LightClientFinalityUpdate(_data) => {

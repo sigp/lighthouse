@@ -43,7 +43,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, instrument, warn};
-use types::data_column_custody_group::compute_ordered_custody_column_indices;
+use types::data::compute_ordered_custody_column_indices;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -97,8 +97,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Instantiates a new, empty builder.
     ///
@@ -281,7 +281,7 @@ where
                 validator_count,
                 genesis_time,
             } => {
-                let execution_payload_header = generate_genesis_header(&spec, true);
+                let execution_payload_header = generate_genesis_header(&spec);
                 let keypairs = generate_deterministic_keypairs(validator_count);
                 let genesis_state = interop_genesis_state(
                     &keypairs,
@@ -315,7 +315,7 @@ where
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.seconds_per_slot);
+                            * spec.get_slot_duration().as_secs());
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
@@ -325,7 +325,7 @@ where
                         .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                     let blob_availability_window = reduced_p2p_availability_epochs
                         * E::slots_per_epoch()
-                        * spec.seconds_per_slot;
+                        * spec.get_slot_duration().as_secs();
 
                     if now > deneb_time + blob_availability_window {
                         return Err(
@@ -592,17 +592,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let seconds_per_slot = self
+        let slot_duration = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .seconds_per_slot;
+            .get_slot_duration();
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            seconds_per_slot,
+            slot_duration,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -615,7 +615,7 @@ where
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
     #[instrument(name = "build_client", skip_all)]
-    pub fn build(
+    pub async fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
@@ -639,11 +639,15 @@ where
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
+                historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
+                    self.http_api_config.historical_committee_cache_size,
+                )),
             });
 
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_api::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             let http_api_task = async move {
@@ -674,6 +678,7 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context
@@ -722,10 +727,9 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let params = beacon_chain
-                        .canonical_head
-                        .cached_head()
-                        .forkchoice_update_parameters();
+                    let cached_head = beacon_chain.canonical_head.cached_head();
+                    let head_payload_status = cached_head.head_payload_status();
+                    let params = cached_head.forkchoice_update_parameters();
                     if params
                         .head_hash
                         .is_some_and(|hash| hash != ExecutionBlockHash::zero())
@@ -738,6 +742,7 @@ where
                                     .update_execution_engine_forkchoice(
                                         current_slot,
                                         params,
+                                        head_payload_status,
                                         Default::default(),
                                     )
                                     .await;
@@ -811,8 +816,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     #[instrument(skip_all)]
@@ -843,8 +848,7 @@ where
     }
 }
 
-impl<TSlotClock, E>
-    ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
+impl<TSlotClock, E> ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>
 where
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
@@ -885,8 +889,8 @@ where
 impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
 where
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {
@@ -907,7 +911,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(spec.seconds_per_slot),
+            spec.get_slot_duration(),
         );
 
         self.slot_clock = Some(slot_clock);

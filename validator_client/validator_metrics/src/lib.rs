@@ -22,7 +22,12 @@ pub const UPDATE_ATTESTERS_CURRENT_EPOCH: &str = "update_attesters_current_epoch
 pub const UPDATE_ATTESTERS_NEXT_EPOCH: &str = "update_attesters_next_epoch";
 pub const UPDATE_ATTESTERS_FETCH: &str = "update_attesters_fetch";
 pub const UPDATE_ATTESTERS_STORE: &str = "update_attesters_store";
+pub const UPDATE_PTC_CURRENT_EPOCH: &str = "update_ptc_current_epoch";
+pub const UPDATE_PTC_NEXT_EPOCH: &str = "update_ptc_next_epoch";
+pub const UPDATE_PTC_FETCH: &str = "update_ptc_fetch";
+pub const UPDATE_PTC_STORE: &str = "update_ptc_store";
 pub const ATTESTER_DUTIES_HTTP_POST: &str = "attester_duties_http_post";
+pub const PTC_DUTIES_HTTP_POST: &str = "ptc_duties_http_post";
 pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
 pub const VALIDATOR_DUTIES_SYNC_HTTP_POST: &str = "validator_duties_sync_http_post";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
@@ -159,6 +164,13 @@ pub static ATTESTER_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "vc_beacon_attester_count",
         "Number of attesters on this host",
+        &["task"],
+    )
+});
+pub static PTC_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "vc_beacon_ptc_count",
+        "Number of PTC (Payload Timeliness Committee) validators on this host",
         &["task"],
     )
 });

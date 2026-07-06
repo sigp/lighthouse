@@ -37,6 +37,15 @@ Requests](https://github.com/sigp/lighthouse/pulls) is where code gets
 reviewed. We use [discord](https://discord.gg/cyAszAh) to chat
 informally.
 
+### A Note on LLM usage
+
+We are happy to support contributors who are genuinely engaging with the code base. Our general policy regarding LLM usage:
+
+- Please refrain from submissions that you haven't thoroughly understood, reviewed, and tested.
+- Please disclose if a significant portion of your contribution was AI-generated.
+- Descriptions and comments should be made by you.
+- We reserve the right to reject any contributions we feel are violating the spirit of open source contribution.
+
 ### General Work-Flow
 
 We recommend the following work-flow for contributors:

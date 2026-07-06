@@ -1,45 +1,41 @@
-use crate::blob_verification::{
-    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
-};
-use crate::block_verification_types::{
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
-};
+use crate::blob_verification::{KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
+use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{
-    BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
-};
+use crate::partial_data_column_assembler::{AssemblyColumn, PartialDataColumnAssembler};
+use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
+use educe::Educe;
 use kzg::Kzg;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
-    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
+    DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError,
+    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot,
 };
 
 mod error;
 mod overflow_lru_cache;
-mod state_lru_cache;
 
 use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
-    CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    verify_kzg_for_data_column_list,
 };
+use crate::kzg_utils::validate_data_columns_with_commitments;
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -52,8 +48,7 @@ use types::non_zero_usize::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
-const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const OVERFLOW_LRU_CAPACITY: usize = 32;
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
@@ -80,11 +75,9 @@ const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
-    slot_clock: T::SlotClock,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -119,31 +112,39 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
-        complete_blob_backfill: bool,
-        slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
-        store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
+        enable_partial_columns: bool,
+        disable_get_blobs: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY_NON_ZERO,
-            store,
+            OVERFLOW_LRU_CAPACITY,
             custody_context.clone(),
             spec.clone(),
         )?;
+        let partial_assembler = if enable_partial_columns {
+            Some(Arc::new(PartialDataColumnAssembler::new(
+                OVERFLOW_LRU_CAPACITY,
+                disable_get_blobs,
+            )))
+        } else {
+            None
+        };
         Ok(Self {
-            complete_blob_backfill,
+            partial_assembler,
             availability_cache: Arc::new(inner),
-            slot_clock,
             kzg,
-            custody_context,
             spec,
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
-        &self.custody_context
+    fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+        self.availability_cache.custody_context()
+    }
+
+    pub fn partial_assembler(&self) -> Option<&Arc<PartialDataColumnAssembler<T::EthSpec>>> {
+        self.partial_assembler.as_ref()
     }
 
     /// Checks if the block root is currently in the availability cache awaiting import because
@@ -178,19 +179,104 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
-    /// Check if the exact data column is in the availability cache.
-    pub fn is_data_column_cached(
-        &self,
-        block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> bool {
-        self.availability_cache
-            .peek_pending_components(block_root, |components| {
-                components.is_some_and(|components| {
-                    let cached_column_opt = components.get_cached_data_column(data_column.index);
-                    cached_column_opt.is_some_and(|cached| *cached == *data_column)
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns None if all cells are already cached.
+    /// Returns an error if any cells or proofs mismatch the cached cells.
+    pub fn missing_cells_for_column_sidecar<'a>(
+        &'_ self,
+        data_column: &'a DataColumnSidecar<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let block_root = data_column.block_root();
+        let column_index = *data_column.index();
+
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
+        // We return Some(true) from the peek if it exists and matches, Some(false) if it exists but
+        // does not match, and None if it doesn't exist.
+        if let Some(matches) =
+            self.availability_cache
+                .peek_pending_components(&block_root, |components| {
+                    components
+                        .and_then(|c| c.get_cached_data_column(column_index))
+                        .map(|cached| *cached == *data_column)
                 })
+        {
+            return if matches {
+                Ok(None)
+            } else {
+                Err(MissingCellsError::MismatchesCachedColumn)
+            };
+        }
+
+        // Check assembler for partial columns
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(&block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    return data_column.try_filter_to_partial_ref(|idx, cell, proof| {
+                        match cached_partial.as_data_column().sidecar.get(idx) {
+                            None => Ok(true),
+                            Some((cached_cell, cached_proof)) => {
+                                if cell == cached_cell && proof == cached_proof {
+                                    Ok(false)
+                                } else {
+                                    Err(MissingCellsError::MismatchesCachedColumn)
+                                }
+                            }
+                        }
+                    });
+                }
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                }
+            }
+        }
+        // No cached data, all cells are "missing" (new data we want)
+        data_column.try_filter_to_partial_ref(|_, _, _| Ok(true))
+    }
+
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns input for kzg verification, or None if all cells are already cached.
+    pub fn missing_cells_for_partial_column_sidecar<'a>(
+        &'_ self,
+        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let column_index = partial_data_column.index;
+        let block_root = partial_data_column.block_root;
+
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
+        if self
+            .availability_cache
+            .peek_pending_components(&block_root, |components| {
+                components.is_some_and(|c| c.get_cached_data_column(column_index).is_some())
             })
+        {
+            return Ok(None);
+        }
+
+        // Check assembler for partial columns
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(&block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    return Ok(partial_data_column.sidecar.filter(|idx| {
+                        cached_partial.as_data_column().sidecar.get(idx).is_none()
+                    })?);
+                }
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                }
+            }
+        }
+        // No cached data, all cells are "missing" (new data we want)
+        Ok(partial_data_column.sidecar.filter(|_| true)?)
     }
 
     /// Get a blob from the availability cache.
@@ -216,9 +302,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
+        slot_clock: &T::SlotClock,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let seen_timestamp = self
-            .slot_clock
+        let seen_timestamp = slot_clock
             .now_duration()
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
@@ -256,9 +342,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // not be yet effective for data availability check, as CGC changes are only effecive from
         // a new epoch.
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context().sampling_columns_for_epoch(epoch);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -267,24 +351,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
-    }
-
-    /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, return the `Availability` variant triggering block import.
-    /// Otherwise cache the blob sidecar.
-    ///
-    /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    #[instrument(skip_all, level = "trace")]
-    pub fn put_gossip_verified_blobs<
-        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
-        O: ObservationStrategy,
-    >(
-        &self,
-        block_root: Hash256,
-        blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
 
     #[instrument(skip_all, level = "trace")]
@@ -301,7 +367,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the data column sidecar.
     ///
-    /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    /// This should only accept gossip verified full data columns (not partials).
+    /// Partials are assembled in PartialDataColumnAssembler.
     #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_data_columns<
         O: ObservationStrategy,
@@ -313,19 +380,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         data_columns: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context().sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
+        if let Some(assembler) = &self.partial_assembler {
+            for column in &custody_columns {
+                assembler.mark_as_complete(block_root, column);
+            }
+        }
+
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    /// Put KZG-verified full custody data columns.
+    /// Only accepts full columns. Partials are assembled in PartialDataColumnAssembler.
     #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_custody_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
@@ -344,6 +417,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let block = executed_block.as_block();
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.try_into()
+        {
+            assembler.init(executed_block.import_data.block_root, Arc::new(header));
+        }
         self.availability_cache.put_executed_block(executed_block)
     }
 
@@ -355,6 +434,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.as_ref().try_into()
+        {
+            assembler.init(block_root, Arc::new(header));
+        }
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
     }
@@ -366,210 +450,54 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .remove_pre_execution_block(block_root);
     }
 
-    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
-    /// include the fully available block.
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
-    pub fn verify_kzg_for_rpc_block(
+    /// Verifies kzg commitments for an `AvailableBlock`.
+    pub fn verify_kzg_for_available_block(
         &self,
-        block: RpcBlock<T::EthSpec>,
-    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let (block_root, block, blobs, data_columns) = block.deconstruct();
-        if self.blobs_required_for_block(&block) {
-            return if let Some(blob_list) = blobs {
-                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::Blobs(blob_list),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
+        available_block: &AvailableBlock<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
+        match available_block.data() {
+            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidBlobs),
+            AvailableBlockData::DataColumns(columns) => {
+                verify_columns_against_block(&self.kzg, available_block.block(), columns)
+            }
         }
-        if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list(
-                    data_column_list
-                        .iter()
-                        .map(|custody_column| custody_column.as_data_column()),
-                    &self.kzg,
-                )
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::DataColumns(
-                        data_column_list
-                            .into_iter()
-                            .map(|d| d.clone_arc())
-                            .collect(),
-                    ),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
-        }
-
-        Ok(MaybeAvailableBlock::Available(AvailableBlock {
-            block_root,
-            block,
-            blob_data: AvailableBlockData::NoData,
-            blobs_available_timestamp: None,
-            spec: self.spec.clone(),
-        }))
     }
 
-    /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
-    /// This is more efficient than calling `verify_kzg_for_rpc_block` in a loop as it does
-    /// all kzg verification at once
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
+    /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
+    /// calling `verify_kzg_for_available_block` in a loop.
     #[instrument(skip_all)]
-    pub fn verify_kzg_for_rpc_blocks(
+    pub fn batch_verify_kzg_for_available_blocks(
         &self,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
-    ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
-        let mut results = Vec::with_capacity(blocks.len());
-        let all_blobs = blocks
-            .iter()
-            .filter(|block| self.blobs_required_for_block(block.as_block()))
-            // this clone is cheap as it's cloning an Arc
-            .filter_map(|block| block.blobs().cloned())
-            .flatten()
-            .collect::<Vec<_>>();
+        available_blocks: &[AvailableBlock<T::EthSpec>],
+    ) -> Result<(), AvailabilityCheckError> {
+        let mut all_blobs = Vec::new();
 
-        // verify kzg for all blobs at once
+        for available_block in available_blocks {
+            match available_block.data() {
+                AvailableBlockData::NoData => {}
+                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
+                AvailableBlockData::DataColumns(columns) => {
+                    // Each block has its own commitments. For Gloas they live in the bid; for
+                    // Fulu they live inline on the column. Verify per block and let the helper
+                    // pick the right path.
+                    verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
+                }
+            }
+        }
+
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
         }
 
-        let all_data_columns = blocks
-            .iter()
-            .filter(|block| self.data_columns_required_for_block(block.as_block()))
-            // this clone is cheap as it's cloning an Arc
-            .filter_map(|block| block.custody_columns().cloned())
-            .flatten()
-            .map(CustodyDataColumn::into_inner)
-            .collect::<Vec<_>>();
-
-        // verify kzg for all data columns at once
-        if !all_data_columns.is_empty() {
-            // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-        }
-
-        for block in blocks {
-            let (block_root, block, blobs, data_columns) = block.deconstruct();
-
-            let maybe_available_block = if self.blobs_required_for_block(&block) {
-                if let Some(blobs) = blobs {
-                    MaybeAvailableBlock::Available(AvailableBlock {
-                        block_root,
-                        block,
-                        blob_data: AvailableBlockData::Blobs(blobs),
-                        blobs_available_timestamp: None,
-                        spec: self.spec.clone(),
-                    })
-                } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
-                }
-            } else if self.data_columns_required_for_block(&block) {
-                if let Some(data_columns) = data_columns {
-                    MaybeAvailableBlock::Available(AvailableBlock {
-                        block_root,
-                        block,
-                        blob_data: AvailableBlockData::DataColumns(
-                            data_columns.into_iter().map(|d| d.into_inner()).collect(),
-                        ),
-                        blobs_available_timestamp: None,
-                        spec: self.spec.clone(),
-                    })
-                } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
-                }
-            } else {
-                MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::NoData,
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                })
-            };
-
-            results.push(maybe_available_block);
-        }
-
-        Ok(results)
-    }
-
-    /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
-    /// If the epoch is from prior to the data availability boundary, no blobs are required.
-    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && !self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// Determines the data column requirements for an epoch.
-    /// - If the epoch is pre-peerdas, no data columns are required.
-    /// - If the epoch is from prior to the data availability boundary, no data columns are required.
-    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// See `Self::blobs_required_for_epoch`
-    fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
-    }
-
-    /// See `Self::data_columns_required_for_epoch`
-    fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
-    }
-
-    /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Deneb` fork is disabled.
-    pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let fork_epoch = self.spec.deneb_fork_epoch?;
-
-        if self.complete_blob_backfill {
-            Some(fork_epoch)
-        } else {
-            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-            self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
-        }
-    }
-
-    /// Returns true if the given epoch lies within the da boundary and false otherwise.
-    pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.data_availability_boundary()
-            .is_some_and(|da_epoch| block_epoch >= da_epoch)
-    }
-
-    /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
-    pub fn is_deneb(&self) -> bool {
-        self.slot_clock.now().is_some_and(|slot| {
-            self.spec.deneb_fork_epoch.is_some_and(|deneb_epoch| {
-                let now_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                now_epoch >= deneb_epoch
-            })
-        })
+        Ok(())
     }
 
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
         }
     }
@@ -592,9 +520,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
         let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
+        let columns: Vec<_> = verified_data_columns
+            .into_iter()
+            .map(|c| c.into_inner())
+            .collect();
+        // Fulu columns carry their commitments; reconstruction needs the count to drive the
+        // per-blob recovery loop.
+        let kzg_commitments = columns
+            .first()
+            .and_then(|c| c.kzg_commitments().ok().cloned())
+            .ok_or(AvailabilityCheckError::InvalidVariant)?;
+
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &verified_data_columns,
+            columns,
+            &kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
@@ -624,7 +564,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let columns_to_sample = self
             .custody_context()
-            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
 
         // We only need to import and publish columns that we need to sample
         // and columns that we haven't already received
@@ -663,9 +603,37 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 }
 
+/// Verify a batch of data columns belonging to a single block, picking the right commitment
+/// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
+pub fn verify_columns_against_block<E: EthSpec>(
+    kzg: &Kzg,
+    block: &SignedBeaconBlock<E>,
+    columns: &[Arc<DataColumnSidecar<E>>],
+) -> Result<(), AvailabilityCheckError> {
+    if columns.is_empty() {
+        return Ok(());
+    }
+    if block.fork_name_unchecked().gloas_enabled() {
+        let commitments = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.blob_kzg_commitments.clone())
+            .map_err(|_| {
+                AvailabilityCheckError::Unexpected(
+                    "Gloas block missing signed_execution_payload_bid".to_string(),
+                )
+            })?;
+        validate_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
+            .map_err(AvailabilityCheckError::InvalidColumn)
+    } else {
+        verify_kzg_for_data_column_list(columns.iter(), kzg)
+            .map_err(AvailabilityCheckError::InvalidColumn)
+    }
+}
+
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub state_cache_size: usize,
     pub block_cache_size: usize,
 }
 
@@ -676,8 +644,12 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     // this cache only needs to be maintained if deneb is configured
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
+        let partial_assembler = chain.data_availability_checker.partial_assembler.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            async move {
+                availability_cache_maintenance_service(chain, overflow_cache, partial_assembler)
+                    .await
+            },
             "availability_cache_service",
         );
     } else {
@@ -688,6 +660,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -739,6 +712,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
                     error!(error = ?e,"Failed to maintain availability cache");
                 }
+                if let Some(assembler) = &partial_assembler {
+                    assembler.do_maintenance(cutoff_epoch);
+                }
             }
             None => {
                 error!("Failed to read slot clock");
@@ -749,9 +725,15 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+// TODO(#8633) move this to `block_verification_types.rs`
 pub enum AvailableBlockData<E: EthSpec> {
-    /// Block is pre-Deneb or has zero blobs
+    /// Block has no inline DA object for block import.
+    ///
+    /// This covers:
+    /// - pre-Deneb blocks,
+    /// - blocks with zero blobs, and
+    /// - Gloas blocks, where DA is checked on the payload envelope instead.
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
     Blobs(BlobSidecarList<E>),
@@ -759,30 +741,167 @@ pub enum AvailableBlockData<E: EthSpec> {
     DataColumns(DataColumnSidecarList<E>),
 }
 
+impl<E: EthSpec> AvailableBlockData<E> {
+    pub fn new_with_blobs(blobs: BlobSidecarList<E>) -> Self {
+        if blobs.is_empty() {
+            Self::NoData
+        } else {
+            Self::Blobs(blobs)
+        }
+    }
+
+    pub fn new_with_data_columns(columns: DataColumnSidecarList<E>) -> Self {
+        if columns.is_empty() {
+            Self::NoData
+        } else {
+            Self::DataColumns(columns)
+        }
+    }
+
+    pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
+        match self {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(blobs) => Some(blobs.clone()),
+            AvailableBlockData::DataColumns(_) => None,
+        }
+    }
+
+    pub fn blobs_len(&self) -> usize {
+        if let Some(blobs) = self.blobs() {
+            blobs.len()
+        } else {
+            0
+        }
+    }
+
+    pub fn data_columns(&self) -> Option<DataColumnSidecarList<E>> {
+        match self {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(_) => None,
+            AvailableBlockData::DataColumns(data_columns) => Some(data_columns.clone()),
+        }
+    }
+
+    pub fn data_columns_len(&self) -> usize {
+        if let Some(data_columns) = self.data_columns() {
+            data_columns.len()
+        } else {
+            0
+        }
+    }
+}
+
 /// A fully available block that is ready to be imported into fork choice.
-#[derive(Debug)]
+#[derive(Debug, Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
 pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
+    #[educe(Hash(ignore))]
     blob_data: AvailableBlockData<E>,
+    #[educe(Hash(ignore))]
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
-    pub fn __new_for_testing(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        data: AvailableBlockData<E>,
-        spec: Arc<ChainSpec>,
-    ) -> Self {
-        Self {
-            block_root,
+    /// Constructs an `AvailableBlock` from a block and blob data.
+    ///
+    /// This function validates that:
+    /// - Block data is not provided when not required (pre-Deneb or past DA boundary)
+    /// - Required blobs are present and match the expected count
+    /// - Required custody columns are complete based on the node's custody requirements
+    /// - KZG commitments in blobs match those in the block
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `InvalidAvailableBlockData`: Block data is provided but not required
+    /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete
+    /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete
+    /// - `KzgCommitmentMismatch`: Blob KZG commitment doesn't match block commitment
+    pub fn new<T>(
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block_data: AvailableBlockData<T::EthSpec>,
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        // Ensure block availability
+        let blobs_required = custody_context.blobs_required_for_block(&block);
+        let columns_required = custody_context.data_columns_required_for_block(&block);
+
+        match &block_data {
+            AvailableBlockData::NoData => {
+                // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
+                if !block.fork_name_unchecked().gloas_enabled() && columns_required {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                }
+            }
+            AvailableBlockData::Blobs(blobs) => {
+                if !blobs_required {
+                    return Err(AvailabilityCheckError::InvalidAvailableBlockData);
+                }
+
+                let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments()
+                else {
+                    return Err(AvailabilityCheckError::Unexpected(
+                        "Expected blobs but could not fetch KZG commitments from the block"
+                            .to_owned(),
+                    ));
+                };
+
+                if blobs.len() != block_kzg_commitments.len() {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+
+                for (blob, &block_kzg_commitment) in blobs.iter().zip(block_kzg_commitments.iter())
+                {
+                    if blob.kzg_commitment != block_kzg_commitment {
+                        return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                            blob_commitment: blob.kzg_commitment,
+                            block_commitment: block_kzg_commitment,
+                        });
+                    }
+                }
+            }
+            AvailableBlockData::DataColumns(data_columns) => {
+                if !columns_required {
+                    return Err(AvailabilityCheckError::InvalidAvailableBlockData);
+                }
+
+                let mut column_indices = custody_context
+                    .sampling_columns_for_epoch(block.epoch())
+                    .iter()
+                    .collect::<HashSet<_>>();
+
+                for data_column in data_columns {
+                    column_indices.remove(data_column.index());
+                }
+
+                if !column_indices.is_empty() {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                }
+            }
+        }
+
+        Ok(Self {
+            block_root: block.canonical_root(),
             block,
-            blob_data: data,
+            blob_data: block_data,
             blobs_available_timestamp: None,
-            spec,
+        })
+    }
+
+    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+        if block.fork_name_unchecked().gloas_enabled() {
+            Ok(Self {
+                block_root: block.canonical_root(),
+                block,
+                blob_data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+            })
+        } else {
+            Err("Block is not gloas".to_owned())
         }
     }
 
@@ -799,6 +918,10 @@ impl<E: EthSpec> AvailableBlock<E> {
 
     pub fn data(&self) -> &AvailableBlockData<E> {
         &self.blob_data
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
     }
 
     pub fn has_blobs(&self) -> bool {
@@ -833,7 +956,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
         })
     }
 }
@@ -860,24 +982,41 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
     }
 }
 
+pub enum MissingCellsError {
+    /// The provided column is not matching with the existing cached column.
+    /// This is to be treated as a KZG verification failure.
+    MismatchesCachedColumn,
+    /// An error occurred while operating on the column. It is possibly malformed.
+    /// This is not expected to happen for columns passing basic validation.
+    UnexpectedError(PartialDataColumnSidecarError),
+}
+
+impl From<PartialDataColumnSidecarError> for MissingCellsError {
+    fn from(e: PartialDataColumnSidecarError) -> Self {
+        Self::UnexpectedError(e)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::CustodyContext;
+    use crate::block_verification_types::RangeSyncBlock;
     use crate::custody_context::NodeCustodyType;
+    use crate::data_column_verification::CustodyDataColumn;
     use crate::test_utils::{
         EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,
     };
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Duration;
-    use store::HotColdDB;
-    use types::data_column_sidecar::DataColumn;
-    use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
+    use types::data::DataColumn;
+    use types::{
+        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, MainnetEthSpec,
+        Slot,
+    };
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -888,10 +1027,10 @@ mod test {
     fn should_exclude_rpc_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -899,10 +1038,9 @@ mod test {
         custody_context.register_validators(
             vec![(validator_0, 32_000_000_000)],
             epoch.start_slot(E::slots_per_epoch()),
-            &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(epoch, &spec),
+            custody_context.num_of_data_columns_to_sample(epoch),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -910,35 +1048,41 @@ mod test {
         // WHEN additional attached validators result in a CGC increase to 10 at the end slot of the same epoch
         let validator_1 = 1;
         let cgc_change_slot = epoch.end_slot(E::slots_per_epoch());
-        custody_context.register_validators(
-            vec![(validator_1, 32_000_000_000 * 9)],
-            cgc_change_slot,
-            &spec,
-        );
+        custody_context
+            .register_validators(vec![(validator_1, 32_000_000_000 * 9)], cgc_change_slot);
         // AND custody columns (8) and any new extra columns (2) are received via RPC responses.
         // NOTE: block lookup uses the **latest** CGC (10) instead of the effective CGC (8) as the slot is unknown.
         let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
-        let requested_columns = &custody_columns[..10];
+        // Get 10 columns using the "latest" CGC (head) that block lookup would use.
+        // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
+        // which is typically epoch 2+ for MinimalEthSpec.
+        let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
+        let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch);
+        assert_eq!(
+            requested_columns.len(),
+            10,
+            "future epoch should have 10 sampling columns"
+        );
         da_checker
             .put_rpc_custody_columns(
                 block_root,
                 cgc_change_slot,
                 data_columns
                     .into_iter()
-                    .filter(|d| requested_columns.contains(&d.index))
+                    .filter(|d| requested_columns.contains(d.index()))
                     .collect(),
             )
             .expect("should put rpc custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -966,10 +1110,10 @@ mod test {
     fn should_exclude_gossip_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -977,10 +1121,9 @@ mod test {
         custody_context.register_validators(
             vec![(validator_0, 32_000_000_000)],
             epoch.start_slot(E::slots_per_epoch()),
-            &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(epoch, &spec),
+            custody_context.num_of_data_columns_to_sample(epoch),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -988,26 +1131,32 @@ mod test {
         // WHEN additional attached validators result in a CGC increase to 10 at the end slot of the same epoch
         let validator_1 = 1;
         let cgc_change_slot = epoch.end_slot(E::slots_per_epoch());
-        custody_context.register_validators(
-            vec![(validator_1, 32_000_000_000 * 9)],
-            cgc_change_slot,
-            &spec,
-        );
+        custody_context
+            .register_validators(vec![(validator_1, 32_000_000_000 * 9)], cgc_change_slot);
         // AND custody columns (8) and any new extra columns (2) are received via gossip.
         // NOTE: CGC updates results in new topics subscriptions immediately, and extra columns may start to
         // arrive via gossip.
         let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
-        let requested_columns = &custody_columns[..10];
+        // Get 10 columns using the "latest" CGC that gossip subscriptions would use.
+        // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
+        // which is typically epoch 2+ for MinimalEthSpec.
+        let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
+        let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch);
+        assert_eq!(
+            requested_columns.len(),
+            10,
+            "future epoch should have 10 sampling columns"
+        );
         let gossip_columns = data_columns
             .into_iter()
-            .filter(|d| requested_columns.contains(&d.index))
+            .filter(|d| requested_columns.contains(d.index()))
             .map(GossipVerifiedDataColumn::<T>::__new_for_testing)
             .collect::<Vec<_>>();
         da_checker
@@ -1015,7 +1164,7 @@ mod test {
             .expect("should put gossip custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -1039,9 +1188,9 @@ mod test {
 
     /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
     #[test]
-    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns() {
+    fn verify_kzg_for_range_sync_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
         let da_checker = new_da_checker(spec.clone());
 
         // GIVEN multiple RPC blocks with data columns totalling more than 128
@@ -1050,37 +1199,51 @@ mod test {
                 let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
-                );
+                )
+                .unwrap();
 
                 let custody_columns = if index == 0 {
                     // 128 valid data columns in the first block
                     data_columns
-                        .into_iter()
-                        .map(CustodyDataColumn::from_asserted_custody)
-                        .collect::<Vec<_>>()
                 } else {
                     // invalid data columns in the second block
                     data_columns
                         .into_iter()
                         .map(|d| {
-                            let invalid_sidecar = DataColumnSidecar {
+                            let invalid_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
                                 column: DataColumn::<E>::empty(),
-                                ..d.as_ref().clone()
-                            };
+                                index: *d.index(),
+                                kzg_commitments: d.kzg_commitments().unwrap().clone(),
+                                kzg_proofs: d.kzg_proofs().clone(),
+                                signed_block_header: d.signed_block_header().unwrap().clone(),
+                                kzg_commitments_inclusion_proof: d
+                                    .kzg_commitments_inclusion_proof()
+                                    .unwrap()
+                                    .clone(),
+                            });
                             CustodyDataColumn::from_asserted_custody(Arc::new(invalid_sidecar))
+                                .as_data_column()
+                                .clone()
                         })
                         .collect::<Vec<_>>()
                 };
 
-                RpcBlock::new_with_custody_columns(None, Arc::new(block), custody_columns)
+                let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
+                RangeSyncBlock::new(Arc::new(block), block_data, da_checker.custody_context())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 
+        let available_blocks = blocks_with_columns
+            .into_iter()
+            .map(|block| block.into_available_block().unwrap().0)
+            .collect::<Vec<_>>();
+
         // WHEN verifying all blocks together (totalling 256 data columns)
-        let verification_result = da_checker.verify_kzg_for_rpc_blocks(blocks_with_columns);
+        let verification_result =
+            da_checker.batch_verify_kzg_for_available_blocks(&available_blocks);
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
         verification_result.expect_err("should have failed to verify blocks");
@@ -1090,19 +1253,18 @@ mod test {
     fn should_exclude_reconstructed_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
-        let custody_context = &da_checker.custody_context;
+        let custody_context = da_checker.custody_context();
 
         // Set custody requirement to 65 columns (enough to trigger reconstruction)
         let epoch = Epoch::new(1);
         custody_context.register_validators(
             vec![(0, 2_048_000_000_000), (1, 32_000_000_000)], // 64 + 1
             Slot::new(0),
-            &spec,
         );
-        let sampling_requirement = custody_context.num_of_data_columns_to_sample(epoch, &spec);
+        let sampling_requirement = custody_context.num_of_data_columns_to_sample(epoch);
         assert_eq!(
             sampling_requirement, 65,
             "sampling requirement should be 65"
@@ -1111,9 +1273,10 @@ mod test {
         let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
         // Add the block to the DA checker
         da_checker
@@ -1123,10 +1286,10 @@ mod test {
 
         // Add 64 columns to the da checker (enough to be able to reconstruct)
         // Order by all_column_indices_ordered, then take first 64
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let custody_columns = custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = custody_columns
             .iter()
-            .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
+            .filter_map(|&col_idx| data_columns.iter().find(|d| *d.index() == col_idx).cloned())
             .take(64)
             .map(|d| {
                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
@@ -1161,7 +1324,7 @@ mod test {
         );
 
         // Only the columns required for custody (65) should be imported into the cache
-        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch);
         let actual_cached: HashSet<ColumnIndex> = da_checker
             .cached_data_column_indexes(&block_root)
             .expect("should have cached data columns")
@@ -1178,25 +1341,19 @@ mod test {
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
+            spec.get_slot_duration(),
         );
         let kzg = get_kzg(&spec);
-        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+        let complete_blob_backfill = false;
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
-            &spec,
-        ));
-        let complete_blob_backfill = false;
-        DataAvailabilityChecker::new(
-            complete_blob_backfill,
             slot_clock,
-            kzg,
-            store,
-            custody_context,
-            spec,
-        )
-        .expect("should initialise data availability checker")
+            complete_blob_backfill,
+            spec.clone(),
+        ));
+        DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
+            .expect("should initialise data availability checker")
     }
 }

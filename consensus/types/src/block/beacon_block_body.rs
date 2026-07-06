@@ -3,29 +3,31 @@ use std::marker::PhantomData;
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use merkle_proof::{MerkleTree, MerkleTreeError};
+use merkle_proof::MerkleTree;
 use metastruct::metastruct;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
-use tree_hash::{BYTES_PER_CHUNK, TreeHash};
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::payload_attestation::PayloadAttestation;
 use crate::{
     SignedExecutionPayloadBid,
-    attestation::{AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut},
+    attestation::{
+        AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut, PayloadAttestation,
+    },
+    complete_kzg_commitment_merkle_proof,
     core::{EthSpec, Graffiti, Hash256},
     deposit::Deposit,
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
         BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
-        FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb,
-        FullPayloadElectra, FullPayloadFulu, SignedBlsToExecutionChange,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix,
+        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
+        SignedBlsToExecutionChange,
     },
     exit::SignedVoluntaryExit,
     fork::{ForkName, map_fork_name},
@@ -36,7 +38,6 @@ use crate::{
     },
     state::BeaconStateError,
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
@@ -63,7 +64,6 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
@@ -164,11 +164,13 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsElectra<E>,
     #[superstruct(only(Gloas))]
-    pub signed_execution_payload_bid: SignedExecutionPayloadBid,
+    pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
+    #[superstruct(only(Gloas))]
+    pub parent_execution_requests: ExecutionRequestsGloas<E>,
     #[superstruct(only(Base, Altair, Gloas))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -269,46 +271,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             | Self::Capella(_)
             | Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Deneb(_) | Self::Electra(_) | Self::Fulu(_) => {
-                // We compute the branches by generating 2 merkle trees:
-                // 1. Merkle tree for the `blob_kzg_commitments` List object
-                // 2. Merkle tree for the `BeaconBlockBody` container
-                // We then merge the branches for both the trees all the way up to the root.
-
-                // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
-                //
-                // Branches for `blob_kzg_commitments` without length mix-in
-                let blob_leaves = self
-                    .blob_kzg_commitments()?
-                    .iter()
-                    .map(|commitment| commitment.tree_hash_root())
-                    .collect::<Vec<_>>();
-                let depth = E::max_blob_commitments_per_block()
-                    .next_power_of_two()
-                    .ilog2();
-                let tree = MerkleTree::create(&blob_leaves, depth as usize);
-                let (_, mut proof) = tree
-                    .generate_proof(index, depth as usize)
-                    .map_err(BeaconStateError::MerkleTreeError)?;
-
-                // Add the branch corresponding to the length mix-in.
-                let length = blob_leaves.len();
-                let usize_len = std::mem::size_of::<usize>();
-                let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes
-                    .get_mut(0..usize_len)
-                    .ok_or(BeaconStateError::MerkleTreeError(
-                        MerkleTreeError::PleaseNotifyTheDevs,
-                    ))?
-                    .copy_from_slice(&length.to_le_bytes());
-                let length_root = Hash256::from_slice(length_bytes.as_slice());
-                proof.push(length_root);
-
-                // Part 2
-                // Branches for `BeaconBlockBody` container
-                // Join the proofs for the subtree and the main tree
-                proof.extend_from_slice(kzg_commitments_proof);
-
-                Ok(FixedVector::new(proof)?)
+                complete_kzg_commitment_merkle_proof::<E>(
+                    self.blob_kzg_commitments()?,
+                    index,
+                    kzg_commitments_proof,
+                )
             }
         }
     }
@@ -563,6 +530,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom,
@@ -579,6 +547,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom: PhantomData,
@@ -897,6 +866,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, FullPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom,
@@ -914,6 +884,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 bls_to_execution_changes,
+                parent_execution_requests,
                 signed_execution_payload_bid,
                 payload_attestations,
                 _phantom: PhantomData,

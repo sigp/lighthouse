@@ -47,8 +47,19 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # Heze fork is not implemented
+    "tests/.*/heze/.*",
     # Ignore MatrixEntry SSZ tests for now.
-    "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    "tests/.*/.*/ssz_static/MatrixEntry/.*",
+    # TODO: partial data column not implemented yet
+    "tests/.*/.*/ssz_static/PartialDataColumn.*/.*",
+    # TODO(gloas): Ignore Gloas light client stuff for now
+    "tests/.*/gloas/ssz_static/LightClient.*/.*",
+    "tests/.*/gloas/light_client",
+    # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
+    "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
+    # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
+    "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
     "tests/general/phase0/ssz_generic/basic_progressive_list",
@@ -59,11 +70,24 @@ excluded_paths = [
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
-    # Ignore gloas tests for now
-    "tests/.*/gloas/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
+    # We don't need these manifest files at the moment.
+    "tests/.*/manifest.yaml",
+    # TODO: Remaining gossip validation topics not yet implemented
+    "tests/.*/.*/networking/gossip_beacon_block/.*",
+    "tests/.*/.*/networking/gossip_beacon_attestation/.*",
+    "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/.*/networking/gossip_voluntary_exit/.*",
+    "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_message/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    "tests/.*/.*/networking/gossip_blob_sidecar/.*",
+    "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
+    "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
+    # TODO: fast confirmation rule not merged yet
+    "tests/.*/.*/fast_confirmation",
 ]
 
 

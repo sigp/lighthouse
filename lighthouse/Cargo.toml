@@ -37,6 +37,8 @@ beacon-node-redb = ["store/redb"]
 console-subscriber = ["console-subscriber/default"]
 # Force the use of the system memory allocator rather than jemalloc.
 sysmalloc = ["malloc_utils/sysmalloc"]
+# Enable jemalloc heap profiling support.
+jemalloc-profiling = ["malloc_utils/jemalloc-profiling"]
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }
@@ -53,7 +55,6 @@ environment = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 futures = { workspace = true }
-lighthouse_tracing = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 metrics = { workspace = true }
@@ -63,16 +64,17 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 slasher = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing_samplers = { workspace = true }
 types = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
+yaml_serde = { workspace = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 malloc_utils = { workspace = true, features = ["jemalloc"] }

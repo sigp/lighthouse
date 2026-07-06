@@ -128,7 +128,7 @@ pub async fn run<E: EthSpec>(
                 }
 
                 // display server metrics
-                let metrics = discv5.metrics();
+                let metrics = Discv5::metrics();
                 info!(
                     connected_peers = discv5.connected_peers(),
                     active_sessions = metrics.active_sessions,
