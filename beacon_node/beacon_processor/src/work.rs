@@ -132,7 +132,6 @@ impl<E: EthSpec> Debug for Work<E> {
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
-    GossipAttestationToConvert,
     UnknownBlockAttestation,
     UnknownBlockDataColumn,
     GossipAttestationBatch,
@@ -196,8 +195,7 @@ impl WorkCategory {
     pub fn get_category(work_type: WorkType) -> Self {
         match work_type {
             // IO bound tasks
-            WorkType::GossipAttestationToConvert
-            | WorkType::UnknownLightClientOptimisticUpdate
+            WorkType::UnknownLightClientOptimisticUpdate
             | WorkType::GossipVoluntaryExit
             | WorkType::GossipProposerSlashing
             | WorkType::GossipAttesterSlashing
