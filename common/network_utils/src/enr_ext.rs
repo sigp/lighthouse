@@ -214,6 +214,7 @@ impl EnrExt for Enr {
     fn multiaddr_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(quic_port) = self.quic4()
+            && quic_port != 0
             && let Some(ip) = self.ip4()
         {
             let mut multiaddr: Multiaddr = ip.into();
@@ -223,6 +224,7 @@ impl EnrExt for Enr {
         }
 
         if let Some(quic6_port) = self.quic6()
+            && quic6_port != 0
             && let Some(ip6) = self.ip6()
         {
             let mut multiaddr: Multiaddr = ip6.into();
@@ -238,6 +240,7 @@ impl EnrExt for Enr {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip4()
             && let Some(tcp) = self.tcp4()
+            && tcp != 0
         {
             let mut multiaddr: Multiaddr = ip.into();
             multiaddr.push(Protocol::Tcp(tcp));
@@ -245,6 +248,7 @@ impl EnrExt for Enr {
         }
         if let Some(ip6) = self.ip6()
             && let Some(tcp6) = self.tcp6()
+            && tcp6 != 0
         {
             let mut multiaddr: Multiaddr = ip6.into();
             multiaddr.push(Protocol::Tcp(tcp6));
@@ -371,6 +375,18 @@ mod tests {
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);
+    }
+
+    #[test]
+    fn multiaddr_tcp_skips_zero_port() {
+        let key = CombinedKey::generate_secp256k1();
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip4(std::net::Ipv4Addr::new(192, 0, 2, 1))
+            .tcp4(0)
+            .build(&key)
+            .unwrap();
+
+        assert!(enr.multiaddr_tcp().is_empty());
     }
 
     #[test]
