@@ -115,6 +115,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
+use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -5057,16 +5058,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (
@@ -6087,6 +6091,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6141,6 +6150,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6533,14 +6547,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
-            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
                     proposer_index: proposer,
                     parent_block_root: head_root,
-                    parent_block_number,
+                    parent_block_number: pre_payload_attributes
+                        .parent_block_number
+                        .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                     payload_attributes: payload_attributes.into(),
                 },

@@ -1485,7 +1485,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
         target_pubkey: validator_to_topup.pubkey,
     };
 
-    let execution_requests = ExecutionRequests::<E> {
+    let execution_requests = ExecutionRequestsElectra::<E> {
         deposits: VariableList::new(vec![deposit_request]).unwrap(),
         withdrawals: vec![].try_into().unwrap(),
         consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
