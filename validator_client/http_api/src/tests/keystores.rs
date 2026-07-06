@@ -1,7 +1,7 @@
 use super::*;
 use account_utils::random_password_string;
+use bls::PublicKey;
 use bls::PublicKeyBytes;
-use bls::{AggregateSignature, PublicKey};
 use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
@@ -15,11 +15,9 @@ use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
-use ssz_types::BitList;
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
-use typenum::Unsigned;
-use types::{Address, attestation::AttestationBase};
+use types::Address;
 use validator_store::AttestationToSign;
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
@@ -971,17 +969,17 @@ async fn migrate_all_with_slashing_protection() {
     generic_migration_test(
         n,
         vec![
-            (0, make_attestation(1, 2)),
-            (1, make_attestation(2, 3)),
-            (2, make_attestation(1, 2)),
+            (0, make_attestation_data(1, 2)),
+            (1, make_attestation_data(2, 3)),
+            (2, make_attestation_data(1, 2)),
         ],
         all_indices(n),
         all_indices(n),
         all_indices(n),
         vec![
-            (0, make_attestation(1, 2), false),
-            (1, make_attestation(2, 3), false),
-            (2, make_attestation(1, 2), false),
+            (0, make_attestation_data(1, 2), false),
+            (1, make_attestation_data(2, 3), false),
+            (2, make_attestation_data(1, 2), false),
         ],
     )
     .await;
@@ -993,18 +991,18 @@ async fn migrate_some_with_slashing_protection() {
     generic_migration_test(
         n,
         vec![
-            (0, make_attestation(1, 2)),
-            (1, make_attestation(2, 3)),
-            (2, make_attestation(1, 2)),
+            (0, make_attestation_data(1, 2)),
+            (1, make_attestation_data(2, 3)),
+            (2, make_attestation_data(1, 2)),
         ],
         vec![0, 1],
         vec![0, 1],
         vec![0, 1],
         vec![
-            (0, make_attestation(1, 2), false),
-            (1, make_attestation(2, 3), false),
-            (0, make_attestation(2, 3), true),
-            (1, make_attestation(3, 4), true),
+            (0, make_attestation_data(1, 2), false),
+            (1, make_attestation_data(2, 3), false),
+            (0, make_attestation_data(2, 3), true),
+            (1, make_attestation_data(3, 4), true),
         ],
     )
     .await;
@@ -1016,17 +1014,17 @@ async fn migrate_some_missing_slashing_protection() {
     generic_migration_test(
         n,
         vec![
-            (0, make_attestation(1, 2)),
-            (1, make_attestation(2, 3)),
-            (2, make_attestation(1, 2)),
+            (0, make_attestation_data(1, 2)),
+            (1, make_attestation_data(2, 3)),
+            (2, make_attestation_data(1, 2)),
         ],
         vec![0, 1],
         vec![0],
         vec![0, 1],
         vec![
-            (0, make_attestation(1, 2), false),
-            (1, make_attestation(2, 3), true),
-            (0, make_attestation(2, 3), true),
+            (0, make_attestation_data(1, 2), false),
+            (1, make_attestation_data(2, 3), true),
+            (0, make_attestation_data(2, 3), true),
         ],
     )
     .await;
@@ -1038,19 +1036,19 @@ async fn migrate_some_extra_slashing_protection() {
     generic_migration_test(
         n,
         vec![
-            (0, make_attestation(1, 2)),
-            (1, make_attestation(2, 3)),
-            (2, make_attestation(1, 2)),
+            (0, make_attestation_data(1, 2)),
+            (1, make_attestation_data(2, 3)),
+            (2, make_attestation_data(1, 2)),
         ],
         all_indices(n),
         all_indices(n),
         vec![0, 1],
         vec![
-            (0, make_attestation(1, 2), false),
-            (1, make_attestation(2, 3), false),
-            (0, make_attestation(2, 3), true),
-            (1, make_attestation(3, 4), true),
-            (2, make_attestation(2, 3), false),
+            (0, make_attestation_data(1, 2), false),
+            (1, make_attestation_data(2, 3), false),
+            (0, make_attestation_data(2, 3), true),
+            (1, make_attestation_data(3, 4), true),
+            (2, make_attestation_data(2, 3), false),
         ],
     )
     .await;
@@ -1274,7 +1272,7 @@ async fn delete_nonexistent_keystores() {
     .await
 }
 
-fn make_attestation(source_epoch: u64, target_epoch: u64) -> AttestationData {
+fn make_attestation_data(source_epoch: u64, target_epoch: u64) -> AttestationData {
     AttestationData {
         source: Checkpoint {
             epoch: Epoch::new(source_epoch),
@@ -1335,7 +1333,7 @@ async fn delete_concurrent_with_signing() {
 
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
-                let att = make_attestation(j, j + 1);
+                let att = make_attestation_data(j, j + 1);
                 for (validator_index, public_key) in thread_pubkeys.iter().enumerate() {
                     let stream = validator_store.sign_attestations(vec![AttestationToSign {
                         attester_index: validator_index as u64,
