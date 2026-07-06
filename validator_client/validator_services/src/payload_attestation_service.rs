@@ -248,6 +248,10 @@ where
             match self
                 .beacon_nodes
                 .run_on_candidate_index(beacon_node_index, |beacon_node| async move {
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
+                    );
                     let data = beacon_node
                         .get_validator_payload_attestation_data(slot)
                         .await
@@ -275,6 +279,10 @@ where
             match self
                 .beacon_nodes
                 .first_success(|beacon_node| async move {
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
+                    );
                     beacon_node
                         .get_validator_payload_attestation_data(slot)
                         .await
@@ -309,6 +317,10 @@ where
         duties: Vec<PtcDuty>,
         attestation_data: PayloadAttestationData,
     ) -> Result<(), String> {
+        let _timer = validator_metrics::start_timer_vec(
+            &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+            &[validator_metrics::PAYLOAD_ATTESTATIONS],
+        );
         let mut messages = Vec::with_capacity(duties.len());
 
         for duty in &duties {
@@ -342,6 +354,10 @@ where
             .first_success(|beacon_node| {
                 let messages = messages.clone();
                 async move {
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_POST],
+                    );
                     beacon_node
                         .post_beacon_pool_payload_attestations_ssz(&messages, fork_name)
                         .await
@@ -356,6 +372,10 @@ where
                 .first_success(|beacon_node| {
                     let messages = messages.clone();
                     async move {
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                            &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_POST],
+                        );
                         beacon_node
                             .post_beacon_pool_payload_attestations(&messages, fork_name)
                             .await
