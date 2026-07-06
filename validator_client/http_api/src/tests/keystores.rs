@@ -1073,11 +1073,11 @@ async fn migrate_some_extra_slashing_protection() {
 ///   indicates whether the signing should be successful.
 async fn generic_migration_test(
     num_validators: usize,
-    first_vc_attestations: Vec<(usize, Attestation<E>)>,
+    first_vc_attestations: Vec<(usize, AttestationData)>,
     delete_indices: Vec<usize>,
     slashing_protection_indices: Vec<usize>,
     import_indices: Vec<usize>,
-    second_vc_attestations: Vec<(usize, Attestation<E>, bool)>,
+    second_vc_attestations: Vec<(usize, AttestationData, bool)>,
 ) {
     run_dual_vc_test(move |tester1, tester2| async move {
         let _ = (&tester1, &tester2);
@@ -1101,23 +1101,23 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
         // Sign attestations on VC1.
-        for (validator_index, attestation) in first_vc_attestations {
+        for (validator_index, attestation_data) in first_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
             let stream = tester1
                 .validator_store
                 .sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey: public_key,
-                    validator_committee_index: 0,
-                    attestation: attestation.clone(),
+                    committee_index: 0,
+                    data: attestation_data.clone(),
                 }]);
             tokio::pin!(stream);
             let safe_attestations = stream.next().await.unwrap().unwrap();
             assert_eq!(safe_attestations.len(), 1);
             // Compare data only, ignoring signatures which are added during signing.
-            assert_eq!(safe_attestations[0].1.data(), attestation.data());
+            assert_eq!(safe_attestations[0].data, attestation_data);
             // Check that the signature is non-zero.
-            assert!(!safe_attestations[0].1.signature().is_infinity());
+            assert!(!safe_attestations[0].signature.is_infinity());
         }
 
         // Delete the selected keys from VC1.
@@ -1189,15 +1189,15 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(import_indices.len()));
 
         // Sign attestations on the second VC.
-        for (validator_index, attestation, should_succeed) in second_vc_attestations {
+        for (validator_index, attestation_data, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
             let stream = tester2
                 .validator_store
                 .sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey: public_key,
-                    validator_committee_index: 0,
-                    attestation: attestation.clone(),
+                    committee_index: 0,
+                    data: attestation_data.clone(),
                 }]);
             tokio::pin!(stream);
             let result = stream.next().await.unwrap();
@@ -1206,9 +1206,9 @@ async fn generic_migration_test(
                     if should_succeed {
                         // Compare data only, ignoring signatures which are added during signing.
                         assert_eq!(safe_attestations.len(), 1);
-                        assert_eq!(safe_attestations[0].1.data(), attestation.data());
+                        assert_eq!(safe_attestations[0].data, attestation_data);
                         // Check that the signature is non-zero.
-                        assert!(!safe_attestations[0].1.signature().is_infinity());
+                        assert!(!safe_attestations[0].signature.is_infinity());
                     } else {
                         assert!(safe_attestations.is_empty());
                     }
@@ -1274,25 +1274,18 @@ async fn delete_nonexistent_keystores() {
     .await
 }
 
-fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
-    Attestation::Base(AttestationBase {
-        aggregation_bits: BitList::with_capacity(
-            <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
-        )
-        .unwrap(),
-        data: AttestationData {
-            source: Checkpoint {
-                epoch: Epoch::new(source_epoch),
-                root: Hash256::from_low_u64_le(source_epoch),
-            },
-            target: Checkpoint {
-                epoch: Epoch::new(target_epoch),
-                root: Hash256::from_low_u64_le(target_epoch),
-            },
-            ..AttestationData::default()
+fn make_attestation(source_epoch: u64, target_epoch: u64) -> AttestationData {
+    AttestationData {
+        source: Checkpoint {
+            epoch: Epoch::new(source_epoch),
+            root: Hash256::from_low_u64_le(source_epoch),
         },
-        signature: AggregateSignature::empty(),
-    })
+        target: Checkpoint {
+            epoch: Epoch::new(target_epoch),
+            root: Hash256::from_low_u64_le(target_epoch),
+        },
+        ..AttestationData::default()
+    }
 }
 
 #[tokio::test]
@@ -1345,10 +1338,10 @@ async fn delete_concurrent_with_signing() {
                 let att = make_attestation(j, j + 1);
                 for (validator_index, public_key) in thread_pubkeys.iter().enumerate() {
                     let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                        validator_index: validator_index as u64,
+                        attester_index: validator_index as u64,
                         pubkey: *public_key,
-                        validator_committee_index: 0,
-                        attestation: att.clone(),
+                        committee_index: 0,
+                        data: att.clone(),
                     }]);
                     tokio::pin!(stream);
                     let _ = stream.next().await;
