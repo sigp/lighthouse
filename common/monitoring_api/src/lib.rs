@@ -244,6 +244,7 @@ mod tests {
             db_path: None,
             freezer_db_path: None,
             update_period_secs: None,
+            user_agent: String::new(),
         })
         .unwrap();
         let api_key = "test-api-key";
