@@ -1,4 +1,4 @@
-use beacon_processor::{BeaconProcessorSend, BlockingOrAsync, Work, WorkEvent};
+use beacon_processor::{BeaconProcessorSend, BlockingOrAsync, Work, WorkCategory, WorkEvent};
 use serde::Serialize;
 use std::future::Future;
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
@@ -6,21 +6,52 @@ use types::EthSpec;
 use warp::reply::{Reply, Response};
 use warp_utils::reject::convert_rejection;
 
-/// Maps a request to a queue in the `BeaconProcessor`.
 #[derive(Clone, Copy)]
-pub enum Priority {
-    /// The highest priority.
+enum PriorityLevel {
     P0,
-    /// The lowest priority.
     P1,
 }
 
+/// Maps a request to a queue in the `BeaconProcessor`.
+///
+/// Requests default to the IO-bound worker limit, which assumes they spend their time
+/// waiting (DB reads, execution layer calls). Requests that do significant computation
+/// (signature verification, state replay, epoch processing) should be marked with
+/// [`Priority::cpu`] so they count against the CPU-bound worker limit alongside gossip
+/// verification and block import.
+#[derive(Clone, Copy)]
+pub struct Priority {
+    level: PriorityLevel,
+    category: WorkCategory,
+}
+
 impl Priority {
+    /// The highest priority.
+    pub const P0: Self = Self {
+        level: PriorityLevel::P0,
+        category: WorkCategory::IoBound,
+    };
+    /// The lowest priority.
+    pub const P1: Self = Self {
+        level: PriorityLevel::P1,
+        category: WorkCategory::IoBound,
+    };
+
+    /// Mark this request as CPU-intensive.
+    pub fn cpu(self) -> Self {
+        Self {
+            category: WorkCategory::CpuBound,
+            ..self
+        }
+    }
+
     /// Wrap `self` in a `WorkEvent` with an appropriate priority.
     fn work_event<E: EthSpec>(&self, process_fn: BlockingOrAsync) -> WorkEvent<E> {
-        let work = match self {
-            Priority::P0 => Work::ApiRequestP0(process_fn),
-            Priority::P1 => Work::ApiRequestP1(process_fn),
+        let work = match (self.level, self.category) {
+            (PriorityLevel::P0, WorkCategory::IoBound) => Work::ApiRequestP0(process_fn),
+            (PriorityLevel::P0, WorkCategory::CpuBound) => Work::ApiRequestP0Cpu(process_fn),
+            (PriorityLevel::P1, WorkCategory::IoBound) => Work::ApiRequestP1(process_fn),
+            (PriorityLevel::P1, WorkCategory::CpuBound) => Work::ApiRequestP1Cpu(process_fn),
         };
         WorkEvent {
             drop_during_sync: false,

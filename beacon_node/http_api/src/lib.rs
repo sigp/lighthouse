@@ -835,7 +835,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
                         consensus_version,
@@ -872,7 +872,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         consensus_version,
@@ -911,7 +911,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
                         consensus_version,
@@ -951,7 +951,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         consensus_version,
@@ -991,7 +991,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     publish_blocks::publish_blinded_block(
                         block_contents,
                         chain,
@@ -1019,7 +1019,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         &chain.spec,
@@ -1058,7 +1058,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let blinded_block =
                         SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
                             &blinded_block_json,
@@ -1096,7 +1096,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
                         &chain.spec,
@@ -1588,7 +1588,7 @@ pub async fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              block_id: BlockId| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (rewards, execution_optimistic, finalized) =
                         standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
                     Ok(api_types::GenericResponse::from(rewards)).map(|resp| {
@@ -1829,7 +1829,7 @@ pub async fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              epoch: Epoch,
              validators: Vec<ValidatorId>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let attestation_rewards = chain
                         .compute_attestation_rewards(epoch, validators)
                         .map_err(|e| match e {
@@ -1887,7 +1887,7 @@ pub async fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              block_id: BlockId,
              validators: Vec<ValidatorId>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (rewards, execution_optimistic, finalized) =
                         sync_committee_rewards::compute_sync_committee_rewards(
                             chain, block_id, validators,
@@ -2036,7 +2036,8 @@ pub async fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
+                task_spawner.blocking_response_task(Priority::P1.cpu(), move || match accept_header
+                {
                     Some(api_types::Accept::Ssz) => {
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the

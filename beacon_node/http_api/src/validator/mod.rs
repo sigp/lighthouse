@@ -418,7 +418,7 @@ pub fn get_validator_blinded_blocks<T: BeaconChainTypes>(
              accept_header: Option<Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     not_synced_filter?;
                     produce_blinded_block_v2(accept_header, chain, slot, query).await
                 })
@@ -456,7 +456,7 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
              query: ValidatorBlocksQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     debug!(?slot, "Block production request from HTTP API");
 
                     not_synced_filter?;
@@ -957,7 +957,7 @@ pub fn post_validator_contribution_and_proofs<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              contributions: Vec<SignedContributionAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     not_synced_filter?;
                     sync_committees::process_signed_contribution_and_proofs(
                         contributions,
@@ -998,7 +998,7 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     not_synced_filter?;
                     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());

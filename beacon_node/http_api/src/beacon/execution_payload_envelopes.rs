@@ -47,7 +47,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     let envelope =
                         SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(&body_bytes)
                             .map_err(|e| {
@@ -80,7 +80,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0.cpu(), async move {
                     publish_execution_payload_envelope(envelope, chain, &network_tx).await
                 })
             },

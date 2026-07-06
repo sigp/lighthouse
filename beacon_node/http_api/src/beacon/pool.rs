@@ -171,7 +171,7 @@ pub fn post_beacon_pool_sync_committees<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     sync_committees::process_sync_committee_signatures(
                         signatures, network_tx, &chain,
                     )?;
@@ -391,7 +391,7 @@ pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              slashing: AttesterSlashing<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     let outcome = chain
                         .verify_attester_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -547,7 +547,7 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
              messages: Vec<PayloadAttestationMessage>,
              _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     publish_payload_attestation_messages(&chain, &network_tx, messages)
                 })
             },
@@ -576,7 +576,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_json_task(Priority::P0.cpu(), move || {
                     let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
                     if !body_bytes.len().is_multiple_of(item_len) {
                         return Err(warp_utils::reject::custom_bad_request(format!(

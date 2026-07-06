@@ -40,7 +40,6 @@
 
 pub use crate::scheduler::BeaconProcessorQueueLengths;
 use crate::scheduler::work_queue::WorkQueues;
-use crate::work::WorkCategory;
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipDataColumn,
     QueuedGossipEnvelope, ReprocessQueueMessage,
@@ -71,7 +70,9 @@ use work_reprocessing_queue::{
     spawn_reprocess_scheduler,
 };
 
-pub use work::{AsyncFn, BlockingFn, BlockingOrAsync, GossipAttestationBatch, Work, WorkType};
+pub use work::{
+    AsyncFn, BlockingFn, BlockingOrAsync, GossipAttestationBatch, Work, WorkCategory, WorkType,
+};
 
 mod metrics;
 pub mod scheduler;
@@ -815,8 +816,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::ApiRequestP0 { .. } => {
                                 work_queues.api_request_p0_queue.push(work, work_id)
                             }
+                            Work::ApiRequestP0Cpu { .. } => {
+                                work_queues.api_request_p0_cpu_queue.push(work, work_id)
+                            }
                             Work::ApiRequestP1 { .. } => {
                                 work_queues.api_request_p1_queue.push(work, work_id)
+                            }
+                            Work::ApiRequestP1Cpu { .. } => {
+                                work_queues.api_request_p1_cpu_queue.push(work, work_id)
                             }
                         };
                         Some(work_type)
@@ -922,7 +929,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.lc_update_range_queue.len()
                         }
                         WorkType::ApiRequestP0 => work_queues.api_request_p0_queue.len(),
+                        WorkType::ApiRequestP0Cpu => work_queues.api_request_p0_cpu_queue.len(),
                         WorkType::ApiRequestP1 => work_queues.api_request_p1_queue.len(),
+                        WorkType::ApiRequestP1Cpu => work_queues.api_request_p1_cpu_queue.len(),
                         WorkType::Reprocess => 0,
                     };
                     metrics::observe_vec(
@@ -1023,6 +1032,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             })
             // Check the priority 0 API requests after blocks and blobs, but before attestations.
             .or_else(|| work_queues.api_request_p0_queue.pop_if(can_spawn_predicate))
+            .or_else(|| {
+                work_queues
+                    .api_request_p0_cpu_queue
+                    .pop_if(can_spawn_predicate)
+            })
             // Check the aggregates, *then* the unaggregates since we assume that
             // aggregates are more valuable to local validators and effectively give us
             // more information with less signature verification time.
@@ -1247,6 +1261,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // and things required for us to stay in good repute
             // with our P2P peers.
             .or_else(|| work_queues.api_request_p1_queue.pop_if(can_spawn_predicate))
+            .or_else(|| {
+                work_queues
+                    .api_request_p1_cpu_queue
+                    .pop_if(can_spawn_predicate)
+            })
             // Handle backfill sync chain segments.
             .or_else(|| {
                 work_queues
@@ -1449,7 +1468,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     task_spawner.spawn_blocking(process_fn)
                 }
             }
-            Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
+            Work::ApiRequestP0(process_fn)
+            | Work::ApiRequestP0Cpu(process_fn)
+            | Work::ApiRequestP1(process_fn)
+            | Work::ApiRequestP1Cpu(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
             },

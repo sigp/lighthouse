@@ -180,7 +180,9 @@ pub struct BeaconProcessorQueueLengths {
     lc_gossip_optimistic_update_queue: usize,
     lc_update_range_queue: usize,
     api_request_p0_queue: usize,
+    api_request_p0_cpu_queue: usize,
     api_request_p1_queue: usize,
+    api_request_p1_cpu_queue: usize,
 }
 
 impl BeaconProcessorQueueLengths {
@@ -263,7 +265,9 @@ impl BeaconProcessorQueueLengths {
             lc_rpc_finality_update_queue: 512,
             lc_update_range_queue: 512,
             api_request_p0_queue: 1024,
+            api_request_p0_cpu_queue: 1024,
             api_request_p1_queue: 1024,
+            api_request_p1_cpu_queue: 1024,
         })
     }
 }
@@ -316,7 +320,9 @@ pub struct WorkQueues<E: EthSpec> {
     pub lc_rpc_finality_update_queue: FifoQueue<Work<E>>,
     pub lc_update_range_queue: FifoQueue<Work<E>>,
     pub api_request_p0_queue: FifoQueue<Work<E>>,
+    pub api_request_p0_cpu_queue: FifoQueue<Work<E>>,
     pub api_request_p1_queue: FifoQueue<Work<E>>,
+    pub api_request_p1_cpu_queue: FifoQueue<Work<E>>,
 }
 
 impl<E: EthSpec> WorkQueues<E> {
@@ -405,7 +411,9 @@ impl<E: EthSpec> WorkQueues<E> {
             FifoQueue::new(queue_lengths.lc_update_range_queue);
 
         let api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
+        let api_request_p0_cpu_queue = FifoQueue::new(queue_lengths.api_request_p0_cpu_queue);
         let api_request_p1_queue = FifoQueue::new(queue_lengths.api_request_p1_queue);
+        let api_request_p1_cpu_queue = FifoQueue::new(queue_lengths.api_request_p1_cpu_queue);
 
         WorkQueues {
             aggregate_queue,
@@ -455,7 +463,9 @@ impl<E: EthSpec> WorkQueues<E> {
             lc_rpc_finality_update_queue,
             lc_update_range_queue,
             api_request_p0_queue,
+            api_request_p0_cpu_queue,
             api_request_p1_queue,
+            api_request_p1_cpu_queue,
         }
     }
 }

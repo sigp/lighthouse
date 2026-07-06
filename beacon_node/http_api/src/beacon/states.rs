@@ -40,7 +40,7 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -86,7 +86,7 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -132,7 +132,7 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -180,7 +180,7 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -241,7 +241,7 @@ pub fn get_beacon_state_randao<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: eth2::types::RandaoQuery| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (randao, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -280,7 +280,7 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: eth2::types::SyncCommitteesQuery| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (sync_committee, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -354,7 +354,7 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              query: eth2::types::CommitteesQuery,
              historical_committee_cache: Arc<HistoricalCommitteeCache>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -523,7 +523,7 @@ pub fn get_beacon_state_validators_id<T: BeaconChainTypes>(
                 let priority = if let StateId(eth2::types::StateId::Head) = state_id {
                     Priority::P0
                 } else {
-                    Priority::P1
+                    Priority::P1.cpu()
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     let (data, execution_optimistic, finalized) = state_id
@@ -604,7 +604,7 @@ pub fn post_beacon_state_validators<T: BeaconChainTypes>(
                 let priority = if let StateId(eth2::types::StateId::Head) = state_id {
                     Priority::P0
                 } else {
-                    Priority::P1
+                    Priority::P1.cpu()
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validators(
@@ -638,7 +638,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                 let priority = if let StateId(eth2::types::StateId::Head) = state_id {
                     Priority::P0
                 } else {
-                    Priority::P1
+                    Priority::P1.cpu()
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     let query = query_res?;
@@ -673,7 +673,7 @@ pub fn post_beacon_state_validator_identities<T: BeaconChainTypes>(
                 let priority = if let StateId(eth2::types::StateId::Head) = state_id {
                     Priority::P0
                 } else {
-                    Priority::P1
+                    Priority::P1.cpu()
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validator_identities(
@@ -701,7 +701,7 @@ pub fn post_beacon_state_validator_balances<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: ValidatorBalancesRequestBody| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     crate::validators::get_beacon_state_validator_balances(
                         state_id,
                         chain,
@@ -727,7 +727,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query_res: Result<eth2::types::ValidatorBalancesQuery, warp::Rejection>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let query = query_res?;
                     crate::validators::get_beacon_state_validator_balances(
                         state_id,
@@ -752,7 +752,7 @@ pub fn get_beacon_state_finality_checkpoints<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -792,7 +792,7 @@ pub fn get_beacon_state_fork<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (fork, execution_optimistic, finalized) =
                         state_id.fork_and_execution_optimistic_and_finalized(&chain)?;
                     Ok(eth2::types::ExecutionOptimisticFinalizedResponse {
@@ -817,7 +817,7 @@ pub fn get_beacon_state_root<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P1.cpu(), move || {
                     let (root, execution_optimistic, finalized) = state_id.root(&chain)?;
                     Ok(eth2::types::GenericResponse::from(
                         eth2::types::RootData::from(root),

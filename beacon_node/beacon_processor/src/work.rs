@@ -112,7 +112,9 @@ pub enum Work<E: EthSpec> {
     LightClientFinalityUpdateRequest(BlockingFn),
     LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
+    ApiRequestP0Cpu(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
+    ApiRequestP1Cpu(BlockingOrAsync),
     Reprocess(ReprocessQueueMessage),
 }
 
@@ -179,11 +181,13 @@ pub enum WorkType {
     LightClientFinalityUpdateRequest,
     LightClientUpdatesByRangeRequest,
     ApiRequestP0,
+    ApiRequestP0Cpu,
     ApiRequestP1,
+    ApiRequestP1Cpu,
     Reprocess,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WorkCategory {
     // Work that is IO bound, i.e. network requests, disk operations, external services etc.
     IoBound,
@@ -198,9 +202,6 @@ impl WorkCategory {
             WorkType::UnknownLightClientOptimisticUpdate
             | WorkType::GossipVoluntaryExit
             | WorkType::GossipProposerSlashing
-            | WorkType::GossipAttesterSlashing
-            | WorkType::GossipSyncSignature
-            | WorkType::GossipSyncContribution
             | WorkType::GossipLightClientFinalityUpdate
             | WorkType::GossipLightClientOptimisticUpdate
             | WorkType::IgnoredRpcBlock
@@ -216,7 +217,6 @@ impl WorkCategory {
             | WorkType::DataColumnsByRangeRequest
             | WorkType::GossipBlsToExecutionChange
             | WorkType::GossipExecutionPayloadBid
-            | WorkType::GossipPayloadAttestation
             | WorkType::GossipProposerPreferences
             | WorkType::LightClientBootstrapRequest
             | WorkType::LightClientOptimisticUpdateRequest
@@ -234,6 +234,10 @@ impl WorkCategory {
             | WorkType::GossipAttestationBatch
             | WorkType::GossipAggregate
             | WorkType::GossipAggregateBatch
+            | WorkType::GossipSyncSignature
+            | WorkType::GossipSyncContribution
+            | WorkType::GossipPayloadAttestation
+            | WorkType::GossipAttesterSlashing
             | WorkType::GossipDataColumnSidecar
             | WorkType::GossipPartialDataColumnSidecar
             | WorkType::GossipExecutionPayload
@@ -245,7 +249,9 @@ impl WorkCategory {
             | WorkType::RpcEnvelope
             | WorkType::ColumnReconstruction
             | WorkType::ChainSegment
-            | WorkType::ChainSegmentBackfill => Self::CpuBound,
+            | WorkType::ChainSegmentBackfill
+            | WorkType::ApiRequestP0Cpu
+            | WorkType::ApiRequestP1Cpu => Self::CpuBound,
         }
     }
 }
@@ -312,7 +318,9 @@ impl<E: EthSpec> Work<E> {
                 WorkType::UnknownLightClientOptimisticUpdate
             }
             Work::ApiRequestP0 { .. } => WorkType::ApiRequestP0,
+            Work::ApiRequestP0Cpu { .. } => WorkType::ApiRequestP0Cpu,
             Work::ApiRequestP1 { .. } => WorkType::ApiRequestP1,
+            Work::ApiRequestP1Cpu { .. } => WorkType::ApiRequestP1Cpu,
             Work::Reprocess { .. } => WorkType::Reprocess,
         }
     }

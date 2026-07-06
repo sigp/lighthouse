@@ -139,7 +139,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let mut prelim_results = task_spawner
         .clone()
-        .blocking_task(Priority::P0, move || {
+        .blocking_task(Priority::P0.cpu(), move || {
             Ok(attestations
                 .into_iter()
                 .map(|attestation| {
