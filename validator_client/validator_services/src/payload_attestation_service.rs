@@ -9,8 +9,26 @@ use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, Hash256, PayloadAttestationData, Slot};
+use types::{ChainSpec, EthSpec, PayloadAttestationData, Slot};
 use validator_store::ValidatorStore;
+
+/// The reason payload attestation production was triggered.
+#[derive(Debug)]
+enum PayloadAttestationTrigger {
+    /// The payload attestation deadline fired for this slot.
+    Deadline(Slot),
+    /// A beacon node reported the payload available mid-slot.
+    PayloadAvailable(PayloadAvailableEvent),
+}
+
+impl PayloadAttestationTrigger {
+    fn slot(&self) -> Slot {
+        match self {
+            Self::Deadline(slot) => *slot,
+            Self::PayloadAvailable(event) => event.slot,
+        }
+    }
+}
 
 pub struct Inner<S, T> {
     duties_service: Arc<DutiesService<S, T>>,
@@ -91,50 +109,54 @@ where
         Ok(())
     }
 
-    async fn poll_for_payload_available_event(&self) -> Option<PayloadAvailableEvent> {
-        let Some(receiver) = &self.payload_available_rx else {
-            return None;
-        };
-        let mut receiver = receiver.lock().await;
-        loop {
-            match receiver.recv().await {
-                Some(payload_available_event) => {
-                    // Only trigger on current-slot events
-                    let current_slot = self.slot_clock.now()?;
-                    if payload_available_event.slot == current_slot {
-                        return Some(payload_available_event);
+    /// Wait for a payload available event for the current slot.
+    async fn poll_for_payload_available_event(&self) -> PayloadAvailableEvent {
+        if let Some(receiver) = &self.payload_available_rx {
+            let mut receiver = receiver.lock().await;
+            loop {
+                match receiver.recv().await {
+                    Some(payload_available_event) => {
+                        // Only trigger on current-slot events
+                        let Some(current_slot) = self.slot_clock.now() else {
+                            error!("Failed to read slot clock; ignoring payload available event");
+                            continue;
+                        };
+                        if payload_available_event.slot == current_slot {
+                            return payload_available_event;
+                        }
+                        // Stale event — keep waiting for the deadline
                     }
-                    // Stale event — keep waiting for the deadline
-                }
-                None => {
-                    warn!("payload_available channel closed unexpectedly");
-                    return None;
+                    None => {
+                        error!("Payload available channel closed, deadline attestations only");
+                        break;
+                    }
                 }
             }
         }
+        // No event sourced, or the channel died. This enures we never resolve so that payload attestation
+        // duties are always performed at the deadline.
+        std::future::pending().await
     }
 
     async fn spawn_payload_attestation_tasks(&self) -> Result<(), String> {
-        let (attestation_slot, beacon_node_data) = if self.payload_available_rx.is_some() {
+        let trigger = if self.payload_available_rx.is_some() {
             tokio::select! {
                 result = self.wait_for_attestation_slot() => {
                     let Some(slot) = result else { return Ok(()); };
-                    (slot, None)
+                    PayloadAttestationTrigger::Deadline(slot)
                 }
                 event = self.poll_for_payload_available_event() => {
-                    let Some(slot) = self.slot_clock.now() else {
-                        error!("Failed to read slot clock after payload available event");
-                        return Ok(());
-                    };
-                    (slot, event.map(|ev| (ev.beacon_node_index, ev.block_root)))
+                    PayloadAttestationTrigger::PayloadAvailable(event)
                 }
             }
         } else {
             let Some(slot) = self.wait_for_attestation_slot().await else {
                 return Ok(());
             };
-            (slot, None)
+            PayloadAttestationTrigger::Deadline(slot)
         };
+
+        let attestation_slot = trigger.slot();
 
         let mut last_slot = self.latest_voted_slot.lock().await;
 
@@ -145,10 +167,8 @@ where
         *last_slot = attestation_slot;
         drop(last_slot);
 
-        let triggered_early = beacon_node_data.is_some();
-        let mut data_result = self
-            .produce_payload_attestation_data(attestation_slot, beacon_node_data)
-            .await;
+        let triggered_early = matches!(trigger, PayloadAttestationTrigger::PayloadAvailable(_));
+        let mut data_result = self.produce_payload_attestation_data(trigger).await;
 
         if triggered_early && !matches!(data_result, Ok(Some(_))) {
             if let Err(ref e) = data_result {
@@ -162,7 +182,9 @@ where
                 .unwrap_or_default();
             sleep(deadline).await;
             data_result = self
-                .produce_payload_attestation_data(attestation_slot, None)
+                .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(
+                    attestation_slot,
+                ))
                 .await;
         }
 
@@ -226,15 +248,16 @@ where
         Some(attestation_slot)
     }
 
-    /// Produce the payload attestation data for `slot`, returned alongside the duties to sign.
+    /// Produce the payload attestation data for the trigger's slot, returned alongside the
+    /// duties to sign.
     ///
     /// Returns `Ok(None)` when there is nothing to publish (no duties, or no block for the slot)
     /// and `Err` when data production failed.
     async fn produce_payload_attestation_data(
         &self,
-        slot: Slot,
-        beacon_node_data: Option<(usize, Hash256)>,
+        trigger: PayloadAttestationTrigger,
     ) -> Result<Option<(Vec<PtcDuty>, PayloadAttestationData)>, String> {
+        let slot = trigger.slot();
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
         if duties.is_empty() {
             return Ok(None);
@@ -242,65 +265,70 @@ where
 
         debug!(%slot, duty_count = duties.len(), "Producing payload attestations");
 
-        let attestation_data = if let Some((beacon_node_index, expected_block_root)) =
-            beacon_node_data
-        {
-            // Only publish early if payload is present and blob data is available.
-            self.beacon_nodes
-                .run_on_candidate_index(beacon_node_index, |beacon_node| async move {
-                    let _timer = validator_metrics::start_timer_vec(
-                        &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
-                        &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
-                    );
-                    let data = beacon_node
-                        .get_validator_payload_attestation_data(slot)
-                        .await
-                        .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))?
-                        .map(|resp| resp.into_data())
-                        .ok_or_else(|| format!("No payload attestation data on node {beacon_node_index}"))?;
-                    if data.beacon_block_root != expected_block_root {
-                        return Err(format!(
-                            "Payload attestation block root mismatch: expected {expected_block_root:?}, got {:?}",
-                            data.beacon_block_root
-                        ));
+        let attestation_data = match trigger {
+            PayloadAttestationTrigger::PayloadAvailable(event) => {
+                let beacon_node_index = event.beacon_node_index;
+                let expected_block_root = event.block_root;
+                // Only publish early if payload is present and blob data is available.
+                self.beacon_nodes
+                    .run_on_candidate_index(beacon_node_index, |beacon_node| async move {
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                            &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
+                        );
+                        let data = beacon_node
+                            .get_validator_payload_attestation_data(slot)
+                            .await
+                            .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))?
+                            .map(|resp| resp.into_data())
+                            .ok_or_else(|| {
+                                format!("No payload attestation data on node {beacon_node_index}")
+                            })?;
+                        if data.beacon_block_root != expected_block_root {
+                            return Err(format!(
+                                "Payload attestation block root mismatch: expected {expected_block_root:?}, got {:?}",
+                                data.beacon_block_root
+                            ));
+                        }
+                        if !data.payload_present {
+                            return Err(format!(
+                                "Node {beacon_node_index} does not report payload present for block {expected_block_root:?}"
+                            ));
+                        }
+                        if !data.blob_data_available {
+                            return Err(format!(
+                                "Node {beacon_node_index} does not report blob data available for block {expected_block_root:?}"
+                            ));
+                        }
+                        Ok(data)
+                    })
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to attest based on payload available event: {e:?}")
+                    })?
+            }
+            PayloadAttestationTrigger::Deadline(_) => {
+                match self
+                    .beacon_nodes
+                    .first_success(|beacon_node| async move {
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
+                            &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
+                        );
+                        beacon_node
+                            .get_validator_payload_attestation_data(slot)
+                            .await
+                            .map(|opt| opt.map(|resp| resp.into_data()))
+                    })
+                    .await
+                {
+                    Ok(Some(data)) => data,
+                    Ok(None) => {
+                        debug!(%slot, "No block received for slot, skipping payload attestation");
+                        return Ok(None);
                     }
-                    if !data.payload_present {
-                        return Err(format!(
-                            "Node {beacon_node_index} does not report payload present for block {expected_block_root:?}"
-                        ));
-                    }
-                    if !data.blob_data_available {
-                        return Err(format!(
-                            "Node {beacon_node_index} does not report blob data available for block {expected_block_root:?}"
-                        ));
-                    }
-                    Ok(data)
-                })
-                .await
-                .map_err(|e| {
-                    format!("Failed to attest based on payload available event: {e:?}")
-                })?
-        } else {
-            match self
-                .beacon_nodes
-                .first_success(|beacon_node| async move {
-                    let _timer = validator_metrics::start_timer_vec(
-                        &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
-                        &[validator_metrics::PAYLOAD_ATTESTATIONS_HTTP_GET],
-                    );
-                    beacon_node
-                        .get_validator_payload_attestation_data(slot)
-                        .await
-                        .map(|opt| opt.map(|resp| resp.into_data()))
-                })
-                .await
-            {
-                Ok(Some(data)) => data,
-                Ok(None) => {
-                    debug!(%slot, "No block received for slot, skipping payload attestation");
-                    return Ok(None);
+                    Err(e) => return Err(e.to_string()),
                 }
-                Err(e) => return Err(e.to_string()),
             }
         };
 
@@ -672,7 +700,7 @@ mod tests {
 
         let service = harness.service;
         let (duties, attestation_data) = service
-            .produce_payload_attestation_data(attestation_slot, None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await
             .unwrap()
             .unwrap();
@@ -742,7 +770,7 @@ mod tests {
 
         let service = harness.service;
         let (duties, attestation_data) = service
-            .produce_payload_attestation_data(attestation_slot, None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await
             .unwrap()
             .unwrap();
@@ -786,7 +814,7 @@ mod tests {
         // when there is no duty, data production returns `None` so there is nothing to publish
         // therefore, the beacon node is not called, expected to hit 0
         let data = service
-            .produce_payload_attestation_data(Slot::new(1), None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(Slot::new(1)))
             .await
             .unwrap();
         assert!(
@@ -832,7 +860,7 @@ mod tests {
         let service = harness.service;
         // Data production should error before any signing/publishing happens.
         let result = service
-            .produce_payload_attestation_data(attestation_slot, None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await;
         assert!(result.is_err());
 
@@ -881,7 +909,7 @@ mod tests {
 
         let service = harness.service;
         let (duties, attestation_data) = service
-            .produce_payload_attestation_data(attestation_slot, None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await
             .unwrap()
             .unwrap();
@@ -937,7 +965,13 @@ mod tests {
 
         let service = harness.service;
         let (duties, attestation_data) = service
-            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .produce_payload_attestation_data(PayloadAttestationTrigger::PayloadAvailable(
+                PayloadAvailableEvent {
+                    beacon_node_index: 0,
+                    slot: attestation_slot,
+                    block_root: expected_block_root,
+                },
+            ))
             .await
             .unwrap()
             .unwrap();
@@ -991,7 +1025,13 @@ mod tests {
 
         let service = harness.service;
         let result = service
-            .produce_payload_attestation_data(attestation_slot, Some((0, event_block_root)))
+            .produce_payload_attestation_data(PayloadAttestationTrigger::PayloadAvailable(
+                PayloadAvailableEvent {
+                    beacon_node_index: 0,
+                    slot: attestation_slot,
+                    block_root: event_block_root,
+                },
+            ))
             .await;
         assert!(result.is_err(), "mismatch must not produce data early");
 
@@ -1040,7 +1080,13 @@ mod tests {
 
         let service = harness.service;
         let result = service
-            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .produce_payload_attestation_data(PayloadAttestationTrigger::PayloadAvailable(
+                PayloadAvailableEvent {
+                    beacon_node_index: 0,
+                    slot: attestation_slot,
+                    block_root: expected_block_root,
+                },
+            ))
             .await;
         assert!(
             result.is_err(),
@@ -1092,7 +1138,13 @@ mod tests {
 
         let service = harness.service;
         let result = service
-            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .produce_payload_attestation_data(PayloadAttestationTrigger::PayloadAvailable(
+                PayloadAvailableEvent {
+                    beacon_node_index: 0,
+                    slot: attestation_slot,
+                    block_root: expected_block_root,
+                },
+            ))
             .await;
         assert!(result.is_err(), "node error must not produce data early");
 
@@ -1102,7 +1154,7 @@ mod tests {
         // The caller retries at the deadline without event data; first_success is then free
         // to use any node.
         let (duties, attestation_data) = service
-            .produce_payload_attestation_data(attestation_slot, None)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await
             .unwrap()
             .unwrap();
@@ -1143,8 +1195,6 @@ mod tests {
 
         let event = harness.service.poll_for_payload_available_event().await;
 
-        assert!(event.is_some(), "Should have received a valid event");
-        let event = event.unwrap();
         assert_eq!(
             event.slot, current_slot,
             "Should have skipped stale slot 0 event and returned slot 1 event"
