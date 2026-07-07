@@ -106,7 +106,7 @@ pub struct FastConfirmationRule {
     // === Committee data from head state ===
     /// Per-validator committee slot assignments across the last 3 epochs.
     /// Used by `get_block_support_between_slots` and `compute_adversarial_weight`.
-    head_assignments: SlotAssignments,
+    slot_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
     /// Built from the spec's `get_pulled_up_head_state`. Keyed (via `BalanceSourceData.dependent_root`)
@@ -157,7 +157,7 @@ impl FastConfirmationRule {
             current_slot_head: finalized_checkpoint.root,
             byzantine_threshold,
             proposer_score_boost,
-            head_assignments: SlotAssignments::new(state)?,
+            slot_assignments: SlotAssignments::new(state)?,
             head_balance_source: BalanceSourceData::for_epoch(state, state.current_epoch())?,
             last_update_slot: None,
             spec_test_mode: false,
@@ -252,9 +252,9 @@ impl FastConfirmationRule {
         if self.current_slot_head != head_root {
             let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
 
-            if self.head_assignments.dependent_root() != head_dependent_root {
+            if self.slot_assignments.dependent_root() != head_dependent_root {
                 let _span = debug_span!("fcr_rebuild_assignments").entered();
-                self.head_assignments = SlotAssignments::new::<E>(state)?;
+                self.slot_assignments = SlotAssignments::new::<E>(state)?;
             }
 
             if self.head_balance_source.dependent_root != head_dependent_root {
@@ -280,13 +280,12 @@ impl FastConfirmationRule {
             // checkpoint in one step so the pair stays coherent.
             if is_start_slot_at_epoch::<E>(current_slot) {
                 let new_current_cp = self.previous_epoch_greatest_unrealized_checkpoint;
+                let new_current = CheckpointAndBalance::new(new_current_cp, {
+                    let _span = debug_span!("fcr_rebuild_current_balance").entered();
+                    BalanceSourceData::for_epoch(state, current_epoch)?
+                });
                 self.previous_epoch_observed_justified =
-                    self.current_epoch_observed_justified.clone();
-                self.current_epoch_observed_justified =
-                    CheckpointAndBalance::new(new_current_cp, {
-                        let _span = debug_span!("fcr_rebuild_current_balance").entered();
-                        BalanceSourceData::for_epoch(state, current_epoch)?
-                    });
+                    std::mem::replace(&mut self.current_epoch_observed_justified, new_current);
             }
 
             self.last_update_slot = Some(current_slot);
@@ -688,7 +687,7 @@ impl FastConfirmationRule {
             };
             if balance > 0
                 && self
-                    .head_assignments
+                    .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)?
                 && vote.current_root() == block_root
                 && !equivocating_indices.contains(&(val_idx as u64))
@@ -833,11 +832,9 @@ impl FastConfirmationRule {
         let block_epoch = get_block_epoch::<E>(block_root, proto_array)?;
 
         if block_epoch > get_block_epoch::<E>(parent_root, proto_array)? {
-            let start_slot =
-                compute_start_slot_at_epoch::<E>(get_block_epoch::<E>(block_root, proto_array)?);
             self.compute_adversarial_weight::<E>(
                 balance_source,
-                start_slot,
+                compute_start_slot_at_epoch::<E>(block_epoch),
                 current_slot.safe_sub(1)?,
                 equivocating_indices,
             )
@@ -901,7 +898,7 @@ impl FastConfirmationRule {
         for &idx in equivocating_indices {
             let idx = idx as usize;
             if self
-                .head_assignments
+                .slot_assignments
                 .is_in_range(idx, start_slot, end_slot)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
@@ -1017,7 +1014,7 @@ impl FastConfirmationRule {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
             //        get_latest_message_epoch(latest_messages[i])).
             if get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) == Some(target) {
-                score = score.safe_add(balance)?;
+                score.safe_add_assign(balance)?;
             }
         }
         Ok(score)
@@ -1161,7 +1158,8 @@ fn is_ancestor(
     let ancestor_slot = get_block_slot(ancestor_root, proto_array)?;
     Ok(proto_array
         .iter_block_roots(&block_root)
-        .any(|(root, slot)| slot <= ancestor_slot && root == ancestor_root))
+        .take_while(|(_, slot)| *slot >= ancestor_slot)
+        .any(|(root, _)| root == ancestor_root))
 }
 
 /// Spec: `get_ancestor`.
@@ -1171,7 +1169,9 @@ fn get_ancestor(
     proto_array: &ProtoArray,
 ) -> Result<Hash256, Error> {
     proto_array
-        .ancestor_at_slot(block_root, slot)
+        .iter_block_roots(&block_root)
+        .find(|(_, s)| *s <= slot)
+        .map(|(r, _)| r)
         .ok_or(Error::AncestorNotFound {
             block: block_root,
             slot,
@@ -1248,7 +1248,7 @@ fn get_current_target<E: EthSpec>(
 }
 
 /// Spec: `get_checkpoint_for_block`.
-/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
+/// Returns None, if `block_root` or its checkpoint block is not known to fork-choice
 fn get_checkpoint_for_block<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,
@@ -1261,7 +1261,7 @@ fn get_checkpoint_for_block<E: EthSpec>(
 }
 
 /// Spec: `get_checkpoint_block`.
-/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
+/// Returns None, if `block_root` or its checkpoint block is not known to fork-choice
 fn get_checkpoint_block_root<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,

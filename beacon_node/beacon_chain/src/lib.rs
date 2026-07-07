@@ -96,7 +96,6 @@ pub use custody_context::CustodyContext;
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
-pub use fast_confirmation;
 pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use kzg::{Kzg, TrustedSetup};
 pub use metrics::scrape_for_metrics;

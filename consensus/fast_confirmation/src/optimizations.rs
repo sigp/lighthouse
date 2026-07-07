@@ -146,6 +146,15 @@ impl RootKey for (Hash256, Epoch) {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+struct PrefixKey<K: RootKey>(K);
+
+impl<K: RootKey> std::hash::Hash for PrefixKey<K> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.prefix_hash());
+    }
+}
+
 /// Aggregates validator balances by vote key before running expensive per-key work.
 ///
 /// This intentionally changes the shape of the spec's per-validator loops, but not the result:
@@ -153,7 +162,7 @@ impl RootKey for (Hash256, Epoch) {
 /// validators after lookup, and avoids repeating the same ancestor walk for every validator with
 /// the same latest message.
 pub(crate) struct RootBalanceMap<K: RootKey> {
-    map: HashMap<u64, Vec<(K, u64)>, std::hash::BuildHasherDefault<IdentityU64Hasher>>,
+    map: HashMap<PrefixKey<K>, u64, std::hash::BuildHasherDefault<IdentityU64Hasher>>,
 }
 
 impl<K: RootKey> RootBalanceMap<K> {
@@ -164,20 +173,15 @@ impl<K: RootKey> RootBalanceMap<K> {
     }
 
     pub(crate) fn add(&mut self, key: K, balance: u64) -> Result<(), Error> {
-        let bucket = self.map.entry(key.prefix_hash()).or_default();
-        if let Some((_, existing_balance)) = bucket
-            .iter_mut()
-            .find(|(existing_key, _)| *existing_key == key)
-        {
-            *existing_balance = existing_balance.safe_add(balance)?;
-        } else {
-            bucket.push((key, balance));
-        }
+        self.map
+            .entry(PrefixKey(key))
+            .or_insert(0)
+            .safe_add_assign(balance)?;
         Ok(())
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (K, u64)> + '_ {
-        self.map.values().flat_map(|bucket| bucket.iter().copied())
+        self.map.iter().map(|(key, &balance)| (key.0, balance))
     }
 }
 
