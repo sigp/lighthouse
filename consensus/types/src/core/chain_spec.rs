@@ -300,7 +300,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    pub(crate) blob_schedule: BlobSchedule,
+    pub blob_schedule: BlobSchedule,
     pub min_epochs_for_data_column_sidecars_requests: u64,
 
     /*

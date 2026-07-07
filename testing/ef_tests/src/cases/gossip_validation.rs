@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    AttesterSlashing, BeaconState, BlockImportSource, ChainSpec, Checkpoint, EthSpec, ExecPayload,
-    ForkName, Hash256, ProposerSlashing, SignedBeaconBlock,
+    AttesterSlashing, BeaconState, BlobSchedule, BlockImportSource, ChainSpec, Checkpoint, EthSpec,
+    ExecPayload, ForkName, Hash256, ProposerSlashing, SignedBeaconBlock,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -53,6 +53,13 @@ struct Meta {
     messages: Vec<MessageMeta>,
     #[serde(default)]
     bls_setting: Option<BlsSetting>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+struct CaseConfig {
+    #[serde(default)]
+    blob_schedule: Option<BlobSchedule>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,7 +127,7 @@ pub struct GossipValidation<E: EthSpec> {
 impl<E: EthSpec> LoadCase for GossipValidation<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let meta: Meta = yaml_decode_file(&path.join("meta.yaml"))?;
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &Self::testing_spec(path, fork_name)?;
         let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
 
         Ok(Self {
@@ -149,7 +156,7 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
             bls_setting.check()?;
         }
 
-        let spec = testing_spec::<E>(fork_name);
+        let spec = Self::testing_spec(&self.path, fork_name)?;
         let tester = GossipTester::new(self, spec)?;
 
         for message_meta in &self.meta.messages {
@@ -467,6 +474,22 @@ impl<E: EthSpec> GossipTester<E> {
 }
 
 impl<E: EthSpec> GossipValidation<E> {
+    fn testing_spec(path: &Path, fork_name: ForkName) -> Result<ChainSpec, Error> {
+        let mut spec = testing_spec::<E>(fork_name);
+        let config_path = path.join("config.yaml");
+        if !config_path.exists() {
+            return Ok(spec);
+        }
+
+        let case_config: CaseConfig = yaml_decode_file(&config_path)?;
+        let Some(blob_schedule) = case_config.blob_schedule else {
+            return Ok(spec);
+        };
+
+        spec.blob_schedule = blob_schedule;
+        Ok(spec)
+    }
+
     fn is_known_production_mismatch(&self) -> bool {
         const IGNORED_BEACON_BLOCK_CASES: &[&str] = &[
             // This case sets finalized_checkpoint.root to 0xabab... without providing a block for
