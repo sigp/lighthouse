@@ -78,6 +78,29 @@ impl From<ArithError> for Error {
     }
 }
 
+/// Rich outcome of `is_one_confirmed` to track metrics in case of `BelowThreshold`..
+enum Confirmation {
+    Confirmed,
+    NotConfirmed(Unconfirmed),
+}
+
+/// Why a block failed `is_one_confirmed`.
+enum Unconfirmed {
+    /// The block's execution status is optimistic or invalid.
+    Optimistic,
+    /// Attestation support did not exceed the safety threshold.
+    BelowThreshold { support: u64, safety_threshold: u64 },
+}
+
+impl Confirmation {
+    fn is_confirmed(&self) -> bool {
+        match self {
+            Confirmation::Confirmed => true,
+            Confirmation::NotConfirmed(_) => false,
+        }
+    }
+}
+
 const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 
 /// The Fast Confirmation Rule state
@@ -466,15 +489,18 @@ impl FastConfirmationRule {
                     break;
                 }
 
-                if !self.is_one_confirmed::<E>(
-                    self.get_current_balance_source(),
-                    *block_root,
-                    &attestation_scores,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )? {
+                if !self
+                    .is_one_confirmed::<E>(
+                        self.get_current_balance_source(),
+                        *block_root,
+                        &attestation_scores,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    )?
+                    .is_confirmed()
+                {
                     break;
                 }
                 confirmed_root = *block_root;
@@ -509,15 +535,18 @@ impl FastConfirmationRule {
                     break;
                 }
 
-                if !self.is_one_confirmed::<E>(
-                    self.get_current_balance_source(),
-                    *block_root,
-                    &attestation_scores,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )? {
+                if !self
+                    .is_one_confirmed::<E>(
+                        self.get_current_balance_source(),
+                        *block_root,
+                        &attestation_scores,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    )?
+                    .is_confirmed()
+                {
                     break;
                 }
                 tentative_confirmed_root = *block_root;
@@ -622,7 +651,7 @@ impl FastConfirmationRule {
         )?;
 
         for root in &chain_roots {
-            if !self.is_one_confirmed::<E>(
+            if let Confirmation::NotConfirmed(unconfirmed) = self.is_one_confirmed::<E>(
                 self.get_previous_balance_source(),
                 *root,
                 &attestation_scores,
@@ -631,28 +660,23 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                // `root` is not confirmed. Figure out why for debugging purposes. Duplicates code
-                // of `is_one_confirmed` to keep the original function spec identical. This block
-                // just needs to return `Some(_)` to match spec logic.
-                if is_optimistic_or_invalid(*root, proto_array)? {
-                    return Ok(Some("unconfirmed_optimistic"));
-                } else {
-                    let support = get_attestation_score(*root, &attestation_scores)?;
-                    let safety_threshold = self.compute_safety_threshold::<E>(
-                        self.get_previous_balance_source(),
-                        *root,
-                        current_slot,
-                        proto_array,
-                        votes,
-                        equivocating_indices,
-                    )?;
-                    if safety_threshold > 0 {
-                        metrics::observe(
-                            &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
-                            support as f64 / safety_threshold as f64,
-                        );
+                // `root` is not confirmed; surface why for the revert metric.
+                match unconfirmed {
+                    Unconfirmed::BelowThreshold {
+                        support,
+                        safety_threshold,
+                    } => {
+                        if safety_threshold > 0 {
+                            metrics::observe(
+                                &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                                support as f64 / safety_threshold as f64,
+                            );
+                        }
+                        return Ok(Some("unconfirmed_optimistic"));
                     }
-                    return Ok(Some("unconfirmed_below_threshold"));
+                    Unconfirmed::Optimistic => {
+                        return Ok(Some("unconfirmed_below_threshold"));
+                    }
                 }
             }
         }
@@ -1077,10 +1101,10 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<bool, Error> {
-        // Spec MUST: return false if the block's execution status is not VALID.
+    ) -> Result<Confirmation, Error> {
+        // Spec MUST: not confirmed if the block's execution status is not VALID.
         if is_optimistic_or_invalid(block_root, proto_array)? {
-            return Ok(false);
+            return Ok(Confirmation::NotConfirmed(Unconfirmed::Optimistic));
         }
         let support = get_attestation_score(block_root, attestation_scores)?;
         let safety_threshold = self.compute_safety_threshold::<E>(
@@ -1091,7 +1115,14 @@ impl FastConfirmationRule {
             votes,
             equivocating_indices,
         )?;
-        Ok(support > safety_threshold)
+        if support > safety_threshold {
+            Ok(Confirmation::Confirmed)
+        } else {
+            Ok(Confirmation::NotConfirmed(Unconfirmed::BelowThreshold {
+                support,
+                safety_threshold,
+            }))
+        }
     }
 }
 
