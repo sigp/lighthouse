@@ -30,6 +30,8 @@ pub enum PayloadBidError {
     BuilderAlreadySeen { builder_index: u64, slot: Slot },
     /// Builder is not valid/active for the given epoch
     InvalidBuilder { builder_index: u64 },
+    /// The builder's version is not `PAYLOAD_BUILDER_VERSION`.
+    InvalidBuilderVersion { builder_index: u64, version: u8 },
     /// The bid value is lower than the currently cached bid.
     BidValueBelowCached {
         cached_value: u64,
@@ -37,6 +39,8 @@ pub enum PayloadBidError {
     },
     /// The bids slot is not the current slot or the next slot.
     InvalidBidSlot { bid_slot: Slot },
+    /// The bid's slot is not greater than the slot of its parent block.
+    BidNotDescendantOfParent { bid_slot: Slot, parent_slot: Slot },
     /// The slot clock cannot be read.
     UnableToReadSlot,
     /// No proposer preferences for the current slot.
@@ -57,6 +61,8 @@ pub enum PayloadBidError {
         max_blobs_per_block: usize,
         blob_kzg_commitments_len: usize,
     },
+    /// The bids prev randao value is invalid
+    InvalidPrevRandao { slot: Slot },
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Internal error

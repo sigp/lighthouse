@@ -68,6 +68,7 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
             },
             execution_payload_block_hash: if is_gloas { Some(get_hash(i)) } else { None },
             proposer_index: Some(0),
+            payload_received: false,
         };
 
         fork_choice

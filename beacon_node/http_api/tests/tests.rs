@@ -2924,8 +2924,16 @@ impl ApiTester {
             .get(lookahead_index)
             .expect("slot index should be in lookahead") as usize;
 
+        let dependent_root = head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                proposal_slot.epoch(E::slots_per_epoch()),
+                head.beacon_block_root,
+                &self.chain.spec,
+            )
+            .expect("should compute proposer shuffling decision root");
+
         let preferences = ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
@@ -4854,6 +4862,19 @@ impl ApiTester {
                 .clone();
 
             assert_eq!(result, expected);
+        }
+
+        // The committee_index in the response must always be 0 post-Electra,
+        // regardless of the query parameter.
+        let committee_count = state.get_committee_count_at_slot(slot).unwrap();
+        if committee_count > 0 {
+            let result = self
+                .client
+                .get_validator_attestation_data(slot, 1)
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(result.index, 0);
         }
 
         self

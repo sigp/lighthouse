@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{DataColumnSubnetId, EthSpec};
+use types::{DataColumnSubnetId, EthSpec, Slot};
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
@@ -337,6 +337,14 @@ impl<E: EthSpec> PeerInfo<E> {
             self.sync_status,
             SyncStatus::Synced { .. } | SyncStatus::Advanced { .. }
         )
+    }
+
+    /// Checks if the peer is synced or advanced, and has data available for the given slot.
+    pub fn is_synced_or_advanced_with_available_slot(&self, slot: Slot) -> bool {
+        match &self.sync_status {
+            SyncStatus::Synced { info } | SyncStatus::Advanced { info } => info.has_slot(slot),
+            SyncStatus::IrrelevantPeer | SyncStatus::Behind { .. } | SyncStatus::Unknown => false,
+        }
     }
 
     /// Checks if the status is connected.

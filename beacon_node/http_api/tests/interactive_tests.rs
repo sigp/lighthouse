@@ -3,7 +3,8 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
     test_utils::{
-        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
+        fork_name_from_env, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
@@ -366,9 +367,13 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // TODO(EIP-7732): extend test for Gloas — `get_validator_blocks_v3` is missing the
-    // `Eth-Execution-Payload-Blinded` header for Gloas block production responses.
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    // We don't run these test for post-Gloas forks because of the FcU changes that were
+    // applied in the gloas. Gloas adopted tests can be found in `gloas_re_org_test.rs`
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let spec = test_spec::<E>();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
@@ -876,7 +881,6 @@ async fn queue_attestations_from_http() {
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.
-    let parent_root = block.0.parent_root();
     harness
         .process_block(attestation_slot, block_root, block)
         .await
@@ -888,10 +892,7 @@ async fn queue_attestations_from_http() {
         .unwrap()
         .try_send(WorkEvent {
             drop_during_sync: false,
-            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-                block_root,
-                parent_root,
-            }),
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
         })
         .unwrap();
 
@@ -1261,8 +1262,7 @@ async fn lighthouse_restart_custody_backfill() {
     let max_cgc = spec.number_of_custody_groups;
 
     let num_blocks = 2 * E::slots_per_epoch();
-
-    let custody_context = harness.chain.data_availability_checker.custody_context();
+    let custody_context = &harness.chain.custody_context;
 
     harness.advance_slot();
     harness
@@ -1275,7 +1275,7 @@ async fn lighthouse_restart_custody_backfill() {
         )
         .await;
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head();
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     assert_eq!(cgc_at_head, max_cgc);
@@ -1285,9 +1285,9 @@ async fn lighthouse_restart_custody_backfill() {
         .update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap(), cgc_at_head);
     client.post_lighthouse_custody_backfill().await.unwrap();
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head();
     let cgc_at_previous_epoch =
-        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, spec);
+        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1);
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     // `DataColumnCustodyInfo` should have been updated to the head epoch

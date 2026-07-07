@@ -35,13 +35,13 @@ fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
 genesis = { workspace = true }
+hashlink = { workspace = true }
 hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
 milhouse = { workspace = true }

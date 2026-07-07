@@ -10,21 +10,19 @@
 
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use typenum::Unsigned;
-use types::new_non_zero_usize;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot};
 
 /// The number of sets of proposer indices that should be cached.
-const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+const CACHE_SIZE: usize = 16;
 
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
@@ -138,7 +136,8 @@ impl BeaconProposerCache {
     ) -> Arc<OnceCell<EpochBlockProposers>> {
         let key = (epoch, shuffling_decision_block);
         self.cache
-            .get_or_insert(key, || Arc::new(OnceCell::new()))
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone()
     }
 
@@ -155,10 +154,10 @@ impl BeaconProposerCache {
         fork: Fork,
     ) -> Result<(), BeaconStateError> {
         let key = (epoch, shuffling_decision_block);
-        if !self.cache.contains(&key) {
+        if !self.cache.contains_key(&key) {
             let epoch_proposers = EpochBlockProposers::new(epoch, fork, proposers);
             self.cache
-                .put(key, Arc::new(OnceCell::with_value(epoch_proposers)));
+                .insert(key, Arc::new(OnceCell::with_value(epoch_proposers)));
         }
 
         Ok(())
