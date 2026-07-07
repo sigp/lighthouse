@@ -47,7 +47,7 @@ use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::SlotAssignments;
 pub use slot_assignments::UNSET_SLOT;
 
-use proto_array::core::{ProtoArray, VoteTracker};
+use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
@@ -249,18 +249,16 @@ impl FastConfirmationRule {
         // late block or reorg). Each cache is keyed on the head's dependent root; rebuild it from
         // scratch, independently, when its own dependent root is stale (a reorg past the
         // previous-epoch boundary, or a new epoch).
-        if self.current_slot_head != head_root {
-            let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
+        let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
 
-            if self.slot_assignments.dependent_root() != head_dependent_root {
-                let _span = debug_span!("fcr_rebuild_assignments").entered();
-                self.slot_assignments = SlotAssignments::new::<E>(state)?;
-            }
+        if self.slot_assignments.dependent_root() != head_dependent_root {
+            let _span = debug_span!("fcr_rebuild_assignments").entered();
+            self.slot_assignments = SlotAssignments::new::<E>(state)?;
+        }
 
-            if self.head_balance_source.dependent_root != head_dependent_root {
-                let _span = debug_span!("fcr_rebuild_head_balance").entered();
-                self.head_balance_source = BalanceSourceData::for_epoch(state, current_epoch)?;
-            }
+        if self.head_balance_source.dependent_root != head_dependent_root {
+            let _span = debug_span!("fcr_rebuild_head_balance").entered();
+            self.head_balance_source = BalanceSourceData::for_epoch(state, current_epoch)?;
         }
 
         // Spec: update_fast_confirmation_variables must be called at most once per slot.
@@ -722,27 +720,26 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
-        let block_slot = get_block_slot(block_root, proto_array)?;
-        let parent_root = parent_root(block_root, proto_array)?;
-        let parent_slot = get_block_slot(parent_root, proto_array)?;
+        let block = get_block(block_root, proto_array)?;
+        let parent_block = parent_node_of(block, proto_array)?;
 
-        if parent_slot.safe_add(1)? == block_slot {
+        if parent_block.slot().safe_add(1)? == block.slot() {
             return Ok(0);
         }
 
         let parent_support_in_empty_slots = self.get_block_support_between_slots(
             balance_source,
-            parent_root,
-            parent_slot.safe_add(1)?,
-            block_slot.safe_sub(1)?,
+            parent_block.root(),
+            parent_block.slot().safe_add(1)?,
+            block.slot().safe_sub(1)?,
             votes,
             equivocating_indices,
         )?;
 
         let adversarial_weight = self.compute_adversarial_weight::<E>(
             balance_source,
-            parent_slot.safe_add(1)?,
-            block_slot.safe_sub(1)?,
+            parent_block.slot().safe_add(1)?,
+            block.slot().safe_sub(1)?,
             equivocating_indices,
         )?;
 
@@ -1101,11 +1098,13 @@ impl FastConfirmationRule {
 // Free functions: proto-array/store helpers
 // ---------------------------------------------------------------------------
 
+fn get_block(root: Hash256, proto_array: &ProtoArray) -> Result<&ProtoNode, Error> {
+    proto_array.get_block(root).ok_or(Error::NodeNotFound(root))
+}
+
 /// Spec: `get_block_slot`.
 fn get_block_slot(root: Hash256, proto_array: &ProtoArray) -> Result<Slot, Error> {
-    proto_array
-        .block_slot(root)
-        .ok_or(Error::NodeNotFound(root))
+    Ok(get_block(root, proto_array)?.slot())
 }
 
 /// Spec: `get_block_epoch`.
@@ -1113,24 +1112,21 @@ fn get_block_epoch<E: EthSpec>(
     root: Hash256,
     proto_array: &ProtoArray,
 ) -> Result<types::Epoch, Error> {
-    proto_array
-        .block_slot(root)
-        .map(|slot| slot.epoch(E::slots_per_epoch()))
-        .ok_or(Error::BlockEpochNone(root))
+    Ok(get_block_slot(root, proto_array)?.epoch(E::slots_per_epoch()))
 }
 
 fn parent_root(root: Hash256, proto_array: &ProtoArray) -> Result<Hash256, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    let parent_idx = node.parent().ok_or(Error::ParentRootNotFound(root))?;
+    let node = get_block(root, proto_array)?;
+    Ok(parent_node_of(node, proto_array)?.root())
+}
+
+fn parent_node_of<'a>(
+    node: &'a ProtoNode,
+    proto_array: &'a ProtoArray,
+) -> Result<&'a ProtoNode, Error> {
     proto_array
-        .nodes
-        .get(parent_idx)
-        .map(|parent| parent.root())
-        .ok_or(Error::ParentRootNotFound(root))
+        .get_parent(node)
+        .ok_or(Error::ParentRootNotFound(node.root()))
 }
 
 /// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
@@ -1138,12 +1134,7 @@ fn parent_root(root: Hash256, proto_array: &ProtoArray) -> Result<Hash256, Error
 /// optimistic (the spec MUST applies post-merge). A missing node will be
 /// rejected later by `get_block_slot`, so this returning `false` here is safe.
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    Ok(node
+    Ok(get_block(root, proto_array)?
         .execution_status()
         .ok()
         .is_some_and(|s| s.is_optimistic_or_invalid()))
@@ -1205,12 +1196,8 @@ fn unrealized_justification_of(
     root: Hash256,
     proto_array: &ProtoArray,
 ) -> Result<Checkpoint, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    node.unrealized_justified_checkpoint()
+    get_block(root, proto_array)?
+        .unrealized_justified_checkpoint()
         .ok_or(Error::UnrealizedJustificationNotFound(root))
 }
 
@@ -1220,11 +1207,7 @@ fn get_voting_source_epoch<E: EthSpec>(
     current_slot: Slot,
     proto_array: &ProtoArray,
 ) -> Result<types::Epoch, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
+    let node = get_block(root, proto_array)?;
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let block_epoch = node.slot().epoch(E::slots_per_epoch());
     if current_epoch > block_epoch {

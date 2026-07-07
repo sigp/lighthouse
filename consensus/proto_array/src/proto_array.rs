@@ -1836,9 +1836,8 @@ impl ProtoArray {
         self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
     }
 
-    /// Slot of the block `root`, or `None` if `root` is unknown.
-    pub fn block_slot(&self, root: Hash256) -> Option<Slot> {
-        self.get_block(root).map(|node| node.slot())
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of
