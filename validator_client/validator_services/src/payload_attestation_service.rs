@@ -223,27 +223,45 @@ where
             return None;
         };
 
+        // TODO(gloas) we can delete all gloas gating logic after mainnet forks to gloas
+        // At each slot we sleep for `duration_to_next_slot + payload_attestation_due`.
+        // So we evaluate if gloas is enabled at `current_slot + 1` to ensure that we don't
+        // skip PTC duties at the fork slot.
+        let attestation_slot = current_slot + 1;
+
         if !self
             .chain_spec
-            .fork_name_at_slot::<S::E>(current_slot)
+            .fork_name_at_slot::<S::E>(attestation_slot)
             .gloas_enabled()
         {
-            let duration_to_next_epoch = self
-                .slot_clock
-                .duration_to_next_epoch(S::E::slots_per_epoch())
-                .unwrap_or_else(|| {
-                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                });
-            sleep(duration_to_next_epoch).await;
+            let sleep_duration = self
+                .chain_spec
+                .gloas_fork_epoch
+                .and_then(|fork_epoch| {
+                    let pre_fork_slot = fork_epoch
+                        .start_slot(S::E::slots_per_epoch())
+                        .saturating_sub(1u64);
+                    self.slot_clock.duration_to_slot(pre_fork_slot)
+                })
+                .unwrap_or(slot_duration);
+            sleep(sleep_duration).await;
             return None;
         }
 
         sleep(duration_to_next_slot + payload_attestation_due).await;
 
-        let Some(attestation_slot) = self.slot_clock.now() else {
+        let Some(post_sleep_slot) = self.slot_clock.now() else {
             error!("Failed to read slot clock after sleep");
             return None;
         };
+        if post_sleep_slot != attestation_slot {
+            warn!(
+                %attestation_slot,
+                %post_sleep_slot,
+                "Skipping payload attestation, slot clock drifted during sleep"
+            );
+            return None;
+        }
 
         Some(attestation_slot)
     }
@@ -544,8 +562,17 @@ mod tests {
             num_validators: usize,
             payload_rx: Option<mpsc::Receiver<PayloadAvailableEvent>>,
         ) -> Self {
+            Self::create_validators_with_gloas_fork_epoch(num_validators, payload_rx, Epoch::new(0))
+                .await
+        }
+
+        async fn create_validators_with_gloas_fork_epoch(
+            num_validators: usize,
+            payload_rx: Option<mpsc::Receiver<PayloadAvailableEvent>>,
+            gloas_fork_epoch: Epoch,
+        ) -> Self {
             let mut default_spec = MainnetEthSpec::default_spec();
-            default_spec.gloas_fork_epoch = Some(Epoch::new(0));
+            default_spec.gloas_fork_epoch = Some(gloas_fork_epoch);
             let spec = Arc::new(default_spec);
 
             let test_runtime = TestRuntime::default();
@@ -666,6 +693,57 @@ mod tests {
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
             Some(Slot::new(1))
+        );
+    }
+
+    // The first Gloas slot must not be skipped: the iteration running in the last pre-Gloas
+    // slot has to arm the attestation for the fork slot.
+    // See https://github.com/sigp/lighthouse/issues/9584
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_at_fork_boundary() {
+        tokio::time::pause();
+
+        // Gloas activates at epoch 1, i.e. fork slot 32. The clock starts at slot 0.
+        let harness =
+            TestHarness::create_validators_with_gloas_fork_epoch(1, None, Epoch::new(1)).await;
+        let service = &harness.service;
+        let slot_clock = &harness.service.slot_clock;
+
+        // First iteration: the next slot (1) is pre-Gloas, so the service sleeps until one
+        // slot before the fork (slot 31 starts at 372s) and returns None.
+        let service_wait = service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        advance_time(slot_clock, Duration::from_secs(372)).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Pre-Gloas sleep should not end before one slot ahead of the fork"
+        );
+        advance_time(slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            None,
+            "Pre-Gloas iteration should wake at the last pre-fork slot and return None"
+        );
+        assert_eq!(slot_clock.now().unwrap(), Slot::new(31));
+
+        // Second iteration: runs during slot 31, so it arms the attestation for the first
+        // Gloas slot (32) and wakes 75% into it (slot 32 starts at 384s, due at 393s).
+        let service_wait = service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        advance_time(slot_clock, Duration::from_secs(20)).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Should not fire before the payload attestation deadline of the fork slot"
+        );
+        advance_time(slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(32)),
+            "The first Gloas slot must be attested"
         );
     }
 
