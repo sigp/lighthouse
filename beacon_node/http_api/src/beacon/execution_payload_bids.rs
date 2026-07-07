@@ -12,10 +12,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, warn};
 use types::SignedExecutionPayloadBid;
-use warp::{Filter, Rejection, Reply, hyper::Body, hyper::Response};
+use warp::{
+    Filter, Rejection,
+    reply::{Reply, Response},
+};
 
-// POST /eth/v1/beacon/execution_payload_bid (SSZ)
-pub(crate) fn post_beacon_execution_payload_bid_ssz<T: BeaconChainTypes>(
+// POST /eth/v1/beacon/execution_payload_bids (SSZ)
+pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -23,7 +26,7 @@ pub(crate) fn post_beacon_execution_payload_bid_ssz<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_bid"))
+        .and(warp::path("execution_payload_bids"))
         .and(warp::path::end())
         .and(warp::body::bytes())
         .and(task_spawner_filter)
@@ -46,8 +49,8 @@ pub(crate) fn post_beacon_execution_payload_bid_ssz<T: BeaconChainTypes>(
         .boxed()
 }
 
-// POST /eth/v1/beacon/execution_payload_bid
-pub(crate) fn post_beacon_execution_payload_bid<T: BeaconChainTypes>(
+// POST /eth/v1/beacon/execution_payload_bids
+pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -55,7 +58,7 @@ pub(crate) fn post_beacon_execution_payload_bid<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_bid"))
+        .and(warp::path("execution_payload_bids"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(task_spawner_filter)
@@ -78,7 +81,7 @@ pub fn publish_execution_payload_bid<T: BeaconChainTypes>(
     bid: SignedExecutionPayloadBid<T::EthSpec>,
     chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<Response, Rejection> {
     let slot = bid.slot();
     let builder_index = bid.message.builder_index;
 

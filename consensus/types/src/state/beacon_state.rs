@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -1127,21 +1127,33 @@ impl<E: EthSpec> BeaconState<E> {
             // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
             // would be very dangerous as it would lead to conflicts between the *true* proposer as
             // defined by `self.proposer_lookahead` and the output of this function.
-            // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
-            // requested epoch is not the current epoch.
             //
-            // We do not run this check if this function is called from `upgrade_to_fulu`,
-            // which runs *after* the slot is incremented, and needs to compute the proposer
-            // shuffling for the epoch that was just transitioned into.
-            if self.fork_name_unchecked().fulu_enabled()
-                && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
-            {
-                return Err(
-                    BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
-                        current_epoch,
-                        request_epoch: epoch,
-                    },
-                );
+            // Furthermore, post-Gloas, we must never compute proposers at any slot other than the
+            // dependent root slot itself, as slashings at subsequent slots have the ability to
+            // change the shuffling.
+            //
+            // For simplicity these two checks are combined into a single check on the dependent
+            // slot, which is safe for Fulu and Gloas. This function is always called from
+            // `get_beacon_proposer_indices`, which uses the cached lookahead for `current_epoch` and
+            // `next_epoch`. The only epoch's shuffling that should ordinarily be computed therefore
+            // is `next_epoch + 1`, which for Fulu and Gloas is computed during the epoch transition
+            // in the last slot of `current_epoch` (before the slot is incremented into
+            // `next_epoch`).
+            //
+            // The only case where computation of proposers in `current_epoch` and `next_epoch` is
+            // directly required is during the fork to Fulu itself
+            // (`upgrade_to_fulu`/`initialize_proposer_lookahead`), in which case the state is not
+            // yet the Fulu variant, and we omit the check.
+            if self.fork_name_unchecked().fulu_enabled() {
+                let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+                if self.slot() != dependent_slot {
+                    return Err(
+                        BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
+                            current_epoch,
+                            request_epoch: epoch,
+                        },
+                    );
+                }
             }
         } else {
             // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
@@ -1329,43 +1341,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Check if the validator is the proposer for the given slot in the current or next epoch.
-    pub fn is_valid_proposal_slot(
-        &self,
-        preferences: &ProposerPreferences,
-        spec: &ChainSpec,
-    ) -> Result<bool, BeaconStateError> {
-        let current_epoch = self.current_epoch();
-        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
-
-        if proposal_epoch < current_epoch {
-            return Ok(false);
-        }
-
-        if proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead) {
-            return Ok(false);
-        }
-
-        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
-
-        let slot_in_epoch = preferences
-            .proposal_slot
-            .as_u64()
-            .safe_rem(E::slots_per_epoch())?;
-
-        let index = epoch_offset
-            .safe_mul(E::slots_per_epoch())
-            .and_then(|v| v.safe_add(slot_in_epoch))?;
-
-        let proposer_lookahead = self.proposer_lookahead()?;
-
-        let proposer = proposer_lookahead
-            .get(index as usize)
-            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
-
-        Ok(*proposer == preferences.validator_index)
-    }
-
     /// Returns the beacon proposer index for each `slot` in `epoch`.
     ///
     /// The returned `Vec` contains one proposer index for each slot in the epoch.
@@ -1375,7 +1350,7 @@ impl<E: EthSpec> BeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, BeaconStateError> {
         // This isn't in the spec, but we remove the footgun that is requesting the current epoch
-        // for a Fulu state.
+        // or next epoch for a Fulu state.
         if let Ok(proposer_lookahead) = self.proposer_lookahead()
             && epoch >= self.current_epoch()
             && epoch <= self.next_epoch()?
@@ -1394,7 +1369,15 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Not using the cached validator indices since they are shuffled.
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        let mut indices = self.get_active_validator_indices(epoch, spec)?;
+
+        // Post-Gloas, slashed validators are excluded from proposer selection
+        if self.fork_name_unchecked().gloas_enabled() {
+            let latest_block_slot = self.latest_block_header().slot;
+            let slashings_cache = self.slashings_cache();
+            slashings_cache.check_initialized(latest_block_slot)?;
+            indices.retain(|&index| !slashings_cache.is_slashed(index));
+        }
 
         let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
         self.compute_proposer_indices(epoch, preimage.as_slice(), &indices, spec)
@@ -2041,6 +2024,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn add_builder_to_registry(
         &mut self,
         pubkey: PublicKeyBytes,
+        version: u8,
         withdrawal_credentials: Hash256,
         amount: u64,
         slot: Slot,
@@ -2052,10 +2036,6 @@ impl<E: EthSpec> BeaconState<E> {
         let builder_index = self.get_index_for_new_builder()?;
         let builders = self.builders_mut()?;
 
-        let version = *withdrawal_credentials
-            .as_slice()
-            .first()
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
         let execution_address = withdrawal_credentials
             .as_slice()
             .get(12..)

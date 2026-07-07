@@ -469,7 +469,6 @@ impl<E: EthSpec> fmt::Debug for Work<E> {
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
-    GossipAttestationToConvert,
     UnknownBlockAttestation,
     UnknownBlockDataColumn,
     GossipAttestationBatch,
@@ -973,9 +972,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     None
                                 }
                             }
-                        // Convert any gossip attestations that need to be converted.
-                        } else if let Some(item) = work_queues.attestation_to_convert_queue.pop() {
-                            Some(item)
                         // Check payload attestation messages after attestations. They dont give rewards
                         // but they influence fork choice.
                         } else if let Some(item) =
@@ -1297,9 +1293,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
                         WorkType::GossipAttestation => work_queues.attestation_queue.len(),
-                        WorkType::GossipAttestationToConvert => {
-                            work_queues.attestation_to_convert_queue.len()
-                        }
                         WorkType::UnknownBlockAttestation => {
                             work_queues.unknown_block_attestation_queue.len()
                         }

@@ -8,7 +8,9 @@ use crate::version::{
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
+use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
+};
 use bytes::Bytes;
 use eth2::types as api_types;
 use lighthouse_network::PubsubMessage;
@@ -20,12 +22,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
-    Filter, Rejection, Reply,
-    hyper::{Body, Response},
+    Filter, Rejection,
+    http::response::Builder,
+    reply::{Reply, Response},
 };
 
-// POST beacon/execution_payload_envelope (SSZ)
-pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
+// POST beacon/execution_payload_envelopes (SSZ)
+pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -33,7 +36,7 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
         .and(warp::body::bytes())
         .and(task_spawner_filter)
@@ -57,8 +60,8 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
         .boxed()
 }
 
-// POST beacon/execution_payload_envelope
-pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
+// POST beacon/execution_payload_envelopes
+pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -66,7 +69,7 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
@@ -85,13 +88,13 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         .boxed()
 }
 /// Publishes a signed execution payload envelope to the network. Implements
-/// `POST /eth/v1/beacon/execution_payload_envelope` per the in-flight beacon-APIs PR
+/// `POST /eth/v1/beacon/execution_payload_envelopes` per the in-flight beacon-APIs PR
 /// <https://github.com/ethereum/beacon-APIs/pull/580>.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<Response, Rejection> {
     let slot = envelope.slot();
     let beacon_block_root = envelope.message.beacon_block_root;
 
@@ -144,7 +147,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip)),
         )
         .map_err(|_| {
-            EnvelopeError::BeaconChainError(Arc::new(
+            EnvelopeError::BeaconChainError(Box::new(
                 beacon_chain::BeaconChainError::UnableToPublish,
             ))
         })
@@ -160,12 +163,16 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )
         .await;
 
-    if let Err(e) = import_result {
-        warn!(%slot, error = ?e, "Failed to import execution payload envelope");
-        return Err(warp_utils::reject::custom_server_error(format!(
-            "envelope import failed: {e}"
-        )));
-    }
+    let mut envelope_imported = match &import_result {
+        Ok(AvailabilityProcessingStatus::Imported(_, _)) => true,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => false,
+        Err(e) => {
+            warn!(%slot, error = ?e, "Failed to import execution payload envelope");
+            return Err(warp_utils::reject::custom_server_error(format!(
+                "envelope import failed: {e}"
+            )));
+        }
+    };
 
     // From here on the envelope is on the wire. `take_blobs` already consumed the cache
     // entry, so a retry would not republish columns; returning Err would mislead the
@@ -194,24 +201,32 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             }
 
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
+            let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
             let sampling_columns = gossip_verified_columns
                 .into_iter()
                 .filter(|col| sampling_column_indices.contains(&col.index()))
                 .collect::<Vec<_>>();
 
             // Local processing only — envelope already broadcast, so log and fall through.
-            if !sampling_columns.is_empty()
-                && let Err(e) =
-                    Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
-            {
-                error!(
-                    %slot,
-                    error = ?e,
-                    "Failed to process sampling data columns during envelope publication"
-                );
+            if !sampling_columns.is_empty() {
+                match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(_, _)) => envelope_imported = true,
+                    Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
+                    Err(e) => {
+                        error!(
+                            %slot,
+                            error = ?e,
+                            "Failed to process sampling data columns during envelope publication"
+                        );
+                    }
+                }
             }
         }
+    }
+
+    if envelope_imported {
+        chain.recompute_head_at_current_slot().await;
     }
 
     Ok(warp::reply().into_response())
@@ -292,8 +307,8 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
 }
 
 // TODO(gloas): add tests for this endpoint once we support importing payloads into the db
-// GET beacon/execution_payload_envelope/{block_id}
-pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
+// GET beacon/execution_payload_envelopes/{block_id}
+pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection>
     + Clone
@@ -305,7 +320,7 @@ pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(task_spawner_filter)
@@ -331,10 +346,10 @@ pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(envelope.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(envelope.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",

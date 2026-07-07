@@ -16,7 +16,7 @@ pub use eth2::lighthouse::sync_state::{BackFillState, CustodyBackFillState, Sync
 pub use globals::NetworkGlobals;
 pub use partial::HeaderSentSet;
 pub use partial::OutgoingPartialColumn;
-pub use pubsub::{PubsubMessage, SnappyTransform, decode_partial};
+pub use pubsub::{PubsubMessage, PubsubPartialMessage, SnappyTransform, decode_partial};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use topics::{
     GossipEncoding, GossipKind, GossipTopic, TopicConfig, all_topics_at_fork,

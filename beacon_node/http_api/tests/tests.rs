@@ -2924,8 +2924,16 @@ impl ApiTester {
             .get(lookahead_index)
             .expect("slot index should be in lookahead") as usize;
 
+        let dependent_root = head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                proposal_slot.epoch(E::slots_per_epoch()),
+                head.beacon_block_root,
+                &self.chain.spec,
+            )
+            .expect("should compute proposer shuffling decision root");
+
         let preferences = ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
@@ -3085,12 +3093,12 @@ impl ApiTester {
     }
 
     /// JSON bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_json(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_json(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid(&bid, fork_name)
+            .post_beacon_execution_payload_bids(&bid, fork_name)
             .await;
 
         assert!(
@@ -3102,12 +3110,12 @@ impl ApiTester {
     }
 
     /// SSZ bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_ssz(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_ssz(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid_ssz(&bid, fork_name)
+            .post_beacon_execution_payload_bids_ssz(&bid, fork_name)
             .await;
 
         assert!(
@@ -4433,7 +4441,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4452,7 +4460,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4495,7 +4503,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot)
+                .get_validator_execution_payload_envelopes_ssz::<E>(slot)
                 .await
                 .unwrap();
 
@@ -4513,7 +4521,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes_ssz(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4856,6 +4864,19 @@ impl ApiTester {
             assert_eq!(result, expected);
         }
 
+        // The committee_index in the response must always be 0 post-Electra,
+        // regardless of the query parameter.
+        let committee_count = state.get_committee_count_at_slot(slot).unwrap();
+        if committee_count > 0 {
+            let result = self
+                .client
+                .get_validator_attestation_data(slot, 1)
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(result.index, 0);
+        }
+
         self
     }
 
@@ -4942,7 +4963,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4950,7 +4971,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -7967,8 +7988,8 @@ impl ApiTester {
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
         let builder_boost_factor = None;
 
-        // Default case where GraffitiPolicy is None
-        let default_path = self
+        // When GraffitiPolicy is None
+        let no_graffiti_policy_path = self
             .client
             .get_validator_blocks_v3_path(
                 slot,
@@ -7981,13 +8002,30 @@ impl ApiTester {
             .await
             .unwrap();
 
+        // Default case where GraffitiPolicy is AppendClientVersions
+        let default_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                builder_boost_factor,
+                Some(GraffitiPolicy::AppendClientVersions),
+            )
+            .await
+            .unwrap();
+
+        let query_none_path = no_graffiti_policy_path.query().unwrap_or("");
         let query_default_path = default_path.query().unwrap_or("");
-        // When GraffitiPolicy is None, the HTTP API query path should not contain "graffiti_policy"
+        // When GraffitiPolicy is AppendClientVersions (default GraffitiPolicy), the HTTP API query path should not contain "graffiti_policy"
         assert!(
             !query_default_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
             query_default_path
         );
+        // The HTTP API query path for GraffiliPolicy is None should be the same as the default (GraffitiPolicy = AppendClientVersions)
+        assert_eq!(query_none_path, query_default_path);
 
         let preserve_path = self
             .client
@@ -8003,36 +8041,86 @@ impl ApiTester {
             .unwrap();
 
         let query_preserve_path = preserve_path.query().unwrap_or("");
-        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should not contain "graffiti_policy"
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should contain "graffiti_policy"
         assert!(
-            !query_preserve_path.contains("graffiti_policy"),
+            query_preserve_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
             query_preserve_path
         );
 
-        // The HTTP API query path for PreserveUserGraffiti should be the same as the default
-        assert_eq!(query_default_path, query_preserve_path);
+        self
+    }
 
-        let append_path = self
+    async fn get_validator_blocks_v4_path_graffiti_policy(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+        let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
+        let builder_boost_factor = None;
+
+        // When GraffitiPolicy is None
+        let no_graffiti_policy_path = self
             .client
-            .get_validator_blocks_v3_path(
+            .get_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
-                SkipRandaoVerification::No,
+                SkipRandaoVerification::Yes,
+                None,
+                builder_boost_factor,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Default case where GraffitiPolicy is AppendClientVersions
+        let default_path = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                None,
                 builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
             .await
             .unwrap();
 
-        let query_append_path = append_path.query().unwrap_or("");
-        // When GraffitiPolicy is AppendClientVersions, the HTTP API query path should contain "graffiti_policy"
+        let query_none_path = no_graffiti_policy_path.query().unwrap_or("");
+        let query_default_path = default_path.query().unwrap_or("");
+        // When GraffitiPolicy is AppendClientVersions (default GraffitiPolicy), the HTTP API query path should not contain "graffiti_policy"
         assert!(
-            query_append_path.contains("graffiti_policy"),
-            "URL should contain graffiti_policy=AppendClientVersions parameter. URL is: {}",
-            query_append_path
+            !query_default_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
+            query_default_path
         );
+        // The HTTP API query path for GraffiliPolicy is None should be the same as the default (GraffitiPolicy = AppendClientVersions)
+        assert_eq!(query_none_path, query_default_path);
+
+        let preserve_path = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                None,
+                builder_boost_factor,
+                Some(GraffitiPolicy::PreserveUserGraffiti),
+            )
+            .await
+            .unwrap();
+
+        let query_preserve_path = preserve_path.query().unwrap_or("");
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should contain "graffiti_policy"
+        assert!(
+            query_preserve_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
+            query_preserve_path
+        );
+
         self
     }
 }
@@ -9531,10 +9619,12 @@ async fn get_beacon_rewards_attestations_fulu() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_blocks_v3_http_api_path() {
+async fn get_validator_blocks_http_api_path() {
     ApiTester::new()
         .await
         .get_validator_blocks_v3_path_graffiti_policy()
+        .await
+        .get_validator_blocks_v4_path_graffiti_policy()
         .await;
 }
 
@@ -9558,14 +9648,14 @@ async fn post_validator_proposer_preferences() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_execution_payload_bid() {
+async fn post_beacon_execution_payload_bids() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new_with_hard_forks()
         .await
-        .test_post_beacon_execution_payload_bid_json()
+        .test_post_beacon_execution_payload_bids_json()
         .await
-        .test_post_beacon_execution_payload_bid_ssz()
+        .test_post_beacon_execution_payload_bids_ssz()
         .await;
 }

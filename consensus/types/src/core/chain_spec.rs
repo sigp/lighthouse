@@ -37,6 +37,7 @@ pub enum Domain {
     BeaconBuilder,
     PTCAttester,
     ProposerPreferences,
+    BuilderDeposit,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -147,6 +148,7 @@ pub struct ChainSpec {
     pub(crate) domain_beacon_builder: u32,
     pub(crate) domain_ptc_attester: u32,
     pub(crate) domain_proposer_preferences: u32,
+    pub(crate) domain_builder_deposit: u32,
 
     /*
      * Fork choice
@@ -525,6 +527,7 @@ impl ChainSpec {
             Domain::BeaconBuilder => self.domain_beacon_builder,
             Domain::PTCAttester => self.domain_ptc_attester,
             Domain::ProposerPreferences => self.domain_proposer_preferences,
+            Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1158,6 +1161,7 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
@@ -1583,6 +1587,7 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
@@ -2982,6 +2987,12 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(
+            Domain::ProposerPreferences,
+            spec.domain_proposer_preferences,
+            &spec,
+        );
+        test_domain(Domain::BuilderDeposit, spec.domain_builder_deposit, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
