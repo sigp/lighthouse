@@ -49,7 +49,7 @@ pub use slot_assignments::UNSET_SLOT;
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
@@ -1208,20 +1208,21 @@ fn get_ancestor_roots(
     proto_array: &ProtoArray,
 ) -> Result<Vec<Hash256>, Error> {
     let terminal_slot = get_block_slot(terminal_root, proto_array)?;
-    let mut roots = Vec::new();
+    let mut node = get_block(block_root, proto_array)?;
+    let mut ancestor_roots = VecDeque::new();
 
-    for (root, slot) in proto_array.iter_block_roots(&block_root) {
-        if root == terminal_root {
-            roots.reverse();
-            return Ok(roots);
+    while node.slot() > terminal_slot {
+        ancestor_roots.push_front(node.root());
+        node = parent_node_of(node, proto_array)?;
+
+        // Return when terminal_root is reached
+        if node.root() == terminal_root {
+            return Ok(ancestor_roots.into());
         }
-        if slot <= terminal_slot {
-            return Ok(Vec::new());
-        }
-        roots.push(root);
     }
 
-    Ok(Vec::new())
+    // Return empty list if terminal_root is not in the chain of block_root
+    return Ok(vec![]);
 }
 
 fn unrealized_justification_of(
