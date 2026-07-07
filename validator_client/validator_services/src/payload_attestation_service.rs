@@ -242,11 +242,11 @@ where
 
         debug!(%slot, duty_count = duties.len(), "Producing payload attestations");
 
-        let mut payload_data_from_event = None;
-
-        if let Some((beacon_node_index, expected_block_root)) = beacon_node_data {
-            match self
-                .beacon_nodes
+        let attestation_data = if let Some((beacon_node_index, expected_block_root)) =
+            beacon_node_data
+        {
+            // Only publish early if payload is present and blob data is available.
+            self.beacon_nodes
                 .run_on_candidate_index(beacon_node_index, |beacon_node| async move {
                     let _timer = validator_metrics::start_timer_vec(
                         &validator_metrics::PAYLOAD_ATTESTATION_SERVICE_TIMES,
@@ -264,17 +264,22 @@ where
                             data.beacon_block_root
                         ));
                     }
+                    if !data.payload_present {
+                        return Err(format!(
+                            "Node {beacon_node_index} does not report payload present for block {expected_block_root:?}"
+                        ));
+                    }
+                    if !data.blob_data_available {
+                        return Err(format!(
+                            "Node {beacon_node_index} does not report blob data available for block {expected_block_root:?}"
+                        ));
+                    }
                     Ok(data)
                 })
                 .await
-            {
-                Ok(data) => payload_data_from_event = Some(data),
-                Err(e) => warn!(error = ?e, %slot, "Failed to attest based on payload available event"),
-            }
-        }
-
-        let attestation_data = if let Some(data) = payload_data_from_event {
-            data
+                .map_err(|e| {
+                    format!("Failed to attest based on payload available event: {e:?}")
+                })?
         } else {
             match self
                 .beacon_nodes
@@ -954,7 +959,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn early_event_block_root_mismatch_falls_back_to_first_success() {
+    async fn early_event_block_root_mismatch_defers_to_deadline() {
         let mut harness = TestHarness::create_validators(1, None).await;
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -970,8 +975,8 @@ mod tests {
         };
 
         // Node 1 returns actual_block_root, but the event says event_block_root.
-        // run_on_candidate_index should detect mismatch, warn, then fall back to first_success.
-        // first_success calls node 1 again (no block root check) and succeeds.
+        // run_on_candidate_index should detect the mismatch and error out so the caller
+        // retries at the deadline, rather than publishing early.
         let mock_get = harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
@@ -985,32 +990,79 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
         let service = harness.service;
-        let (duties, attestation_data) = service
+        let result = service
             .produce_payload_attestation_data(attestation_slot, Some((0, event_block_root)))
-            .await
-            .unwrap()
-            .unwrap();
-        service
-            .sign_and_publish(attestation_slot, duties, attestation_data)
-            .await
-            .unwrap();
+            .await;
+        assert!(result.is_err(), "mismatch must not produce data early");
 
-        // Despite the mismatch, the fallback path still published successfully.
-        mock_ssz.expect(1).assert();
-        // Assert GET was called twice: once in run_on_candidate_index (fails due to mismatch),
-        // once in first_success (succeeds)
-        mock_get.expect(2).assert();
+        // GET was only called once (no first_success fallback), and nothing was published.
+        mock_get.expect(1).assert();
+        mock_ssz.expect(0).assert();
 
-        let messages = harness
-            .mock_beacon_node_1
-            .payload_attestation_message
-            .lock()
-            .unwrap();
-        assert_eq!(messages.len(), 1);
+        assert!(
+            harness
+                .mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published on block root mismatch"
+        );
     }
 
     #[tokio::test]
-    async fn early_event_node_error_falls_back_to_first_success() {
+    async fn early_event_payload_not_present_defers_to_deadline() {
+        let mut harness = TestHarness::create_validators(1, None).await;
+        let attestation_slot = Slot::new(1);
+        harness.insert_ptc_duties(attestation_slot);
+
+        let expected_block_root = Hash256::from_low_u64_be(42);
+        // Root matches the event, but the node reports a negative vote. Publishing this
+        // early would be premature: the payload may still arrive before the deadline.
+        let payload_attestation = PayloadAttestationData {
+            beacon_block_root: expected_block_root,
+            slot: attestation_slot,
+            payload_present: false,
+            blob_data_available: false,
+        };
+
+        let mock_get = harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
+            );
+
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        let service = harness.service;
+        let result = service
+            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .await;
+        assert!(
+            result.is_err(),
+            "negative vote must not be published before the deadline"
+        );
+
+        mock_get.expect(1).assert();
+        mock_ssz.expect(0).assert();
+
+        assert!(
+            harness
+                .mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published early on a negative vote"
+        );
+    }
+
+    #[tokio::test]
+    async fn early_event_node_error_defers_to_deadline() {
         let mut harness = TestHarness::create_validators(1, None).await;
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -1023,13 +1075,14 @@ mod tests {
             blob_data_available: true,
         };
 
-        // Node 1 (index 0) errors on GET — run_on_candidate_index(0) fails.
+        // Node 1 (index 0) errors on GET — run_on_candidate_index(0) fails and the early
+        // attempt must error out instead of falling back to another node.
         harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data_error(attestation_slot);
 
-        // first_success tries node 1 (fails), then node 2 (succeeds).
-        harness
+        // Node 2 would answer, but must not be queried by the early path.
+        let mock_get_node_2 = harness
             .mock_beacon_node_2
             .mock_get_validator_payload_attestation_data(
                 &payload_attestation,
@@ -1037,36 +1090,25 @@ mod tests {
                 attestation_slot,
             );
 
-        // SSZ fails on node 1, so falls back to JSON on node 2.
-        let mock_ssz_error = harness
-            .mock_beacon_node_1
-            .mock_post_beacon_pool_payload_attestations_ssz_error();
-        let mock_json = harness
-            .mock_beacon_node_2
-            .mock_post_beacon_pool_payload_attestations();
-
         let service = harness.service;
-        let (duties, attestation_data) = service
+        let result = service
             .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .await;
+        assert!(result.is_err(), "node error must not produce data early");
+
+        let mock_get_node_2 = mock_get_node_2.expect(0);
+        mock_get_node_2.assert();
+
+        // The caller retries at the deadline without event data; first_success is then free
+        // to use any node.
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, None)
             .await
             .unwrap()
             .unwrap();
-        service
-            .sign_and_publish(attestation_slot, duties, attestation_data)
-            .await
-            .unwrap();
-
-        // SSZ was attempted (and failed), JSON fallback succeeded.
-        mock_ssz_error.expect(2).assert(); // first_success retries both nodes before giving up
-        mock_json.expect(1).assert();
-
-        let messages = harness
-            .mock_beacon_node_2
-            .payload_attestation_message
-            .lock()
-            .unwrap();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].data.beacon_block_root, expected_block_root);
+        assert_eq!(attestation_data.beacon_block_root, expected_block_root);
+        assert_eq!(duties.len(), 1);
+        mock_get_node_2.expect(1).assert();
     }
 
     #[tokio::test]
