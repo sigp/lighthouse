@@ -937,7 +937,7 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )
         })?;
-        Ok(3u128 * honest_ffg as u128 > total_active_balance as u128)
+        Ok(honest_ffg.safe_mul(3)? > total_active_balance)
     }
 
     /// Spec: `will_current_target_be_justified`.
@@ -960,7 +960,7 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )
         })?;
-        Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active_balance as u128)
+        Ok(honest_ffg.safe_mul(3)? >= total_active_balance.safe_mul(2)?)
     }
 
     /// Spec: `get_current_target_score` — estimates FFG support for the current-epoch target.
