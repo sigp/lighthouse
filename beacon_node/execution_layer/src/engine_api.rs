@@ -70,7 +70,14 @@ pub enum Error {
     InvalidClientVersion(String),
     TooManyConsolidationRequests(usize),
     SszDecode(ssz::DecodeError),
-    RestProblem { status: u16, problem: String, detail: Option<String> }
+    RestProblem { status: u16, problem: String, detail: Option<String> },
+    TransportAlreadyResolved(transport::Transport),
+}
+
+impl From<transport::Transport> for Error {
+    fn from(transport: transport::Transport) -> Self {
+        Error::TransportAlreadyResolved(transport)
+    }
 }
 
 impl From<reqwest::Error> for Error {
@@ -623,6 +630,13 @@ impl EngineCapabilities {
     pub fn get_payload_bodies_by_range(&self) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
+            Self::Ssz(capabilities) => capabilities.bodies,
+        }
+    }
+
+    pub fn get_payload_bodies_by_hash(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
             Self::Ssz(capabilities) => capabilities.bodies,
         }
     }

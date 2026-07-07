@@ -338,7 +338,7 @@ impl HttpRestSsz {
         Ok(Some(response.into_v3()))
     }
 
-    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
         &self,
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
@@ -356,7 +356,7 @@ impl HttpRestSsz {
             .map_err(Error::BadResponse)
     }
 
-    pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
+    pub async fn get_payload_bodies_by_range<E: EthSpec>(
         &self,
         fork: ForkName,
         start: u64,
