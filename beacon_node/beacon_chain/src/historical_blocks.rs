@@ -1,5 +1,5 @@
-use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::payload_envelope_verification::AvailableEnvelope;
+use crate::block_verification_types::RangeSyncBlock;
+use crate::data_availability_checker::AvailableBlockData;
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
 use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
@@ -15,12 +15,6 @@ use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, 
 use strum::IntoStaticStr;
 use tracing::{debug, debug_span, instrument};
 use types::{Hash256, Slot};
-
-/// An available block together with its optional Gloas payload envelope, as produced by
-/// `RangeSyncBlock::into_available_block` and consumed by `import_historical_block_batch`.
-///
-/// The envelope is `None` for pre-Gloas blocks (and for Gloas blocks with no payload data).
-pub type AvailableBlockWithEnvelope<E> = (AvailableBlock<E>, Option<AvailableEnvelope<E>>);
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -80,7 +74,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlockWithEnvelope<T::EthSpec>>,
+        mut blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
@@ -90,9 +84,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // This allows for reimport of the blobs/columns for the finalized block after checkpoint
         // sync.
-        let num_relevant = blocks.partition_point(|(available_block, _envelope)| {
-            available_block.block().slot() <= anchor_info.oldest_block_slot
-        });
+        let num_relevant = blocks
+            .partition_point(|block| block.as_block().slot() <= anchor_info.oldest_block_slot);
 
         let total_blocks = blocks.len();
         blocks.truncate(num_relevant);
@@ -129,9 +122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // already stored during checkpoint sync.
         let mut child_bid_parent_hash = blocks_to_import
             .last()
-            .filter(|(available_block, _envelope)| {
-                available_block.block().fork_name_unchecked().gloas_enabled()
-            })
+            .filter(|block| matches!(block, RangeSyncBlock::Gloas { .. }))
             .and_then(|_| {
                 self.block_root_at_slot(anchor_info.oldest_block_slot, WhenSlotSkipped::None)
                     .ok()
@@ -152,8 +143,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
-        for (available_block, envelope) in blocks_to_import.into_iter().rev() {
-            let (block_root, block, block_data) = available_block.deconstruct();
+        for range_sync_block in blocks_to_import.into_iter().rev() {
+            let (block_root, block, block_data, envelope) = match range_sync_block {
+                RangeSyncBlock::Base(available_block) => {
+                    let (block_root, block, block_data) = available_block.deconstruct();
+                    (block_root, block, block_data, None)
+                }
+                RangeSyncBlock::Gloas { block, envelope } => (
+                    block.canonical_root(),
+                    block,
+                    AvailableBlockData::NoData,
+                    envelope,
+                ),
+            };
 
             if block.slot() == anchor_info.oldest_block_slot {
                 // When reimporting, verify that this is actually the same block (same block root).

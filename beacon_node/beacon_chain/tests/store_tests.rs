@@ -2,7 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -3303,33 +3303,39 @@ async fn weak_subjectivity_sync_test(
 
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
-
-            let (fully_available_block, envelope) =
-                range_sync_block.into_available_block().unwrap();
-            harness
-                .chain
-                .data_availability_checker
-                .verify_kzg_for_available_block(&fully_available_block)
-                .expect("should verify kzg");
-            available_blocks.push((fully_available_block, envelope));
+            available_blocks.push(range_sync_block);
         }
+        harness
+            .chain
+            .data_availability_checker
+            .batch_verify_kzg_for_range_sync_blocks(&available_blocks)
+            .expect("should verify kzg");
 
         // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
         // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-        let mut batch_with_invalid_first_block = available_blocks
-            .iter()
-            .map(|(block, envelope)| (clone_block(block), envelope.clone()))
-            .collect::<Vec<_>>();
-        batch_with_invalid_first_block[0] = {
-            let (first_block, first_envelope) = &available_blocks[0];
-            let (_, block, data) = clone_block(first_block).deconstruct();
-            let mut corrupt_block = (*block).clone();
-            *corrupt_block.signature_mut() = Signature::empty();
-            (
-                AvailableBlock::new(Arc::new(corrupt_block), data, &beacon_chain.custody_context)
+        let mut batch_with_invalid_first_block = available_blocks.clone();
+        batch_with_invalid_first_block[0] = match available_blocks[0].clone() {
+            RangeSyncBlock::Base(first_block) => {
+                let (_, block, data) = first_block.deconstruct();
+                let mut corrupt_block = (*block).clone();
+                *corrupt_block.signature_mut() = Signature::empty();
+                RangeSyncBlock::Base(
+                    AvailableBlock::new(
+                        Arc::new(corrupt_block),
+                        data,
+                        &beacon_chain.custody_context,
+                    )
                     .expect("available block"),
-                first_envelope.clone(),
-            )
+                )
+            }
+            RangeSyncBlock::Gloas { block, envelope } => {
+                let mut corrupt_block = (*block).clone();
+                *corrupt_block.signature_mut() = Signature::empty();
+                RangeSyncBlock::Gloas {
+                    block: Arc::new(corrupt_block),
+                    envelope,
+                }
+            }
         };
 
         // Importing the invalid batch should error.
@@ -3346,7 +3352,7 @@ async fn weak_subjectivity_sync_test(
         for batch in available_blocks.rchunks(batch_size) {
             let available_blocks_slots = batch
                 .iter()
-                .map(|(block, _envelope)| (block.block().slot(), block.block().canonical_root()))
+                .map(|block| (block.as_block().slot(), block.block_root()))
                 .collect::<Vec<_>>();
             info!(
                 ?available_blocks_slots,
@@ -3355,24 +3361,23 @@ async fn weak_subjectivity_sync_test(
             );
 
             // Importing the batch with valid signatures should succeed.
-            let available_blocks_batch1 = batch
-                .iter()
-                .map(|(block, envelope)| (clone_block(block), envelope.clone()))
-                .collect::<Vec<_>>();
             beacon_chain
-                .import_historical_block_batch(available_blocks_batch1)
+                .import_historical_block_batch(batch.to_vec())
                 .unwrap();
 
             // We should be able to load the block root at the `oldest_block_slot`.
             //
             // This is a regression test for: https://github.com/sigp/lighthouse/issues/7690
-            let (oldest_block_imported, _envelope) = &batch[0];
-            let (oldest_block_slot, oldest_block_root) =
-                if oldest_block_imported.block().parent_root() == beacon_chain.genesis_block_root {
-                    (Slot::new(0), beacon_chain.genesis_block_root)
-                } else {
-                    available_blocks_slots[0]
-                };
+            let oldest_block_imported = &batch[0];
+            let (oldest_block_slot, oldest_block_root) = if oldest_block_imported
+                .as_block()
+                .parent_root()
+                == beacon_chain.genesis_block_root
+            {
+                (Slot::new(0), beacon_chain.genesis_block_root)
+            } else {
+                available_blocks_slots[0]
+            };
             assert_eq!(
                 beacon_chain.store.get_oldest_block_slot(),
                 oldest_block_slot
@@ -3386,12 +3391,8 @@ async fn weak_subjectivity_sync_test(
             );
 
             // Resupplying the blocks should not fail, they can be safely ignored.
-            let available_blocks_batch2 = batch
-                .iter()
-                .map(|(block, envelope)| (clone_block(block), envelope.clone()))
-                .collect::<Vec<_>>();
             beacon_chain
-                .import_historical_block_batch(available_blocks_batch2)
+                .import_historical_block_batch(batch.to_vec())
                 .unwrap();
         }
     }
@@ -6248,8 +6249,4 @@ fn get_blocks(
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
-}
-
-fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
-    block.__clone_without_recv().unwrap()
 }

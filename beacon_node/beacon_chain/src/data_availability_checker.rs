@@ -1,5 +1,7 @@
 use crate::blob_verification::{KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
-use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
+use crate::block_verification_types::{
+    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RangeSyncBlock,
+};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
@@ -35,7 +37,6 @@ use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
-use crate::payload_envelope_verification::AvailableEnvelope;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
@@ -466,24 +467,34 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
-    /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
-    /// calling `verify_kzg_for_available_block` in a loop.
+    /// Performs batch kzg verification for a vector of `RangeSyncBlock`s. This is more efficient
+    /// than calling `verify_kzg_for_available_block` in a loop.
+    ///
+    /// For pre-Gloas blocks the blobs or data columns are carried by the block itself. For Gloas
+    /// blocks the data columns are coupled to the payload envelope, verified against the
+    /// `blob_kzg_commitments` in the block's execution payload bid.
     #[instrument(skip_all)]
-    pub fn batch_verify_kzg_for_available_blocks(
+    pub fn batch_verify_kzg_for_range_sync_blocks(
         &self,
-        available_blocks: &[AvailableBlock<T::EthSpec>],
+        blocks: &[RangeSyncBlock<T::EthSpec>],
     ) -> Result<(), AvailabilityCheckError> {
         let mut all_blobs = Vec::new();
 
-        for available_block in available_blocks {
-            match available_block.data() {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
-                AvailableBlockData::DataColumns(columns) => {
-                    // Each block has its own commitments. For Gloas they live in the bid; for
-                    // Fulu they live inline on the column. Verify per block and let the helper
-                    // pick the right path.
-                    verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
+        for block in blocks {
+            match block {
+                RangeSyncBlock::Base(available_block) => match available_block.data() {
+                    AvailableBlockData::NoData => {}
+                    AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
+                    AvailableBlockData::DataColumns(columns) => {
+                        // Each block has its own commitments, which live inline on the column.
+                        // Verify per block and let the helper pick the right path.
+                        verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
+                    }
+                },
+                RangeSyncBlock::Gloas { block, envelope } => {
+                    if let Some(envelope) = envelope {
+                        verify_columns_against_block(&self.kzg, block, &envelope.columns)?;
+                    }
                 }
             }
         }
@@ -491,30 +502,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
-        }
-
-        Ok(())
-    }
-
-    /// Batch verify the KZG proofs for the data columns carried by Gloas payload envelopes.
-    ///
-    /// For Gloas blocks the data columns are coupled to the payload envelope rather than the
-    /// block itself, so they are not covered by `batch_verify_kzg_for_available_blocks` (which
-    /// sees `AvailableBlockData::NoData` for Gloas). Each envelope's columns are verified against
-    /// the `blob_kzg_commitments` in its corresponding block's execution payload bid.
-    ///
-    /// Used during Gloas backfill sync to verify envelope columns before persisting them.
-    pub fn batch_verify_kzg_for_available_envelopes<'a>(
-        &self,
-        blocks_and_envelopes: impl Iterator<
-            Item = (
-                &'a AvailableBlock<T::EthSpec>,
-                &'a AvailableEnvelope<T::EthSpec>,
-            ),
-        >,
-    ) -> Result<(), AvailabilityCheckError> {
-        for (available_block, envelope) in blocks_and_envelopes {
-            verify_columns_against_block(&self.kzg, available_block.block(), &envelope.columns)?;
         }
 
         Ok(())
@@ -967,22 +954,6 @@ impl<E: EthSpec> AvailableBlock<E> {
         } = self;
         (block_root, block, blob_data)
     }
-
-    /// Only used for testing
-    pub fn __clone_without_recv(&self) -> Result<Self, String> {
-        Ok(Self {
-            block_root: self.block_root,
-            block: self.block.clone(),
-            blob_data: match &self.blob_data {
-                AvailableBlockData::NoData => AvailableBlockData::NoData,
-                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
-                AvailableBlockData::DataColumns(data_columns) => {
-                    AvailableBlockData::DataColumns(data_columns.clone())
-                }
-            },
-            blobs_available_timestamp: self.blobs_available_timestamp,
-        })
-    }
 }
 
 #[derive(Debug)]
@@ -1261,14 +1232,9 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let available_blocks = blocks_with_columns
-            .into_iter()
-            .map(|block| block.into_available_block().unwrap().0)
-            .collect::<Vec<_>>();
-
         // WHEN verifying all blocks together (totalling 256 data columns)
         let verification_result =
-            da_checker.batch_verify_kzg_for_available_blocks(&available_blocks);
+            da_checker.batch_verify_kzg_for_range_sync_blocks(&blocks_with_columns);
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
         verification_result.expect_err("should have failed to verify blocks");
