@@ -653,16 +653,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        // Verify the KZG proofs for the block data (pre-Gloas blobs / Fulu columns) and for the
-        // data columns carried by Gloas payload envelopes. The verified envelopes and their
-        // columns are persisted later by `import_historical_block_batch`.
+        // Verify KZG proofs for blobs and data columns, including columns carried by Gloas
+        // payload envelopes.
         if let Err(e) = self
             .chain
             .data_availability_checker
             .batch_verify_kzg_for_range_sync_blocks(&downloaded_blocks)
         {
-            // A `StoreError` is internal (no peer penalty); anything else is treated as a
-            // low-tolerance peer error.
+            // Don't penalize peers for internal store errors.
             let failure = match e {
                 AvailabilityCheckError::StoreError(_) => ChainSegmentFailed {
                     peer_action: None,
@@ -725,8 +723,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = "missing_envelope",
                             "Backfill batch processing error"
                         );
-                        // The peer is faulty if they send a Gloas block that expects blobs
-                        // without its payload envelope.
+                        // The peer is faulty if they omit the envelope for a revealed payload.
                         Some(PeerAction::LowToleranceError)
                     }
 

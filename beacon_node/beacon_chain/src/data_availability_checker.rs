@@ -470,9 +470,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Performs batch kzg verification for a vector of `RangeSyncBlock`s. This is more efficient
     /// than calling `verify_kzg_for_available_block` in a loop.
     ///
-    /// For pre-Gloas blocks the blobs or data columns are carried by the block itself. For Gloas
-    /// blocks the data columns are coupled to the payload envelope, verified against the
-    /// `blob_kzg_commitments` in the block's execution payload bid.
+    /// Gloas data columns live on the payload envelope and are verified against the commitments
+    /// in the block's bid.
     #[instrument(skip_all)]
     pub fn batch_verify_kzg_for_range_sync_blocks(
         &self,
@@ -486,8 +485,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     AvailableBlockData::NoData => {}
                     AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
                     AvailableBlockData::DataColumns(columns) => {
-                        // Each block has its own commitments, which live inline on the column.
-                        // Verify per block and let the helper pick the right path.
+                        // Fulu columns carry their own commitments, so verify per block.
                         verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
                     }
                 },

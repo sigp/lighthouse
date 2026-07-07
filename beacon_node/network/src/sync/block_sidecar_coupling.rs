@@ -208,12 +208,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return Ok(());
         };
 
-        // For Gloas batches, wait for the payload envelope response before requesting custody
-        // columns: a block whose payload was withheld ("empty") never has an envelope or data
-        // columns on the network, and bid commitments alone cannot distinguish it from a "full"
-        // block. The envelope response tells us which payloads were actually revealed, so custody
-        // columns are only requested for those. If the envelope peer lies by omission, the
-        // reveal-status check in `import_historical_block_batch` catches it and penalizes them.
+        // For Gloas, wait for the envelope response before requesting custody columns. Blocks
+        // with withheld payloads have no envelope or columns on the network, and the bid alone
+        // can't tell us which blocks those are. If the envelope peer lies by omission, the
+        // reveal-status check in `import_historical_block_batch` catches it.
         let revealed_block_roots = match &self.payloads_request {
             Some(ByRangeRequest::Active(_)) => return Ok(()),
             Some(ByRangeRequest::Complete(envelopes)) => Some(

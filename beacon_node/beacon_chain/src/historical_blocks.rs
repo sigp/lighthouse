@@ -38,8 +38,8 @@ pub enum HistoricalBlockError {
     IndexOutOfBounds,
     /// Logic error: should never occur.
     MissingOldestBlockRoot { slot: Slot },
-    /// A Gloas block that expects blob data was provided without its payload envelope, so the
-    /// required data columns cannot be verified or persisted. Caller should retry/penalize.
+    /// A Gloas block with a revealed payload is missing its envelope. Caller should
+    /// retry/penalize.
     MissingEnvelope { block_root: Hash256 },
     /// Internal store error
     StoreError(StoreError),
@@ -110,16 +110,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        // Track the child block's bid `parent_block_hash` while iterating backwards, in order to
-        // determine each Gloas block's payload status. Per `process_parent_execution_payload` in
-        // the spec, a block's payload was revealed on chain (the block is "full") iff its child's
-        // bid `parent_block_hash` equals its own bid `block_hash`. A withheld ("empty") payload
-        // never has an envelope or data columns, so none can be required during backfill.
+        // A Gloas block's payload was revealed ("full") if its child's bid `parent_block_hash`
+        // matches its own bid `block_hash`, see `process_parent_execution_payload` in the spec.
+        // We iterate backwards, so track the child's bid hash as we go. Blocks with withheld
+        // payloads never have an envelope, so we don't require one for them.
         //
-        // Initialize from the current anchor block, which is the child of the newest block in the
-        // batch. If the newest block *is* the anchor block being re-imported, this yields a
-        // self-comparison that is always false, making its envelope optional — its data was
-        // already stored during checkpoint sync.
+        // Start from the anchor block, the child of the newest block in the batch. If the newest
+        // block is the anchor itself being re-imported the comparison is always false, which is
+        // fine as its data was already stored during checkpoint sync.
         let mut child_bid_parent_hash = blocks_to_import
             .last()
             .filter(|block| matches!(block, RangeSyncBlock::Gloas { .. }))
@@ -213,8 +211,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
-            // Whether this block's execution payload was revealed on chain ("full" block). Only
-            // ever true for Gloas blocks, as earlier forks have no bid. See the comment on
+            // Only ever true for Gloas blocks, earlier forks have no bid. See the comment on
             // `child_bid_parent_hash` above.
             let payload_revealed = block
                 .message()
@@ -226,9 +223,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bid.message.block_hash == child_parent_hash
                 });
 
-            // Persist the Gloas payload envelope and its data columns. For Gloas blocks the data
-            // columns are carried by the envelope rather than the block's `block_data`, so they
-            // must be stored from here.
+            // Persist the Gloas payload envelope and its data columns, which are carried by the
+            // envelope rather than `block_data`.
             match envelope {
                 Some(envelope) => {
                     let (signed_envelope, columns) = envelope.deconstruct();
@@ -249,12 +245,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 }
                 None => {
-                    // A Gloas block whose payload was revealed must be accompanied by its
-                    // envelope: the spec requires envelopes to be served over the same retention
-                    // window as blocks, and we must persist it to serve it over RPC and for
-                    // state reconstruction — even when it carries no blobs. Blocks with withheld
-                    // ("empty") payloads never have an envelope, and pre-Gloas blocks carry
-                    // their blob data in `block_data`.
+                    // Envelopes must be stored for every revealed payload (even with no blobs)
+                    // so we can serve them over RPC and use them for state reconstruction.
+                    // Withheld payloads never have one.
                     if payload_revealed {
                         return Err(HistoricalBlockError::MissingEnvelope { block_root });
                     }
