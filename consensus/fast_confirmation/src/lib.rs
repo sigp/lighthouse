@@ -561,6 +561,9 @@ impl FastConfirmationRule {
     ///
     /// DIVERGENCE: Same optimization as find_latest_confirmed_descendant —
     /// precomputes scores once and uses `is_one_confirmed_with_score`.
+    ///
+    /// `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
+    /// isn't, with `reason` naming which check failed (surfaced as the revert metric label).
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
@@ -569,14 +572,12 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<Option<&'static str>, Error> {
-        // `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
-        // isn't, with `reason` naming which check failed (surfaced as the revert metric label).
-        if !get_checkpoint_for_block::<E>(
+        if get_checkpoint_for_block::<E>(
             confirmed_root,
             self.current_epoch_observed_justified.checkpoint().epoch,
             proto_array,
         )
-        .is_some_and(|checkpoint| checkpoint == self.current_epoch_observed_justified.checkpoint())
+        .is_none_or(|checkpoint| checkpoint != self.current_epoch_observed_justified.checkpoint())
         {
             return Ok(Some("off_justified_chain"));
         }
