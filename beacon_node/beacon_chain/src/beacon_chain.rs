@@ -4456,7 +4456,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     Ok(current_epoch_dependent_root),
                                     Ok(next_epoch_dependent_root),
                                 ) => {
-                                    event_handler.register(EventKind::HeadV2(SseHeadV2 {
+                                    let head_v2 = SseHeadV2 {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
@@ -4466,7 +4466,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                         current_epoch_dependent_root,
                                         next_epoch_dependent_root,
                                         execution_optimistic: new_head_is_optimistic,
-                                    }));
+                                    };
+                                    event_handler.register(EventKind::HeadV2(Box::new(
+                                        ForkVersionedResponse {
+                                            version: self
+                                                .spec
+                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                            metadata: Default::default(),
+                                            data: head_v2,
+                                        },
+                                    )))
                                 }
                                 (Err(e), _) | (_, Err(e)) => {
                                     warn!(

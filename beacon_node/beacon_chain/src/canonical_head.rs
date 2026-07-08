@@ -41,6 +41,7 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHeadV2, SseLateHead};
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
@@ -846,7 +847,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             match (current_epoch_dependent_root, next_epoch_dependent_root) {
                 (Ok(current_epoch_dependent_root), Ok(next_epoch_dependent_root)) => {
-                    event_handler.register(EventKind::HeadV2(SseHeadV2 {
+                    let head_v2 = SseHeadV2 {
                         slot: state.slot(),
                         block: new_snapshot.beacon_block_root,
                         state: new_snapshot.beacon_state_root(),
@@ -855,7 +856,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         current_epoch_dependent_root,
                         next_epoch_dependent_root,
                         execution_optimistic: new_head_is_optimistic,
-                    }));
+                    };
+                    event_handler.register(EventKind::HeadV2(Box::new(ForkVersionedResponse {
+                        version: self.spec.fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                        metadata: Default::default(),
+                        data: head_v2,
+                    })));
                 }
                 (Err(e), _) | (_, Err(e)) => {
                     warn!(

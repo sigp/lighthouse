@@ -8,7 +8,7 @@ use crate::{
     EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
-use context_deserialize::ContextDeserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
@@ -1071,6 +1071,7 @@ pub struct SseHead {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[context_deserialize(ForkName)]
 pub struct SseHeadV2 {
     pub slot: Slot,
     pub block: Hash256,
@@ -1179,6 +1180,7 @@ pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloa
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
+pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1244,7 +1246,7 @@ pub enum EventKind<E: EthSpec> {
     DataColumnSidecar(SseDataColumnSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
-    HeadV2(SseHeadV2),
+    HeadV2(Box<VersionedSseHeadV2>),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
@@ -1327,9 +1329,10 @@ impl<E: EthSpec> EventKind<E> {
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
-            "head_v2" => Ok(EventKind::HeadV2(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
-            )?)),
+            "head_v2" => Ok(EventKind::HeadV2(Box::new(
+                serde_json::from_str(data)
+                    .map_err(|e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)))?,
+            ))),
             "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
             )?)),
