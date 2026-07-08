@@ -4224,6 +4224,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     ));
 
                     // Queue the payload attestation for re-processing
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_PAYLOAD_ATTESTATION_REQUEUED_TOTAL,
+                    );
                     let processor = self.clone();
                     let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(
                         QueuedPayloadAttestation {
