@@ -9,10 +9,14 @@ use crate::{
 };
 use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
-    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, PayloadEnvelopeContents,
+    ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
-use eth2::{beacon_response::ForkVersionedResponse, types::ProduceBlockV4Metadata};
+use eth2::{
+    beacon_response::ForkVersionedResponse,
+    types::{BlockAndEnvelope, ProduceBlockV4Metadata},
+};
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
@@ -71,7 +75,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
-    let (block, _block_state, consensus_block_value) = chain
+    let (block, _block_state, consensus_block_value, payload_contents) = chain
         .produce_block_with_verification_gloas(
             randao_reveal,
             slot,
@@ -84,13 +88,13 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })?;
 
-    // TODO(gloas): wire up for stateless mode (#8828).
-    let execution_payload_included = false;
+    let include_payload = query.include_payload.unwrap_or(true);
+    let payload_contents = include_payload.then_some(payload_contents).flatten();
 
     build_response_v4::<T>(
         block,
         consensus_block_value,
-        execution_payload_included,
+        payload_contents,
         accept_header,
         &chain.spec,
     )
@@ -143,7 +147,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
 pub fn build_response_v4<T: BeaconChainTypes>(
     block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     consensus_block_value: u64,
-    execution_payload_included: bool,
+    payload_contents: Option<PayloadEnvelopeContents<T::EthSpec>>,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
 ) -> Result<Response, warp::Rejection> {
@@ -153,6 +157,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         .map_err(inconsistent_fork_rejection)?;
     let consensus_block_value_wei =
         Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
+    let execution_payload_included = payload_contents.is_some();
 
     let metadata = ProduceBlockV4Metadata {
         consensus_version: fork_name,
@@ -160,26 +165,64 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         execution_payload_included,
     };
 
+    let add_v4_headers = |res: Response| {
+        let res = add_consensus_version_header(res, fork_name);
+        let res = add_consensus_block_value_header(res, consensus_block_value_wei);
+        add_execution_payload_included_header(res, execution_payload_included)
+    };
+
+    // When the payload is included, bundle the block with the execution payload envelope, blobs and
+    // KZG proofs ([`BlockAndEnvelope`]); otherwise return only the block.
     match accept_header {
-        Some(api_types::Accept::Ssz) => Builder::new()
-            .status(200)
-            .body(block.as_ssz_bytes())
-            .map(add_ssz_content_type_header)
-            .map(|res| add_consensus_version_header(res, fork_name))
-            .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
-            .map(|res| add_execution_payload_included_header(res, execution_payload_included))
-            .map_err(|e| -> warp::Rejection {
-                warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
-            }),
-        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-            version: fork_name,
-            metadata,
-            data: block,
-        })
-        .into_response())
-        .map(|res| add_consensus_version_header(res, fork_name))
-        .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
-        .map(|res| add_execution_payload_included_header(res, execution_payload_included)),
+        Some(api_types::Accept::Ssz) => {
+            let ssz_bytes = match payload_contents {
+                Some((execution_payload_envelope, kzg_proofs, blobs)) => BlockAndEnvelope {
+                    block,
+                    execution_payload_envelope: Arc::unwrap_or_clone(execution_payload_envelope),
+                    kzg_proofs,
+                    blobs: Arc::unwrap_or_clone(blobs),
+                }
+                .as_ssz_bytes(),
+                None => block.as_ssz_bytes(),
+            };
+            Builder::new()
+                .status(200)
+                .body(ssz_bytes)
+                .map(add_ssz_content_type_header)
+                .map(add_v4_headers)
+                .map_err(|e| -> warp::Rejection {
+                    warp_utils::reject::custom_server_error(format!(
+                        "failed to create response: {}",
+                        e
+                    ))
+                })
+        }
+        _ => {
+            let response = match payload_contents {
+                Some((execution_payload_envelope, kzg_proofs, blobs)) => {
+                    warp::reply::json(&ForkVersionedResponse {
+                        version: fork_name,
+                        metadata,
+                        data: BlockAndEnvelope {
+                            block,
+                            execution_payload_envelope: Arc::unwrap_or_clone(
+                                execution_payload_envelope,
+                            ),
+                            kzg_proofs,
+                            blobs: Arc::unwrap_or_clone(blobs),
+                        },
+                    })
+                    .into_response()
+                }
+                None => warp::reply::json(&ForkVersionedResponse {
+                    version: fork_name,
+                    metadata,
+                    data: block,
+                })
+                .into_response(),
+            };
+            Ok(add_v4_headers(response))
+        }
     }
 }
 

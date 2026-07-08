@@ -1261,7 +1261,7 @@ where
                 None
             };
 
-            let (block, post_block_state, _consensus_block_value) = self
+            let (block, post_block_state, _consensus_block_value, _payload_contents) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
@@ -1289,7 +1289,7 @@ where
                 .chain
                 .pending_payload_envelopes
                 .write()
-                .remove(slot)
+                .remove_by_slot(slot)
                 .map(|envelope| {
                     let epoch = slot.epoch(E::slots_per_epoch());
                     let domain = self.spec.get_domain(
@@ -1301,7 +1301,7 @@ where
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
                     SignedExecutionPayloadEnvelope {
-                        message: envelope,
+                        message: Arc::unwrap_or_clone(envelope),
                         signature,
                     }
                 });

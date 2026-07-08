@@ -478,7 +478,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
-                            None,
+                            false,
                             builder_boost_factor,
                             self_ref.graffiti_policy,
                         )
@@ -487,7 +487,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 .await;
 
             let block_response = match ssz_block_response {
-                Ok((ssz_block_response, _metadata)) => ssz_block_response,
+                Ok((ssz_block_response, _metadata)) => ssz_block_response.into_block(),
                 Err(e) => {
                     warn!(
                         slot = slot.as_u64(),
@@ -506,7 +506,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
-                                    None,
+                                    false,
                                     builder_boost_factor,
                                     self_ref.graffiti_policy,
                                 )
@@ -518,7 +518,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     ))
                                 })?;
 
-                            Ok(json_block_response.data)
+                            Ok(json_block_response.into_block())
                         })
                         .await
                         .map_err(BlockError::from)?

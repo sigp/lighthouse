@@ -6955,6 +6955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.envelope_times_cache.write().prune(slot);
             self.gossip_verified_payload_bid_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
+            self.pending_payload_envelopes.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
