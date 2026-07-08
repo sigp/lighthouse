@@ -4462,9 +4462,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                         state: state_root,
                                         // With a new head, the payload_status is always Empty
                                         payload_status: fork_choice::PayloadStatus::Empty,
+                                        epoch_transition: is_epoch_transition,
                                         current_epoch_dependent_root,
                                         next_epoch_dependent_root,
-                                        epoch_transition: is_epoch_transition,
                                         execution_optimistic: new_head_is_optimistic,
                                     }));
                                 }
