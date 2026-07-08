@@ -34,7 +34,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, core::ProtoNode};
+use proto_array::{ExecutionStatus, PayloadStatus, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
@@ -7844,6 +7844,75 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_head_v2_events(self) -> Self {
+        let topics = vec![EventTopic::HeadV2];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let block_root = self.next_block.signed_block().canonical_root();
+        let next_slot = self.next_block.signed_block().slot();
+
+        // next_slot is the new head block, the epoch is calculated using the latest block
+        let epoch = next_slot.epoch(E::slots_per_epoch());
+        let old_head_slot = self.chain.head_snapshot().beacon_block.slot();
+        let is_epoch_transition = epoch > old_head_slot.epoch(E::slots_per_epoch());
+
+        let current_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let next_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                epoch.start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let expected_fork_name = self.chain.spec.fork_name_at_slot::<E>(next_slot);
+
+        let expected_head_v2 = EventKind::HeadV2(Box::new(ForkVersionedResponse {
+            version: expected_fork_name,
+            metadata: Default::default(),
+            data: SseHeadV2 {
+                block: block_root,
+                slot: next_slot,
+                state: self.next_block.signed_block().state_root(),
+                payload_status: PayloadStatus::Empty,
+                epoch_transition: is_epoch_transition,
+                current_epoch_dependent_root,
+                next_epoch_dependent_root,
+                execution_optimistic: false,
+            },
+        }));
+
+        self.client
+            .post_beacon_blocks_v2(&self.next_block, None)
+            .await
+            .unwrap();
+
+        let head_v2_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(head_v2_events.as_slice(), &[expected_head_v2]);
+
+        let fork_name = match &head_v2_events[0] {
+            EventKind::HeadV2(response) => response.version,
+            _ => panic!("Should have a version in response"),
+        };
+
+        assert_eq!(expected_fork_name, fork_name);
+
+        self
+    }
+
     pub async fn test_check_optimistic_responses(&mut self) {
         // Check responses are not optimistic.
         let result = self
@@ -8183,6 +8252,22 @@ async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .await
         .test_get_events_from_genesis()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_head_v2_events() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_head_v2_events()
         .await;
 }
 
