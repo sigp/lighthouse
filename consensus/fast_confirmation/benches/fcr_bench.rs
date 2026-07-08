@@ -326,8 +326,9 @@ fn bench_precompute_chain_scores(c: &mut Criterion) {
         // `block_roots[1..]` is exactly `get_ancestor_roots(head, genesis)` for this linear chain.
         let terminal_slot = data
             .proto_array
-            .block_slot(genesis_root)
-            .expect("genesis in proto array");
+            .get_block(genesis_root)
+            .expect("genesis in proto array")
+            .slot();
 
         if n >= 100_000 {
             group.sample_size(10);

@@ -1836,31 +1836,8 @@ impl ProtoArray {
         self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
     }
 
-    /// Slot of the block `root`, or `None` if `root` is unknown.
-    pub fn block_slot(&self, root: Hash256) -> Option<Slot> {
-        self.get_block(root).map(|node| node.slot())
-    }
-
-    /// Root of the parent of `root`, or `None` if `root` is unknown or has no parent.
-    pub fn parent_root(&self, root: Hash256) -> Option<Hash256> {
-        self.get_block(root)
-            .and_then(|node| node.parent())
-            .and_then(|parent_idx| self.nodes.get(parent_idx))
-            .map(|parent| parent.root())
-    }
-
-    /// Deepest ancestor of `root` (inclusive) with slot `<= slot`, or `None` if `root` is unknown.
-    pub fn ancestor_at_slot(&self, root: Hash256, slot: Slot) -> Option<Hash256> {
-        self.iter_block_roots(&root)
-            .find(|(_, s)| *s <= slot)
-            .map(|(r, _)| r)
-    }
-
-    /// Execution status of `root`, or `None` if `root` is unknown or its node variant carries no
-    /// execution status.
-    pub fn execution_status_of(&self, root: Hash256) -> Option<ExecutionStatus> {
-        self.get_block(root)
-            .and_then(|node| node.execution_status().ok())
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of

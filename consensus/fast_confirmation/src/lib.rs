@@ -47,7 +47,7 @@ use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::SlotAssignments;
 pub use slot_assignments::UNSET_SLOT;
 
-use proto_array::core::{ProtoArray, VoteTracker};
+use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
@@ -75,6 +75,29 @@ pub enum Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::ArithError(e)
+    }
+}
+
+/// Rich outcome of `is_one_confirmed` to track metrics in case of `BelowThreshold`..
+enum Confirmation {
+    Confirmed,
+    NotConfirmed(Unconfirmed),
+}
+
+/// Why a block failed `is_one_confirmed`.
+enum Unconfirmed {
+    /// The block's execution status is optimistic or invalid.
+    Optimistic,
+    /// Attestation support did not exceed the safety threshold.
+    BelowThreshold { support: u64, safety_threshold: u64 },
+}
+
+impl Confirmation {
+    fn is_confirmed(&self) -> bool {
+        match self {
+            Confirmation::Confirmed => true,
+            Confirmation::NotConfirmed(_) => false,
+        }
     }
 }
 
@@ -106,7 +129,7 @@ pub struct FastConfirmationRule {
     // === Committee data from head state ===
     /// Per-validator committee slot assignments across the last 3 epochs.
     /// Used by `get_block_support_between_slots` and `compute_adversarial_weight`.
-    head_assignments: SlotAssignments,
+    slot_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
     /// Built from the spec's `get_pulled_up_head_state`. Keyed (via `BalanceSourceData.dependent_root`)
@@ -157,7 +180,7 @@ impl FastConfirmationRule {
             current_slot_head: finalized_checkpoint.root,
             byzantine_threshold,
             proposer_score_boost,
-            head_assignments: SlotAssignments::new(state)?,
+            slot_assignments: SlotAssignments::new(state)?,
             head_balance_source: BalanceSourceData::for_epoch(state, state.current_epoch())?,
             last_update_slot: None,
             spec_test_mode: false,
@@ -249,18 +272,16 @@ impl FastConfirmationRule {
         // late block or reorg). Each cache is keyed on the head's dependent root; rebuild it from
         // scratch, independently, when its own dependent root is stale (a reorg past the
         // previous-epoch boundary, or a new epoch).
-        if self.current_slot_head != head_root {
-            let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
+        let head_dependent_root = dependent_root::<E>(state, current_epoch)?;
 
-            if self.head_assignments.dependent_root() != head_dependent_root {
-                let _span = debug_span!("fcr_rebuild_assignments").entered();
-                self.head_assignments = SlotAssignments::new::<E>(state)?;
-            }
+        if self.slot_assignments.dependent_root() != head_dependent_root {
+            let _span = debug_span!("fcr_rebuild_assignments").entered();
+            self.slot_assignments = SlotAssignments::new::<E>(state)?;
+        }
 
-            if self.head_balance_source.dependent_root != head_dependent_root {
-                let _span = debug_span!("fcr_rebuild_head_balance").entered();
-                self.head_balance_source = BalanceSourceData::for_epoch(state, current_epoch)?;
-            }
+        if self.head_balance_source.dependent_root != head_dependent_root {
+            let _span = debug_span!("fcr_rebuild_head_balance").entered();
+            self.head_balance_source = BalanceSourceData::for_epoch(state, current_epoch)?;
         }
 
         // Spec: update_fast_confirmation_variables must be called at most once per slot.
@@ -280,13 +301,12 @@ impl FastConfirmationRule {
             // checkpoint in one step so the pair stays coherent.
             if is_start_slot_at_epoch::<E>(current_slot) {
                 let new_current_cp = self.previous_epoch_greatest_unrealized_checkpoint;
+                let new_current = CheckpointAndBalance::new(new_current_cp, {
+                    let _span = debug_span!("fcr_rebuild_current_balance").entered();
+                    BalanceSourceData::for_epoch(state, current_epoch)?
+                });
                 self.previous_epoch_observed_justified =
-                    self.current_epoch_observed_justified.clone();
-                self.current_epoch_observed_justified =
-                    CheckpointAndBalance::new(new_current_cp, {
-                        let _span = debug_span!("fcr_rebuild_current_balance").entered();
-                        BalanceSourceData::for_epoch(state, current_epoch)?
-                    });
+                    std::mem::replace(&mut self.current_epoch_observed_justified, new_current);
             }
 
             self.last_update_slot = Some(current_slot);
@@ -469,15 +489,18 @@ impl FastConfirmationRule {
                     break;
                 }
 
-                if !self.is_one_confirmed::<E>(
-                    self.get_current_balance_source(),
-                    *block_root,
-                    &attestation_scores,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )? {
+                if !self
+                    .is_one_confirmed::<E>(
+                        self.get_current_balance_source(),
+                        *block_root,
+                        &attestation_scores,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    )?
+                    .is_confirmed()
+                {
                     break;
                 }
                 confirmed_root = *block_root;
@@ -512,15 +535,18 @@ impl FastConfirmationRule {
                     break;
                 }
 
-                if !self.is_one_confirmed::<E>(
-                    self.get_current_balance_source(),
-                    *block_root,
-                    &attestation_scores,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )? {
+                if !self
+                    .is_one_confirmed::<E>(
+                        self.get_current_balance_source(),
+                        *block_root,
+                        &attestation_scores,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    )?
+                    .is_confirmed()
+                {
                     break;
                 }
                 tentative_confirmed_root = *block_root;
@@ -564,6 +590,9 @@ impl FastConfirmationRule {
     ///
     /// DIVERGENCE: Same optimization as find_latest_confirmed_descendant —
     /// precomputes scores once and uses `is_one_confirmed_with_score`.
+    ///
+    /// `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
+    /// isn't, with `reason` naming which check failed (surfaced as the revert metric label).
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
@@ -572,14 +601,12 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<Option<&'static str>, Error> {
-        // `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
-        // isn't, with `reason` naming which check failed (surfaced as the revert metric label).
-        if !get_checkpoint_for_block::<E>(
+        if get_checkpoint_for_block::<E>(
             confirmed_root,
             self.current_epoch_observed_justified.checkpoint().epoch,
             proto_array,
         )
-        .is_some_and(|checkpoint| checkpoint == self.current_epoch_observed_justified.checkpoint())
+        .is_none_or(|checkpoint| checkpoint != self.current_epoch_observed_justified.checkpoint())
         {
             return Ok(Some("off_justified_chain"));
         }
@@ -624,7 +651,7 @@ impl FastConfirmationRule {
         )?;
 
         for root in &chain_roots {
-            if !self.is_one_confirmed::<E>(
+            if let Confirmation::NotConfirmed(unconfirmed) = self.is_one_confirmed::<E>(
                 self.get_previous_balance_source(),
                 *root,
                 &attestation_scores,
@@ -633,28 +660,23 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                // `root` is not confirmed. Figure out why for debugging purposes. Duplicates code
-                // of `is_one_confirmed` to keep the original function spec identical. This block
-                // just needs to return `Some(_)` to match spec logic.
-                if is_optimistic_or_invalid(*root, proto_array)? {
-                    return Ok(Some("unconfirmed_optimistic"));
-                } else {
-                    let support = get_attestation_score(*root, &attestation_scores)?;
-                    let safety_threshold = self.compute_safety_threshold::<E>(
-                        self.get_previous_balance_source(),
-                        *root,
-                        current_slot,
-                        proto_array,
-                        votes,
-                        equivocating_indices,
-                    )?;
-                    if safety_threshold > 0 {
-                        metrics::observe(
-                            &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
-                            support as f64 / safety_threshold as f64,
-                        );
+                // `root` is not confirmed; surface why for the revert metric.
+                match unconfirmed {
+                    Unconfirmed::BelowThreshold {
+                        support,
+                        safety_threshold,
+                    } => {
+                        if safety_threshold > 0 {
+                            metrics::observe(
+                                &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                                support as f64 / safety_threshold as f64,
+                            );
+                        }
+                        return Ok(Some("unconfirmed_optimistic"));
                     }
-                    return Ok(Some("unconfirmed_below_threshold"));
+                    Unconfirmed::Optimistic => {
+                        return Ok(Some("unconfirmed_below_threshold"));
+                    }
                 }
             }
         }
@@ -688,7 +710,7 @@ impl FastConfirmationRule {
             };
             if balance > 0
                 && self
-                    .head_assignments
+                    .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)?
                 && vote.current_root() == block_root
                 && !equivocating_indices.contains(&(val_idx as u64))
@@ -723,27 +745,26 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
-        let block_slot = get_block_slot(block_root, proto_array)?;
-        let parent_root = parent_root(block_root, proto_array)?;
-        let parent_slot = get_block_slot(parent_root, proto_array)?;
+        let block = get_block(block_root, proto_array)?;
+        let parent_block = parent_node_of(block, proto_array)?;
 
-        if parent_slot.safe_add(1)? == block_slot {
+        if parent_block.slot().safe_add(1)? == block.slot() {
             return Ok(0);
         }
 
         let parent_support_in_empty_slots = self.get_block_support_between_slots(
             balance_source,
-            parent_root,
-            parent_slot.safe_add(1)?,
-            block_slot.safe_sub(1)?,
+            parent_block.root(),
+            parent_block.slot().safe_add(1)?,
+            block.slot().safe_sub(1)?,
             votes,
             equivocating_indices,
         )?;
 
         let adversarial_weight = self.compute_adversarial_weight::<E>(
             balance_source,
-            parent_slot.safe_add(1)?,
-            block_slot.safe_sub(1)?,
+            parent_block.slot().safe_add(1)?,
+            block.slot().safe_sub(1)?,
             equivocating_indices,
         )?;
 
@@ -833,11 +854,9 @@ impl FastConfirmationRule {
         let block_epoch = get_block_epoch::<E>(block_root, proto_array)?;
 
         if block_epoch > get_block_epoch::<E>(parent_root, proto_array)? {
-            let start_slot =
-                compute_start_slot_at_epoch::<E>(get_block_epoch::<E>(block_root, proto_array)?);
             self.compute_adversarial_weight::<E>(
                 balance_source,
-                start_slot,
+                compute_start_slot_at_epoch::<E>(block_epoch),
                 current_slot.safe_sub(1)?,
                 equivocating_indices,
             )
@@ -901,7 +920,7 @@ impl FastConfirmationRule {
         for &idx in equivocating_indices {
             let idx = idx as usize;
             if self
-                .head_assignments
+                .slot_assignments
                 .is_in_range(idx, start_slot, end_slot)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
@@ -942,7 +961,7 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )
         })?;
-        Ok(3u128 * honest_ffg as u128 > total_active_balance as u128)
+        Ok(honest_ffg.safe_mul(3)? > total_active_balance)
     }
 
     /// Spec: `will_current_target_be_justified`.
@@ -965,7 +984,7 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )
         })?;
-        Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active_balance as u128)
+        Ok(honest_ffg.safe_mul(3)? >= total_active_balance.safe_mul(2)?)
     }
 
     /// Spec: `get_current_target_score` — estimates FFG support for the current-epoch target.
@@ -1017,7 +1036,7 @@ impl FastConfirmationRule {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
             //        get_latest_message_epoch(latest_messages[i])).
             if get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) == Some(target) {
-                score = score.safe_add(balance)?;
+                score.safe_add_assign(balance)?;
             }
         }
         Ok(score)
@@ -1082,10 +1101,10 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<bool, Error> {
-        // Spec MUST: return false if the block's execution status is not VALID.
+    ) -> Result<Confirmation, Error> {
+        // Spec MUST: not confirmed if the block's execution status is not VALID.
         if is_optimistic_or_invalid(block_root, proto_array)? {
-            return Ok(false);
+            return Ok(Confirmation::NotConfirmed(Unconfirmed::Optimistic));
         }
         let support = get_attestation_score(block_root, attestation_scores)?;
         let safety_threshold = self.compute_safety_threshold::<E>(
@@ -1096,7 +1115,14 @@ impl FastConfirmationRule {
             votes,
             equivocating_indices,
         )?;
-        Ok(support > safety_threshold)
+        if support > safety_threshold {
+            Ok(Confirmation::Confirmed)
+        } else {
+            Ok(Confirmation::NotConfirmed(Unconfirmed::BelowThreshold {
+                support,
+                safety_threshold,
+            }))
+        }
     }
 }
 
@@ -1104,11 +1130,13 @@ impl FastConfirmationRule {
 // Free functions: proto-array/store helpers
 // ---------------------------------------------------------------------------
 
+fn get_block(root: Hash256, proto_array: &ProtoArray) -> Result<&ProtoNode, Error> {
+    proto_array.get_block(root).ok_or(Error::NodeNotFound(root))
+}
+
 /// Spec: `get_block_slot`.
 fn get_block_slot(root: Hash256, proto_array: &ProtoArray) -> Result<Slot, Error> {
-    proto_array
-        .block_slot(root)
-        .ok_or(Error::NodeNotFound(root))
+    Ok(get_block(root, proto_array)?.slot())
 }
 
 /// Spec: `get_block_epoch`.
@@ -1116,24 +1144,21 @@ fn get_block_epoch<E: EthSpec>(
     root: Hash256,
     proto_array: &ProtoArray,
 ) -> Result<types::Epoch, Error> {
-    proto_array
-        .block_slot(root)
-        .map(|slot| slot.epoch(E::slots_per_epoch()))
-        .ok_or(Error::BlockEpochNone(root))
+    Ok(get_block_slot(root, proto_array)?.epoch(E::slots_per_epoch()))
 }
 
 fn parent_root(root: Hash256, proto_array: &ProtoArray) -> Result<Hash256, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    let parent_idx = node.parent().ok_or(Error::ParentRootNotFound(root))?;
+    let node = get_block(root, proto_array)?;
+    Ok(parent_node_of(node, proto_array)?.root())
+}
+
+fn parent_node_of<'a>(
+    node: &'a ProtoNode,
+    proto_array: &'a ProtoArray,
+) -> Result<&'a ProtoNode, Error> {
     proto_array
-        .nodes
-        .get(parent_idx)
-        .map(|parent| parent.root())
-        .ok_or(Error::ParentRootNotFound(root))
+        .get_parent(node)
+        .ok_or(Error::ParentRootNotFound(node.root()))
 }
 
 /// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
@@ -1141,12 +1166,7 @@ fn parent_root(root: Hash256, proto_array: &ProtoArray) -> Result<Hash256, Error
 /// optimistic (the spec MUST applies post-merge). A missing node will be
 /// rejected later by `get_block_slot`, so this returning `false` here is safe.
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    Ok(node
+    Ok(get_block(root, proto_array)?
         .execution_status()
         .ok()
         .is_some_and(|s| s.is_optimistic_or_invalid()))
@@ -1161,7 +1181,8 @@ fn is_ancestor(
     let ancestor_slot = get_block_slot(ancestor_root, proto_array)?;
     Ok(proto_array
         .iter_block_roots(&block_root)
-        .any(|(root, slot)| slot <= ancestor_slot && root == ancestor_root))
+        .take_while(|(_, slot)| *slot >= ancestor_slot)
+        .any(|(root, _)| root == ancestor_root))
 }
 
 /// Spec: `get_ancestor`.
@@ -1171,7 +1192,9 @@ fn get_ancestor(
     proto_array: &ProtoArray,
 ) -> Result<Hash256, Error> {
     proto_array
-        .ancestor_at_slot(block_root, slot)
+        .iter_block_roots(&block_root)
+        .find(|(_, s)| *s <= slot)
+        .map(|(r, _)| r)
         .ok_or(Error::AncestorNotFound {
             block: block_root,
             slot,
@@ -1205,12 +1228,8 @@ fn unrealized_justification_of(
     root: Hash256,
     proto_array: &ProtoArray,
 ) -> Result<Checkpoint, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
-    node.unrealized_justified_checkpoint()
+    get_block(root, proto_array)?
+        .unrealized_justified_checkpoint()
         .ok_or(Error::UnrealizedJustificationNotFound(root))
 }
 
@@ -1220,11 +1239,7 @@ fn get_voting_source_epoch<E: EthSpec>(
     current_slot: Slot,
     proto_array: &ProtoArray,
 ) -> Result<types::Epoch, Error> {
-    let node = proto_array
-        .indices
-        .get(&root)
-        .and_then(|&idx| proto_array.nodes.get(idx))
-        .ok_or(Error::NodeNotFound(root))?;
+    let node = get_block(root, proto_array)?;
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let block_epoch = node.slot().epoch(E::slots_per_epoch());
     if current_epoch > block_epoch {
@@ -1248,7 +1263,7 @@ fn get_current_target<E: EthSpec>(
 }
 
 /// Spec: `get_checkpoint_for_block`.
-/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
+/// Returns None, if `block_root` or its checkpoint block is not known to fork-choice
 fn get_checkpoint_for_block<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,
@@ -1261,7 +1276,7 @@ fn get_checkpoint_for_block<E: EthSpec>(
 }
 
 /// Spec: `get_checkpoint_block`.
-/// Returns None, if `block_root` or it's checkpoint block is not known to fork-choice
+/// Returns None, if `block_root` or its checkpoint block is not known to fork-choice
 fn get_checkpoint_block_root<E: EthSpec>(
     block_root: Hash256,
     epoch: types::Epoch,
