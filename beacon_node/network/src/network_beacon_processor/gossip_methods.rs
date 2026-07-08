@@ -4318,7 +4318,6 @@ mod tests {
         // A payload-envelope re-queue is permitted until we've already re-queued for it.
         assert!(BlockAndPayload.allows_payload());
         assert!(PayloadOnly.allows_payload());
-        // `BlockOnly` never waits on a payload envelope (e.g. payload attestations).
         assert!(!BlockOnly.allows_payload());
         assert!(!None.allows_payload());
     }

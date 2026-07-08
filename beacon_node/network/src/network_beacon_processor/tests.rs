@@ -1498,6 +1498,53 @@ async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
     payload_attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
 }
 
+/// Ensure that a payload attestation referencing an unknown block gets re-queued and, when the
+/// block is never seen, is received back on timeout without being imported.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // Ensure that the payload attestation is received back on timeout but not imported.
+
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::UnknownBlockPayloadAttestation.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]
