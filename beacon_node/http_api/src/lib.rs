@@ -3200,6 +3200,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
+                                api_types::EventTopic::Headv2 => event_handler.subscribe_head_v2(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()

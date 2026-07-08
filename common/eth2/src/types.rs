@@ -14,6 +14,7 @@ use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
 use multiaddr::Multiaddr;
+use proto_array::PayloadStatus;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -1069,6 +1070,18 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseHeadv2 {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub state: Hash256,
+    pub payload_status: PayloadStatus,
+    pub epoch_transition: bool,
+    pub current_epoch_dependent_root: Hash256,
+    pub next_epoch_dependent_root: Hash256,
+    pub execution_optimistic: bool,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BlockGossip {
     pub slot: Slot,
@@ -1231,6 +1244,7 @@ pub enum EventKind<E: EthSpec> {
     DataColumnSidecar(SseDataColumnSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
+    Headv2(SseHeadv2),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
@@ -1254,6 +1268,7 @@ impl<E: EthSpec> EventKind<E> {
     pub fn topic_name(&self) -> &str {
         match self {
             EventKind::Head(_) => "head",
+            EventKind::Headv2(_) => "headv2",
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
             EventKind::DataColumnSidecar(_) => "data_column_sidecar",
@@ -1310,6 +1325,9 @@ impl<E: EthSpec> EventKind<E> {
                 })?,
             )),
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
+            )?)),
+            "headv2" => Ok(EventKind::Headv2(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
             "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
@@ -1423,6 +1441,7 @@ pub struct EventQuery {
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
     Head,
+    Headv2,
     Block,
     BlobSidecar,
     DataColumnSidecar,
@@ -1454,6 +1473,7 @@ impl FromStr for EventTopic {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "head" => Ok(EventTopic::Head),
+            "headv2" => Ok(EventTopic::Headv2),
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
             "data_column_sidecar" => Ok(EventTopic::DataColumnSidecar),
@@ -1486,6 +1506,7 @@ impl fmt::Display for EventTopic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventTopic::Head => write!(f, "head"),
+            EventTopic::Headv2 => write!(f, "headv2"),
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::DataColumnSidecar => write!(f, "data_column_sidecar"),
