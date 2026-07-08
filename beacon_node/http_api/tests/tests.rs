@@ -24,6 +24,7 @@ use execution_layer::test_utils::{
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadStatus;
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -34,7 +35,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, PayloadStatus, core::ProtoNode};
+use proto_array::{ExecutionStatus, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
