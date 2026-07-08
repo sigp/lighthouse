@@ -1045,12 +1045,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(FastConfirmationError::NodeNotFound(fcr.confirmed_root))?;
 
         // Resolve the confirmed block's execution payload hash for the EL `safe_block_hash`.
-        // Pre-Gloas (V17) blocks carry it inside `execution_status`; post-Gloas (V29) blocks carry
-        // it directly. A confirmed block with no execution payload (pre-merge) is an error here.
+        // This MUST be the parent block hash for Gloas, per the spec.
         let confirmed_block_hash = confirmed_node
             .execution_status
             .block_hash()
-            .or(confirmed_node.execution_payload_block_hash)
+            .or(confirmed_node.execution_payload_parent_hash)
             .ok_or(FastConfirmationError::NodeHasNoBlockHash(
                 fcr.confirmed_root,
             ))?;
