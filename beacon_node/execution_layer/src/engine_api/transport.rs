@@ -80,23 +80,27 @@ impl EngineApi {
         }
     }
 
-    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
         &self,
+        fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
-        self.json_rpc
-            .get_payload_bodies_by_hash_v1(block_hashes)
-            .await
+        match self.active_rest() {
+            Some(rest) => rest.get_payload_bodies_by_hash::<E>(fork, block_hashes).await,
+            None => self.json_rpc.get_payload_bodies_by_hash_v1(block_hashes).await,
+        }
     }
 
-    pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
+    pub async fn get_payload_bodies_by_range<E: EthSpec>(
         &self,
+        fork: ForkName,
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
-        self.json_rpc
-            .get_payload_bodies_by_range_v1(start, count)
-            .await
+        match self.active_rest() {
+            Some(rest) => rest.get_payload_bodies_by_range::<E>(fork, start, count).await,
+            None => self.json_rpc.get_payload_bodies_by_range_v1(start, count).await,
+        }
     }
 
     pub async fn get_blobs_v2<E: EthSpec>(

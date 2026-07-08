@@ -49,6 +49,7 @@ enum RequestState<E: EthSpec> {
 }
 
 struct BodiesByRange<E: EthSpec> {
+    fork: Option<ForkName>,
     start: u64,
     count: u64,
     state: RequestState<E>,
@@ -56,6 +57,7 @@ struct BodiesByRange<E: EthSpec> {
 
 // stores the components of a block for future re-construction in a small form
 struct BlockParts<E: EthSpec> {
+    fork: ForkName,
     blinded_block: Box<SignedBlindedBeaconBlock<E>>,
     header: Box<ExecutionPayloadHeader<E>>,
     body: Option<Box<ExecutionPayloadBodyV1<E>>>,
@@ -63,10 +65,12 @@ struct BlockParts<E: EthSpec> {
 
 impl<E: EthSpec> BlockParts<E> {
     pub fn new(
+        fork: ForkName,
         blinded: Box<SignedBlindedBeaconBlock<E>>,
-        header: ExecutionPayloadHeader<E>,
+        header: ExecutionPayloadHeader<E>
     ) -> Self {
         Self {
+            fork,
             blinded_block: blinded,
             header: Box::new(header),
             body: None,
@@ -83,6 +87,10 @@ impl<E: EthSpec> BlockParts<E> {
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         self.header.block_hash()
+    }
+
+    pub fn fork(&self) -> ForkName {
+        self.fork
     }
 }
 
@@ -183,12 +191,14 @@ impl<E: EthSpec> BodiesByRange<E> {
     pub fn new(maybe_block_parts: Option<BlockParts<E>>) -> Self {
         if let Some(block_parts) = maybe_block_parts {
             Self {
+                fork: Some(block_parts.fork),
                 start: block_parts.header.block_number(),
                 count: 1,
                 state: RequestState::UnSent(vec![block_parts]),
             }
         } else {
             Self {
+                fork: None,
                 start: 0,
                 count: 0,
                 state: RequestState::UnSent(vec![]),
@@ -212,11 +222,17 @@ impl<E: EthSpec> BodiesByRange<E> {
                 if self.count == 0 {
                     self.start = block_number;
                     self.count = 1;
+                    self.fork = Some(block_parts.fork());
                     blocks_parts_vec.push(block_parts);
                     Ok(())
                 } else {
-                    // need to figure out if this block fits in the request
-                    if block_number < self.start
+                    // A block fits only if it shares the batch's fork and falls in the block
+                    // number window. REST-SSZ /bodies requests are single-fork (the whole
+                    // response decodes at one fork), so keeping a batch single-fork maps it to
+                    // one request; a fork change spills into a new batch. Harmless for JSON-RPC,
+                    // which ignores the fork -- it only splits a batch at a fork boundary.
+                    if self.fork != Some(block_parts.fork())
+                        || block_number < self.start
                         || self.start + BLOCKS_PER_RANGE_REQUEST <= block_number
                     {
                         return Err(block_parts);
@@ -237,9 +253,14 @@ impl<E: EthSpec> BodiesByRange<E> {
         if let RequestState::UnSent(blocks_parts_ref) = &mut self.state {
             let block_parts_vec = std::mem::take(blocks_parts_ref);
 
+            // Only an empty batch has no fork, and an empty batch is never executed.
+            let Some(fork) = self.fork else {
+                return;
+            };
+
             let mut block_map = HashMap::new();
             match execution_layer
-                .get_payload_bodies_by_range(self.start, self.count)
+                .get_payload_bodies_by_range(fork, self.start, self.count)
                 .await
             {
                 Ok(bodies) => {
@@ -499,9 +520,15 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                                 )
                             } else {
                                 // Add the block to the set requiring a by-range request.
-                                let block_parts = BlockParts::new(blinded_block, header);
-                                by_range_blocks.push(block_parts);
-                                continue;
+                                match blinded_block.fork_name(&self.beacon_chain.spec) {
+                                    Ok(fork) => {
+                                        let block_parts =
+                                            BlockParts::new(fork, blinded_block, header);
+                                        by_range_blocks.push(block_parts);
+                                        continue;
+                                    }
+                                    Err(e) => Err(BeaconChainError::InconsistentFork(e)),
+                                }
                             }
                         }
                         Err(e) => Err(BeaconChainError::BeaconStateError(e)),

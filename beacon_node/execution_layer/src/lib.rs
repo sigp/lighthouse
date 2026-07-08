@@ -1653,11 +1653,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     pub async fn get_payload_bodies_by_hash(
         &self,
+        fork: ForkName,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         self.engine()
             .request(|engine: &Engine<E>| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                engine.api.get_payload_bodies_by_hash::<E>(fork, hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1666,6 +1667,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     pub async fn get_payload_bodies_by_range(
         &self,
+        fork: ForkName,
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
@@ -1674,7 +1676,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .request(|engine: &Engine<E>| async move {
                 engine
                     .api
-                    .get_payload_bodies_by_range_v1(start, count)
+                    .get_payload_bodies_by_range(fork, start, count)
                     .await
             })
             .await
@@ -1713,7 +1715,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
         if capabilities.get_payload_bodies_by_range() {
-            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+            let mut payload_bodies = self.get_payload_bodies_by_range(fork, block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
                 return Ok(None);

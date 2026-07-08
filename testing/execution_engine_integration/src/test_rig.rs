@@ -743,7 +743,7 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 
     let mut bodies = ee
         .execution_layer
-        .get_payload_bodies_by_hash(vec![payload.block_hash()])
+        .get_payload_bodies_by_hash(TEST_FORK, vec![payload.block_hash()])
         .await
         .unwrap();
     assert_eq!(bodies.len(), 1);
