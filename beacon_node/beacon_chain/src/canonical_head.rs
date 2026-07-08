@@ -50,7 +50,7 @@ use eth2::types::{
     EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseLateHead,
 };
 use fast_confirmation::{
-    Error as FastConfirnmationError, FastConfirmationRule, metrics as fcr_metrics,
+    Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
 };
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
@@ -756,6 +756,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.store,
                 current_slot,
                 new_view.head_block_root,
+                new_head_proto_block.state_root,
             ) {
                 Ok(FcrOutcome {
                     confirmed_root,
@@ -981,7 +982,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: &BeaconStore<T>,
         current_slot: Slot,
         head_root: Hash256,
-    ) -> Result<FcrOutcome, FastConfirnmationError> {
+        head_state_root: Hash256,
+    ) -> Result<FcrOutcome, FastConfirmationError> {
         let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
         let old_confirmed_root = fcr.confirmed_root;
 
@@ -993,14 +995,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // The current head's pulled-up state (spec `get_pulled_up_head_state`). FCR errors
         // must never affect consensus, so on failure we log and skip it this tick.
-
-        let Some((state_root, mut state)) =
-            store.get_advanced_hot_state_from_cache(head_root, current_slot)
-        else {
-            return Err(FastConfirnmationError::UnableToObtainHeadState(
-                "Head state not found".to_owned(),
-            ));
-        };
+        let (state_root, mut state) =
+            match store.get_advanced_hot_state(head_root, current_slot, head_state_root) {
+                Ok(Some(state)) => state,
+                Ok(None) => {
+                    return Err(FastConfirmationError::UnableToObtainHeadState(
+                        "not found".to_owned(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(FastConfirmationError::UnableToObtainHeadState(format!(
+                        "{e:?}"
+                    )));
+                }
+            };
 
         // A previous-epoch head is pulled up to the current epoch boundary; a current-epoch
         // head is already pulled up, so leave it as-is.
@@ -1009,13 +1017,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
             complete_state_advance(&mut state, Some(state_root), epoch_start, &store.spec)
                 .map_err(|e| {
-                    FastConfirnmationError::UnableToObtainHeadState(format!(
+                    FastConfirmationError::UnableToObtainHeadState(format!(
                         "Error advancing head state: {e:?}"
                     ))
                 })?;
         }
         state.build_all_caches(&store.spec).map_err(|e| {
-            FastConfirnmationError::UnableToObtainHeadState(format!(
+            FastConfirmationError::UnableToObtainHeadState(format!(
                 "Error building head caches: {e:?}"
             ))
         })?;
@@ -1034,7 +1042,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let confirmed_node = fork_choice
             .get_block(&fcr.confirmed_root)
-            .ok_or(FastConfirnmationError::NodeNotFound(fcr.confirmed_root))?;
+            .ok_or(FastConfirmationError::NodeNotFound(fcr.confirmed_root))?;
 
         // Resolve the confirmed block's execution payload hash for the EL `safe_block_hash`.
         // Pre-Gloas (V17) blocks carry it inside `execution_status`; post-Gloas (V29) blocks carry
@@ -1043,7 +1051,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .block_hash()
             .or(confirmed_node.execution_payload_block_hash)
-            .ok_or(FastConfirnmationError::NodeHasNoBlockHash(
+            .ok_or(FastConfirmationError::NodeHasNoBlockHash(
                 fcr.confirmed_root,
             ))?;
 
