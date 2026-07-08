@@ -17,13 +17,12 @@ use crate::block_verification_types::{
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::{CustodyContext, CustodyContextSsz};
+use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataColumnReconstructionResult as DataColumnReconstructionResultV1,
     verify_columns_against_block,
 };
-
-use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
@@ -92,7 +91,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
-    SseExtendedPayloadAttributes, SseHead,
+    SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
@@ -4426,6 +4425,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     warn!(
                                         error = ?e,
                                         "Unable to find dependent roots, cannot register head event"
+                                    );
+                                }
+                            }
+                        }
+
+                        // Register a server-sent-event for a new head_v2
+                        if let Some(event_handler) = self
+                            .event_handler
+                            .as_ref()
+                            .filter(|handler| handler.has_head_v2_subscribers())
+                        {
+                            let head_slot = state.slot();
+                            let state_root = block.state_root();
+                            let is_epoch_transition = state.current_epoch()
+                                > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                            let current_epoch_dependent_root = state
+                                .attester_shuffling_decision_root(
+                                    self.genesis_block_root,
+                                    RelativeEpoch::Current,
+                                );
+                            let next_epoch_dependent_root = state.attester_shuffling_decision_root(
+                                self.genesis_block_root,
+                                RelativeEpoch::Next,
+                            );
+
+                            match (current_epoch_dependent_root, next_epoch_dependent_root) {
+                                (
+                                    Ok(current_epoch_dependent_root),
+                                    Ok(next_epoch_dependent_root),
+                                ) => {
+                                    event_handler.register(EventKind::HeadV2(SseHeadV2 {
+                                        slot: head_slot,
+                                        block: block_root,
+                                        state: state_root,
+                                        // With a new head, the payload_status is always Empty
+                                        payload_status: fork_choice::PayloadStatus::Empty,
+                                        current_epoch_dependent_root,
+                                        next_epoch_dependent_root,
+                                        epoch_transition: is_epoch_transition,
+                                        execution_optimistic: new_head_is_optimistic,
+                                    }));
+                                }
+                                (Err(e), _) | (_, Err(e)) => {
+                                    warn!(
+                                        error = ?e,
+                                        "Unable to find dependent roots, cannot register head_v2 event"
                                     );
                                 }
                             }
