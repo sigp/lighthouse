@@ -13,6 +13,7 @@ use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
 use eth2::CONSENSUS_VERSION_HEADER;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
@@ -987,19 +988,39 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
+        .and(warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(network_tx_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
+            // The header (or, failing that, the fork at the current wall-clock slot) decides
+            // which attestation variant to deserialize: from Gloas onwards (EIP-7688) the
+            // variants are structurally identical in JSON but merkleize differently, so untagged
+            // deserialization cannot distinguish them.
             |_endpoint_version: EndpointVersion,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+             aggregates_json: serde_json::Value,
+             consensus_version: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
+                    let fork_name = consensus_version.unwrap_or_else(|| {
+                        chain
+                            .slot_clock
+                            .now()
+                            .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
+                            .unwrap_or(ForkName::Base)
+                    });
+                    let aggregates = Vec::<SignedAggregateAndProof<T::EthSpec>>::context_deserialize(
+                        &aggregates_json,
+                        fork_name,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "invalid aggregate and proofs: {e:?}"
+                        ))
+                    })?;
                     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());

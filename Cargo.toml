@@ -277,6 +277,13 @@ inherits = "release"
 debug = true
 
 [patch.crates-io]
+# FIXME(mac): EIP-7688 development patches
+ssz_types = { git = "https://github.com/sigp/ssz_types", branch = "progressive" }
+milhouse = { git = "https://github.com/sigp/milhouse", branch = "progressive-list" }
+ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch = "progressive" }
+ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", branch = "progressive" }
+tree_hash = { git = "https://github.com/sigp/tree_hash", branch = "progressive" }
+tree_hash_derive = { git = "https://github.com/sigp/tree_hash", branch = "progressive" }
 # Temporary patch until the axum migration is complete
 warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
 

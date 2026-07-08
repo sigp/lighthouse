@@ -2,7 +2,7 @@ use kzg::{
     Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError, Kzg, KzgBlobRef,
 };
 use rayon::prelude::*;
-use ssz_types::{FixedVector, VariableList};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
 use tree_hash::TreeHash;
@@ -556,10 +556,8 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
             |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
                 Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
                     index: index as u64,
-                    column: DataColumn::<E>::try_from(col)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_proofs: VariableList::try_from(proofs)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    column: ProgressiveVariableList::from_iter(col),
+                    kzg_proofs: ProgressiveVariableList::from_iter(proofs),
                     beacon_block_root,
                     slot,
                 })))

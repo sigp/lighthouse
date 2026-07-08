@@ -2,13 +2,14 @@ use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
-use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::data::BlobsList;
 use types::execution::{
-    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
+    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
+    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType, WithdrawalRequests,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -100,10 +101,22 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub base_fee_per_gas: Uint256,
 
     pub block_hash: ExecutionBlockHash,
+    #[superstruct(
+        only(Bellatrix, Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "transactions_bounded")
+    )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Gloas), partial_getter(rename = "transactions_progressive"))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    #[superstruct(
+        only(Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "withdrawals_bounded")
+    )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
+    #[superstruct(only(Gloas), partial_getter(rename = "withdrawals_progressive"))]
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
@@ -111,8 +124,8 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Gloas))]
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
+    pub block_access_list: BlockAccessList,
     #[superstruct(only(Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
@@ -258,7 +271,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_to_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -433,7 +446,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_from_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -624,12 +637,15 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
             parse_execution_requests::<E>(value)?;
+        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
+        // re-type the parsed bounded lists.
         Ok(ExecutionRequestsGloas {
-            deposits,
-            withdrawals,
-            consolidations,
-            builder_deposits,
-            builder_exits,
+            deposits: deposits.iter().cloned().collect(),
+            withdrawals: withdrawals.iter().cloned().collect(),
+            consolidations: consolidations.iter().cloned().collect(),
+            builder_deposits: builder_deposits.iter().cloned().collect(),
+            builder_exits: builder_exits.iter().cloned().collect(),
+            _phantom: std::marker::PhantomData,
         })
     }
 }
@@ -1247,6 +1263,10 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
+    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
+        ProgressiveVariableList::new(vec![x.clone()])
+    }
+
     /// Tests all error conditions except ssz decoding errors
     ///
     /// ***
@@ -1465,11 +1485,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
-                withdrawals: singleton_list(&withdrawal_request),
-                consolidations: singleton_list(&consolidation_request),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                deposits: singleton_progressive_list(&deposit_request),
+                withdrawals: singleton_progressive_list(&withdrawal_request),
+                consolidations: singleton_progressive_list(&consolidation_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1480,11 +1501,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
+                deposits: singleton_progressive_list(&deposit_request),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1502,8 +1524,9 @@ mod tests {
                 deposits: Default::default(),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 

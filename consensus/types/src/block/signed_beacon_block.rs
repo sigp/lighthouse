@@ -351,13 +351,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .blob_kzg_commitments()
+            .map(|c| c.len())
             .or_else(|_| {
                 self.message()
                     .body()
                     .signed_execution_payload_bid()
-                    .map(|bid| &bid.message.blob_kzg_commitments)
+                    .map(|bid| bid.message.blob_kzg_commitments.len())
             })
-            .map(|c| c.len())
             .unwrap_or(0)
     }
 

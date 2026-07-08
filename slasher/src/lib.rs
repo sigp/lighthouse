@@ -28,7 +28,9 @@ pub use database::{
 };
 pub use error::Error;
 
-use types::{AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra};
+use types::{
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
+};
 use types::{EthSpec, IndexedAttestation, ProposerSlashing};
 
 #[derive(Debug, PartialEq)]
@@ -68,10 +70,18 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                             attestation_2: new.clone(),
                         }))
                     }
+                    // A slashing involving a gloas attestation type must return an
+                    // `AttesterSlashingGloas` type.
+                    (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
+                        Some(AttesterSlashing::Gloas(AttesterSlashingGloas {
+                            attestation_1: existing.clone().to_gloas(),
+                            attestation_2: new_attestation.clone().to_gloas(),
+                        }))
+                    }
                     // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
                     (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                        attestation_1: existing.clone().to_electra(),
-                        attestation_2: new_attestation.clone().to_electra(),
+                        attestation_1: existing.clone().to_electra().ok()?,
+                        attestation_2: new_attestation.clone().to_electra().ok()?,
                     })),
                 }
             }
@@ -82,10 +92,18 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                         attestation_2: existing_att.clone(),
                     }))
                 }
+                // A slashing involving a gloas attestation type must return an
+                // `AttesterSlashingGloas` type.
+                (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
+                    Some(AttesterSlashing::Gloas(AttesterSlashingGloas {
+                        attestation_1: new_attestation.clone().to_gloas(),
+                        attestation_2: existing.clone().to_gloas(),
+                    }))
+                }
                 // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
                 (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                    attestation_1: new_attestation.clone().to_electra(),
-                    attestation_2: existing.clone().to_electra(),
+                    attestation_1: new_attestation.clone().to_electra().ok()?,
+                    attestation_2: existing.clone().to_electra().ok()?,
                 })),
             },
         }

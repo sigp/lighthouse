@@ -47,15 +47,14 @@ use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
-use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;
@@ -118,14 +117,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests.into()),
+                requests: Some(builder_bid.execution_requests),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests.into()),
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -236,7 +235,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
         // See: https://github.com/sigp/lighthouse/issues/6981
-        requests: Option<ExecutionRequests<E>>,
+        requests: Option<ExecutionRequestsElectra<E>>,
     },
 }
 
@@ -282,7 +281,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
+                // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
+                requests: match maybe_requests {
+                    Some(ExecutionRequests::Electra(requests)) => Some(requests),
+                    Some(ExecutionRequests::Gloas(_)) => {
+                        return Err(Error::InvalidPayloadConversion);
+                    }
+                    None => None,
+                },
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -311,7 +317,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
         Uint256,
     ) {
         match self {

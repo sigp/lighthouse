@@ -252,7 +252,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation, valid } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Gloas(attestation),
+                                valid,
+                            },
+                        )
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
@@ -269,7 +276,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     }
                 }
                 Step::AttesterSlashing { attester_slashing } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Gloas(attester_slashing),
+                            })
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),

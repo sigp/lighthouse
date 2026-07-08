@@ -9,11 +9,12 @@ use bls::Keypair;
 use eth2::types::ProposerPreparationData;
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::{apply_parent_execution_payload, withdrawals::get_expected_withdrawals},
     state_advance::complete_state_advance,
 };
+use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -185,11 +186,12 @@ async fn prepare_payload_generic(
     let consolidation_request = harness.make_switch_to_compounding_request(1);
 
     let execution_requests = ExecutionRequests::Gloas(ExecutionRequestsGloas::<E> {
-        deposits: VariableList::empty(),
-        withdrawals: VariableList::empty(),
-        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
-        builder_deposits: VariableList::empty(),
-        builder_exits: VariableList::empty(),
+        deposits: ProgressiveVariableList::empty(),
+        withdrawals: ProgressiveVariableList::empty(),
+        consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
+        builder_deposits: ProgressiveVariableList::empty(),
+        builder_exits: ProgressiveVariableList::empty(),
+        _phantom: PhantomData,
     });
 
     // Inject the execution requests into the mock EL so the next payload includes them.

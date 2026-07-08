@@ -607,13 +607,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests
-                            .map(|r| ExecutionRequestsElectra {
-                                deposits: r.deposits().clone(),
-                                withdrawals: r.withdrawals().clone(),
-                                consolidations: r.consolidations().clone(),
-                            })
-                            .unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                         header: payload
@@ -625,13 +622,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests
-                            .map(|r| ExecutionRequestsElectra {
-                                deposits: r.deposits().clone(),
-                                withdrawals: r.withdrawals().clone(),
-                                consolidations: r.consolidations().clone(),
-                            })
-                            .unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                         header: payload

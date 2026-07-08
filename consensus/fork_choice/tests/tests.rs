@@ -784,6 +784,9 @@ async fn invalid_attestation_empty_bitfield() {
                 IndexedAttestation::Electra(att) => {
                     att.attesting_indices = vec![].try_into().unwrap();
                 }
+                IndexedAttestation::Gloas(att) => {
+                    att.attesting_indices = Default::default();
+                }
             },
             |result| {
                 assert_invalid_attestation!(result, InvalidAttestation::EmptyAggregationBitfield)

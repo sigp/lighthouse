@@ -53,6 +53,7 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
         partial_getter(rename = "execution_requests_electra")
     )]
     pub execution_requests: &'block ExecutionRequestsElectra<E>,
+    // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
     pub execution_requests: &'block ExecutionRequestsGloas<E>,
 }

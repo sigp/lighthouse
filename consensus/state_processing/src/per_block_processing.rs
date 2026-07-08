@@ -599,6 +599,43 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_slot = parent_bid.slot;
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
+    // [New in Gloas:EIP7688] the request lists are progressive and unbounded at the type level,
+    // so the spec's per-payload limits must be enforced at runtime.
+    // [New in Gloas:EIP8282] the builder request lists must be checked as well.
+    let request_checks: [(&str, usize, usize); 5] = [
+        (
+            "deposit_requests",
+            requests.deposits.len(),
+            E::MaxDepositRequestsPerPayload::to_usize(),
+        ),
+        (
+            "withdrawal_requests",
+            requests.withdrawals.len(),
+            E::MaxWithdrawalRequestsPerPayload::to_usize(),
+        ),
+        (
+            "consolidation_requests",
+            requests.consolidations.len(),
+            E::MaxConsolidationRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::MaxBuilderDepositRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::MaxBuilderExitRequestsPerPayload::to_usize(),
+        ),
+    ];
+    for (kind, length, max) in request_checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
+    }
+
     // Process execution requests from the parent's payload
     process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
     process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;

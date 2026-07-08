@@ -1259,7 +1259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
                 debug!(
-                    bytes = format!("0x{}", hex::encode(&**txn)),
+                    bytes = format!("0x{}", hex::encode(txn)),
                     "Reconstructed txn"
                 );
             }
@@ -1751,6 +1751,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match attestation {
             AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
             AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
+                att.data.slot,
+                &att.data.tree_hash_root(),
+                att.committee_index()
+                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+            ),
+            AttestationRef::Gloas(att) => self.get_aggregated_attestation_electra(
                 att.data.slot,
                 &att.data.tree_hash_root(),
                 att.committee_index()
@@ -5823,6 +5829,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     match slashing {
                         AttesterSlashing::Base(slashing) => base.push(slashing),
                         AttesterSlashing::Electra(slashing) => electra.push(slashing),
+                        // Gloas-typed slashings cannot be included in pre-Gloas blocks, and
+                        // Gloas blocks are produced via `complete_partial_beacon_block_gloas`.
+                        AttesterSlashing::Gloas(_) => (),
                     }
                     (base, electra)
                 },
@@ -5833,6 +5842,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 match attestation {
                     Attestation::Base(attestation) => base.push(attestation),
                     Attestation::Electra(attestation) => electra.push(attestation),
+                    // Gloas-typed attestations cannot be included in pre-Gloas blocks, and
+                    // Gloas blocks are produced via `complete_partial_beacon_block_gloas`.
+                    Attestation::Gloas(_) => (),
                 }
                 (base, electra)
             },
@@ -6091,11 +6103,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6150,11 +6157,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),

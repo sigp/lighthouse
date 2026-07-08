@@ -1130,6 +1130,9 @@ async fn attesting_to_optimistic_head() {
             Attestation::Electra(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
+            Attestation::Gloas(att) => {
+                att.aggregation_bits.set(0, true).unwrap();
+            }
         }
 
         attestation.data_mut().slot = slot;
