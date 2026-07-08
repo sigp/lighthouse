@@ -189,7 +189,6 @@ impl BeaconProcessorQueueLengths {
                 MIN_QUEUE_LEN,
             ),
             // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
-            // TODO(EIP-7732): verify if this is preferable queue length or otherwise
             unknown_block_payload_attestation_queue: 1536,
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
