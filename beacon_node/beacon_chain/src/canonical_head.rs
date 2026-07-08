@@ -820,8 +820,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Emit a second head_v2 event for the same slot
-        // when the payload status changes from Empty to Full for the same head block.
+        // Emit a second head_v2 event for the same slot when the payload status changes from Empty to Full
         if new_snapshot.beacon_block_root == old_snapshot.beacon_block_root
             && new_payload_status != old_payload_status
             && let Some(event_handler) = self

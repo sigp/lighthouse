@@ -7902,7 +7902,6 @@ impl ApiTester {
             .await
             .unwrap();
 
-        // Post the block, this should emit the first head_v2 event with PayloadStatus::Empty
         self.client
             .post_beacon_blocks_v2(&signed_block_request, None)
             .await
@@ -7957,7 +7956,7 @@ impl ApiTester {
 
         let result = match &head_v2_events_second_emission[0] {
             EventKind::HeadV2(result) => &result.data,
-            other => panic!("Expected HeadV2 event with Full status, got {:?}", other),
+            _ => panic!("should have a head_v2 event"),
         };
 
         // Assert that we are still at the same slot and block_root

@@ -135,7 +135,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             EventKind::HeadV2(_) => self
                 .head_v2_tx
                 .send(kind)
-                .map(|count| log_count("head v2", count)),
+                .map(|count| log_count("head_v2", count)),
             EventKind::VoluntaryExit(_) => self
                 .exit_tx
                 .send(kind)

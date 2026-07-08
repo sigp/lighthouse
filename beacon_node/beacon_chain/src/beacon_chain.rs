@@ -17,10 +17,9 @@ use crate::block_verification_types::{
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::{CustodyContext, CustodyContextSsz};
-use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
-    DataColumnReconstructionResult as DataColumnReconstructionResultV1,
+    DataAvailabilityChecker, DataColumnReconstructionResult as DataColumnReconstructionResultV1,
     verify_columns_against_block,
 };
 use crate::data_column_verification::{
@@ -4460,7 +4459,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
-                                        // With a new head, the payload_status is always Empty
+                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
                                         payload_status: fork_choice::PayloadStatus::Empty,
                                         epoch_transition: is_epoch_transition,
                                         current_epoch_dependent_root,
