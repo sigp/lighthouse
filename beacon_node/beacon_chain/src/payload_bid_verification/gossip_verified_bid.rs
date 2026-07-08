@@ -142,9 +142,18 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             .ok_or(PayloadBidError::UnableToReadSlot)?;
         let head_state = &cached_head.snapshot.beacon_state;
 
+        // Look up the preferences keyed by the dependent root that is canonical from our head's
+        // perspective, so we don't pick up preferences cached for a competing branch's proposer.
+        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
+        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+            proposal_epoch,
+            cached_head.head_block_root(),
+            ctx.spec,
+        )?;
+
         let Some(proposer_preferences) = ctx
             .gossip_verified_proposer_preferences_cache
-            .get_preferences(&bid_slot)
+            .get_preferences(&bid_slot, dependent_root)
         else {
             return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
         };
