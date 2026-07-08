@@ -360,6 +360,7 @@ pub fn get_config<E: EthSpec>(
     let execution_timeout_multiplier =
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
+    el_config.engine_api_rest_ssz = cli_args.get_flag("engine-api-rest-ssz");
 
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);

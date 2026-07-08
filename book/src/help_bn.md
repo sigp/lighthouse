@@ -92,6 +92,10 @@ Options:
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
           Sepolia; set to "false" to opt out.
+      --engine-api-rest-ssz
+          Use the REST-SSZ Engine API transport instead of JSON-RPC. Requires an
+          execution endpoint that supports the REST-SSZ Engine API; falls back
+          to JSON-RPC if the capabilities probe fails.
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
