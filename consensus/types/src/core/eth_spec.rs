@@ -541,7 +541,7 @@ impl EthSpec for MainnetEthSpec {
     type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
     type MaxBuildersPerWithdrawalsSweep = U16384;
-    type MaxBuilderDepositRequestsPerPayload = U256;
+    type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
 
     fn default_spec() -> ChainSpec {
@@ -700,7 +700,7 @@ impl EthSpec for GnosisEthSpec {
     type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
     type MaxBuildersPerWithdrawalsSweep = U16384;
-    type MaxBuilderDepositRequestsPerPayload = U256;
+    type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
 
     fn default_spec() -> ChainSpec {

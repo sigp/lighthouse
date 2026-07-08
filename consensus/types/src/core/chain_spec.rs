@@ -1104,7 +1104,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1121,7 +1121,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
@@ -1286,7 +1286,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1531,7 +1531,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1548,7 +1548,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
@@ -1713,7 +1713,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -2406,7 +2406,7 @@ const fn default_attestation_due_bps_gloas() -> u64 {
 }
 
 const fn default_payload_due_bps() -> u64 {
-    7500
+    5000
 }
 
 const fn default_payload_attestation_due_bps() -> u64 {
@@ -2426,7 +2426,7 @@ const fn default_contribution_due_bps() -> u64 {
 }
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
-    8192
+    64
 }
 
 const fn default_churn_limit_quotient_gloas() -> u64 {

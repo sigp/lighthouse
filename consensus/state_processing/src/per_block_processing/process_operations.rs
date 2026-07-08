@@ -10,6 +10,8 @@ use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
+use types::is_builder_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -858,6 +860,10 @@ fn process_builder_deposit_request<E: EthSpec>(
     builder_deposit_request: &BuilderDepositRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if !is_builder_withdrawal_credential(builder_deposit_request.withdrawal_credentials, spec) {
+        return Ok(());
+    }
+
     let builder_index = state
         .builders()?
         .iter()
@@ -866,13 +872,10 @@ fn process_builder_deposit_request<E: EthSpec>(
     match builder_index {
         None => {
             if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
-                let version = builder_deposit_request
-                    .version()
-                    .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
                 let slot = state.slot();
                 state.add_builder_to_registry(
                     builder_deposit_request.pubkey,
-                    version,
+                    PAYLOAD_BUILDER_VERSION,
                     builder_deposit_request.withdrawal_credentials,
                     builder_deposit_request.amount,
                     slot,
@@ -887,16 +890,14 @@ fn process_builder_deposit_request<E: EthSpec>(
                 .get_mut(builder_index)
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index as u64))?;
 
-            // TODO(gloas): this is already different in `master`, needs an update when we go
-            // to spec 1.7.0-alpha.12+
-            builder
-                .balance
-                .safe_add_assign(builder_deposit_request.amount)?;
-
-            if builder.withdrawable_epoch != spec.far_future_epoch {
+            if builder.withdrawable_epoch != spec.far_future_epoch && builder.balance == 0 {
                 builder.withdrawable_epoch =
                     current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
             }
+
+            builder
+                .balance
+                .safe_add_assign(builder_deposit_request.amount)?;
         }
     }
 
