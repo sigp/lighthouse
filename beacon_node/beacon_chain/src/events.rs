@@ -132,7 +132,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .head_tx
                 .send(kind)
                 .map(|count| log_count("head", count)),
-            EventKind::Headv2(_) => self
+            EventKind::HeadV2(_) => self
                 .head_v2_tx
                 .send(kind)
                 .map(|count| log_count("head v2", count)),
