@@ -4209,13 +4209,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %message_slot,
                     "Payload attestation references unknown block"
                 );
-                // We don't know the block yet, get the sync manager to handle the block lookup
-                self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
-                    peer_id,
-                    *beacon_block_root,
-                ));
-
                 if allow_reprocess {
+                    // We don't know the block yet, get the sync manager to handle the block lookup
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
+
                     // Queue the payload attestation for re-processing
                     let processor = self.clone();
                     let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(
