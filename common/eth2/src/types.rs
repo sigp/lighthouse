@@ -1154,9 +1154,9 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub parent_block_number: u64,
-
+    // TODO(gloas) can remove this field once we fork to gloas
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
