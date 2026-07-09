@@ -13,7 +13,9 @@ use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ethereum_hashing::hash_fixed;
-use fast_confirmation::{BalanceSourceData, CheckpointAndBalance, FastConfirmationRule};
+use fast_confirmation::{
+    BalanceSourceData, BalanceSourceKey, CheckpointAndBalance, FastConfirmationRule,
+};
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::{ProtoArray, VoteTracker};
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
@@ -229,7 +231,9 @@ fn build_chain(num_validators: usize) -> BenchData {
 
     let total_active_balance = BALANCE.saturating_mul(num_validators as u64);
     let balance_source = BalanceSourceData {
-        dependent_root: observed_justified_checkpoint.root,
+        key: BalanceSourceKey::NoSlashings {
+            epoch_boundary_root: observed_justified_checkpoint.root,
+        },
         total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
         slashed: vec![false; num_validators],
@@ -258,8 +262,15 @@ fn build_chain(num_validators: usize) -> BenchData {
     seed_state
         .build_all_committee_caches(&spec)
         .expect("committee caches");
-    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, &seed_state, &seed_state, 25, 40)
-        .expect("fcr initialization");
+    let mut fcr = FastConfirmationRule::new(
+        finalized_checkpoint.root,
+        &seed_state,
+        finalized_checkpoint,
+        &seed_state,
+        25,
+        40,
+    )
+    .expect("fcr initialization");
     fcr.test_set_head_balance_source(balance_source.clone());
 
     BenchData {

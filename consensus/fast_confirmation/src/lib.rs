@@ -30,7 +30,8 @@
 //!
 //! 4. **Snapshot balance sources** (`BalanceSourceData`): the current/previous observed-justified
 //!    sources are rebuilt only at the epoch-boundary rotation (bundled with their checkpoint in
-//!    `CheckpointAndBalance`), and the head source only when its dependent root changes — instead
+//!    `CheckpointAndBalance`), and the head source only when its `BalanceSourceKey` changes
+//!    (the epoch boundary root normally, per head block once the epoch contains a slashing) — instead
 //!    of re-scanning the validator set every slot.
 //!
 //! The visible algorithm deliberately keeps the spec function names and control-flow shape;
@@ -41,7 +42,7 @@ pub mod metrics;
 pub mod optimizations;
 mod slot_assignments;
 
-pub use balance_source::BalanceSourceData;
+pub use balance_source::{BalanceSourceData, BalanceSourceKey};
 pub use optimizations::CheckpointAndBalance;
 use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::SlotAssignments;
@@ -70,6 +71,7 @@ pub enum Error {
     BlockEpochNone(Hash256),
     CommitteeCacheUninitialized(String),
     BlockRootsOutOfBounds(String),
+    SlashingsOutOfBounds(String),
     IndexOutOfBounds(usize),
     ArithError(ArithError),
 }
@@ -134,8 +136,10 @@ pub struct FastConfirmationRule {
     slot_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
-    /// Built from the spec's `get_pulled_up_head_state`. Keyed (via `BalanceSourceData.dependent_root`)
-    /// on the head's dependent root, so a reorg past the previous-epoch boundary rebuilds it.
+    /// Built from the spec's `get_pulled_up_head_state`. Keyed (via `BalanceSourceData.key`)
+    /// on the head's epoch boundary root — or the head block root itself once the epoch contains a
+    /// slashing — so a reorg past the previous-epoch boundary or an intra-epoch slashing
+    /// rebuilds it.
     head_balance_source: BalanceSourceData,
 
     // === Internal bookkeeping ===
@@ -159,14 +163,16 @@ impl FastConfirmationRule {
 
     /// Initialize FCR from the finalized checkpoint, its checkpoint state and the head state,
     /// building the balance sources and committee assignments up front (each tagged with its own
-    /// dependent root derived from the state). The spec seeds both observed-justified checkpoints
-    /// with the finalized checkpoint, so both balance sources come from `checkpoint_state`
-    /// (spec: `store.checkpoint_states[finalized_checkpoint]`); the head-derived caches come from
-    /// `head_state`. `byzantine_threshold` is clamped to [0, 25].
+    /// `BalanceSourceKey` derived from the state). The spec seeds both observed-justified
+    /// checkpoints with the finalized checkpoint, so both balance sources come from
+    /// `checkpoint_state` (spec: `store.checkpoint_states[finalized_checkpoint]`); the
+    /// head-derived caches come from `head_state`, whose block root is `head_root`.
+    /// `byzantine_threshold` is clamped to [0, 25].
     pub fn new<E: EthSpec>(
+        head_root: Hash256,
+        head_state: &BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         checkpoint_state: &BeaconState<E>,
-        head_state: &BeaconState<E>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
     ) -> Result<Self, Error> {
@@ -177,7 +183,7 @@ impl FastConfirmationRule {
             return Err(Error::MissingCheckpointState(finalized_checkpoint));
         }
         let checkpoint_balance =
-            BalanceSourceData::for_epoch(checkpoint_state, finalized_checkpoint.epoch)?;
+            BalanceSourceData::new(checkpoint_state, finalized_checkpoint.root)?;
         Ok(Self {
             confirmed_root: finalized_checkpoint.root,
             previous_epoch_observed_justified: CheckpointAndBalance::new(
@@ -194,10 +200,7 @@ impl FastConfirmationRule {
             byzantine_threshold,
             proposer_score_boost,
             slot_assignments: SlotAssignments::new(head_state)?,
-            head_balance_source: BalanceSourceData::for_epoch(
-                head_state,
-                head_state.current_epoch(),
-            )?,
+            head_balance_source: BalanceSourceData::new(head_state, head_root)?,
             last_update_slot: None,
             spec_test_mode: false,
         })
@@ -311,9 +314,8 @@ impl FastConfirmationRule {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
 
         // Rebuild the head-derived caches when the head changes (including within a slot, e.g. a
-        // late block or reorg). Each cache is keyed on the head's dependent root; rebuild it from
-        // scratch, independently, when its own dependent root is stale (a reorg past the
-        // previous-epoch boundary, or a new epoch).
+        // late block or reorg). Each cache is rebuilt from scratch, independently, when its own
+        // key is stale.
         let head_dependent_root = dependent_root::<E>(head_state, current_epoch)?;
 
         if self.slot_assignments.dependent_root() != head_dependent_root {
@@ -321,9 +323,10 @@ impl FastConfirmationRule {
             self.slot_assignments = SlotAssignments::new::<E>(head_state)?;
         }
 
-        if self.head_balance_source.dependent_root != head_dependent_root {
+        let head_balance_key = BalanceSourceKey::compute(head_state, head_root)?;
+        if self.head_balance_source.key != head_balance_key {
             let _span = debug_span!("fcr_rebuild_head_balance").entered();
-            self.head_balance_source = BalanceSourceData::for_epoch(head_state, current_epoch)?;
+            self.head_balance_source = BalanceSourceData::new(head_state, head_root)?;
         }
 
         // Spec: update_fast_confirmation_variables must be called at most once per slot.
@@ -359,7 +362,7 @@ impl FastConfirmationRule {
                         }
                         CheckpointAndBalance::new(new_current_cp, {
                             let _span = debug_span!("fcr_rebuild_current_balance").entered();
-                            BalanceSourceData::for_epoch(checkpoint_state, new_current_cp.epoch)?
+                            BalanceSourceData::new(checkpoint_state, new_current_cp.root)?
                         })
                     };
                 self.previous_epoch_observed_justified =
@@ -1537,6 +1540,110 @@ mod tests {
         assert_eq!(
             adjust_committee_weight_estimate_to_ensure_safety(0).unwrap(),
             0
+        );
+    }
+
+    /// Regression test: a slashing processed mid-epoch must rebuild the head balance source
+    /// even though the epoch boundary root is unchanged for the rest of the epoch (the FCR analogue
+    /// of the unrealized-checkpoints bug fixed in sigp/lighthouse#9471).
+    #[test]
+    fn head_balance_source_rebuilt_after_intra_epoch_slashing() {
+        use state_processing::per_slot_processing;
+        use types::MinimalEthSpec;
+        type E = MinimalEthSpec;
+
+        let spec = E::default_spec();
+        let mut state: BeaconState<E> = BeaconState::new(0, Default::default(), &spec);
+        for _ in 0..32 {
+            let validator = types::Validator {
+                effective_balance: spec.max_effective_balance,
+                activation_epoch: Epoch::new(0),
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                ..Default::default()
+            };
+            state
+                .validators_mut()
+                .push(validator)
+                .expect("push validator");
+            state
+                .balances_mut()
+                .push(spec.max_effective_balance)
+                .expect("push balance");
+        }
+        state
+            .build_all_committee_caches(&spec)
+            .expect("committee caches");
+
+        // Advance to a mid-epoch slot: at an epoch start the dependent root changes and would
+        // rebuild the source regardless, masking the bug.
+        let mid_epoch_slot = Slot::new(E::slots_per_epoch() + 4);
+        while state.slot() < mid_epoch_slot {
+            per_slot_processing(&mut state, None, &spec).expect("should advance slot");
+        }
+        state
+            .build_all_committee_caches(&spec)
+            .expect("committee caches");
+
+        let checkpoint = Checkpoint {
+            epoch: state.current_epoch(),
+            root: Hash256::repeat_byte(1),
+        };
+        let head_root_a = Hash256::repeat_byte(2);
+        let mut fcr =
+            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40)
+                .expect("fcr initialization");
+
+        assert!(matches!(
+            fcr.head_balance_source.key,
+            BalanceSourceKey::NoSlashings { .. }
+        ));
+        assert!(!fcr.head_balance_source.slashed[0]);
+        let pre_slashing_key = fcr.head_balance_source.key;
+
+        // Simulate a slashing landing in a new head block within the same epoch (mirroring what
+        // `slash_validator` does to the state).
+        let effective_balance = spec.max_effective_balance;
+        state.get_validator_mut(0).expect("validator 0").slashed = true;
+        state
+            .set_slashings(state.current_epoch(), effective_balance)
+            .expect("set slashings");
+
+        let head_root_b = Hash256::repeat_byte(3);
+        fcr.update_fast_confirmation_variables::<E>(
+            head_root_b,
+            &checkpoint,
+            state.slot(),
+            &state,
+            None,
+        )
+        .expect("update variables");
+
+        // The regression assertion: the balance source must have been rebuilt.
+        assert!(fcr.head_balance_source.slashed[0]);
+        assert_eq!(
+            fcr.head_balance_source.key,
+            BalanceSourceKey::SlashingsPresent {
+                head_block_root: head_root_b
+            }
+        );
+        assert_ne!(fcr.head_balance_source.key, pre_slashing_key);
+
+        // While the epoch contains a slashing, every head change rebuilds the source.
+        let head_root_c = Hash256::repeat_byte(4);
+        fcr.update_fast_confirmation_variables::<E>(
+            head_root_c,
+            &checkpoint,
+            state.slot(),
+            &state,
+            None,
+        )
+        .expect("update variables");
+        assert_eq!(
+            fcr.head_balance_source.key,
+            BalanceSourceKey::SlashingsPresent {
+                head_block_root: head_root_c
+            }
         );
     }
 }

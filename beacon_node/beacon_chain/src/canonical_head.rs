@@ -1106,11 +1106,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?)
         };
         FastConfirmationRule::new(
+            snapshot.beacon_block_root,
+            &snapshot.beacon_state,
             finalized_checkpoint,
             loaded_checkpoint_state
                 .as_ref()
                 .unwrap_or(&snapshot.beacon_state),
-            &snapshot.beacon_state,
             spec.confirmation_byzantine_threshold,
             spec.proposer_score_boost,
         )
