@@ -3,20 +3,20 @@ participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:master
+    el_image: ethpandaops/geth:master-e5c5e18
     supernode: true
     count: 2
   # nodes without validators, used for testing sync.
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:master
+    el_image: ethpandaops/geth:master-e5c5e18
     supernode: true
     validator_count: 0
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:master
+    el_image: ethpandaops/geth:master-e5c5e18
     supernode: false
     validator_count: 0
 network_params:
