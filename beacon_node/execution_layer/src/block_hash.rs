@@ -7,7 +7,7 @@ use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
     EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
-    ExecutionPayloadRef, ExecutionRequests, Hash256,
+    ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
@@ -17,7 +17,7 @@ use types::{
 pub fn calculate_execution_block_hash<E: EthSpec>(
     payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
-    execution_requests: Option<&ExecutionRequests<E>>,
+    execution_requests: Option<ExecutionRequestsRef<E>>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.
     // We're currently using a deprecated Parity library for this. We should move to a
