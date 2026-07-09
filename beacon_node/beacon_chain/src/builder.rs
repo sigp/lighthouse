@@ -908,6 +908,7 @@ where
             Arc::new(head_snapshot),
             head_payload_status,
             self.chain_config.fast_confirmation,
+            &store,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize canonical head: {e}"))?;

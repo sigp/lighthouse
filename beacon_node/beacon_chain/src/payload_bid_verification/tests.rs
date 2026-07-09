@@ -153,6 +153,7 @@ impl TestContext {
             Arc::new(snapshot),
             PayloadStatus::Pending,
             FastConfirmationMode::Disabled,
+            &store,
             &spec,
         )
         .unwrap();

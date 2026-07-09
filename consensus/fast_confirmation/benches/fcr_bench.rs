@@ -258,7 +258,7 @@ fn build_chain(num_validators: usize) -> BenchData {
     seed_state
         .build_all_committee_caches(&spec)
         .expect("committee caches");
-    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, &seed_state, 25, 40)
+    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, &seed_state, &seed_state, 25, 40)
         .expect("fcr initialization");
     fcr.test_set_head_balance_source(balance_source.clone());
 
