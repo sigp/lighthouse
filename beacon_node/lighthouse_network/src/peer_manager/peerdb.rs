@@ -1565,7 +1565,7 @@ mod tests {
         }
         assert_eq!(pdb.disconnected_peers, 0);
 
-        for (_, p) in peer_list.iter() {
+        for p in peer_list.values() {
             pdb.inject_disconnect(p);
             // Allow the timing to update correctly
         }
@@ -1600,7 +1600,7 @@ mod tests {
             peer_list.insert(id, new_peer);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        for (_, p) in peer_list.iter() {
+        for p in peer_list.values() {
             pdb.inject_disconnect(p);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
