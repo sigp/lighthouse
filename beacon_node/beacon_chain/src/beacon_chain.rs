@@ -3671,7 +3671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)
