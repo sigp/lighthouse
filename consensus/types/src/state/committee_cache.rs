@@ -246,6 +246,37 @@ impl CommitteeCache {
             .collect()
     }
 
+    /// Get the inclusion list committee for the given `slot` ([New in Heze:EIP7805]).
+    ///
+    /// Concatenates the slot's beacon committees in order and cycles over them
+    /// (`indices[i % len]`) to fill `inclusion_list_committee_size` entries, so a
+    /// validator may appear more than once when the slot holds fewer members.
+    pub fn get_inclusion_list_committee_at_slot(
+        &self,
+        slot: Slot,
+        inclusion_list_committee_size: usize,
+    ) -> Result<Vec<usize>, BeaconStateError> {
+        let indices: Vec<usize> = self
+            .get_beacon_committees_at_slot(slot)?
+            .iter()
+            .flat_map(|bc| bc.committee.iter().copied())
+            .collect();
+
+        if indices.is_empty() {
+            return Err(BeaconStateError::NoCommittee { slot, index: 0 });
+        }
+
+        (0..inclusion_list_committee_size)
+            .map(|i| {
+                let position = i.safe_rem(indices.len())?;
+                indices
+                    .get(position)
+                    .copied()
+                    .ok_or(BeaconStateError::NoCommittee { slot, index: 0 })
+            })
+            .collect()
+    }
+
     /// Returns all committees for `self.initialized_epoch`.
     pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee<'_>>, BeaconStateError> {
         let initialized_epoch = self
