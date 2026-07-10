@@ -689,3 +689,53 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         "Envelope should remain in cache after taking blobs"
     );
 }
+
+/// A Gloas proposer re-orging must use the parent's `prev_randao`
+#[tokio::test]
+async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let head_block_root = cached_head.head_block_root();
+    let head_parent_block_root = cached_head.parent_block_root();
+    let proposal_slot = cached_head.head_slot() + 1;
+
+    let head_random = cached_head.head_random().unwrap();
+    let parent_random = cached_head.parent_random().unwrap();
+    assert_ne!(head_random, parent_random);
+
+    let on_head = harness
+        .chain
+        .get_pre_payload_attributes(proposal_slot, head_block_root, &cached_head)
+        .unwrap()
+        .unwrap();
+    assert_eq!(on_head.prev_randao, head_random);
+
+    // value should always be none post gloas
+    assert_eq!(on_head.parent_block_number, None);
+
+    let on_parent = harness
+        .chain
+        .get_pre_payload_attributes(proposal_slot, head_parent_block_root, &cached_head)
+        .unwrap()
+        .unwrap();
+    assert_eq!(on_parent.prev_randao, parent_random);
+
+    // value should always be none post gloas
+    assert_eq!(on_parent.parent_block_number, None);
+}

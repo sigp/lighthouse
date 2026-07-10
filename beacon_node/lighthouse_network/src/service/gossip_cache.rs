@@ -277,7 +277,7 @@ impl GossipCache {
     // Get the registered messages for this topic.
     pub fn retrieve(&mut self, topic: &GossipTopic) -> Option<impl Iterator<Item = Vec<u8>> + '_> {
         if let Some(msgs) = self.topic_msgs.remove(topic) {
-            for (_, key) in msgs.iter() {
+            for key in msgs.values() {
                 self.expirations.remove(key);
             }
             Some(msgs.into_keys())
