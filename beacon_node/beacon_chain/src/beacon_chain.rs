@@ -6358,6 +6358,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .is_payload_received(root)
     }
 
+    /// Returns `true` if `block_root` is a descendant of the store's split block, or if the split
+    /// check is unnecessary because the split is at genesis or at/behind finalization.
+    ///
+    /// If we have a split block newer than finalization then we ban blocks and attestations which
+    /// are not descended from that split block. It's important not to try checking `is_descendant`
+    /// if finality is ahead of the split and the split block has been pruned, as `is_descendant`
+    /// will return `false` in this case.
+    pub fn descends_from_split_block(
+        &self,
+        fork_choice: &BeaconForkChoice<T>,
+        block_root: Hash256,
+    ) -> bool {
+        let finalized_slot = fork_choice
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        let split = self.store.get_split_info();
+        split.slot == 0
+            || split.slot <= finalized_slot
+            || fork_choice.is_descendant(split.block_root, block_root)
+    }
+
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
     /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
     /// `PayloadAttributes` for future calls to fork choice.
