@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -14,11 +14,19 @@ use crate::{
 mod gloas;
 
 /// State loaded from the database for block production.
-pub(crate) struct BlockProductionState<E: types::EthSpec> {
+pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state: BeaconState<E>,
     pub state_root: Option<Hash256>,
     pub parent_payload_status: PayloadStatus,
     pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+}
+
+/// Inputs assembled for producing a block via a proposer re-org.
+struct ReOrgInputs<E: EthSpec> {
+    state: BeaconState<E>,
+    state_root: Hash256,
+    parent_payload_status: PayloadStatus,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -50,39 +58,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head.snapshot.execution_envelope.clone(),
             )
         };
+
         let result = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            // TODO(gloas): re-enable reorgs
-            let gloas_enabled = self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled();
-            if !gloas_enabled
-                && let Some((re_org_state, re_org_state_root)) =
-                    self.get_state_for_re_org(slot, head_slot, head_block_root)
-            {
+            if let Some(inputs) = self.get_state_for_re_org(slot, head_slot, head_block_root) {
                 info!(
                     %slot,
                     head_to_reorg = %head_block_root,
                     "Proposing block to re-org current head"
                 );
-                // TODO(gloas): ensure we use a sensible payload status when we enable reorgs
-                // for Gloas
                 BlockProductionState {
-                    state: re_org_state,
-                    state_root: Some(re_org_state_root),
-                    parent_payload_status: PayloadStatus::Pending,
-                    parent_envelope: None,
+                    state: inputs.state,
+                    state_root: Some(inputs.state_root),
+                    parent_payload_status: inputs.parent_payload_status,
+                    parent_envelope: inputs.parent_envelope,
                 }
             } else {
-                // Fetch the head state advanced through to `slot`, which should be present in the
-                // state cache thanks to the state advance timer.
+                // Continuation: the new block builds on the current head. Fetch the head state
+                // advanced through to `slot`, which should be present in the state cache thanks to
+                // the state advance timer.
                 let parent_state_root = head_state_root;
                 let (state_root, state) = self
                     .store
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
+
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
@@ -100,13 +101,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-            // TODO(gloas): update this to read payload canonicity from fork choice once ready
-            let parent_payload_status = PayloadStatus::Pending;
             BlockProductionState {
                 state,
                 state_root: None,
-                parent_payload_status,
-                parent_envelope: None,
+                parent_payload_status: head_payload_status,
+                parent_envelope: head_envelope,
             }
         };
 
@@ -173,7 +172,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
+    ) -> Option<ReOrgInputs<T::EthSpec>> {
         let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
         let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
         let re_org_max_epochs_since_finalization =
@@ -220,7 +219,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 canonical_head,
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                &self.config.re_org_disallowed_offsets,
                 re_org_max_epochs_since_finalization,
             )
             .map_err(|e| match e {
@@ -238,8 +236,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })
             .ok()?;
+
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root();
+
+        // The head uniquely determines the parent payload status for the re-org block, whichever
+        // variant (full or empty) it builds on must have more weight, or else we would have already
+        // re-orged away from this block naturally, and it would not be the head, by definition.
+        let parent_payload_status = proposer_head.head_node.get_parent_payload_status();
 
         let (state_root, state) = self
             .store
@@ -249,6 +253,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             })?;
 
+        let parent_envelope = if parent_payload_status == PayloadStatus::Full {
+            let envelope = self
+                .store
+                .get_payload_envelope(&re_org_parent_block)
+                .ok()
+                .flatten()
+                .map(Arc::new)
+                .or_else(|| {
+                    warn!(
+                        reason = "missing execution payload envelope",
+                        "Not attempting re-org"
+                    );
+                    None
+                })?;
+            Some(envelope)
+        } else {
+            None
+        };
+
         info!(
             weak_head = ?canonical_head,
             parent = ?re_org_parent_block,
@@ -257,6 +280,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Attempting re-org due to weak head"
         );
 
-        Some((state, state_root))
+        Some(ReOrgInputs {
+            state,
+            state_root,
+            parent_payload_status,
+            parent_envelope,
+        })
     }
 }

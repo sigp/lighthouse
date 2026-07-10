@@ -390,9 +390,12 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("enable-mplex")
                 .long("enable-mplex")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Enables mplex multiplexer alongside yamux. Yamux is preferred when both are available.")
+                .value_name("BOOLEAN")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_value("true")
+                .default_missing_value("true")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
                 .display_order(0)
         )
         .arg(
@@ -681,21 +684,13 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("enable-partial-columns")
                 .long("enable-partial-columns")
+                .value_name("BOOLEAN")
                 .help("Enable partial messages for data columns. This can reduce the amount of \
-                data sent over the network. Enabled by default on Hoodi and Sepolia; use \
-                --disable-partial-columns to opt out.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-partial-columns")
-                .long("disable-partial-columns")
-                .help("Disable partial messages for data columns. Use this on Hoodi or Sepolia \
-                to opt out of the default-enabled behavior.")
-                .action(ArgAction::SetTrue)
-                .conflicts_with("enable-partial-columns")
-                .help_heading(FLAG_HEADER)
+                data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
+                \"false\" to opt out.")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         /*
@@ -1375,12 +1370,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-disallowed-offsets")
                 .action(ArgAction::Set)
                 .value_name("N1,N2,...")
-                .help("Comma-separated list of integer offsets which can be used to avoid \
-                       proposing reorging blocks at certain slots. An offset of N means that \
-                       reorging proposals will not be attempted at any slot such that \
-                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
-                       avoided. Any offsets supplied with this flag will impose additional \
-                       restrictions.")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )

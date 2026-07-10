@@ -9,7 +9,8 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, ExecutionRequestsRef,
 };
 
 #[superstruct(
@@ -47,8 +48,13 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub execution_requests: &'block ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_electra")
+    )]
+    pub execution_requests: &'block ExecutionRequestsElectra<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    pub execution_requests: &'block ExecutionRequestsGloas<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -123,6 +129,15 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         Ok(())
     }
 
+    pub fn execution_requests_ref(&self) -> Option<ExecutionRequestsRef<'block, E>> {
+        match self {
+            Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
+            Self::Electra(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Fulu(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Gloas(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
+        }
+    }
+
     /// Verify the block hash is consistent locally within Lighthouse.
     ///
     /// ## Specification
@@ -143,7 +158,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
             payload,
             parent_beacon_block_root,
-            self.execution_requests().ok().copied(),
+            self.execution_requests_ref(),
         );
 
         if header_hash != self.block_hash() {

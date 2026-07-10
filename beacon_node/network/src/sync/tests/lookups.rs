@@ -43,7 +43,16 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-const D: Duration = Duration::new(0, 0);
+/// Extract the Gloas payload envelope (if any) carried by a stored `RangeSyncBlock`.
+fn envelope_of(block: &RangeSyncBlock<E>) -> Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
+    match block {
+        RangeSyncBlock::Gloas {
+            envelope: Some(envelope),
+            ..
+        } => Some(envelope.envelope().clone()),
+        _ => None,
+    }
+}
 
 /// Gloas genesis needs enough validators to populate `proposer_lookahead`.
 const TEST_RIG_VALIDATOR_COUNT: usize = 8;
@@ -331,7 +340,6 @@ impl TestRig {
             fork_name,
             network_blocks_by_root: <_>::default(),
             network_blocks_by_slot: <_>::default(),
-            network_envelopes_by_root: <_>::default(),
             penalties: <_>::default(),
             seen_lookups: <_>::default(),
             requests: <_>::default(),
@@ -669,7 +677,10 @@ impl TestRig {
                 if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
                     return;
                 }
-                let envelope = self.network_envelopes_by_root.get(&block_root).cloned();
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of);
                 self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
@@ -843,7 +854,7 @@ impl TestRig {
                         if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
                             return None;
                         }
-                        self.network_envelopes_by_root.get(&block_root).cloned()
+                        envelope_of(block)
                     })
                     .collect::<Vec<_>>();
                 self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
@@ -873,14 +884,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 beacon_block: Some(block.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlock {
             sync_request_id,
             peer_id,
             beacon_block: None,
-            seen_timestamp: D,
         });
     }
 
@@ -904,14 +913,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 blob_sidecar: Some(blob.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlob {
             sync_request_id,
             peer_id,
             blob_sidecar: None,
-            seen_timestamp: D,
         });
     }
 
@@ -940,14 +947,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 data_column: Some(column.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcDataColumn {
             sync_request_id,
             peer_id,
             data_column: None,
-            seen_timestamp: D,
         });
     }
 
@@ -966,14 +971,12 @@ impl TestRig {
             sync_request_id,
             peer_id,
             envelope: envelope.clone(),
-            seen_timestamp: D,
         });
         // Stream termination
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,
             envelope: None,
-            seen_timestamp: D,
         });
     }
 
@@ -993,7 +996,6 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 envelope: Some(envelope.clone()),
-                seen_timestamp: D,
             });
         }
         // Stream termination
@@ -1001,7 +1003,6 @@ impl TestRig {
             sync_request_id,
             peer_id,
             envelope: None,
-            seen_timestamp: D,
         });
     }
 
@@ -1057,13 +1058,7 @@ impl TestRig {
                 .await;
             let block = external_harness.get_full_block(&block_root);
             let block_slot = block.slot();
-            self.insert_external_block(
-                block,
-                external_harness
-                    .chain
-                    .get_payload_envelope(&block_root)
-                    .unwrap(),
-            );
+            self.insert_external_block(block);
             blocks.push((block_slot, block_root));
         }
 
@@ -1171,8 +1166,7 @@ impl TestRig {
         // Cache every block through the single `get_full_block` + `insert_external_block2` path.
         for root in [g_root, a_root, c_root, b_root] {
             let block = external_harness.get_full_block(&root);
-            let envelope = external_harness.chain.get_payload_envelope(&root).unwrap();
-            self.insert_external_block(block, envelope);
+            self.insert_external_block(block);
         }
 
         self.harness.set_current_slot(child_slot);
@@ -1200,21 +1194,12 @@ impl TestRig {
         Some((r, fork))
     }
 
-    fn insert_external_block(
-        &mut self,
-        block: RangeSyncBlock<E>,
-        envelope: Option<SignedExecutionPayloadEnvelope<E>>,
-    ) {
+    fn insert_external_block(&mut self, block: RangeSyncBlock<E>) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
         self.network_blocks_by_root
             .insert(block_root, block.clone());
         self.network_blocks_by_slot.insert(block_slot, block);
-        // Cache Gloas envelopes for lookup RPCs.
-        if let Some(envelope) = envelope {
-            self.network_envelopes_by_root
-                .insert(block_root, envelope.into());
-        }
         self.log(&format!(
             "Produced block {block_root:?} slot {block_slot} in external harness",
         ));
@@ -1297,30 +1282,34 @@ impl TestRig {
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
-            // Gloas carries data columns in the payload envelope, not in `block_data`.
-            let envelope = self
-                .network_envelopes_by_root
-                .get(&block_root)
-                .cloned()
-                .map(|envelope| AvailableEnvelope::new(envelope, columns.unwrap_or_default()));
-            RangeSyncBlock::new_gloas(block, envelope).unwrap()
-        } else {
-            let block_data = if let Some(columns) = columns {
-                AvailableBlockData::new_with_data_columns(columns)
-            } else if let Some(blobs) = blobs {
-                AvailableBlockData::new_with_blobs(blobs)
+        let range_sync_block =
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+                // Gloas carries data columns in the payload envelope, not in `block_data`.
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of)
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            columns.unwrap_or_default(),
+                            bid,
+                            &self.harness.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
+                RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
-                AvailableBlockData::NoData
+                let block_data = if let Some(columns) = columns {
+                    AvailableBlockData::new_with_data_columns(columns)
+                } else if let Some(blobs) = blobs {
+                    AvailableBlockData::new_with_blobs(blobs)
+                } else {
+                    AvailableBlockData::NoData
+                };
+                RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
             };
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.harness.chain.data_availability_checker,
-                self.harness.chain.spec.clone(),
-            )
-            .unwrap()
-        };
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
         self.network_blocks_by_root
@@ -1370,6 +1359,8 @@ impl TestRig {
                 .unwrap_or_else(|| panic!("No block at slot {slot}"))
                 .clone();
             let block_root = rpc_block.canonical_root();
+            let block_state_root = rpc_block.as_block().state_root();
+            let envelope = envelope_of(&rpc_block);
             self.harness
                 .chain
                 .process_block(
@@ -1381,6 +1372,18 @@ impl TestRig {
                 )
                 .await
                 .unwrap();
+            // Gloas: import the payload envelope so the block counts as full for its children.
+            if let Some(envelope) = envelope {
+                let state = self
+                    .harness
+                    .chain
+                    .get_state(&block_state_root, Some(Slot::new(slot)), false)
+                    .expect("should load state")
+                    .expect("state should exist");
+                self.harness
+                    .process_envelope(block_root, (*envelope).clone(), &state, block_state_root)
+                    .await;
+            }
         }
         self.harness.chain.recompute_head_at_current_slot().await;
     }
@@ -1494,6 +1497,17 @@ impl TestRig {
         if !self.penalties.is_empty() {
             panic!("Some downscore events: {:?}", self.penalties);
         }
+    }
+
+    fn assert_no_block_requests(&self) {
+        assert_eq!(
+            self.requests
+                .iter()
+                .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
+                .collect::<Vec<_>>(),
+            Vec::<&(RequestType<E>, AppRequestId)>::new(),
+            "There should be no block requests"
+        );
     }
     fn assert_failed_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
@@ -1612,15 +1626,18 @@ impl TestRig {
     fn custody_columns(&self) -> &[ColumnIndex] {
         self.harness
             .chain
-            .data_availability_checker
-            .custody_context()
-            .custody_columns_for_epoch(None, &self.harness.spec)
+            .custody_context
+            .custody_columns_for_epoch(None)
     }
 
     // Test setup
 
     fn new_after_fulu() -> Option<Self> {
         genesis_fork().fulu_enabled().then(Self::default)
+    }
+
+    fn new_after_gloas() -> Option<Self> {
+        genesis_fork().gloas_enabled().then(Self::default)
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
@@ -1989,7 +2006,7 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(_) => {
+            AvailabilityProcessingStatus::Imported(..) => {
                 panic!("block removed from da_checker, available")
             }
             AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
@@ -2129,7 +2146,8 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // No unknown-parent data-column trigger post-Gloas.
+    // Fulu-only: the `UnknownDataColumnParent` trigger doesn't exist post-Gloas (columns ride in
+    // the payload envelope, not as standalone data columns).
     if r.is_after_gloas() {
         return;
     }
@@ -2359,10 +2377,6 @@ async fn test_single_block_lookup_ignored_response() {
 /// Assert that if the beacon processor returns DuplicateFullyImported, the lookup completes successfully
 async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
-    // The mock only covers block processing; Gloas also needs real envelope/column results.
-    if r.is_after_gloas() {
-        return;
-    }
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
@@ -2397,6 +2411,21 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
 }
 
 #[tokio::test]
+/// A lookup that loses its only peer while still waiting to download the block must not report
+/// itself as awaiting an event, else `drop_lookups_without_peers` skips it and it gets stuck.
+/// Regression for the "Notify the devs a sync lookup is stuck" report.
+async fn peerless_lookup_awaiting_download_is_not_awaiting_event() {
+    let mut r = TestRig::default();
+    r.build_chain_and_trigger_last_block(1).await;
+    r.disconnect_all_peers();
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::Disconnected))
+        .await;
+    let lookup = &r.active_single_lookups()[0];
+    assert_eq!(lookup.peers.len(), 0);
+    assert!(!lookup.is_awaiting_event);
+}
+
+#[tokio::test]
 /// Assert that when creating multiple lookups their parent-child relation is discovered and we add
 /// peers recursively from child to parent.
 async fn lookups_form_chain() {
@@ -2427,10 +2456,6 @@ async fn lookups_form_chain() {
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::default();
-    // TODO(gloas): range sync does not fetch payload envelopes yet.
-    if r.is_after_gloas() {
-        return;
-    }
     r.build_chain(PARENT_DEPTH_TOLERANCE + 1).await;
     r.trigger_with_last_block();
     r.simulate(SimulateConfig::happy_path()).await;
@@ -2575,13 +2600,13 @@ async fn test_same_chain_race_condition() {
 }
 
 #[tokio::test]
-/// Assert that if the lookup's block is in the da_checker we don't download it again
-async fn block_in_da_checker_skips_download() {
-    // Only post-Fulu, as the block needs custody columns to remain in the da_checker
+/// Assert that if the lookup's block is in the da_checker we don't download it again (pre-Gloas).
+async fn block_in_da_checker_skips_download_fulu() {
+    // Only post-Fulu, as the block needs custody columns to remain in the da_checker.
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // TODO(gloas): the helper does not populate the envelope missing-component path yet.
+    // Pre-Gloas only; the Gloas equivalent is `block_in_da_checker_skips_download_gloas`.
     if r.is_after_gloas() {
         return;
     }
@@ -2594,14 +2619,28 @@ async fn block_in_da_checker_skips_download() {
     r.trigger_with_block_at_slot(1);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no block requests"
-    );
+    r.assert_no_block_requests();
+}
+
+#[tokio::test]
+/// Assert that if the lookup's block is in the da_checker we don't download it again (Gloas).
+async fn block_in_da_checker_skips_download_gloas() {
+    let Some(mut r) = TestRig::new_after_gloas() else {
+        return;
+    };
+    // A Gloas block carries no inline DA, so a lone block never sits in the da_checker awaiting
+    // components: only a FULL *child* proves the block published a payload and supplies the peers
+    // that serve its columns/envelope. Build a parent + FULL child, insert the PARENT into the
+    // da_checker, then trigger via the child (which is provided by the trigger, not downloaded).
+    // The parent lookup must then skip the parent's block download.
+    r.build_chain(2).await;
+    let parent = r.block_at_slot(1);
+    let child = r.block_at_slot(2);
+    r.import_block_to_da_checker(parent).await;
+    r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+    r.assert_no_block_requests();
 }
 
 macro_rules! fulu_peer_matrix_tests {

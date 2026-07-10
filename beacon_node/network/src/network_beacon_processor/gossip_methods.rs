@@ -1,5 +1,5 @@
 use crate::{
-    metrics::{self, register_process_result_metrics},
+    metrics::{self, EnvelopeSource, register_process_result_metrics},
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
@@ -33,7 +33,7 @@ use beacon_chain::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{
     Client, GossipTopic, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage,
-    ReportSource,
+    PubsubPartialMessage, ReportSource,
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -62,13 +62,60 @@ use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedGossipDataColumn, QueuedGossipEnvelope,
-        QueuedLightClientUpdate, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedLightClientUpdate, QueuedPayloadAttestation, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
 };
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
 const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
+
+/// Tracks which kinds of attestation re-processing are still permitted for a gossip attestation
+/// or aggregate.
+///
+/// A new attestation may be re-queued for an unknown block, then (post-Gloas) for an unknown
+/// payload envelope, and finally not at all. Each re-queue narrows the allowance to the next
+/// variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReprocessAllowance {
+    /// Re-queue for either an unknown block or an unknown payload envelope.
+    BlockAndPayload,
+    /// Re-queue only for an unknown block
+    BlockOnly,
+    /// Re-queue only for an unknown payload envelope (already re-queued once for the block).
+    PayloadOnly,
+    /// Do not re-queue again.
+    None,
+}
+
+impl ReprocessAllowance {
+    /// Whether the attestation may be re-queued for an unknown block.
+    fn allows_block(self) -> bool {
+        matches!(
+            self,
+            ReprocessAllowance::BlockAndPayload | ReprocessAllowance::BlockOnly
+        )
+    }
+
+    /// Whether the attestation may be re-queued for an unknown payload envelope.
+    fn allows_payload(self) -> bool {
+        matches!(
+            self,
+            ReprocessAllowance::BlockAndPayload | ReprocessAllowance::PayloadOnly
+        )
+    }
+
+    /// Re-queuing always narrows the allowance so a message can't loop indefinitely.
+    fn next_requeue(self) -> Self {
+        match self {
+            ReprocessAllowance::BlockAndPayload => ReprocessAllowance::PayloadOnly,
+            ReprocessAllowance::BlockOnly
+            | ReprocessAllowance::PayloadOnly
+            | ReprocessAllowance::None => ReprocessAllowance::None,
+        }
+    }
+}
 
 /// An attestation that has been validated by the `BeaconChain`.
 ///
@@ -233,7 +280,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         attestation: Box<SingleAttestation>,
         subnet_id: SubnetId,
         should_import: bool,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         let result = match self
@@ -256,7 +303,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             message_id,
             peer_id,
             subnet_id,
-            allow_reprocess,
+            reprocess_allowance,
             should_import,
             seen_timestamp,
         );
@@ -265,7 +312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_gossip_attestation_batch(
         self: Arc<Self>,
         packages: GossipAttestationBatch,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
     ) {
         let attestations_and_subnets = packages
             .iter()
@@ -326,7 +373,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.subnet_id,
-                allow_reprocess,
+                reprocess_allowance,
                 package.should_import,
                 package.seen_timestamp,
             );
@@ -342,7 +389,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: SubnetId,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
@@ -426,7 +473,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         should_import,
                         seen_timestamp,
                     },
-                    allow_reprocess,
+                    reprocess_allowance,
                     error,
                     seen_timestamp,
                 );
@@ -446,7 +493,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
@@ -470,7 +517,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             beacon_block_root,
             message_id,
             peer_id,
-            allow_reprocess,
+            reprocess_allowance,
             seen_timestamp,
         );
     }
@@ -478,7 +525,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_gossip_aggregate_batch(
         self: Arc<Self>,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
@@ -532,7 +579,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.beacon_block_root,
                 package.message_id,
                 package.peer_id,
-                allow_reprocess,
+                reprocess_allowance,
                 package.seen_timestamp,
             );
         }
@@ -544,7 +591,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         beacon_block_root: Hash256,
         message_id: MessageId,
         peer_id: PeerId,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         match result {
@@ -624,7 +671,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         attestation: signed_aggregate,
                         seen_timestamp,
                     },
-                    allow_reprocess,
+                    reprocess_allowance,
                     error,
                     seen_timestamp,
                 );
@@ -910,9 +957,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(mut column) => {
                     let header = column.sidecar.header.take();
                     if let Some(header) = header {
+                        // Requesting cells is irrelevant as all cells are available, simply clone
+                        // the `cells_present_bitmap`.
+                        let request_cells = column.sidecar.cells_present_bitmap.clone();
                         self.send_network_message(NetworkMessage::PublishPartialColumns {
-                            columns: vec![Arc::new(column)],
-                            header: Arc::new(header),
+                            messages: vec![PubsubPartialMessage::DataColumnFulu {
+                                column: Arc::new(column),
+                                request_cells,
+                                header: Arc::new(header),
+                            }],
                         });
                     } else {
                         crit!("Converting from full to partial yielded headerless partial")
@@ -930,12 +983,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(block_root) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(slot, block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1060,8 +1114,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
                 // We want to publish immediately when this finishes
                 let publish_blobs = true;
-                self.fetch_engine_blobs_and_publish(header.into_header(), block_root, publish_blobs)
-                    .await
+                let header = header.into_header();
+                self.fetch_engine_blobs_and_publish_full(header.clone(), block_root, publish_blobs)
+                    .await;
+                self.publish_partial_data_columns(header, block_root).await;
             }
         }
     }
@@ -1294,28 +1350,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 }
 
-                let only_send_completed_partials =
-                    merge_result.local_blobs || self.chain.config.disable_get_blobs;
-                let columns = merge_result
-                    .updated_partials
-                    .into_iter()
-                    .map(|partial| partial.into_inner())
-                    .filter(|partial| {
-                        !only_send_completed_partials || partial.sidecar.is_complete()
-                    })
-                    .collect::<Vec<_>>();
-
-                if !columns.is_empty() {
-                    if only_send_completed_partials {
-                        debug!(
-                            block = %block_root,
-                            "Not publishing incomplete partials before getBlobs"
-                        );
-                    }
-                    self.send_network_message(NetworkMessage::PublishPartialColumns {
-                        columns,
-                        header: verified_header.into_header(),
-                    });
+                if !merge_result.updated_partials.is_empty() {
+                    let header = verified_header.into_header();
+                    let messages = merge_result
+                        .updated_partials
+                        .into_iter()
+                        .map(|partial| {
+                            let column = partial.into_inner();
+                            let present_cells = &column.sidecar.cells_present_bitmap;
+                            let request_cells = if merge_result.local_blobs {
+                                // Request all cells that are not available locally.
+                                let mut all_one = present_cells.clone_zeroed();
+                                all_one.not_inplace();
+                                all_one
+                            } else {
+                                // Do not request cells if we don't know the local blobs yet.
+                                present_cells.clone_zeroed()
+                            };
+                            PubsubPartialMessage::DataColumnFulu {
+                                column,
+                                request_cells,
+                                header: header.clone(),
+                            }
+                        })
+                        .collect();
+                    self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
                 }
                 Ok(avail)
             }
@@ -1334,12 +1393,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(block_root) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         %block_root,
                         "Data column from partial processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(*slot, *block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1380,12 +1440,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     async fn check_reconstruction_trigger(self: &Arc<Self>, slot: Slot, block_root: &Hash256) {
         if self
             .chain
-            .data_availability_checker
-            .custody_context()
-            .should_attempt_reconstruction(
-                slot.epoch(T::EthSpec::slots_per_epoch()),
-                &self.chain.spec,
-            )
+            .custody_context
+            .should_attempt_reconstruction(slot.epoch(T::EthSpec::slots_per_epoch()))
         {
             // Instead of triggering reconstruction immediately, schedule it to be run. If
             // another column arrives, it either completes availability or pushes
@@ -1785,8 +1841,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 if let Ok(header) = PartialDataColumnHeader::try_from(block_clone.as_ref()) {
+                    let header = Arc::new(header);
                     self_clone
-                        .fetch_engine_blobs_and_publish(Arc::new(header), block_root, publish_blobs)
+                        .fetch_engine_blobs_and_publish_full(
+                            header.clone(),
+                            block_root,
+                            publish_blobs,
+                        )
+                        .await;
+                    self_clone
+                        .publish_partial_data_columns(header, block_root)
                         .await
                 }
             }
@@ -1807,24 +1871,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-                            block_root: *block_root,
-                            parent_root: block.message().parent_root(),
-                        }),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        source = "gossip",
-                        ?block_root,
-                        "Failed to inform block import"
-                    )
-                };
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
+                self.notify_block_imported(*block_root);
 
                 debug!(
                     ?block_root,
@@ -2481,7 +2529,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
-        allow_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         error: AttnError,
         seen_timestamp: Duration,
     ) {
@@ -2740,7 +2788,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block = ?beacon_block_root,
                     "Attestation for unknown block"
                 );
-                if allow_reprocess {
+                if reprocess_allowance.allows_block() {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
@@ -2763,7 +2811,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         message_id,
                                         peer_id,
                                         attestation,
-                                        false, // Do not allow this attestation to be re-processed beyond this point.
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
@@ -2788,7 +2836,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         subnet_id,
                                         should_import,
-                                        false, // Do not allow this attestation to be re-processed beyond this point.
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
@@ -2811,6 +2859,89 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     //
                     // Don't downscore the peer since it's not clear if we requested this head
                     // block from them or not.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
+
+                return;
+            }
+            AttnError::UnknownPayloadEnvelope { beacon_block_root } => {
+                trace!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    "Payload-present attestation for block with unseen payload envelope"
+                );
+                if reprocess_allowance.allows_payload() {
+                    // We haven't seen the block's payload envelope yet. Ask the sync manager to
+                    // retrieve it, and schedule the attestation for re-processing once it arrives.
+                    self.send_sync_message(SyncMessage::UnknownPayloadEnvelopeFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
+                    let msg = match failed_att {
+                        FailedAtt::Aggregate {
+                            attestation,
+                            seen_timestamp,
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            let processor = self.clone();
+                            ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_aggregate(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        reprocess_allowance.next_requeue(),
+                                        seen_timestamp,
+                                    )
+                                }),
+                            })
+                        }
+                        FailedAtt::Unaggregate {
+                            attestation,
+                            subnet_id,
+                            should_import,
+                            seen_timestamp,
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            let processor = self.clone();
+                            ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_attestation(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        subnet_id,
+                                        should_import,
+                                        reprocess_allowance.next_requeue(),
+                                        seen_timestamp,
+                                    )
+                                }),
+                            })
+                        }
+                    };
+
+                    if self
+                        .beacon_processor_send
+                        .try_send(WorkEvent {
+                            drop_during_sync: false,
+                            work: Work::Reprocess(msg),
+                        })
+                        .is_err()
+                    {
+                        error!("Failed to send attestation for re-processing")
+                    }
+                } else {
+                    // We shouldn't make any further attempts to process this attestation.
                     self.propagate_validation_result(
                         message_id,
                         peer_id,
@@ -3818,14 +3949,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        if let Err(e) = &result {
-            debug!(
-                ?beacon_block_root,
-                %peer_id,
-                error = ?e,
-                "Execution payload envelope processing failed"
-            );
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
+                self.chain.recompute_head_at_current_slot().await;
+                // The payload envelope is imported (`is_payload_received` is now true); release any
+                // attestations awaiting this block's payload so they can be re-processed.
+                self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Gossip);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                debug!(
+                    ?beacon_block_root,
+                    %peer_id,
+                    error = ?e,
+                    "Execution payload envelope processing failed"
+                );
+            }
         }
+    }
+
+    /// Inform the reprocess queue that a fully available block (or its payload envelope, post-gloas)
+    /// has been imported, so any attestations waiting on it can be released.
+    fn notify_import_after_column(&self, slot: Slot, block_root: Hash256) {
+        if self
+            .chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
+        } else {
+            self.notify_block_imported(block_root);
+        }
+    }
+
+    /// Inform the reprocess queue that `block_root` has been imported as a full block.
+    fn notify_block_imported(&self, block_root: Hash256) {
+        if self
+            .beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
+            })
+            .is_err()
+        {
+            error!(
+                source = "gossip",
+                ?block_root,
+                "Failed to inform block import"
+            )
+        };
+    }
+
+    /// Inform the reprocess queue that `block_root`'s payload envelope has been imported, releasing
+    /// any attestations awaiting the payload. `source` identifies the import path for logging.
+    pub(crate) fn notify_payload_envelope_imported(
+        &self,
+        block_root: Hash256,
+        source: EnvelopeSource,
+    ) {
+        if self
+            .beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                    block_root,
+                }),
+            })
+            .is_err()
+        {
+            error!(
+                source = source.as_ref(),
+                ?block_root,
+                "Failed to inform payload envelope import"
+            )
+        };
     }
 
     #[instrument(
@@ -3850,9 +4048,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
+                | PayloadBidError::InvalidBuilderVersion { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
-                | PayloadBidError::InvalidBlobKzgCommitments { .. },
+                | PayloadBidError::InvalidBlobKzgCommitments { .. }
+                | PayloadBidError::BidNotDescendantOfParent { .. }
+                | PayloadBidError::InvalidPrevRandao { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -3906,7 +4107,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
-                | ProposerPreferencesError::UnableToReadSlot,
+                | ProposerPreferencesError::UnableToReadSlot
+                | ProposerPreferencesError::DependentRootUnknown { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
@@ -3938,13 +4140,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         payload_attestation_message: Box<PayloadAttestationMessage>,
+        reprocess_allowance: ReprocessAllowance,
     ) {
-        let message_slot = payload_attestation_message.data.slot;
-        let result = self
-            .chain
-            .verify_payload_attestation_message_for_gossip(*payload_attestation_message);
+        // Clone the message for verification, retaining the original so that it can be
+        // re-queued if it references a block we haven't seen yet.
+        let result = self.chain.verify_payload_attestation_message_for_gossip(
+            payload_attestation_message.as_ref().clone(),
+        );
 
-        self.process_gossip_payload_attestation_result(result, message_id, peer_id, message_slot);
+        self.process_gossip_payload_attestation_result(
+            result,
+            message_id,
+            peer_id,
+            payload_attestation_message,
+            reprocess_allowance,
+        );
     }
 
     fn process_gossip_payload_attestation_result(
@@ -3952,7 +4162,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         result: Result<VerifiedPayloadAttestationMessage<T>, PayloadAttestationError>,
         message_id: MessageId,
         peer_id: PeerId,
-        message_slot: Slot,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+        reprocess_allowance: ReprocessAllowance,
     ) {
         match result {
             Ok(verified) => {
@@ -3993,19 +4204,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     message_id,
                     error,
-                    message_slot,
+                    payload_attestation_message,
+                    reprocess_allowance,
                 );
             }
         }
     }
 
     fn handle_payload_attestation_verification_failure(
-        &self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         message_id: MessageId,
         error: PayloadAttestationError,
-        message_slot: Slot,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+        reprocess_allowance: ReprocessAllowance,
     ) {
+        let message_slot = payload_attestation_message.data.slot;
         match &error {
             PayloadAttestationError::FutureSlot { .. } => {
                 self.gossip_penalize_peer(
@@ -4025,11 +4239,58 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %message_slot,
                     "Payload attestation references unknown block"
                 );
+                if reprocess_allowance.allows_block() {
+                    // We don't know the block yet, get the sync manager to handle the block lookup
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
+
+                    // Queue the payload attestation for re-processing
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_PAYLOAD_ATTESTATION_REQUEUED_TOTAL,
+                    );
+                    let processor = self.clone();
+                    let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(
+                        QueuedPayloadAttestation {
+                            beacon_block_root: *beacon_block_root,
+                            process_fn: Box::new(move || {
+                                processor.process_gossip_payload_attestation(
+                                    message_id,
+                                    peer_id,
+                                    payload_attestation_message,
+                                    reprocess_allowance.next_requeue(),
+                                )
+                            }),
+                        },
+                    );
+
+                    if let Err(e) = self.beacon_processor_send.try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(msg),
+                    }) {
+                        error!(
+                            error = %e,
+                            ?beacon_block_root,
+                            %message_slot,
+                            "Failed to send payload attestation for re-processing"
+                        )
+                    }
+                } else {
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
+            }
+            PayloadAttestationError::BlockNotAtSlot { .. } => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    "Payload attestation references block at wrong slot"
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
-                    peer_id,
-                    *beacon_block_root,
-                ))
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -4064,6 +4325,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReprocessAllowance::{BlockAndPayload, BlockOnly, None, PayloadOnly};
+
+    #[test]
+    fn reprocess_allowance_gates() {
+        // A block re-queue is only permitted for a freshly received attestation.
+        assert!(BlockAndPayload.allows_block());
+        assert!(BlockOnly.allows_block());
+        assert!(!PayloadOnly.allows_block());
+        assert!(!None.allows_block());
+
+        // A payload-envelope re-queue is permitted until we've already re-queued for it.
+        assert!(BlockAndPayload.allows_payload());
+        assert!(PayloadOnly.allows_payload());
+        assert!(!BlockOnly.allows_payload());
+        assert!(!None.allows_payload());
+    }
+
+    #[test]
+    fn reprocess_allowance_progression() {
+        // Each re-queue narrows the allowance to the next variant in the progression.
+        assert_eq!(BlockAndPayload.next_requeue(), PayloadOnly);
+        assert_eq!(BlockOnly.next_requeue(), None);
+        assert_eq!(PayloadOnly.next_requeue(), None);
+        assert_eq!(None.next_requeue(), None);
+    }
+
+    #[test]
+    fn reprocess_allowance_is_bounded() {
+        // Safety property: from any starting state, re-queuing twice reaches the terminal `None`,
+        // so an attestation can never loop indefinitely.
+        for start in [BlockAndPayload, BlockOnly, PayloadOnly, None] {
+            assert_eq!(
+                start.next_requeue().next_requeue(),
+                None,
+                "re-queuing twice from {start:?} should be terminal"
+            );
         }
     }
 }

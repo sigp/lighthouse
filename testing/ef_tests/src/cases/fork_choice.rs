@@ -3,7 +3,6 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{AttestationFromBlock, PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::DisallowedReOrgOffsets;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -54,6 +53,9 @@ pub struct PowBlock {
 pub struct Head {
     slot: Slot,
     root: Hash256,
+    // Post-gloas, the head check also asserts the payload status of the head block
+    #[serde(default)]
+    payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -133,6 +135,10 @@ pub enum Step<
     },
     Attestation {
         attestation: TAttestation,
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid payload-present index). Defaults to `true` for the pre-Gloas tests that omit it.
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
@@ -170,8 +176,12 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
-    #[serde(rename(deserialize = "description"))]
-    _description: String,
+    #[serde(default, rename(deserialize = "description"))]
+    _description: Option<String>,
+    // Some Gloas fork choice tests carry a `bls_setting` instead of a description. We accept and
+    // ignore it: the value is always `1` (BLS required), which matches our default behaviour.
+    #[serde(default, rename(deserialize = "bls_setting"))]
+    _bls_setting: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -241,17 +251,19 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
+                Step::Attestation { attestation, valid } => {
                     if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
+                                valid,
                             },
                         )
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Base(attestation),
+                                valid,
                             },
                         )
                     }
@@ -390,7 +402,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     proofs.clone(),
                     *valid,
                 )?,
-                Step::Attestation { attestation } => tester.process_attestation(attestation)?,
+                Step::Attestation { attestation, valid } => {
+                    tester.process_attestation(attestation, *valid)?
+                }
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing.to_ref())
                 }
@@ -674,7 +688,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -787,7 +801,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -849,7 +863,6 @@ impl<E: EthSpec> Tester<E> {
                     block_delay,
                     &state,
                     PayloadVerificationStatus::Irrelevant,
-                    block.message().proposer_index(),
                     &self.harness.chain.spec,
                 );
 
@@ -864,22 +877,41 @@ impl<E: EthSpec> Tester<E> {
         Ok(())
     }
 
-    pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
+    pub fn process_attestation(
+        &self,
+        attestation: &Attestation<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid same-slot/payload-present index). Treat any failure in either indexing or fork
+        // choice application as a rejection so it can be compared against the expected `valid` flag.
+        let result = obtain_indexed_attestation_and_committees_per_slot(
             &self.harness.chain,
             attestation.to_ref(),
         )
-        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
-        let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
-            ManuallyVerifiedAttestation {
-                attestation,
-                indexed_attestation,
-            };
+        .map_err(|e| format!("attestation indexing failed with {:?}", e))
+        .and_then(|(indexed_attestation, _)| {
+            let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+                ManuallyVerifiedAttestation {
+                    attestation,
+                    indexed_attestation,
+                };
 
-        self.harness
-            .chain
-            .apply_attestation_to_fork_choice(&verified_attestation)
-            .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+            self.harness
+                .chain
+                .apply_attestation_to_fork_choice(&verified_attestation)
+                .map_err(|e| format!("attestation import failed with {:?}", e))
+        });
+
+        if valid {
+            result.map_err(Error::InternalError)
+        } else if result.is_ok() {
+            Err(Error::DidntFail(
+                "attestation was valid but the test expects it to be rejected".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
@@ -910,9 +942,17 @@ impl<E: EthSpec> Tester<E> {
         let chain_head = Head {
             slot: head.head_slot(),
             root: head.head_block_root(),
+            // Compared separately below so the slot/root equality is not affected.
+            payload_status: expected_head.payload_status,
         };
 
-        check_equal("head", chain_head, expected_head)
+        check_equal("head", chain_head, expected_head)?;
+
+        if let Some(expected_status) = expected_head.payload_status {
+            self.check_head_payload_status(expected_status)?;
+        }
+
+        Ok(())
     }
 
     pub fn check_time(&self, expected_time: u64) -> Result<(), Error> {
@@ -1040,7 +1080,6 @@ impl<E: EthSpec> Tester<E> {
             canonical_head,
             ReOrgThreshold(self.spec.reorg_head_weight_threshold),
             ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
-            &DisallowedReOrgOffsets::default(),
             Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
