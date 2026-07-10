@@ -1722,7 +1722,7 @@ impl ProtoArray {
         }
 
         // Adjust the indices map.
-        for (_root, index) in self.indices.iter_mut() {
+        for index in self.indices.values_mut() {
             *index = index
                 .checked_sub(finalized_index)
                 .ok_or(Error::IndexOverflow("indices"))?;
