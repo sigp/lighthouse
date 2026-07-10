@@ -76,7 +76,10 @@ use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
-use crate::shuffling_cache::{CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling};
+use crate::shuffling_cache::{
+    BlockShufflingIds, CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling,
+    with_cached_shuffling_for_block,
+};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -101,7 +104,7 @@ use execution_layer::{
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
+    InvalidationOperation, PayloadVerificationStatus, ProtoBlock, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::Itertools;
@@ -1679,14 +1682,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         head_block_root: Hash256,
     ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
-        let execution_status = self
+        let head_block = self
             .canonical_head
             .fork_choice_read_lock()
-            .get_block_execution_status(&head_block_root)
+            .get_block(&head_block_root)
             .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
+        let execution_status = head_block.execution_status;
 
-        let (duties, dependent_root) = self.with_committee_cache(
-            head_block_root,
+        let (duties, dependent_root) = self.with_committee_cache_for_block(
+            head_block,
             epoch,
             |cached_shuffling, dependent_root| {
                 let committee_cache = cached_shuffling.committee_cache.as_ref();
@@ -2704,17 +2708,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::AttestationHeadNotInForkChoice(*block_root))?;
         drop(fork_choice_lock);
 
-        let block_shuffling_id = if target_epoch == block.current_epoch_shuffling_id.shuffling_epoch
-        {
-            block.current_epoch_shuffling_id
-        } else if target_epoch == block.next_epoch_shuffling_id.shuffling_epoch {
-            block.next_epoch_shuffling_id
-        } else if target_epoch > block.next_epoch_shuffling_id.shuffling_epoch {
-            AttestationShufflingId {
-                shuffling_epoch: target_epoch,
-                shuffling_decision_block: *block_root,
-            }
-        } else {
+        let Some(block_shuffling_id) =
+            BlockShufflingIds::from_proto_block(&block).id_for_epoch(target_epoch)
+        else {
             debug!(
                 ?block_root,
                 %target_epoch,
@@ -7065,6 +7061,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.store,
             &self.spec,
             head_block_root,
+            shuffling_epoch,
+            map_fn,
+        )
+    }
+
+    /// Like `with_committee_cache` but takes a `head_block` already resolved from fork
+    /// choice, allowing callers that already have the block to avoid a redundant lookup.
+    pub fn with_committee_cache_for_block<F, R>(
+        &self,
+        head_block: ProtoBlock,
+        shuffling_epoch: Epoch,
+        map_fn: F,
+    ) -> Result<R, Error>
+    where
+        F: Fn(&CachedShuffling<T::EthSpec>, Hash256) -> Result<R, Error>,
+    {
+        with_cached_shuffling_for_block(
+            &self.canonical_head,
+            &self.shuffling_cache,
+            &self.store,
+            &self.spec,
+            head_block,
             shuffling_epoch,
             map_fn,
         )

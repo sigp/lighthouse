@@ -2,7 +2,7 @@ use super::Error;
 use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::observed_attesters::ObservedPayloadAttesters;
-use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
+use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling_for_block};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
@@ -88,12 +88,12 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         }
 
         let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let ptc = with_cached_shuffling(
+        let ptc = with_cached_shuffling_for_block(
             ctx.canonical_head,
             ctx.shuffling_cache,
             ctx.store,
             ctx.spec,
-            beacon_block_root,
+            block,
             message_epoch,
             |cached_shuffling, _| cached_shuffling.ptc_for_slot(slot),
         )?;

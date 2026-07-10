@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use fork_choice::ProtoBlock;
 use itertools::Itertools;
 use oneshot_broadcast::{Receiver, Sender, oneshot};
 use parking_lot::RwLock;
@@ -312,18 +313,39 @@ where
         .fork_choice_read_lock()
         .get_block(&head_block_root)
         .ok_or(BeaconChainError::MissingBeaconBlock(head_block_root))?;
-
-    let shuffling_id = BlockShufflingIds {
-        current: head_block.current_epoch_shuffling_id.clone(),
-        next: head_block.next_epoch_shuffling_id.clone(),
-        previous: None,
-        block_root: head_block.root,
-    }
-    .id_for_epoch(shuffling_epoch)
-    .ok_or_else(|| BeaconChainError::InvalidShufflingId {
+    with_cached_shuffling_for_block(
+        canonical_head,
+        shuffling_cache_lock,
+        store,
+        spec,
+        head_block,
         shuffling_epoch,
-        head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
-    })?;
+        map_fn,
+    )
+}
+
+/// Like `with_cached_shuffling`, but takes a `head_block` already resolved from fork choice, so
+/// callers that have looked it up don't pay for a second fork choice read.
+pub fn with_cached_shuffling_for_block<T, F, R, Error>(
+    canonical_head: &CanonicalHead<T>,
+    shuffling_cache_lock: &RwLock<ShufflingCache<T::EthSpec>>,
+    store: &BeaconStore<T>,
+    spec: &ChainSpec,
+    head_block: ProtoBlock,
+    shuffling_epoch: Epoch,
+    map_fn: F,
+) -> Result<R, Error>
+where
+    T: BeaconChainTypes,
+    F: Fn(&CachedShuffling<T::EthSpec>, Hash256) -> Result<R, Error>,
+    Error: From<BeaconChainError>,
+{
+    let shuffling_id = BlockShufflingIds::from_proto_block(&head_block)
+        .id_for_epoch(shuffling_epoch)
+        .ok_or_else(|| BeaconChainError::InvalidShufflingId {
+            shuffling_epoch,
+            head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+        })?;
 
     let mut shuffling_cache = {
         let _ = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
@@ -349,7 +371,7 @@ where
 
         debug!(
             shuffling_id = ?shuffling_epoch,
-            head_block_root = head_block_root.to_string(),
+            head_block_root = head_block.root.to_string(),
             "Committee cache miss"
         );
 
@@ -369,7 +391,7 @@ where
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let cached_head = canonical_head.cached_head();
-        let head_state_opt = if cached_head.head_block_root() == head_block_root {
+        let head_state_opt = if cached_head.head_block_root() == head_block.root {
             Some((
                 cached_head.snapshot.beacon_state.clone(),
                 cached_head.head_state_root(),
@@ -405,7 +427,7 @@ where
             (state, state_root)
         } else {
             let (state_root, state) = store
-                .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)
+                .get_advanced_hot_state(head_block.root, target_slot, head_block.state_root)
                 .map_err(BeaconChainError::DBError)?
                 .ok_or(BeaconChainError::MissingBeaconState(head_block.state_root))?;
             (state, state_root)
@@ -471,6 +493,19 @@ pub struct BlockShufflingIds {
 }
 
 impl BlockShufflingIds {
+    /// Returns the shuffling IDs tracked by a `ProtoBlock`.
+    ///
+    /// Fork choice only tracks the current and next-epoch shufflings for each block, so
+    /// `previous` is always `None`.
+    pub fn from_proto_block(block: &ProtoBlock) -> Self {
+        Self {
+            current: block.current_epoch_shuffling_id.clone(),
+            next: block.next_epoch_shuffling_id.clone(),
+            previous: None,
+            block_root: block.root,
+        }
+    }
+
     /// Returns the shuffling ID for the given epoch.
     ///
     /// Returns `None` if `epoch` is prior to `self.previous?.shuffling_epoch` or
