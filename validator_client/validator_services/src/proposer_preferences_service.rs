@@ -4,6 +4,7 @@ use bls::PublicKeyBytes;
 use eth2::types::ProposerData;
 use futures::stream::FuturesUnordered;
 use futures::{Future, Stream, StreamExt};
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -29,6 +30,9 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
+    /// `(epoch, dependent_root)` pairs with an in-flight or successfully published signing
+    /// task. A task that fails to publish removes its entry so a later poll retries it.
+    scheduled_preferences: Mutex<HashSet<(Epoch, Hash256)>>,
 }
 
 pub struct ProposerPreferencesService<S, T> {
@@ -68,6 +72,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 beacon_nodes,
                 executor,
                 chain_spec,
+                scheduled_preferences: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -79,8 +84,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         let executor = self.executor.clone();
 
         let interval_fut = async move {
-            let mut scheduled_preferences = HashSet::new();
-
             loop {
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock");
@@ -90,7 +93,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
 
                 let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
 
-                self.poll_and_schedule_preferences(current_epoch, &mut scheduled_preferences);
+                self.poll_and_schedule_preferences(current_epoch);
 
                 let duration_to_next_slot = self
                     .slot_clock
@@ -106,13 +109,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
 
     /// Schedule signing and publication of proposer preferences for the current and next epochs.
     ///
-    /// Each `(epoch, dependent_root)` pair is scheduled at most once. Failures after scheduling
-    /// are logged but not retried, to avoid re-signing the same root.
-    fn poll_and_schedule_preferences(
-        &self,
-        current_epoch: Epoch,
-        scheduled_preferences: &mut HashSet<(Epoch, Hash256)>,
-    ) {
+    /// At most one signing task per `(epoch, dependent_root)` runs at a time.
+    fn poll_and_schedule_preferences(&self, current_epoch: Epoch) {
         for (epoch, fork_name) in [
             (
                 current_epoch,
@@ -135,25 +133,34 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 }
             };
 
-            if scheduled_preferences.contains(&(epoch, dependent_root)) {
+            if self
+                .scheduled_preferences
+                .lock()
+                .contains(&(epoch, dependent_root))
+            {
                 continue;
             }
 
             if let Some(task) =
                 self.proposer_preferences_task(epoch, fork_name, dependent_root, duties)
             {
-                scheduled_preferences.insert((epoch, dependent_root));
+                self.scheduled_preferences
+                    .lock()
+                    .insert((epoch, dependent_root));
                 self.executor
                     .spawn(task, "sign_and_publish_proposer_preferences");
             }
         }
 
-        scheduled_preferences.retain(|(epoch, _)| *epoch >= current_epoch);
+        self.scheduled_preferences
+            .lock()
+            .retain(|(epoch, _)| *epoch >= current_epoch);
     }
 
     /// Build a task that signs each duty's preferences concurrently and publishes signatures
     /// as they become ready, so one slow signer cannot delay the others. Returns `None` when
-    /// there is nothing to sign.
+    /// there is nothing to sign. The task removes its `scheduled_preferences` entry if
+    /// publication fails, so a later poll retries it.
     fn proposer_preferences_task(
         &self,
         epoch: Epoch,
@@ -205,9 +212,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             "Scheduling proposer preferences signing"
         );
 
-        let validator_store = self.validator_store.clone();
-        let beacon_nodes = self.beacon_nodes.clone();
+        let service = self.clone();
         let task = async move {
+            let validator_store = service.validator_store.clone();
             let signing_futures = preferences_to_sign
                 .into_iter()
                 .map(move |(pubkey, preferences)| {
@@ -221,10 +228,24 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 })
                 .collect::<FuturesUnordered<_>>();
 
-            sign_and_publish_proposer_preferences(signing_futures, count, |signed| {
-                publish_proposer_preferences_batch(beacon_nodes.clone(), epoch, fork_name, signed)
-            })
-            .await;
+            let publish_results =
+                sign_and_publish_proposer_preferences(signing_futures, count, |signed| {
+                    publish_proposer_preferences_batch(
+                        service.beacon_nodes.clone(),
+                        epoch,
+                        fork_name,
+                        signed,
+                    )
+                })
+                .await;
+
+            // Retry on a later poll if any chunk failed to publish or nothing was published.
+            if publish_results.is_empty() || publish_results.iter().any(Result::is_err) {
+                service
+                    .scheduled_preferences
+                    .lock()
+                    .remove(&(epoch, dependent_root));
+            }
         }
         .instrument(info_span!(
             "sign_and_publish_proposer_preferences",
@@ -237,13 +258,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
 }
 
 /// Publish signatures in ready chunks as signing futures complete, so a slow signer does not
-/// block signatures that are ready. Signing failures are logged and dropped. `max_batch_size`
-/// must be non-zero.
+/// block signatures that are ready. Signing failures are logged and dropped. Returns one
+/// result per attempted chunk publication. `max_batch_size` must be non-zero.
 async fn sign_and_publish_proposer_preferences<St, E, P, PFut>(
     signing_results: St,
     max_batch_size: usize,
     mut publish_batch: P,
-) where
+) -> Vec<Result<(), String>>
+where
     St: Stream<Item = (PublicKeyBytes, Result<SignedProposerPreferences, E>)>,
     E: Debug,
     P: FnMut(Vec<SignedProposerPreferences>) -> PFut,
@@ -264,18 +286,19 @@ async fn sign_and_publish_proposer_preferences<St, E, P, PFut>(
             }
         })
         .ready_chunks(max_batch_size)
-        .for_each_concurrent(
-            Some(MAX_CONCURRENT_PROPOSER_PREFERENCES_PUBLISHES),
-            |signed| {
-                let publish = publish_batch(signed);
-                async move {
-                    if let Err(e) = publish.await {
-                        error!(error = %e, "Failed to publish proposer preferences");
-                    }
+        .map(|signed| {
+            let publish = publish_batch(signed);
+            async move {
+                let result = publish.await;
+                if let Err(e) = &result {
+                    error!(error = %e, "Failed to publish proposer preferences");
                 }
-            },
-        )
-        .await;
+                result
+            }
+        })
+        .buffer_unordered(MAX_CONCURRENT_PROPOSER_PREFERENCES_PUBLISHES)
+        .collect()
+        .await
 }
 
 async fn publish_proposer_preferences_batch<T: SlotClock + 'static>(
@@ -399,13 +422,41 @@ mod tests {
         let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> =
             (0..5).map(ok_signer).collect();
 
-        sign_and_publish_proposer_preferences(signing_futures, 5, record_publish(&published)).await;
+        let publish_results =
+            sign_and_publish_proposer_preferences(signing_futures, 5, record_publish(&published))
+                .await;
 
+        assert_eq!(publish_results, vec![Ok(())]);
         let published = published.lock().unwrap();
         assert_eq!(published.len(), 1);
         let mut indices = published[0].clone();
         indices.sort_unstable();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn reports_failed_or_missing_publications() {
+        // A failed publish surfaces in the results, so the service can retry on a later poll.
+        let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> =
+            [ok_signer(1)].into_iter().collect();
+        let publish_results = sign_and_publish_proposer_preferences(signing_futures, 1, |_| {
+            ready(Err("beacon nodes unavailable".to_string()))
+        })
+        .await;
+        assert_eq!(
+            publish_results,
+            vec![Err("beacon nodes unavailable".to_string())]
+        );
+
+        // Nothing published (every signer failed) yields no results.
+        let published = Arc::new(Mutex::new(Vec::new()));
+        let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> =
+            [failed_signer()].into_iter().collect();
+        let publish_results =
+            sign_and_publish_proposer_preferences(signing_futures, 1, record_publish(&published))
+                .await;
+        assert!(publish_results.is_empty());
+        assert!(published.lock().unwrap().is_empty());
     }
 
     #[derive(Default)]
