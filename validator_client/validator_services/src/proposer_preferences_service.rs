@@ -1,15 +1,26 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
+use bls::PublicKeyBytes;
 use eth2::types::ProposerData;
+use futures::stream::FuturesUnordered;
+use futures::{Future, Stream, StreamExt};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences};
+use tracing::{Instrument, debug, error, info, info_span, warn};
+use types::{
+    ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences, SignedProposerPreferences,
+};
 use validator_store::ValidatorStore;
+
+/// Maximum number of concurrent preference publications per signing task. Must be greater than
+/// one so a slow publication does not delay later ready signatures, while bounding the number
+/// of simultaneous requests sent to the BN.
+const MAX_CONCURRENT_PROPOSER_PREFERENCES_PUBLISHES: usize = 4;
 
 pub struct Inner<S, T> {
     duties_service: Arc<DutiesService<S, T>>,
@@ -68,7 +79,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         let executor = self.executor.clone();
 
         let interval_fut = async move {
-            let mut published_preferences: HashMap<Epoch, Hash256> = HashMap::new();
+            let mut scheduled_preferences = HashSet::new();
 
             loop {
                 let Some(current_slot) = self.slot_clock.now() else {
@@ -79,8 +90,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
 
                 let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
 
-                self.poll_and_publish_preferences(current_epoch, &mut published_preferences)
-                    .await;
+                self.poll_and_schedule_preferences(current_epoch, &mut scheduled_preferences);
 
                 let duration_to_next_slot = self
                     .slot_clock
@@ -94,12 +104,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         Ok(())
     }
 
-    /// Publish proposer preferences for `current_epoch` and `current_epoch + 1`.
-    /// Will only publish preferences for a given epoch once per dependent root.
-    async fn poll_and_publish_preferences(
+    /// Schedule signing and publication of proposer preferences for the current and next epochs.
+    ///
+    /// Each `(epoch, dependent_root)` pair is scheduled at most once. Failures after scheduling
+    /// are logged but not retried, to avoid re-signing the same root.
+    fn poll_and_schedule_preferences(
         &self,
         current_epoch: Epoch,
-        published_preferences: &mut HashMap<Epoch, Hash256>,
+        scheduled_preferences: &mut HashSet<(Epoch, Hash256)>,
     ) {
         for (epoch, fork_name) in [
             (
@@ -123,31 +135,35 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 }
             };
 
-            if published_preferences.get(&epoch) == Some(&dependent_root) {
+            if scheduled_preferences.contains(&(epoch, dependent_root)) {
                 continue;
             }
 
-            if self
-                .publish_proposer_preferences(epoch, fork_name, dependent_root, duties)
-                .await
+            if let Some(task) =
+                self.proposer_preferences_task(epoch, fork_name, dependent_root, duties)
             {
-                published_preferences.insert(epoch, dependent_root);
+                scheduled_preferences.insert((epoch, dependent_root));
+                self.executor
+                    .spawn(task, "sign_and_publish_proposer_preferences");
             }
         }
 
-        published_preferences.retain(|epoch, _| *epoch >= current_epoch);
+        scheduled_preferences.retain(|(epoch, _)| *epoch >= current_epoch);
     }
 
-    async fn publish_proposer_preferences(
+    /// Build a task that signs each duty's preferences concurrently and publishes signatures
+    /// as they become ready, so one slow signer cannot delay the others. Returns `None` when
+    /// there is nothing to sign.
+    fn proposer_preferences_task(
         &self,
         epoch: Epoch,
         fork_name: ForkName,
         dependent_root: Hash256,
         duties: Vec<ProposerData>,
-    ) -> bool {
+    ) -> Option<impl Future<Output = ()> + Send + 'static + use<S, T>> {
         let preferences_to_sign: Vec<_> = {
             let mut result = vec![];
-            for duty in &duties {
+            for duty in duties {
                 let Some(proposal_data) = self.validator_store.proposal_data(&duty.pubkey) else {
                     warn!(
                         validator = ?duty.pubkey,
@@ -176,90 +192,284 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             result
         };
 
+        // Returning None leaves the pair unscheduled so the next slot's poll can retry.
         if preferences_to_sign.is_empty() {
-            return false;
+            return None;
         }
 
+        let count = preferences_to_sign.len();
         debug!(
             %epoch,
-            count = preferences_to_sign.len(),
-            "Signing proposer preferences"
+            ?dependent_root,
+            count,
+            "Scheduling proposer preferences signing"
         );
 
-        let mut signed = Vec::with_capacity(preferences_to_sign.len());
-        for (pubkey, preferences) in preferences_to_sign {
-            match self
-                .validator_store
-                .sign_proposer_preferences(pubkey, preferences)
-                .await
-            {
-                Ok(signed_prefs) => signed.push(signed_prefs),
+        let validator_store = self.validator_store.clone();
+        let beacon_nodes = self.beacon_nodes.clone();
+        let task = async move {
+            let signing_futures = preferences_to_sign
+                .into_iter()
+                .map(move |(pubkey, preferences)| {
+                    let validator_store = validator_store.clone();
+                    async move {
+                        let result = validator_store
+                            .sign_proposer_preferences(pubkey, preferences)
+                            .await;
+                        (pubkey, result)
+                    }
+                })
+                .collect::<FuturesUnordered<_>>();
+
+            sign_and_publish_proposer_preferences(signing_futures, count, |signed| {
+                publish_proposer_preferences_batch(beacon_nodes.clone(), epoch, fork_name, signed)
+            })
+            .await;
+        }
+        .instrument(info_span!(
+            "sign_and_publish_proposer_preferences",
+            %epoch,
+            ?dependent_root
+        ));
+
+        Some(task)
+    }
+}
+
+/// Publish signatures in ready chunks as signing futures complete, so a slow signer does not
+/// block signatures that are ready. Signing failures are logged and dropped. `max_batch_size`
+/// must be non-zero.
+async fn sign_and_publish_proposer_preferences<St, E, P, PFut>(
+    signing_results: St,
+    max_batch_size: usize,
+    mut publish_batch: P,
+) where
+    St: Stream<Item = (PublicKeyBytes, Result<SignedProposerPreferences, E>)>,
+    E: Debug,
+    P: FnMut(Vec<SignedProposerPreferences>) -> PFut,
+    PFut: Future<Output = Result<(), String>>,
+{
+    signing_results
+        .filter_map(|(pubkey, result)| async move {
+            match result {
+                Ok(signed) => Some(signed),
                 Err(e) => {
                     error!(
                         error = ?e,
                         validator = ?pubkey,
                         "Failed to sign proposer preferences"
                     );
+                    None
                 }
             }
-        }
-
-        if signed.is_empty() {
-            return false;
-        }
-
-        let count = signed.len();
-        let signed = Arc::new(signed);
-        let result = self
-            .beacon_nodes
-            .first_success(|beacon_node| {
-                let signed = signed.clone();
+        })
+        .ready_chunks(max_batch_size)
+        .for_each_concurrent(
+            Some(MAX_CONCURRENT_PROPOSER_PREFERENCES_PUBLISHES),
+            |signed| {
+                let publish = publish_batch(signed);
                 async move {
-                    beacon_node
-                        .post_validator_proposer_preferences_ssz(&signed, fork_name)
-                        .await
-                        .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
+                    if let Err(e) = publish.await {
+                        error!(error = %e, "Failed to publish proposer preferences");
+                    }
                 }
-            })
-            .await;
+            },
+        )
+        .await;
+}
 
-        let result = match result {
-            Ok(()) => Ok(()),
-            Err(ssz_err) => {
-                debug!(error = %ssz_err, "SSZ publish failed, falling back to JSON");
-                self.beacon_nodes
-                    .first_success(|beacon_node| {
-                        let signed = signed.clone();
-                        async move {
-                            beacon_node
-                                .post_validator_proposer_preferences(&signed, fork_name)
-                                .await
-                                .map_err(|e| {
-                                    format!("Failed to publish proposer preferences (JSON): {e:?}")
-                                })
-                        }
-                    })
+async fn publish_proposer_preferences_batch<T: SlotClock + 'static>(
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    epoch: Epoch,
+    fork_name: ForkName,
+    signed: Vec<SignedProposerPreferences>,
+) -> Result<(), String> {
+    let count = signed.len();
+    let signed = Arc::new(signed);
+    let result = beacon_nodes
+        .first_success(|beacon_node| {
+            let signed = signed.clone();
+            async move {
+                beacon_node
+                    .post_validator_proposer_preferences_ssz(&signed, fork_name)
                     .await
+                    .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
+            }
+        })
+        .await;
+
+    let result = match result {
+        Ok(()) => Ok(()),
+        Err(ssz_err) => {
+            debug!(error = %ssz_err, "SSZ publish failed, falling back to JSON");
+            beacon_nodes
+                .first_success(|beacon_node| {
+                    let signed = signed.clone();
+                    async move {
+                        beacon_node
+                            .post_validator_proposer_preferences(&signed, fork_name)
+                            .await
+                            .map_err(|e| {
+                                format!("Failed to publish proposer preferences (JSON): {e:?}")
+                            })
+                    }
+                })
+                .await
+        }
+    };
+
+    if result.is_ok() {
+        info!(
+            %epoch,
+            %count,
+            "Successfully published proposer preferences"
+        );
+    }
+    result.map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+    use futures::future::{BoxFuture, Ready, pending, ready};
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    type SigningResult = (
+        PublicKeyBytes,
+        Result<SignedProposerPreferences, &'static str>,
+    );
+
+    fn signed_preferences(validator_index: u64) -> SignedProposerPreferences {
+        let mut preferences = SignedProposerPreferences::empty();
+        preferences.message.validator_index = validator_index;
+        preferences
+    }
+
+    fn ok_signer(validator_index: u64) -> BoxFuture<'static, SigningResult> {
+        ready((
+            PublicKeyBytes::empty(),
+            Ok(signed_preferences(validator_index)),
+        ))
+        .boxed()
+    }
+
+    fn failed_signer() -> BoxFuture<'static, SigningResult> {
+        ready((PublicKeyBytes::empty(), Err("signing failed"))).boxed()
+    }
+
+    fn validator_indices(signed: Vec<SignedProposerPreferences>) -> Vec<u64> {
+        signed
+            .into_iter()
+            .map(|preferences| preferences.message.validator_index)
+            .collect()
+    }
+
+    fn record_publish(
+        published: &Arc<Mutex<Vec<Vec<u64>>>>,
+    ) -> impl FnMut(Vec<SignedProposerPreferences>) -> Ready<Result<(), String>> {
+        let published = published.clone();
+        move |signed| {
+            published.lock().unwrap().push(validator_indices(signed));
+            ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn slow_signer_does_not_block_ready_siblings() {
+        let published = Arc::new(Mutex::new(Vec::new()));
+        let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> =
+            [pending().boxed(), failed_signer(), ok_signer(2)]
+                .into_iter()
+                .collect();
+
+        let drain =
+            sign_and_publish_proposer_preferences(signing_futures, 3, record_publish(&published));
+
+        // The pending signer keeps the drain alive, but the ready signature must still publish.
+        assert!(timeout(Duration::from_millis(50), drain).await.is_err());
+        assert_eq!(*published.lock().unwrap(), vec![vec![2]]);
+    }
+
+    #[tokio::test]
+    async fn all_ready_signers_publish_as_single_batch() {
+        let published = Arc::new(Mutex::new(Vec::new()));
+        let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> =
+            (0..5).map(ok_signer).collect();
+
+        sign_and_publish_proposer_preferences(signing_futures, 5, record_publish(&published)).await;
+
+        let published = published.lock().unwrap();
+        assert_eq!(published.len(), 1);
+        let mut indices = published[0].clone();
+        indices.sort_unstable();
+        assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[derive(Default)]
+    struct PublishTracker {
+        in_flight: usize,
+        max_in_flight: usize,
+        completed: Vec<u64>,
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_publication_does_not_block_later_chunks() {
+        let tracker = Arc::new(Mutex::new(PublishTracker::default()));
+
+        // Staggered completions make `ready_chunks` yield multiple chunks.
+        let signing_futures: FuturesUnordered<BoxFuture<'static, SigningResult>> = (0..6)
+            .map(|validator_index| {
+                async move {
+                    sleep(Duration::from_millis(10 * (validator_index + 1))).await;
+                    (
+                        PublicKeyBytes::empty(),
+                        Ok(signed_preferences(validator_index)),
+                    )
+                }
+                .boxed()
+            })
+            .collect();
+
+        let publish_batch = {
+            let tracker = tracker.clone();
+            move |signed: Vec<SignedProposerPreferences>| {
+                let tracker = tracker.clone();
+                let indices = validator_indices(signed);
+                async move {
+                    {
+                        let mut tracker = tracker.lock().unwrap();
+                        tracker.in_flight += 1;
+                        tracker.max_in_flight = tracker.max_in_flight.max(tracker.in_flight);
+                    }
+                    // Validator 0's publication never resolves.
+                    if indices.contains(&0) {
+                        pending::<()>().await;
+                    }
+                    sleep(Duration::from_millis(100)).await;
+                    let mut tracker = tracker.lock().unwrap();
+                    tracker.in_flight -= 1;
+                    tracker.completed.extend(indices);
+                    Ok(())
+                }
+                .boxed()
             }
         };
 
-        match result {
-            Ok(()) => {
-                info!(
-                    %epoch,
-                    %count,
-                    "Successfully published proposer preferences"
-                );
-                true
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    %epoch,
-                    "Failed to publish proposer preferences"
-                );
-                false
-            }
-        }
+        let drain = sign_and_publish_proposer_preferences(signing_futures, 6, publish_batch);
+
+        // The stuck publication keeps the drain alive, but later chunks must still publish.
+        assert!(timeout(Duration::from_secs(60), drain).await.is_err());
+
+        let tracker = tracker.lock().unwrap();
+        let mut completed = tracker.completed.clone();
+        completed.sort_unstable();
+        assert_eq!(completed, vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            tracker.max_in_flight,
+            MAX_CONCURRENT_PROPOSER_PREFERENCES_PUBLISHES
+        );
     }
 }
