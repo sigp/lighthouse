@@ -1054,6 +1054,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             equivocating_indices,
             &head_state,
             checkpoint_state.as_ref(),
+            &store.spec,
         )?;
 
         let confirmed_node = fork_choice
@@ -1114,6 +1115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .unwrap_or(&snapshot.beacon_state),
             spec.confirmation_byzantine_threshold,
             spec.proposer_score_boost,
+            spec,
         )
     }
 

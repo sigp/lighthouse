@@ -127,6 +127,16 @@ impl BenchData {
 /// Build the synthetic chain (slots 0..=CHAIN_TIP_SLOT) with `num_validators` voting for scattered
 /// recent blocks, plus an FCR seeded with the shared balances/checkpoints.
 fn build_chain(num_validators: usize) -> BenchData {
+    build_chain_inner(num_validators, E::slots_per_epoch() as usize, None)
+}
+
+/// `build_chain`, with `seed_validators` in the committee-cached seed state (so `is_in_range`
+/// covers them) and an optional missed slot: block `gap_slot + 1` then parents to `gap_slot - 1`.
+fn build_chain_inner(
+    num_validators: usize,
+    seed_validators: usize,
+    gap_slot: Option<u64>,
+) -> BenchData {
     let spec = E::default_spec();
     let genesis_root = block_root_at(0);
 
@@ -162,6 +172,10 @@ fn build_chain(num_validators: usize) -> BenchData {
     let mut block_roots = vec![genesis_root];
 
     for slot_u in 1..=CHAIN_TIP_SLOT {
+        if Some(slot_u) == gap_slot {
+            block_roots.push(block_roots[(slot_u - 1) as usize]);
+            continue;
+        }
         let slot = Slot::new(slot_u);
         let epoch = slot.epoch(E::slots_per_epoch());
         let root = block_root_at(slot_u);
@@ -243,7 +257,7 @@ fn build_chain(num_validators: usize) -> BenchData {
     // slot-tracking variables, so a small committee-cache-ready state suffices (its assignments
     // aren't on the O(V) cost path).
     let mut seed_state = BeaconState::<E>::new(0, Default::default(), &spec);
-    for _ in 0..E::slots_per_epoch() {
+    for _ in 0..seed_validators {
         seed_state
             .validators_mut()
             .push(Validator {
@@ -269,6 +283,7 @@ fn build_chain(num_validators: usize) -> BenchData {
         &seed_state,
         25,
         40,
+        &spec,
     )
     .expect("fcr initialization");
     fcr.test_set_head_balance_source(balance_source.clone());
@@ -397,10 +412,45 @@ fn bench_get_latest_confirmed(c: &mut Criterion) {
     group.finish();
 }
 
+/// `get_latest_confirmed` with a missed slot at the confirmation frontier (block 68 parents to 66),
+/// so `compute_empty_slot_support_discount` runs `get_block_support`'s O(V) `is_in_range` loop over
+/// the full committee-cached validator set — the on-demand committee-cache lookup at scale.
+fn bench_get_latest_confirmed_empty_slots(c: &mut Criterion) {
+    let mut group = c.benchmark_group("get_latest_confirmed_empty_slots");
+    for &n in &VALIDATOR_SET_SIZES {
+        let mut data = build_chain_inner(n, n, Some(67));
+        if n >= 100_000 {
+            group.sample_size(10);
+        }
+        data.apply_scenario(&Scenario {
+            name: "missed_slot",
+            head_slot: 69,
+            current_slot: 70,
+            confirmed_slot: 66,
+        });
+        let head_root = block_root_at(69);
+        group.bench_with_input(BenchmarkId::new("missed_slot", n), &n, |b, _| {
+            b.iter(|| {
+                data.fcr.get_latest_confirmed::<E>(
+                    head_root,
+                    &data.finalized_checkpoint,
+                    &data.unrealized_justified_checkpoint,
+                    Slot::new(70),
+                    &data.proto_array,
+                    &data.votes,
+                    &data.equivocating_indices,
+                )
+            })
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_get_current_target_score,
     bench_precompute_chain_scores,
     bench_get_latest_confirmed,
+    bench_get_latest_confirmed_empty_slots,
 );
 criterion_main!(benches);

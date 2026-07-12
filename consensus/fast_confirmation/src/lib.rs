@@ -45,14 +45,13 @@ mod slot_assignments;
 pub use balance_source::{BalanceSourceData, BalanceSourceKey};
 pub use optimizations::CheckpointAndBalance;
 use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
-use slot_assignments::SlotAssignments;
-pub use slot_assignments::UNSET_SLOT;
+use slot_assignments::{SlotAssignments, WindowEpoch, attestation_shuffling_id};
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
-use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -73,6 +72,8 @@ pub enum Error {
     BlockRootsOutOfBounds(String),
     SlashingsOutOfBounds(String),
     IndexOutOfBounds(usize),
+    AttestationShufflingIdError(BeaconStateError),
+    CommitteeCacheError(BeaconStateError),
     ArithError(ArithError),
 }
 
@@ -175,6 +176,7 @@ impl FastConfirmationRule {
         checkpoint_state: &BeaconState<E>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
+        spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let byzantine_threshold = byzantine_threshold.min(Self::MAX_BYZANTINE_THRESHOLD);
         // Sanity: the supplied state must be the checkpoint's state, advanced to the
@@ -199,7 +201,7 @@ impl FastConfirmationRule {
             current_slot_head: finalized_checkpoint.root,
             byzantine_threshold,
             proposer_score_boost,
-            slot_assignments: SlotAssignments::new(head_state)?,
+            slot_assignments: SlotAssignments::new(head_state, spec, None)?,
             head_balance_source: BalanceSourceData::new(head_state, head_root)?,
             last_update_slot: None,
             spec_test_mode: false,
@@ -239,6 +241,7 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
         head_state: &BeaconState<E>,
         checkpoint_state: Option<&BeaconState<E>>,
+        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
 
@@ -248,6 +251,7 @@ impl FastConfirmationRule {
             current_slot,
             head_state,
             checkpoint_state,
+            spec,
         )?;
 
         if !self.spec_test_mode {
@@ -309,18 +313,20 @@ impl FastConfirmationRule {
         current_slot: Slot,
         head_state: &BeaconState<E>,
         checkpoint_state: Option<&BeaconState<E>>,
+        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
-        let current_epoch = current_slot.epoch(E::slots_per_epoch());
 
         // Rebuild the head-derived caches when the head changes (including within a slot, e.g. a
         // late block or reorg). Each cache is rebuilt from scratch, independently, when its own
         // key is stale.
-        let head_dependent_root = dependent_root::<E>(head_state, current_epoch)?;
+        let head_current_epoch_shuffling_id =
+            attestation_shuffling_id(head_state, WindowEpoch::Current)?;
 
-        if self.slot_assignments.dependent_root() != head_dependent_root {
+        if *self.slot_assignments.key() != head_current_epoch_shuffling_id {
             let _span = debug_span!("fcr_rebuild_assignments").entered();
-            self.slot_assignments = SlotAssignments::new::<E>(head_state)?;
+            self.slot_assignments =
+                SlotAssignments::new(head_state, spec, Some(&self.slot_assignments))?;
         }
 
         let head_balance_key = BalanceSourceKey::compute(head_state, head_root)?;
@@ -1374,21 +1380,6 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
-/// Shuffling/validator-set decision root for `epoch`: the block at the last slot of the previous
-/// epoch. Genesis has no previous epoch, so it is identified by the zero root.
-pub(crate) fn dependent_root<E: EthSpec>(
-    state: &BeaconState<E>,
-    epoch: Epoch,
-) -> Result<Hash256, Error> {
-    if epoch == 0 {
-        return Ok(Hash256::ZERO);
-    }
-    let slot = compute_start_slot_at_epoch::<E>(epoch).safe_sub(1)?;
-    Ok(*state
-        .get_block_root(slot)
-        .map_err(|e| Error::BlockRootsOutOfBounds(format!("dep_root lookup: {e:?}")))?)
-}
-
 /// Spec: `is_full_validator_set_covered`.
 fn is_full_validator_set_covered<E: EthSpec>(
     start_slot: Slot,
@@ -1591,7 +1582,7 @@ mod tests {
         };
         let head_root_a = Hash256::repeat_byte(2);
         let mut fcr =
-            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40)
+            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40, &spec)
                 .expect("fcr initialization");
 
         assert!(matches!(
@@ -1616,6 +1607,7 @@ mod tests {
             state.slot(),
             &state,
             None,
+            &spec,
         )
         .expect("update variables");
 
@@ -1637,6 +1629,7 @@ mod tests {
             state.slot(),
             &state,
             None,
+            &spec,
         )
         .expect("update variables");
         assert_eq!(
