@@ -111,6 +111,7 @@ pub struct BeaconProcessorQueueLengths {
     attestation_queue: usize,
     unknown_block_aggregate_queue: usize,
     unknown_block_attestation_queue: usize,
+    unknown_block_payload_attestation_queue: usize,
     unknown_block_data_column_queue: usize,
     sync_message_queue: usize,
     sync_contribution_queue: usize,
@@ -187,6 +188,8 @@ impl BeaconProcessorQueueLengths {
                 active_validator_count / slots_per_epoch,
                 MIN_QUEUE_LEN,
             ),
+            // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
+            unknown_block_payload_attestation_queue: 1536,
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
             gossip_voluntary_exit_queue: 4096,
@@ -247,6 +250,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_payload_attestation_queue: LifoQueue<Work<E>>,
     pub unknown_block_data_column_queue: FifoQueue<Work<E>>,
     pub sync_message_queue: LifoQueue<Work<E>>,
     pub sync_contribution_queue: LifoQueue<Work<E>>,
@@ -304,6 +308,8 @@ impl<E: EthSpec> WorkQueues<E> {
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
         let unknown_block_attestation_queue =
             LifoQueue::new(queue_lengths.unknown_block_attestation_queue);
+        let unknown_block_payload_attestation_queue =
+            LifoQueue::new(queue_lengths.unknown_block_payload_attestation_queue);
         let unknown_block_data_column_queue =
             FifoQueue::new(queue_lengths.unknown_block_data_column_queue);
 
@@ -386,6 +392,7 @@ impl<E: EthSpec> WorkQueues<E> {
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
+            unknown_block_payload_attestation_queue,
             unknown_block_data_column_queue,
             sync_message_queue,
             sync_contribution_queue,
