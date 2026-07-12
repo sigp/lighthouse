@@ -142,11 +142,8 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(newfork): Add a new case here if there are new variable fields
-        if fork_name.heze_enabled() {
-            // TODO(Heze): check this
-            0
-        } else if fork_name.gloas_enabled() {
-            // TODO(EIP7732): check this
+        if fork_name.gloas_enabled() {
+            // TODO(EIP7732) TODO(Heze): check this
             0
         } else if fork_name.bellatrix_enabled() {
             // Max size of variable length `extra_data` field
