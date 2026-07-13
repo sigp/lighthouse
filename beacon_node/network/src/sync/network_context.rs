@@ -47,7 +47,6 @@ use requests::{
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -1663,9 +1662,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         req_id: DataColumnsByRangeRequestId,
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
-        let Entry::Occupied(mut entry) = self
+        // Remove before processing so every terminal result drops the request and its columns.
+        // Re-insert below only while waiting for more responses.
+        let Some(mut request) = self
             .custody_backfill_data_column_batch_requests
-            .entry(custody_sync_request_id)
+            .remove(&custody_sync_request_id)
         else {
             metrics::inc_counter_vec(
                 &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
@@ -1674,33 +1675,44 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return None;
         };
 
-        if let Err(e) = {
-            let request = entry.get_mut();
-            data_columns.and_then(|data_columns| {
-                request
-                    .add_custody_columns(req_id, data_columns.clone())
-                    .map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
-                            e,
-                        ))
-                    })
-            })
-        } {
-            entry.remove();
+        if let Err(e) = data_columns.and_then(|data_columns| {
+            request
+                .add_custody_columns(req_id, data_columns)
+                .map_err(|e| {
+                    RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e))
+                })
+        }) {
             return Some(Err(e));
         }
 
-        if let Some(data_column_result) = entry.get_mut().responses() {
-            if data_column_result.is_ok() {
-                // remove the entry only if it coupled successfully with
-                // no errors
-                entry.remove();
-            }
-            // If the request is finished, dequeue everything
+        if let Some(data_column_result) = request.responses() {
             Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
         } else {
+            // Re-insert — still waiting for more data column responses.
+            self.custody_backfill_data_column_batch_requests
+                .insert(custody_sync_request_id, request);
             None
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn custody_backfill_batch_request_count(&self) -> usize {
+        self.custody_backfill_data_column_batch_requests.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_custody_backfill_entry(
+        &mut self,
+        batch_req_id: CustodyBackFillBatchRequestId,
+        requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
+    ) {
+        let request = RangeDataColumnBatchRequest::new(
+            requests,
+            self.chain.clone(),
+            batch_req_id.batch_id.epoch,
+        );
+        self.custody_backfill_data_column_batch_requests
+            .insert(batch_req_id, request);
     }
 
     pub(crate) fn register_metrics(&self) {

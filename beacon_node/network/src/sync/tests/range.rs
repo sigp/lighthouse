@@ -28,7 +28,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::rpc::methods::StatusMessageV2;
 use lighthouse_network::{PeerId, SyncInfo};
 use std::collections::HashSet;
-use types::{Epoch, EthSpec, Hash256, MinimalEthSpec as E, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec as E, Slot};
 
 /// MinimalEthSpec has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
@@ -249,6 +249,81 @@ impl TestRig {
             _ => None,
         })
         .expect("Peer with blacklisted root should receive Goodbye");
+    }
+
+    async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
+        use crate::sync::block_sidecar_coupling::CouplingError;
+        use crate::sync::network_context::RpcResponseError;
+        use lighthouse_network::service::api_types::{
+            CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+            DataColumnsByRangeRequester,
+        };
+
+        self.build_chain(1).await;
+        self.import_blocks_up_to_slot(1).await;
+        let good_peer = self.new_connected_supernode_peer();
+        let bad_peer = self.new_connected_supernode_peer();
+        let columns = self
+            .network_blocks_by_slot
+            .get(&Slot::new(1))
+            .and_then(|block| block.data_columns())
+            .expect("slot 1 should have data columns");
+        let good_column = columns[0].clone();
+        let good_column_index = *good_column.index();
+        let missing_column_index = *columns[1].index();
+
+        let batch_request_id = CustodyBackFillBatchRequestId {
+            id: 999,
+            batch_id: CustodyBackfillBatchId {
+                epoch: Epoch::new(0),
+                run_id: 1,
+            },
+        };
+        let good_request_id = DataColumnsByRangeRequestId {
+            id: 1000,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: good_peer,
+        };
+        let bad_request_id = DataColumnsByRangeRequestId {
+            id: 1001,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: bad_peer,
+        };
+
+        let context = self.sync_manager.network_context();
+        context.insert_test_custody_backfill_entry(
+            batch_request_id,
+            vec![
+                (good_request_id, vec![good_column_index]),
+                (bad_request_id, vec![missing_column_index]),
+            ],
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let pending_response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            good_request_id,
+            Ok(vec![good_column]),
+        );
+        assert!(pending_response.is_none());
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            bad_request_id,
+            Ok(vec![]),
+        );
+
+        assert!(
+            matches!(
+                response,
+                Some(Err(RpcResponseError::BlockComponentCouplingError(
+                    CouplingError::DataColumnPeerFailure { .. }
+                )))
+            ),
+            "expected DataColumnPeerFailure, got {response:?}",
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 0);
     }
 }
 
@@ -549,4 +624,15 @@ async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() 
 
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
+}
+
+/// A completed custody-backfill request with missing columns must be removed before retrying.
+#[tokio::test]
+async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_peer_failure_cleans_up_request()
+        .await;
 }
