@@ -3268,6 +3268,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::PayloadAttestationMessage => {
                                     event_handler.subscribe_payload_attestation_message()
                                 }
+                                api_types::EventTopic::FastConfirmation => {
+                                    event_handler.subscribe_fast_confirmation()
+                                }
                             };
 
                             receivers.push(
