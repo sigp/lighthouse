@@ -15,6 +15,9 @@ network_params:
   electra_fork_epoch: 0
   fulu_fork_epoch: 100000 # a really big number so this test stays in electra
   preset: "minimal"
+# TODO: Update this once devnet-7 changes are merged.
+ethereum_genesis_generator_params:
+    image: ethpandaops/ethereum-genesis-generator:6.1.2
 additional_services:
   - tx_fuzz
   - spamoor
