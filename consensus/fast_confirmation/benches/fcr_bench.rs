@@ -247,6 +247,7 @@ fn build_chain_inner(
     let balance_source = BalanceSourceData {
         key: BalanceSourceKey::NoSlashings {
             epoch_boundary_root: observed_justified_checkpoint.root,
+            epoch: Slot::new(CHAIN_TIP_SLOT).epoch(E::slots_per_epoch()),
         },
         total_active_balance,
         effective_balances: vec![BALANCE; num_validators],

@@ -397,29 +397,41 @@ impl FastConfirmationRule {
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
         let mut confirmed_root = self.confirmed_root;
 
+        let confirmed_block_epoch_result = get_block_epoch::<E>(confirmed_root, proto_array);
+
         // Revert to finalized block if either of the following is true:
-        let should_revert_to_finalized_reason =
-            if get_block_epoch::<E>(confirmed_root, proto_array)?.safe_add(1)? < current_epoch {
+        let should_revert_to_finalized_reason = if confirmed_block_epoch_result
+            .as_ref()
+            .map_or(true, |block_epoch| {
+                block_epoch.saturating_add(1u64) < current_epoch
+            }) {
+            if confirmed_block_epoch_result.is_err() {
+                // We have an additional revert case not present in the spec: the `confirmed_root`
+                // could have been pruned from fork choice. This needs to be a recoverable failure
+                // (a revert) rather than a hard error.
+                Some("confirmed_block_pruned")
+            } else {
                 // 1) the latest confirmed block's epoch is older than the previous epoch,
                 Some("epoch_too_old")
-            } else if !is_ancestor(head_root, confirmed_root, proto_array)? {
-                // 2) the latest confirmed block does not belong to the canonical chain,
-                Some("not_ancestor")
-            } else if is_epoch_start
-                && let Some(chain_unsafe_reason) = self.is_confirmed_chain_safe::<E>(
-                    // 3) the confirmed chain starting from the current epoch observed justified
-                    //    checkpoint cannot be re-confirmed at the start of the current epoch.
-                    confirmed_root,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                )?
-            {
-                Some(chain_unsafe_reason)
-            } else {
-                None
-            };
+            }
+        } else if !is_ancestor(head_root, confirmed_root, proto_array)? {
+            // 2) the latest confirmed block does not belong to the canonical chain,
+            Some("not_ancestor")
+        } else if is_epoch_start
+            && let Some(chain_unsafe_reason) = self.is_confirmed_chain_safe::<E>(
+                // 3) the confirmed chain starting from the current epoch observed justified
+                //    checkpoint cannot be re-confirmed at the start of the current epoch.
+                confirmed_root,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )?
+        {
+            Some(chain_unsafe_reason)
+        } else {
+            None
+        };
         if let Some(reason) = should_revert_to_finalized_reason {
             debug!(
                 prev_confirmed = %confirmed_root,
@@ -738,10 +750,10 @@ impl FastConfirmationRule {
                                 support as f64 / safety_threshold as f64,
                             );
                         }
-                        return Ok(Some("unconfirmed_optimistic"));
+                        return Ok(Some("unconfirmed_below_threshold"));
                     }
                     Unconfirmed::Optimistic => {
-                        return Ok(Some("unconfirmed_below_threshold"));
+                        return Ok(Some("unconfirmed_optimistic"));
                     }
                 }
             }

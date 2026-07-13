@@ -2,15 +2,18 @@
 
 use crate::Error;
 use safe_arith::SafeArith;
-use types::{BeaconState, EthSpec, Hash256};
+use types::{BeaconState, Epoch, EthSpec, Hash256};
 
 /// Cache key identifying the validator-set view a `BalanceSourceData` was built from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BalanceSourceKey {
-    /// No slashings have been processed in the epoch (`state.slashings[epoch % E] == 0`): the
+    /// No slashings have been processed in the `epoch` (`state.slashings[epoch % E] == 0`): the
     /// epoch's boundary root (block at the last slot of the previous epoch) pins the effective
     /// balances, activation set and slashed flags for the whole epoch.
-    NoSlashings { epoch_boundary_root: Hash256 },
+    NoSlashings {
+        epoch_boundary_root: Hash256,
+        epoch: Epoch,
+    },
     /// At least one slashing has been processed in the epoch. Slashings flip `Validator.slashed`
     /// mid-epoch without moving the epoch boundary root, so the snapshot is keyed on its own block
     /// root instead and every head change rebuilds it for the rest of the epoch.
@@ -23,8 +26,9 @@ impl BalanceSourceKey {
         state: &BeaconState<E>,
         block_root: Hash256,
     ) -> Result<Self, Error> {
+        let epoch = state.current_epoch();
         let epoch_slashings = state
-            .get_slashings(state.current_epoch())
+            .get_slashings(epoch)
             .map_err(|e| Error::SlashingsOutOfBounds(format!("slashings lookup: {e:?}")))?;
         if epoch_slashings > 0 {
             Ok(Self::SlashingsPresent {
@@ -33,6 +37,7 @@ impl BalanceSourceKey {
         } else {
             Ok(Self::NoSlashings {
                 epoch_boundary_root: get_epoch_boundary_root::<E>(state)?,
+                epoch,
             })
         }
     }
