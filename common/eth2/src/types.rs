@@ -1074,6 +1074,13 @@ pub struct BlockGossip {
     pub slot: Slot,
     pub block: Hash256,
 }
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseFastConfirmation {
+    pub block: Hash256,
+    pub slot: Slot,
+    pub current_slot: Slot,
+}
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseExecutionPayload {
     pub slot: Slot,
@@ -1248,6 +1255,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
+    FastConfirmation(SseFastConfirmation),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1277,6 +1285,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
             EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
+            EventKind::FastConfirmation(_) => "fast_confirmation",
         }
     }
 
@@ -1405,6 +1414,11 @@ impl<E: EthSpec> EventKind<E> {
                     ))
                 })?,
             ))),
+            "fast_confirmation" => Ok(EventKind::FastConfirmation(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Fast Confirmation: {:?}", e))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1446,6 +1460,7 @@ pub enum EventTopic {
     ExecutionPayloadBid,
     ProposerPreferences,
     PayloadAttestationMessage,
+    FastConfirmation,
 }
 
 impl FromStr for EventTopic {
@@ -1477,6 +1492,7 @@ impl FromStr for EventTopic {
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
             "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
+            "fast_confirmation" => Ok(EventTopic::FastConfirmation),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1513,6 +1529,7 @@ impl fmt::Display for EventTopic {
             EventTopic::PayloadAttestationMessage => {
                 write!(f, "payload_attestation_message")
             }
+            EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
         }
     }
 }
