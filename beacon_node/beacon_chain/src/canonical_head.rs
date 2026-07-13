@@ -47,7 +47,9 @@ use crate::{
     validator_monitor::get_slot_delay_ms,
 };
 use eth2::beacon_response::ForkVersionedResponse;
-use eth2::types::{EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2, SseLateHead};
+use eth2::types::{
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2, SseLateHead,
+};
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
 };
