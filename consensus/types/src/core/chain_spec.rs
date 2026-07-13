@@ -115,6 +115,7 @@ pub struct ChainSpec {
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
     pub contribution_due_bps: u64,
+    pub inclusion_list_due_bps: u64,
 
     /*
      * Derived time values (computed at startup via `compute_derived_values()`)
@@ -322,6 +323,12 @@ pub struct ChainSpec {
      * Networking Gloas
      */
     pub max_request_payloads: u64,
+
+    /*
+     * Networking Heze
+     */
+    pub max_bytes_per_inclusion_list: u64,
+    pub max_request_inclusion_list: u64,
 
     /*
      * Networking Derived
@@ -1151,6 +1158,7 @@ impl ChainSpec {
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1333,6 +1341,8 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
 
             /*
              * Network specific
@@ -1681,6 +1691,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(512)),
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Bellatrix hard fork params
@@ -1775,6 +1786,8 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
 
             /*
              * Network specific
@@ -2237,6 +2250,9 @@ pub struct Config {
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+    #[serde(default = "default_inclusion_list_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    inclusion_list_due_bps: u64,
 
     #[serde(default = "default_min_builder_withdrawability_delay")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2486,6 +2502,10 @@ const fn default_payload_attestation_due_bps() -> u64 {
 }
 
 const fn default_aggregate_due_bps() -> u64 {
+    6667
+}
+
+const fn default_inclusion_list_due_bps() -> u64 {
     6667
 }
 
@@ -2778,6 +2798,7 @@ impl Config {
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             contribution_due_bps: spec.contribution_due_bps,
+            inclusion_list_due_bps: spec.inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
 
@@ -2885,6 +2906,7 @@ impl Config {
             sync_message_due_bps,
             contribution_due_bps,
             confirmation_byzantine_threshold,
+            inclusion_list_due_bps,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
@@ -2998,6 +3020,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
 
@@ -3977,7 +4000,6 @@ mod yaml_tests {
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
         // Heze networking
-        "INCLUSION_LIST_DUE_BPS",
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
     ];
