@@ -1009,6 +1009,11 @@ impl ChainSpec {
             "invalid chain spec: contribution_due_bps ({}) exceeds slot duration",
             self.contribution_due_bps
         );
+        assert!(
+            self.inclusion_list_due_bps <= BASIS_POINTS,
+            "invalid chain spec: inclusion_list_due_bps ({}) exceeds slot duration",
+            self.inclusion_list_due_bps
+        );
 
         self.unaggregated_attestation_due = self
             .compute_slot_component_duration(self.attestation_due_bps)
