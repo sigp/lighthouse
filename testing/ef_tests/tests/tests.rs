@@ -1141,6 +1141,30 @@ fn fork_choice_deposit_with_reorg() {
     // There is no mainnet variant for this test.
 }
 
+macro_rules! fast_confirmation_tests {
+    ($($name:ident: $handler:literal),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                FastConfirmationHandler::<MinimalEthSpec>::new($handler).run();
+            }
+        )*
+    };
+}
+
+fast_confirmation_tests! {
+    fast_confirmation_basic: "basic",
+    fast_confirmation_current_epoch: "current_epoch",
+    fast_confirmation_empty_slots: "empty_slots",
+    fast_confirmation_ffg: "ffg",
+    fast_confirmation_is_one_confirmed: "is_one_confirmed",
+    fast_confirmation_previous_epoch: "previous_epoch",
+    fast_confirmation_reconfirmation: "reconfirmation",
+    fast_confirmation_restart_gu: "restart_gu",
+    fast_confirmation_revert_finality: "revert_finality",
+    fast_confirmation_variables: "variables",
+}
+
 #[test]
 fn fork_choice_on_execution_payload_envelope() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload_envelope").run();
