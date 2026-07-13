@@ -38,6 +38,7 @@ pub enum Domain {
     PTCAttester,
     ProposerPreferences,
     BuilderDeposit,
+    InclusionListCommittee,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -149,6 +150,7 @@ pub struct ChainSpec {
     pub(crate) domain_ptc_attester: u32,
     pub(crate) domain_proposer_preferences: u32,
     pub(crate) domain_builder_deposit: u32,
+    pub(crate) domain_inclusion_list_committee: u32,
 
     /*
      * Fork choice
@@ -550,6 +552,7 @@ impl ChainSpec {
             Domain::PTCAttester => self.domain_ptc_attester,
             Domain::ProposerPreferences => self.domain_proposer_preferences,
             Domain::BuilderDeposit => self.domain_builder_deposit,
+            Domain::InclusionListCommittee => self.domain_inclusion_list_committee,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1184,6 +1187,7 @@ impl ChainSpec {
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
+            domain_inclusion_list_committee: 0x10,
 
             /*
              * Fork choice
@@ -1624,6 +1628,7 @@ impl ChainSpec {
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
+            domain_inclusion_list_committee: 0x10,
 
             /*
              * Fork choice
@@ -3067,6 +3072,11 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(
+            Domain::InclusionListCommittee,
+            spec.domain_inclusion_list_committee,
+            &spec,
+        );
         test_domain(
             Domain::ProposerPreferences,
             spec.domain_proposer_preferences,
