@@ -1313,6 +1313,7 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
+ "fast_confirmation",
  "fixed_bytes",
  "fork_choice",
  "futures",
@@ -2948,6 +2949,7 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
+ "fast_confirmation",
  "fork_choice",
  "fs2",
  "hex",
@@ -3529,6 +3531,22 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fast_confirmation"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "ethereum_hashing",
+ "fixed_bytes",
+ "metrics",
+ "proto_array",
+ "safe_arith",
+ "state_processing",
+ "strum",
+ "tracing",
+ "types",
+]
 
 [[package]]
 name = "fastbloom"
