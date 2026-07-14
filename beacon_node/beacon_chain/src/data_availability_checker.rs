@@ -269,9 +269,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler {
             match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    return Ok(partial_data_column.sidecar.filter(|idx| {
-                        cached_partial.as_data_column().sidecar.get(idx).is_none()
-                    })?);
+                    return partial_data_column.sidecar.try_filter(|idx, cell, proof| {
+                        match cached_partial.as_data_column().sidecar.get(idx) {
+                            None => Ok(true),
+                            Some((cached_cell, cached_proof)) => {
+                                if cell == cached_cell && proof == cached_proof {
+                                    Ok(false)
+                                } else {
+                                    Err(MissingCellsError::MismatchesCachedColumn)
+                                }
+                            }
+                        }
+                    });
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.
@@ -284,7 +293,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
         // No cached data, all cells are "missing" (new data we want)
-        Ok(partial_data_column.sidecar.filter(|_| true)?)
+        partial_data_column.sidecar.try_filter(|_, _, _| Ok(true))
     }
 
     /// Get a blob from the availability cache.
