@@ -12,6 +12,7 @@ use crate::{ClientVersionV1, HttpJsonRpc};
 use std::sync::OnceLock;
 use std::time::Duration;
 use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
+use tokio::sync::Mutex;
 use tracing::warn;
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
@@ -27,6 +28,7 @@ pub struct EngineApi {
     json_rpc: HttpJsonRpc,
     rest: Option<HttpRestSsz>,
     decision: OnceLock<Transport>,
+    fcu_lock: Mutex<()>
 }
 
 impl EngineApi {
@@ -35,6 +37,7 @@ impl EngineApi {
             json_rpc,
             rest,
             decision: OnceLock::new(),
+            fcu_lock: Mutex::new(())
         }
     }
 
@@ -75,7 +78,11 @@ impl EngineApi {
         fork: ForkName
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         match self.active_rest() {
-            Some(rest) => rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes).await,
+            Some(rest) => {
+                // At most one POST /forkchoice in flight based on REST-SSZ spec.
+                let _fcu_guard = self.fcu_lock.lock().await;
+                rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes).await
+            },
             None => self.json_rpc.forkchoice_updated(forkchoice_state, payload_attributes).await,
         }
     }

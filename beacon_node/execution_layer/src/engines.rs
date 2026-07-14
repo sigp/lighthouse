@@ -164,6 +164,17 @@ impl<E: EthSpec> Engine<E> {
             .cloned()
     }
 
+    pub async fn invalidate_payload_id(
+        &self,
+        head_block_hash: &ExecutionBlockHash,
+        payload_attributes: &PayloadAttributes,
+    ) {
+        self.payload_id_cache
+            .lock()
+            .await
+            .remove(&PayloadIdCacheKey::new(head_block_hash, payload_attributes));
+    }
+
     pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkchoiceState,

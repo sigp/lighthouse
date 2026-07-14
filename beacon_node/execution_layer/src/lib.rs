@@ -1329,53 +1329,58 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(move |engine| async move {
+                let fork_choice_state = ForkchoiceState {
+                    head_block_hash: parent_hash,
+                    safe_block_hash: forkchoice_update_params
+                        .justified_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                    finalized_block_hash: forkchoice_update_params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                };
+
+                // Reused by the initial cache MISS and the REST `unknown-payload` recovery below.
+                let mint_payload_id = move || async move {
+                    let response = engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes.clone()),
+                            current_fork,
+                        )
+                        .await?;
+
+                    match response.payload_id {
+                        Some(payload_id) => Ok(payload_id),
+                        None => {
+                            error!(
+                                msg = "No payload ID, the engine is likely syncing. \
+                                This has the potential to cause a missed block proposal.",
+                                status = ?response.payload_status,
+                                "Exec engine unable to produce payload"
+                            );
+                            Err(ApiError::PayloadIdUnavailable)
+                        }
+                    }
+                };
+
                 let payload_id = if let Some(id) = engine
                     .get_payload_id(&parent_hash, payload_attributes)
                     .await
                 {
-                    // The payload id has been cached for this engine.
+                    // The payload id has been cached
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::HIT],
                     );
                     id
                 } else {
-                    // The payload id has *not* been cached. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
+                    // The payload id not cached. Trigger an artificial fork choice update
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
-                    let fork_choice_state = ForkchoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: forkchoice_update_params
-                            .justified_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                        finalized_block_hash: forkchoice_update_params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                    };
 
-                    let response = engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes.clone()),
-                            current_fork
-                        )
-                        .await?;
-
-                    match response.payload_id {
-                        Some(payload_id) => payload_id,
-                        None => {
-                            error!(
-                                      msg = "No payload ID, the engine is likely syncing. \
-                                      This has the potential to cause a missed block proposal.",
-                            status = ?response.payload_status,
-                                      "Exec engine unable to produce payload"
-                                  );
-                            return Err(ApiError::PayloadIdUnavailable);
-                        }
-                    }
+                    mint_payload_id().await?
                 };
 
                 let payload_response = async {
@@ -1386,11 +1391,40 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         ?parent_hash,
                         "Issuing engine_getPayload"
                     );
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-                        &[metrics::GET_PAYLOAD],
-                    );
-                    engine.api.get_payload::<E>(current_fork, payload_id).await
+
+                    let first_attempt = {
+                        metrics::start_timer_vec(
+                            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                            &[metrics::GET_PAYLOAD],
+                        );
+                        engine.api.get_payload::<E>(current_fork, payload_id).await
+                    };
+                    match first_attempt {
+                        Ok(response) => Ok(response),
+                        Err(e) if e.is_unknown_payload() => {
+                            // REST build-bound TTL: the cached id is unknown to the EL. Invalidate
+                            // it, mint a fresh id, and retry the GET exactly once.
+                            debug!(
+                                ?payload_id,
+                                "Cached payload id unknown to execution engine; re-issuing forkchoice update"
+                            );
+
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::EXPIRED],
+                            );
+                            engine
+                                .invalidate_payload_id(&parent_hash, payload_attributes)
+                                .await;
+                            let fresh_payload_id = mint_payload_id().await?;
+                            let _timer = metrics::start_timer_vec(
+                                &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                                &[metrics::GET_PAYLOAD],
+                            );
+                            engine.api.get_payload::<E>(current_fork, fresh_payload_id).await
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 .await?;
 
