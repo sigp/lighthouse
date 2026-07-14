@@ -4726,14 +4726,15 @@ impl ApiTester {
                 .await
                 .unwrap();
             let block = response.into_block();
+            let block_root = block.tree_hash_root();
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot, block_root)
                 .await
                 .unwrap()
                 .data;
-            self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+            self.assert_envelope_fields(&envelope, block_root, slot);
 
             // Clear the cache so there is no envelope to reconstruct the blinded
             // submission from.
