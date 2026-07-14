@@ -41,6 +41,18 @@ pub struct VoteTrackerV28 {
     next_epoch: Epoch,
 }
 
+impl VoteTracker {
+    /// The block root this validator most recently voted for.
+    pub fn current_root(&self) -> Hash256 {
+        self.current_root
+    }
+
+    /// The slot of this validator's latest message.
+    pub fn current_slot(&self) -> Slot {
+        self.current_slot
+    }
+}
+
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
 // The payload status is `false` for pre-Gloas nodes.
 impl From<VoteTrackerV28> for VoteTracker {
@@ -999,6 +1011,7 @@ impl ProtoArrayForkChoice {
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         block_root: &Hash256,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, String> {
         let block_index = self
@@ -1017,7 +1030,7 @@ impl ProtoArrayForkChoice {
             payload_status: proto_node.get_parent_payload_status(),
         };
         self.proto_array
-            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
             .map_err(|e| format!("{e:?}"))
     }
 
@@ -1150,6 +1163,13 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// Read-only access to the per-validator votes.
+    ///
+    /// Used by the fast confirmation rule to compute attestation support.
+    pub fn votes(&self) -> &[VoteTracker] {
+        &self.votes.0
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.

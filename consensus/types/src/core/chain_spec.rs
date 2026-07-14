@@ -37,6 +37,7 @@ pub enum Domain {
     BeaconBuilder,
     PTCAttester,
     ProposerPreferences,
+    BuilderDeposit,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -147,6 +148,7 @@ pub struct ChainSpec {
     pub(crate) domain_beacon_builder: u32,
     pub(crate) domain_ptc_attester: u32,
     pub(crate) domain_proposer_preferences: u32,
+    pub(crate) domain_builder_deposit: u32,
 
     /*
      * Fork choice
@@ -155,6 +157,12 @@ pub struct ChainSpec {
     pub reorg_head_weight_threshold: u64,
     pub reorg_parent_weight_threshold: u64,
     pub reorg_max_epochs_since_finalization: u64,
+
+    /*
+     * Fast confirmation rule
+     */
+    /// Maximum assumed percentage of Byzantine validators (0-25).
+    pub confirmation_byzantine_threshold: u64,
 
     /*
      * Eth1
@@ -525,6 +533,7 @@ impl ChainSpec {
             Domain::BeaconBuilder => self.domain_beacon_builder,
             Domain::PTCAttester => self.domain_ptc_attester,
             Domain::ProposerPreferences => self.domain_proposer_preferences,
+            Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1158,6 +1167,7 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
@@ -1166,6 +1176,11 @@ impl ChainSpec {
             reorg_head_weight_threshold: 20,
             reorg_parent_weight_threshold: 160,
             reorg_max_epochs_since_finalization: 2,
+
+            /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
 
             /*
              * Eth1
@@ -1583,6 +1598,7 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
@@ -1591,6 +1607,11 @@ impl ChainSpec {
             reorg_head_weight_threshold: 20,
             reorg_parent_weight_threshold: 160,
             reorg_max_epochs_since_finalization: 2,
+
+            /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
 
             /*
              * Eth1
@@ -2028,6 +2049,9 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(default = "default_confirmation_byzantine_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    confirmation_byzantine_threshold: u64,
     #[serde(default = "default_reorg_head_weight_threshold")]
     #[serde(with = "serde_utils::quoted_u64")]
     reorg_head_weight_threshold: u64,
@@ -2272,6 +2296,10 @@ fn compute_attestation_subnet_prefix_bits(
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_confirmation_byzantine_threshold() -> u64 {
+    25
 }
 
 const fn default_gas_limit_adjustment_factor() -> u64 {
@@ -2647,6 +2675,8 @@ impl Config {
             reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
 
+            confirmation_byzantine_threshold: spec.confirmation_byzantine_threshold,
+
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
@@ -2798,6 +2828,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            confirmation_byzantine_threshold,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
@@ -2859,6 +2890,7 @@ impl Config {
             proposer_score_boost: proposer_score_boost
                 .map(|q| q.value)
                 .unwrap_or(chain_spec.proposer_score_boost),
+            confirmation_byzantine_threshold,
             reorg_head_weight_threshold,
             reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization,
@@ -2982,6 +3014,12 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(
+            Domain::ProposerPreferences,
+            spec.domain_proposer_preferences,
+            &spec,
+        );
+        test_domain(Domain::BuilderDeposit, spec.domain_builder_deposit, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];

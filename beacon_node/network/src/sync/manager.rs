@@ -1135,6 +1135,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups.on_block_download_response(
                 id,
+                peer_id,
                 resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
@@ -1150,6 +1151,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_blocks_by_head_response(id, peer_id, block) {
             self.block_lookups.on_block_download_response(
                 id,
+                peer_id,
                 resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
@@ -1233,6 +1235,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             self.block_lookups.on_payload_download_response(
                 id,
+                peer_id,
                 resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
                 &mut self.network,
             )
@@ -1290,7 +1293,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Block(id, resp),
+                RangeBlockComponent::Block(id, resp, peer_id),
             );
         }
     }
@@ -1320,22 +1323,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
-            match id.parent_request_id {
-                DataColumnsByRangeRequester::ComponentsByRange(components_by_range_req_id) => {
-                    self.on_range_components_response(
-                        components_by_range_req_id,
-                        peer_id,
-                        RangeBlockComponent::CustodyColumns(id, resp),
-                    );
-                }
-                DataColumnsByRangeRequester::CustodyBackfillSync(custody_backfill_req_id) => self
-                    .on_custody_backfill_columns_response(
-                        custody_backfill_req_id,
-                        id,
-                        peer_id,
-                        resp,
-                    ),
-            }
+            let DataColumnsByRangeRequester::CustodyBackfillSync(custody_backfill_req_id) =
+                id.parent_request_id;
+            self.on_custody_backfill_columns_response(custody_backfill_req_id, id, peer_id, resp);
         }
     }
 
@@ -1344,8 +1334,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         requester: CustodyRequester,
         response: CustodyByRootResult<T::EthSpec>,
     ) {
-        self.block_lookups
-            .on_custody_download_response(requester.0, response, &mut self.network);
+        match requester {
+            CustodyRequester::SingleLookup(id) => {
+                self.block_lookups
+                    .on_custody_download_response(id, response, &mut self.network);
+            }
+            CustodyRequester::RangeSync(components_by_range_id) => {
+                // Route custody-by-root results through the standard range components
+                // response path, reusing the same dispatch to range_sync / backfill.
+                let peer_group = response
+                    .as_ref()
+                    .ok()
+                    .map(|dl| dl.peer_group.clone())
+                    .unwrap_or_else(|| PeerGroup::from_set(Default::default()));
+                self.on_range_components_response(
+                    components_by_range_id,
+                    // Peer attributability is broken in range sync :)
+                    PeerId::random(),
+                    RangeBlockComponent::CustodyResult(response, peer_group),
+                );
+            }
+        }
     }
 
     /// Handles receiving a response for a range sync request that should have both blocks and
@@ -1361,7 +1370,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .range_block_component_response(range_request_id, range_block_component)
         {
             match resp {
-                Ok(blocks) => {
+                // On success the batch is attributed to the peer that provided its blocks.
+                Ok((peer_id, blocks)) => {
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
@@ -1397,7 +1407,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
-                            peer_id,
+                            Some(peer_id),
                             batch_id,
                             chain_id,
                             range_request_id.id,

@@ -20,6 +20,7 @@ use crate::custody_context::{CustodyContext, CustodyContextSsz};
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataColumnReconstructionResult as DataColumnReconstructionResultV1,
+    verify_columns_against_block,
 };
 
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -114,6 +115,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
+use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -1203,13 +1205,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn cached_data_column_indexes(
         &self,
         block_root: &Hash256,
-        slot: Slot,
+        block_epoch: Epoch,
     ) -> Option<Vec<ColumnIndex>> {
-        if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(slot)
-            .gloas_enabled()
-        {
+        if self.spec.fork_name_at_epoch(block_epoch).gloas_enabled() {
             self.pending_payload_cache
                 .cached_data_column_indexes(block_root)
         } else {
@@ -2955,6 +2953,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
+        let checkpoint_root = self.store.get_split_info().block_root;
 
         // Produce a list of the parent root and slot of the child of each block.
         //
@@ -2998,9 +2997,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
+            // The envelope needs import only if it's a Gloas block with an envelope and
+            // the envelope isn't already in fork choice.
+            let range_sync_envelope_needs_import = matches!(
+                block,
+                RangeSyncBlock::Gloas {
+                    envelope: Some(_),
+                    ..
+                }
+            ) && !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&block_root);
+
             match check_block_relevancy(block.as_block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
+                Err(BlockError::DuplicateFullyImported(_)) if range_sync_envelope_needs_import => {
+                    filtered_chain_segment.push((block_root, block));
+                }
                 // If the block is already known, simply ignore this block.
                 //
                 // Note that `check_block_relevancy` is incapable of returning
@@ -3016,12 +3031,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // 2. In some non-canonical chain at a slot that has been finalized already.
                 //
                 // In the case of (1), there's no need to re-import and later blocks in this
-                // segement might be useful.
+                // segment might be useful.
+                // This changes slightly post-gloas because the checkpoint sync block can be
+                // imported without its corresponding envelope. If the block we are processing is
+                // the checkpoint block then we still add it to the filtered chain segment so that
+                // its envelope can be processed.
                 //
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    if range_sync_envelope_needs_import && checkpoint_root == block_root {
+                        filtered_chain_segment.push((block_root, block));
+                    }
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
@@ -3105,6 +3128,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
+
+            // Here, we are special casing the checkpoint sync block's envelope processing.
+            // Post-gloas, if the first filtered block is the checkpoint block, range
+            // sync may still need to process its envelope so that the first post-checkpoint
+            // child can resolve its parent payload status.
+            // The block is an anchor, so there won't be a parent present in fork choice,
+            // so we need to avoid processing it.
+            let checkpoint_root = self.store.get_split_info().block_root;
+            if matches!(blocks.first(), Some((root, _)) if *root == checkpoint_root) {
+                let (block_root, block) = blocks.remove(0);
+                let block_slot = block.slot();
+
+                if let RangeSyncBlock::Gloas {
+                    block,
+                    envelope: Some(envelope),
+                } = block
+                {
+                    let chain = self.clone();
+                    if let Err(error) = async move {
+                        verify_columns_against_block(&chain.kzg, &block, &envelope.columns)
+                            .map_err(BlockError::AvailabilityCheck)?;
+
+                        self.process_range_sync_envelope(envelope, block_root, block)
+                            .await
+                            .map_err(BlockError::from)?;
+
+                        Ok::<(), BlockError>(())
+                    }
+                    .await
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error,
+                        };
+                    }
+                }
+                imported_blocks.push((block_root, block_slot));
+            }
 
             // Extract envelopes before passing blocks to signature verification.
             let envelopes: Vec<_> = blocks
@@ -3494,7 +3555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return;
             };
             let imported_data_columns = self
-                .cached_data_column_indexes(block_root, slot)
+                .cached_data_column_indexes(block_root, slot.epoch(T::EthSpec::slots_per_epoch()))
                 .unwrap_or_default();
             let new_data_columns =
                 data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
@@ -4997,16 +5058,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (
@@ -6027,6 +6091,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6081,6 +6150,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6479,14 +6553,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
-            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
                     proposer_index: proposer,
                     parent_block_root: head_root,
-                    parent_block_number,
+                    parent_block_number: pre_payload_attributes
+                        .parent_block_number
+                        .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                     payload_attributes: payload_attributes.into(),
                 },

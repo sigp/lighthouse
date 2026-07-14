@@ -22,8 +22,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
-    Filter, Rejection, Reply,
-    hyper::{Body, Response},
+    Filter, Rejection,
+    http::response::Builder,
+    reply::{Reply, Response},
 };
 
 // POST beacon/execution_payload_envelopes (SSZ)
@@ -93,7 +94,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<Response, Rejection> {
     let slot = envelope.slot();
     let beacon_block_root = envelope.message.beacon_block_root;
 
@@ -345,10 +346,10 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(envelope.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(envelope.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",

@@ -494,6 +494,11 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
+      --enable-fast-confirmation
+          Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
+          faster block confirmation (typically within 1-2 slots of the head) by
+          computing a confirmed root that is fed into the execution layer's
+          safe_block_hash.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.

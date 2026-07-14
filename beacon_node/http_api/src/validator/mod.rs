@@ -33,7 +33,7 @@ use types::{
     SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
     SyncContributionData, ValidatorSubscription,
 };
-use warp::{Filter, Rejection, Reply};
+use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
@@ -299,7 +299,6 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
     use ssz::Encode;
-    use warp::http::Response;
 
     eth_v1
         .and(warp::path("validator"))
@@ -351,12 +350,12 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                         })?;
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
-                            .body(payload_attestation_data.as_ssz_bytes().into())
-                            .map(|res: Response<warp::hyper::Body>| res)
+                            .body(payload_attestation_data.as_ssz_bytes())
+                            .map(|res| res.into_response())
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "Failed to build SSZ response: {e}"
@@ -368,19 +367,16 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: payload_attestation_data,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())
-                                .body(
-                                    serde_json::to_string(&json_response)
-                                        .map_err(|e| {
-                                            warp_utils::reject::custom_server_error(format!(
-                                                "Failed to serialize response: {e}"
-                                            ))
-                                        })?
-                                        .into(),
-                                )
+                                .body(serde_json::to_string(&json_response).map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to serialize response: {e}"
+                                    ))
+                                })?)
+                                .map(|res| res.into_response())
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "Failed to build JSON response: {e}"
@@ -668,25 +664,14 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .unzip();
 
                         // Update the prepare beacon proposer cache based on this request.
+                        // This data will get picked up by the next scheduled run of
+                        // `prepare_beacon_proposer`.
                         execution_layer
                             .update_proposer_preparation(
                                 current_epoch,
                                 preparation_data.iter().map(|(data, limit)| (data, limit)),
                             )
                             .await;
-
-                        // Call prepare beacon proposer blocking with the latest update in order to make
-                        // sure we have a local payload to fall back to in the event of the blinded block
-                        // flow failing.
-                        chain
-                            .prepare_beacon_proposer(current_slot)
-                            .await
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "error updating proposer preparations: {:?}",
-                                    e
-                                ))
-                            })?;
 
                         info!(
                             count = filtered_registration_data.len(),

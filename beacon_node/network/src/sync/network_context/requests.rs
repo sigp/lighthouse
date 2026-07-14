@@ -12,9 +12,7 @@ pub use blocks_by_head::BlocksByHeadRequestItems;
 pub use blocks_by_range::BlocksByRangeRequestItems;
 pub use blocks_by_root::{BlocksByRootRequestItems, BlocksByRootSingleRequest};
 pub use data_columns_by_range::DataColumnsByRangeRequestItems;
-pub use data_columns_by_root::{
-    DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
-};
+pub use data_columns_by_root::{DataColumnsByRootRequestItems, DataColumnsByRootRequestParams};
 pub use payload_envelopes_by_range::PayloadEnvelopesByRangeRequestItems;
 pub use payload_envelopes_by_root::{
     PayloadEnvelopesByRootRequestItems, PayloadEnvelopesByRootSingleRequest,

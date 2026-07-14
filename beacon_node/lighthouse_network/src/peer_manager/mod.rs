@@ -2274,7 +2274,7 @@ mod tests {
                         // Make sure a peer on the same subnet has been removed
                         println!(
                             "Check against: {}, {}",
-                            alternative_index, &peers[alternative_index]
+                            alternative_index, peers[alternative_index]
                         );
                         assert!(!connected_peers.contains(&peers[alternative_index]));
                     }
