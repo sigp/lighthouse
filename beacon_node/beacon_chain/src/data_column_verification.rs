@@ -389,7 +389,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )?;
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
-                    bid.message.blob_kzg_commitments.len(),
+                    bid.message().blob_kzg_commitments().len(),
                     &chain.spec,
                 )?;
             }
@@ -1117,13 +1117,13 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
             slot: column_slot,
         },
     )?;
-    if bid.message.slot != column_slot {
+    if bid.message().slot() != column_slot {
         return Err(GossipDataColumnError::BlockSlotMismatch {
-            block_slot: bid.message.slot,
+            block_slot: bid.message().slot(),
             data_column_slot: column_slot,
         });
     }
-    let kzg_commitments = &bid.message.blob_kzg_commitments;
+    let kzg_commitments = bid.message().blob_kzg_commitments();
     verify_data_column_sidecar_with_commitments_len(
         &data_column,
         kzg_commitments.len(),
@@ -1359,7 +1359,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(BeaconChainError::BeaconStateError)?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         )
     } else {
         match chain
@@ -1373,7 +1373,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             Some(DatabaseBlock::Blinded(block)) => Arc::new(
                 block
@@ -1381,7 +1381,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             None => {
                 return Ok(None);

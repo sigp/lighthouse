@@ -233,12 +233,12 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
             custody_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            bid.message().blob_kzg_commitments().as_ref(),
             &self.kzg,
         )
         .map_err(AvailabilityCheckError::InvalidColumn)?;
 
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
+        let epoch = bid.message().slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -260,7 +260,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let bid = self
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
+        let epoch = bid.message().slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
             .into_iter()
@@ -324,7 +324,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            bid.message().blob_kzg_commitments().as_ref(),
             &self.spec,
         )
         .map_err(|e| {
@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             AvailabilityCheckError::ReconstructColumnsError(e)
         })?;
 
-        let slot = bid.message.slot;
+        let slot = bid.message().slot();
         let columns_to_sample = self
             .custody_context()
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
@@ -571,11 +571,11 @@ mod data_availability_checker_tests {
                 .body()
                 .signed_execution_payload_bid()
                 .expect("Gloas block has bid")
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
         cache.insert_bid(block_root, bid.clone());
 
-        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
+        let epoch = bid.message().slot().epoch(E::slots_per_epoch());
         let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()

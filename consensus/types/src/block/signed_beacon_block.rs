@@ -360,7 +360,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
                 self.message()
                     .body()
                     .signed_execution_payload_bid()
-                    .map(|bid| &bid.message.blob_kzg_commitments)
+                    .map(|bid| bid.message().blob_kzg_commitments())
             })
             .map(|c| c.len())
             .unwrap_or(0)
@@ -382,7 +382,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.block_hash)
+            .map(|bid| bid.message().block_hash())
     }
 
     /// Convenience accessor for the block's bid's `parent_block_hash`.
@@ -392,7 +392,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.parent_block_hash)
+            .map(|bid| bid.message().parent_block_hash())
     }
 
     /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
@@ -408,7 +408,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             // Prior to Gloas.
             return false;
         };
-        signed_payload_bid.message.parent_block_hash == parent_block_hash
+        signed_payload_bid.message().parent_block_hash() == parent_block_hash
     }
 }
 

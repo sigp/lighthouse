@@ -545,8 +545,11 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
         fork_name.gloas_enabled()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path).map(|signed_bid| ExecutionPayloadBidBlock { signed_bid })
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| {
+            SignedExecutionPayloadBid::from_ssz_bytes_by_fork(bytes, fork_name)
+        })
+        .map(|signed_bid| ExecutionPayloadBidBlock { signed_bid })
     }
 
     fn apply_to(
@@ -555,7 +558,12 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_execution_payload_bid(state, &self.signed_bid, VerifySignatures::True, spec)?;
+        process_execution_payload_bid(
+            state,
+            self.signed_bid.to_ref(),
+            VerifySignatures::True,
+            spec,
+        )?;
         Ok(())
     }
 }

@@ -445,9 +445,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .body()
                     .signed_execution_payload_bid()
                     // this really should never fail
-                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
+                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?
+                    .clone_as_signed_execution_payload_bid();
                 let available_envelope = envelope
-                    .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
+                    .map(|env| AvailableEnvelope::new(env, custody_columns, &bid, custody_context))
                     .transpose()?;
 
                 RangeSyncBlock::new_gloas(block, available_envelope)
@@ -586,22 +587,22 @@ mod tests {
     }
 
     fn matching_envelope(block: &SignedBeaconBlock<E>) -> Arc<SignedExecutionPayloadEnvelope<E>> {
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have payload bid")
-            .message;
+            .message();
         let mut envelope = SignedExecutionPayloadEnvelope {
             message: ExecutionPayloadEnvelope::empty(),
             signature: Signature::empty(),
         };
         envelope.message.beacon_block_root = block.canonical_root();
         envelope.message.parent_beacon_block_root = block.parent_root();
-        envelope.message.builder_index = bid.builder_index;
+        envelope.message.builder_index = bid.builder_index();
         envelope.message.payload.slot_number = block.slot();
-        envelope.message.payload.parent_hash = bid.parent_block_hash;
-        envelope.message.payload.block_hash = bid.block_hash;
+        envelope.message.payload.parent_hash = bid.parent_block_hash();
+        envelope.message.payload.block_hash = bid.block_hash();
         Arc::new(envelope)
     }
 

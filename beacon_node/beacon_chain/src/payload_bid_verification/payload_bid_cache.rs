@@ -41,14 +41,16 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     /// its value is higher than the currently cached bid for that tuple.
     pub fn insert_highest_bid(&self, bid: GossipVerifiedPayloadBid<E>) {
         let key = (
-            bid.signed_bid.message.parent_block_hash,
-            bid.signed_bid.message.parent_block_root,
+            bid.signed_bid.message().parent_block_hash(),
+            bid.signed_bid.message().parent_block_root(),
         );
         let mut highest_bid = self.highest_bid.write();
-        let slot_map = highest_bid.entry(bid.signed_bid.message.slot).or_default();
+        let slot_map = highest_bid
+            .entry(bid.signed_bid.message().slot())
+            .or_default();
 
         if let Some(existing) = slot_map.get(&key)
-            && existing.signed_bid.message.value >= bid.signed_bid.message.value
+            && existing.signed_bid.message().value() >= bid.signed_bid.message().value()
         {
             return;
         }
@@ -67,9 +69,9 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     pub fn insert_seen_builder(&self, bid: &GossipVerifiedPayloadBid<E>) {
         let mut seen_builder = self.seen_builder.write();
         seen_builder
-            .entry(bid.signed_bid.message.slot)
+            .entry(bid.signed_bid.message().slot())
             .or_default()
-            .insert(bid.signed_bid.message.builder_index);
+            .insert(bid.signed_bid.message().builder_index());
     }
 
     /// Prune anything before `current_slot`
@@ -90,8 +92,8 @@ mod tests {
 
     use bls::Signature;
     use types::{
-        ExecutionBlockHash, ExecutionPayloadBid, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBid, Slot,
+        ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, MinimalEthSpec,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, Slot,
     };
 
     use super::GossipVerifiedPayloadBidCache;
@@ -107,17 +109,19 @@ mod tests {
         value: u64,
     ) -> GossipVerifiedPayloadBid<E> {
         GossipVerifiedPayloadBid {
-            signed_bid: Arc::new(SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
-                    slot,
-                    builder_index,
-                    parent_block_hash,
-                    parent_block_root,
-                    value,
-                    ..ExecutionPayloadBid::default()
+            signed_bid: Arc::new(SignedExecutionPayloadBid::Gloas(
+                SignedExecutionPayloadBidGloas {
+                    message: ExecutionPayloadBidGloas {
+                        slot,
+                        builder_index,
+                        parent_block_hash,
+                        parent_block_root,
+                        value,
+                        ..ExecutionPayloadBidGloas::default()
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            }),
+            )),
         }
     }
 

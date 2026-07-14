@@ -3836,7 +3836,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .message()
                         .body()
                         .signed_execution_payload_bid()?
-                        .clone(),
+                        .clone_as_signed_execution_payload_bid(),
                 );
                 chain.pending_payload_cache.insert_bid(block_root, bid);
             }

@@ -42,7 +42,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns columns that have all cells present.
     pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
-        let slot = self.bid.message.slot;
+        let slot = self.bid.message().slot();
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()
@@ -52,7 +52,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns the indices of columns that have all cells present.
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
-        let slot = self.bid.message.slot;
+        let slot = self.bid.message().slot();
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()

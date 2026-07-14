@@ -23,7 +23,8 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
+    ExecutionPayloadBidRef, ExecutionPayloadBidRefMut, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -670,9 +671,19 @@ where
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "latest_execution_payload_bid_gloas")
+    )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(
+        only(Heze),
+        partial_getter(rename = "latest_execution_payload_bid_heze")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_bid: ExecutionPayloadBidHeze<E>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -1297,6 +1308,35 @@ impl<E: EthSpec> BeaconState<E> {
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
+    /// Convenience accessor for `latest_execution_payload_bid` as an `ExecutionPayloadBidRef`.
+    pub fn latest_execution_payload_bid(
+        &self,
+    ) -> Result<ExecutionPayloadBidRef<'_, E>, BeaconStateError> {
+        match self {
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRef::Gloas(
+                &state.latest_execution_payload_bid,
+            )),
+            BeaconState::Heze(state) => Ok(ExecutionPayloadBidRef::Heze(
+                &state.latest_execution_payload_bid,
+            )),
+            _ => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
+    pub fn latest_execution_payload_bid_mut(
+        &mut self,
+    ) -> Result<ExecutionPayloadBidRefMut<'_, E>, BeaconStateError> {
+        match self {
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRefMut::Gloas(
+                &mut state.latest_execution_payload_bid,
+            )),
+            BeaconState::Heze(state) => Ok(ExecutionPayloadBidRefMut::Heze(
+                &mut state.latest_execution_payload_bid,
+            )),
+            _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 

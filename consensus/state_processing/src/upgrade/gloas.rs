@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
+    DepositData, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas, Fork,
     consts::gloas::PAYLOAD_BUILDER_VERSION, is_builder_withdrawal_credential,
 };
 
@@ -75,7 +75,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: ExecutionPayloadBid {
+        latest_execution_payload_bid: ExecutionPayloadBidGloas {
             block_hash: pre.latest_execution_payload_header.block_hash,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),

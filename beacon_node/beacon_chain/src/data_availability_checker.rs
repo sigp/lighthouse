@@ -633,7 +633,7 @@ pub fn verify_columns_against_block<E: EthSpec>(
             .message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.blob_kzg_commitments.clone())
+            .map(|bid| bid.message().blob_kzg_commitments().clone())
             .map_err(|_| {
                 AvailabilityCheckError::Unexpected(
                     "Gloas block missing signed_execution_payload_bid".to_string(),

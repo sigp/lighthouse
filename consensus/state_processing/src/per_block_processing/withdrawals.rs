@@ -495,7 +495,7 @@ pub mod gloas {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Return early if the parent block is empty.
-        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash {
+        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash() {
             return Ok(());
         }
 

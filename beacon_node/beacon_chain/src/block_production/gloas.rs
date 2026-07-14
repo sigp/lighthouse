@@ -30,11 +30,12 @@ use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
+    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBidGloas, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
+    SyncAggregate, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -552,6 +553,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let SignedExecutionPayloadBid::Gloas(signed_execution_payload_bid) =
+            signed_execution_payload_bid
+        else {
+            return Err(BlockProductionError::InvalidBlockVariant(
+                "Cannot construct a Gloas block with a non-Gloas execution payload bid".to_string(),
+            ));
+        };
+
         let beacon_block = match &state {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
@@ -783,10 +792,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled();
         let parent_block_hash = if should_build_on_full || parent_is_pre_gloas {
             // Build on parent bid's payload.
-            parent_bid.block_hash
+            parent_bid.block_hash()
         } else {
             // Skip parent bid's payload. For genesis this is the EL genesis hash.
-            parent_bid.parent_block_hash
+            parent_bid.parent_block_hash()
         };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
@@ -818,7 +827,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBid::<T::EthSpec> {
+        let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
             parent_block_hash,
             parent_block_root: parent_root,
             block_hash: payload.block_hash,
@@ -843,10 +852,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
                 message: bid,
                 signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
-            },
+            }),
             state,
             LocalBuildResult {
                 payload_data,
@@ -868,9 +877,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Option<ExecutionPayloadData<T::EthSpec>>,
     ) {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
-            local_signed_bid.message.slot,
-            local_signed_bid.message.parent_block_hash,
-            local_signed_bid.message.parent_block_root,
+            local_signed_bid.message().slot(),
+            local_signed_bid.message().parent_block_hash(),
+            local_signed_bid.message().parent_block_root(),
         );
         select_payload_bid_pure(
             local_signed_bid,
@@ -910,19 +919,19 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
         return (local_signed_bid, Some(payload_data));
     };
 
-    let slot = local_signed_bid.message.slot;
+    let slot = local_signed_bid.message().slot();
 
     if should_override_builder {
         debug!(
             %slot,
-            cached_bid_value = cached_bid.message.value,
+            cached_bid_value = cached_bid.message().value(),
             "Using local payload because EL signaled shouldOverrideBuilder"
         );
         return (local_signed_bid, Some(payload_data));
     }
 
     // Convert bid value (gwei) to wei for comparison with `payload_value` (wei).
-    let bid_value_wei = types::Uint256::from(cached_bid.message.value)
+    let bid_value_wei = types::Uint256::from(cached_bid.message().value())
         .saturating_mul(types::Uint256::from(1_000_000_000u64));
     let boosted_bid_wei = match builder_boost_factor {
         Some(factor) => {
@@ -935,7 +944,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
         debug!(
             %slot,
             %payload_value,
-            cached_bid_value_gwei = cached_bid.message.value,
+            cached_bid_value_gwei = cached_bid.message().value(),
             ?builder_boost_factor,
             "Local payload is more profitable than cached builder bid"
         );
@@ -944,8 +953,8 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
         debug!(
             %slot,
             %payload_value,
-            cached_bid_value_gwei = cached_bid.message.value,
-            cached_bid_builder_index = cached_bid.message.builder_index,
+            cached_bid_value_gwei = cached_bid.message().value(),
+            cached_bid_builder_index = cached_bid.message().builder_index(),
             ?builder_boost_factor,
             "Including cached builder bid"
         );
@@ -977,7 +986,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let random = *state.get_randao_mix(current_epoch)?;
 
     let parent_bid = state.latest_execution_payload_bid()?;
-    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash();
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {
@@ -1292,24 +1301,26 @@ mod tests {
     }
 
     fn local_bid() -> SignedExecutionPayloadBid<TestSpec> {
-        SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
+        SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 ..Default::default()
             },
             signature: Signature::empty(),
-        }
+        })
     }
 
     fn cached_bid(value_gwei: u64) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
-        Arc::new(SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
-                builder_index: REMOTE_BUILDER,
-                value: value_gwei,
-                ..Default::default()
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
+                    builder_index: REMOTE_BUILDER,
+                    value: value_gwei,
+                    ..Default::default()
+                },
+                signature: Signature::empty(),
             },
-            signature: Signature::empty(),
-        })
+        ))
     }
 
     fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
@@ -1345,7 +1356,7 @@ mod tests {
         let build = local_build(local_payload_gwei, should_override);
         let cache = cached_gwei.map(cached_bid);
         let (out, data) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
-        (out.message.builder_index, data.is_some())
+        (out.message().builder_index(), data.is_some())
     }
 
     #[test]
