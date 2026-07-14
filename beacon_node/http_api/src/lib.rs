@@ -2571,7 +2571,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/execution_payload_envelopes/{slot}/{builder_index}
+    // GET validator/execution_payload_envelopes/{slot}/{beacon_block_root}
     let get_validator_execution_payload_envelopes = get_validator_execution_payload_envelopes(
         eth_v1.clone(),
         chain_filter.clone(),
