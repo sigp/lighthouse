@@ -718,12 +718,15 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_attestation, on_execution_payload_envelope, get_parent_payload_status, and
-        // on_payload_attestation_message tests exist only for Gloas and later.
+        // on_attestation, on_execution_payload_envelope, get_parent_payload_status,
+        // on_payload_attestation_message, payload_timeliness, and payload_data_availability
+        // tests exist only for Gloas and later.
         if (self.handler_name == "on_attestation"
             || self.handler_name == "on_execution_payload_envelope"
             || self.handler_name == "get_parent_payload_status"
-            || self.handler_name == "on_payload_attestation_message")
+            || self.handler_name == "on_payload_attestation_message"
+            || self.handler_name == "payload_timeliness"
+            || self.handler_name == "payload_data_availability")
             && !fork_name.gloas_enabled()
         {
             return false;
@@ -736,6 +739,50 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         vec![]
+    }
+}
+
+pub struct FastConfirmationHandler<E> {
+    handler_name: String,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> FastConfirmationHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fast_confirmation"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // FCR vectors carry `bls_setting: 2` (fake signatures), so they must run under fake_crypto.
+        fork_name != ForkName::Base && cfg!(feature = "fake_crypto")
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas fast confirmation tests
+        vec![ForkName::Gloas]
     }
 }
 

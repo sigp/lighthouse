@@ -1,5 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::DEFAULT_SYNC_TOLERANCE_EPOCHS;
+use beacon_node::beacon_chain::chain_config::{
+    DEFAULT_SYNC_TOLERANCE_EPOCHS, FastConfirmationMode,
+};
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2497,6 +2499,31 @@ fn get_blobs_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.chain.disable_get_blobs);
+        });
+}
+
+#[test]
+fn fast_confirmation_disabled_by_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Disabled
+            );
+        });
+}
+
+#[test]
+fn fast_confirmation_enabled() {
+    CommandLineTest::new()
+        .flag("enable-fast-confirmation", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Enabled
+            );
         });
 }
 

@@ -20,7 +20,9 @@ use crate::types::{
     SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
     subnet_from_topic_hash,
 };
-use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
+use crate::{
+    Enr, NetworkGlobals, PubsubMessage, PubsubPartialMessage, TopicHash, decode_partial, metrics,
+};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
@@ -43,8 +45,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
-    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
-    PartialDataColumnHeader, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    CellBitmap, ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName,
+    PartialDataColumn, PartialDataColumnHeader, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -920,62 +923,70 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(
-        &mut self,
-        columns: Vec<Arc<PartialDataColumn<E>>>,
-        header: Arc<PartialDataColumnHeader<E>>,
-    ) {
+    pub fn publish_partial(&mut self, messages: Vec<PubsubPartialMessage<E>>) {
         if !self.network_globals.config.enable_partial_columns {
             return;
         }
 
-        debug!(
-            count = columns.len(),
-            "Sending partial data column sidecars"
-        );
+        debug!(count = messages.len(), "Sending partial messages");
 
-        for column in columns {
-            let subnet =
-                DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
-            let topic = GossipTopic::new(
-                GossipKind::DataColumnSidecar(subnet),
-                GossipEncoding::default(),
-                self.enr_fork_id.fork_digest,
-            );
-            let header_sent_set = self
-                .partial_column_header_tracker
-                .get_for_block(column.block_root);
-            let partial_message = OutgoingPartialColumn::new(column, &header, header_sent_set);
-            let publish_topic: Topic = topic.clone().into();
-
-            if let Err(e) = self
-                .gossipsub_mut()
-                .publish_partial(publish_topic, partial_message)
-            {
-                match e {
-                    PublishError::NoPeersSubscribedToTopic => {
-                        debug!(
-                            kind = %topic.kind(),
-                            "No peers supporting partial messages"
-                        );
-                    }
-                    ref e => {
-                        warn!(
-                            error = ?e,
-                            kind = %topic.kind(),
-                            "Could not publish partial message"
-                        );
-                    }
-                }
-
-                // add to metrics
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
-                    &[&format!("{:?}", topic.kind())],
-                ) {
-                    v.inc()
-                };
+        for message in messages {
+            match message {
+                PubsubPartialMessage::DataColumnFulu {
+                    column,
+                    request_cells,
+                    header,
+                } => self.publish_partial_data_column_fulu(column, request_cells, header),
             }
+        }
+    }
+
+    fn publish_partial_data_column_fulu(
+        &mut self,
+        column: Arc<PartialDataColumn<E>>,
+        request_cells: CellBitmap<E>,
+        header: Arc<PartialDataColumnHeader<E>>,
+    ) {
+        let subnet = DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(subnet),
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
+        let header_sent_set = self
+            .partial_column_header_tracker
+            .get_for_block(column.block_root);
+        let partial_message =
+            OutgoingPartialColumn::new(column, &header, header_sent_set, request_cells);
+        let publish_topic: Topic = topic.clone().into();
+
+        if let Err(e) = self
+            .gossipsub_mut()
+            .publish_partial(publish_topic, partial_message)
+        {
+            match e {
+                PublishError::NoPeersSubscribedToTopic => {
+                    debug!(
+                        kind = %topic.kind(),
+                        "No peers supporting partial messages"
+                    );
+                }
+                ref e => {
+                    warn!(
+                        error = ?e,
+                        kind = %topic.kind(),
+                        "Could not publish partial message"
+                    );
+                }
+            }
+
+            // add to metrics
+            if let Some(v) = metrics::get_int_gauge(
+                &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
+                &[&format!("{:?}", topic.kind())],
+            ) {
+                v.inc()
+            };
         }
     }
 
