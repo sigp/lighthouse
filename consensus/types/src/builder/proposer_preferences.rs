@@ -1,5 +1,5 @@
-use crate::{Address, ForkName, Hash256, SignedRoot, Slot};
-use bls::Signature;
+use crate::{Address, ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, SignedRoot, Slot};
+use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
@@ -14,8 +14,10 @@ use tree_hash_derive::TreeHash;
 pub struct ProposerPreferences {
     pub dependent_root: Hash256,
     pub proposal_slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub fee_recipient: Address,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub target_gas_limit: u64,
 }
 
@@ -38,6 +40,25 @@ impl SignedProposerPreferences {
             signature: Signature::empty(),
         }
     }
+
+    /// Verify `self.signature` against the given `pubkey`.
+    pub fn verify_signature<E: EthSpec>(
+        &self,
+        pubkey: &PublicKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> bool {
+        let proposal_epoch = self.message.proposal_slot.epoch(E::slots_per_epoch());
+        let domain = spec.get_domain(
+            proposal_epoch,
+            Domain::ProposerPreferences,
+            fork,
+            genesis_validators_root,
+        );
+        let message = self.message.signing_root(domain);
+        self.signature.verify(pubkey, message)
+    }
 }
 
 #[cfg(test)]
@@ -45,4 +66,24 @@ mod tests {
     use super::*;
 
     ssz_and_tree_hash_tests!(ProposerPreferences);
+
+    /// `validator_index` and `target_gas_limit` must serialize as quoted JSON strings (Beacon API
+    /// convention) and round-trip back to their numeric values.
+    #[test]
+    fn quoted_u64_json_serde() {
+        let preferences = ProposerPreferences {
+            dependent_root: Hash256::ZERO,
+            proposal_slot: Slot::new(7),
+            validator_index: 42,
+            fee_recipient: Address::ZERO,
+            target_gas_limit: 30_000_000,
+        };
+
+        let value = serde_json::to_value(&preferences).unwrap();
+        assert_eq!(value["validator_index"], serde_json::json!("42"));
+        assert_eq!(value["target_gas_limit"], serde_json::json!("30000000"));
+
+        let decoded: ProposerPreferences = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, preferences);
+    }
 }

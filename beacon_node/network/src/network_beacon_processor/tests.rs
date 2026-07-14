@@ -41,13 +41,14 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::data::BlobIdentifier;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
-    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    AttesterSlashing, BeaconState, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain,
+    Epoch, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
+    MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
+use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;
@@ -350,7 +351,7 @@ impl TestRig {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
-                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
+                let sampling_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
@@ -450,7 +451,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -462,7 +462,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -474,7 +473,6 @@ impl TestRig {
                 .send_rpc_custody_columns(
                     self.next_block.canonical_root(),
                     data_columns,
-                    Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
                 .unwrap();
@@ -732,6 +730,48 @@ impl TestRig {
                 junk_peer_id(),
                 Box::new(envelope),
                 Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
+    /// member of the PTC for its slot.
+    pub fn enqueue_next_block_payload_attestation(&self) {
+        let slot = self.next_block.slot();
+        let beacon_block_root = self.next_block.canonical_root();
+        let head = self.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+
+        let ptc = state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC");
+        let validator_index = *ptc.0.first().expect("PTC should not be empty") as u64;
+
+        let data = PayloadAttestationData {
+            beacon_block_root,
+            slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let domain = self.chain.spec.get_domain(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = self._harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(data.signing_root(domain));
+
+        self.network_beacon_processor
+            .send_gossip_payload_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(PayloadAttestationMessage {
+                    validator_index,
+                    data,
+                    signature,
+                }),
             )
             .unwrap();
     }
@@ -1486,6 +1526,158 @@ async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
     aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc).await
 }
 
+async fn payload_attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // The gossipsub validation result should be withheld while the payload attestation is
+    // queued for re-processing.
+    assert!(
+        rig.receive_network_messages_with_timeout(Duration::from_millis(100), None)
+            .await
+            .is_none(),
+        "no validation result should be sent while the payload attestation is queued"
+    );
+
+    // Send the block and ensure that the payload attestation is received back and imported.
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
+        BlockImportMethod::Gossip => {
+            rig.enqueue_gossip_block();
+            events.push(WorkType::GossipBlock);
+            for i in 0..num_data_columns {
+                rig.enqueue_gossip_data_columns(i);
+                events.push(WorkType::GossipDataColumnSidecar);
+            }
+        }
+        BlockImportMethod::Rpc => {
+            rig.enqueue_lookup_block();
+            events.push(WorkType::RpcBlock);
+            if num_data_columns > 0 {
+                rig.enqueue_single_lookup_rpc_data_columns();
+                events.push(WorkType::RpcCustodyColumn);
+            }
+        }
+    };
+
+    events.push(WorkType::UnknownBlockPayloadAttestation);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages + 1,
+        "Payload attestation should have been included."
+    );
+
+    // The re-processed payload attestation should have been propagated with an `Accept`
+    // validation result.
+    let messages = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(100), None)
+        .await
+        .expect("should receive validation results after block import");
+    let accepts_count = messages
+        .iter()
+        .filter(|msg| {
+            matches!(
+                msg,
+                NetworkMessage::ValidationResult {
+                    validation_result: MessageAcceptance::Accept,
+                    ..
+                }
+            )
+        })
+        .count();
+    let expected_accepts_count = match import_method {
+        // The gossip block import also propagates an `Accept` for the block itself.
+        BlockImportMethod::Gossip => 2,
+        // RPC blocks never touch gossipsub, so the only `Accept` is the re-processed
+        // payload attestation's.
+        BlockImportMethod::Rpc => 1,
+    };
+    assert_eq!(
+        accepts_count, expected_accepts_count,
+        "re-processed payload attestation should be propagated"
+    );
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_gossip_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Gossip).await
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
+}
+
+/// Ensure that a payload attestation referencing an unknown block gets re-queued and, when the
+/// block is never seen, is received back on timeout without being imported.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // Ensure that the payload attestation is received back on timeout but not imported.
+
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::UnknownBlockPayloadAttestation.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]
@@ -2126,6 +2318,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
 
     let all_custody_columns = rig
         .chain
+        .custody_context
         .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
     let available_columns: Vec<u64> = all_custody_columns.to_vec();
 
@@ -2187,7 +2380,10 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
     let skip_slots: HashSet<u64> = [5, 6].into_iter().collect();
     let mut rig = TestRig::new_with_skip_slots(128, &skip_slots).await;
 
-    let all_custody_columns = rig.chain.custody_columns_for_epoch(Some(Epoch::new(0)));
+    let all_custody_columns = rig
+        .chain
+        .custody_context
+        .custody_columns_for_epoch(Some(Epoch::new(0)));
     let requested_column = vec![all_custody_columns[0]];
 
     // Request a range that spans the skip slots (slots 0 through 9).
@@ -2254,7 +2450,7 @@ fn make_test_payload_envelope(
                 slot_number: slot,
                 ..ExecutionPayloadGloas::default()
             },
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: ExecutionRequestsGloas::default(),
             builder_index: 0,
             beacon_block_root,
             parent_beacon_block_root: Hash256::ZERO,

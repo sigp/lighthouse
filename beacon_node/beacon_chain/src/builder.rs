@@ -903,11 +903,19 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(head_snapshot),
+            head_payload_status,
+            self.chain_config.fast_confirmation,
+            &store,
+            &self.spec,
+        )
+        .map_err(|e| format!("Unable to initialize canonical head: {e}"))?;
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;
+        let disable_get_blobs = self.chain_config.disable_get_blobs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -950,14 +958,18 @@ where
                 self.node_custody_type,
                 head_epoch,
                 ordered_custody_column_indices,
-                &self.spec,
+                slot_clock.clone(),
+                complete_blob_backfill,
+                self.spec.clone(),
             )
         } else {
             (
                 CustodyContext::new(
                     self.node_custody_type,
                     ordered_custody_column_indices,
-                    &self.spec,
+                    slot_clock.clone(),
+                    complete_blob_backfill,
+                    self.spec.clone(),
                 ),
                 None,
             )
@@ -1035,24 +1047,20 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            custody_context: custody_context.clone(),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
-                    complete_blob_backfill,
-                    slot_clock.clone(),
                     self.kzg.clone(),
                     custody_context.clone(),
                     self.spec.clone(),
                     enable_partial_columns,
+                    disable_get_blobs,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             pending_payload_cache: Arc::new(
-                PendingPayloadCache::new(
-                    self.kzg.clone(),
-                    custody_context.clone(),
-                    self.spec.clone(),
-                )
-                .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
+                PendingPayloadCache::new(self.kzg.clone(), custody_context, self.spec.clone())
+                    .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
@@ -1123,7 +1131,9 @@ where
         }
 
         // Prune blobs older than the blob data availability boundary in the background.
-        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+        if let Some(data_availability_boundary) =
+            beacon_chain.custody_context.data_availability_boundary()
+        {
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
