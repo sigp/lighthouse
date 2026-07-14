@@ -1509,7 +1509,6 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn produce_single_attestation_for_block(
         &self,
         slot: Slot,
@@ -1768,8 +1767,7 @@ where
             fork,
             payload_present_override,
         } = opts;
-        // `index == 1` (payload-present) is only meaningful post-Gloas. Default to not claiming the
-        // payload, matching the historical behaviour of this helper.
+        // Payload-present (`index == 1`) only applies post-Gloas; default to false.
         let payload_present = payload_present_override.unwrap_or(false);
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);

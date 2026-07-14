@@ -43,8 +43,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain,
-    Epoch, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
-    MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
+    Epoch, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
     SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
@@ -202,10 +202,7 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        // Ensure there is exactly one blob in the next block. Required for some tests. A min of 1
-        // pins the count to 1 (the generator's range is `min..=max(1, min)`). Post-Gloas the blob's
-        // data columns are surfaced via `next_data_columns` (derived below) so tests can supply them
-        // to satisfy the payload envelope's data availability.
+        // Ensure there is exactly one blob in the next block. Required for some tests.
         harness
             .mock_execution_layer
             .as_ref()
@@ -213,9 +210,7 @@ impl TestRig {
             .server
             .execution_block_generator()
             .set_min_blob_count(1);
-        // `make_block_with_envelope` is identical to `make_block` pre-Gloas (envelope is `None`),
-        // but post-Gloas it also yields `next_block`'s signed payload envelope so tests can import
-        // it separately from the block.
+
         let (next_block_tuple, next_block_envelope, next_state) = harness
             .make_block_with_envelope(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
@@ -373,10 +368,6 @@ impl TestRig {
             .fork_name_at_slot::<E>(block.slot())
             .gloas_enabled()
         {
-            // Post-Gloas the blobs live in the payload envelope rather than the block, so they
-            // aren't in `next_block_tuple`. Derive the block's data columns (from its payload bid
-            // commitments) and keep only those this node custodies; tests feed these to satisfy the
-            // payload envelope's data availability.
             let sampling_indices = chain.sampling_columns_for_epoch(block.epoch());
             let custody_columns: DataColumnSidecarList<E> =
                 generate_data_column_sidecars_from_block(&block, &chain.spec)
@@ -1763,10 +1754,8 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 }
 
 /// [Gloas] End-to-end: a payload-present (`index == 1`) unaggregated attestation for a block whose
-/// execution payload envelope hasn't been seen is parked, then released and actually imported once
+/// execution payload envelope hasn't been seen is queued, then released, then imported once
 /// the envelope arrives via the gossip import path.
-///
-/// Only runs under `FORK_NAME=gloas` (Gloas active from genesis).
 #[tokio::test]
 async fn payload_present_attestation_released_on_payload_envelope_import() {
     if !test_spec::<E>()
@@ -1795,19 +1784,17 @@ async fn payload_present_attestation_released_on_payload_envelope_import() {
     let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     // The payload-present attestation can't be verified yet (payload envelope unseen), so it is
-    // parked for re-processing rather than imported.
+    // queued for reprocessing.
     rig.enqueue_next_block_payload_present_unaggregated_attestation();
     rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
         .await;
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
-        "Attestation should be parked, not imported."
+        "Attestation should be queued, not imported."
     );
 
-    // Supply the block's custody data columns so the payload envelope can satisfy data
-    // availability. These verify against the imported block's payload bid; the envelope isn't
-    // needed yet.
+    // Supply the block's custody data columns
     let num_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     assert!(
         num_columns > 0,
@@ -1822,7 +1809,7 @@ async fn payload_present_attestation_released_on_payload_envelope_import() {
     ])
     .await;
 
-    // Importing the payload envelope now finds DA satisfied, imports, and releases the parked
+    // Importing the payload envelope now finds DA satisfied, and releases the queued
     // attestation, which re-verifies and is imported into the naive aggregation pool.
     rig.enqueue_next_block_envelope();
     rig.assert_event_journal_contains_ordered(&[
@@ -1840,8 +1827,6 @@ async fn payload_present_attestation_released_on_payload_envelope_import() {
 
 /// [Gloas] As `payload_present_attestation_released_on_payload_envelope_import`, but for an
 /// aggregated attestation.
-///
-/// Only runs under `FORK_NAME=gloas` (Gloas active from genesis).
 #[tokio::test]
 async fn payload_present_aggregate_released_on_payload_envelope_import() {
     if !test_spec::<E>()
@@ -1873,19 +1858,17 @@ async fn payload_present_aggregate_released_on_payload_envelope_import() {
     let initial_attns = rig.chain.op_pool.num_attestations();
 
     // The payload-present aggregate can't be verified yet (payload envelope unseen), so it is
-    // parked for re-processing rather than imported.
+    // queued for reprocessing.
     rig.enqueue_next_block_payload_present_aggregated_attestation();
     rig.assert_event_journal_completes(&[WorkType::GossipAggregate])
         .await;
     assert_eq!(
         rig.chain.op_pool.num_attestations(),
         initial_attns,
-        "Aggregate should be parked, not imported."
+        "Aggregate should be queued, not imported."
     );
 
-    // Supply the block's custody data columns so the payload envelope can satisfy data
-    // availability. These verify against the imported block's payload bid; the envelope isn't
-    // needed yet.
+    // Supply the block's custody data columns
     let num_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     assert!(
         num_columns > 0,
@@ -1900,7 +1883,7 @@ async fn payload_present_aggregate_released_on_payload_envelope_import() {
     ])
     .await;
 
-    // Importing the payload envelope now finds DA satisfied, imports, and releases the parked
+    // Importing the payload envelope now finds DA satisfied, and releases the queued
     // aggregate, which re-verifies and is imported into the op pool.
     rig.enqueue_next_block_envelope();
     rig.assert_event_journal_contains_ordered(&[
