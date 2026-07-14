@@ -4378,7 +4378,7 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .read()
-            .get_by_slot(slot)
+            .get_by_block_root(block_root)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
         assert_eq!(envelope.beacon_block_root, block_root);
@@ -4454,12 +4454,23 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot, block.tree_hash_root())
                 .await
                 .unwrap()
                 .data;
 
             self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+
+            // A request for a root this node did not build must miss (reorg-resistance).
+            assert!(
+                self.client
+                    .get_validator_execution_payload_envelopes::<E>(
+                        slot,
+                        Hash256::repeat_byte(0xff)
+                    )
+                    .await
+                    .is_err()
+            );
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
@@ -4518,7 +4529,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes_ssz::<E>(slot)
+                .get_validator_execution_payload_envelopes_ssz::<E>(slot, block.tree_hash_root())
                 .await
                 .unwrap();
 
@@ -4763,18 +4774,15 @@ impl ApiTester {
             }
         };
 
-        self.assert_envelope_fields(
-            &block_contents.execution_payload_envelope,
-            block_contents.block.tree_hash_root(),
-            slot,
-        );
+        let block_root = block_contents.block.tree_hash_root();
+        self.assert_envelope_fields(&block_contents.execution_payload_envelope, block_root, slot);
 
         // The bundled envelope should match the one cached for the stateful flow.
         let cached_envelope = self
             .chain
             .pending_payload_envelopes
             .read()
-            .get_by_slot(slot)
+            .get_by_block_root(block_root)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
         assert_eq!(block_contents.execution_payload_envelope, *cached_envelope);
@@ -5222,7 +5230,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot, block_root)
                 .await
                 .unwrap()
                 .data;

@@ -8,10 +8,10 @@ use eth2::types::Accept;
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::debug;
-use types::Slot;
+use types::{Hash256, Slot};
 use warp::{Filter, Rejection, http::response::Builder, reply::Reply};
 
-// GET validator/execution_payload_envelopes/{slot}
+// GET validator/execution_payload_envelopes/{slot}/{beacon_block_root}
 pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
@@ -26,6 +26,11 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                 "Invalid slot".to_string(),
             ))
         }))
+        .and(warp::path::param::<Hash256>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid beacon_block_root".to_string(),
+            ))
+        }))
         .and(warp::path::end())
         .and(warp::header::optional::<Accept>("accept"))
         .and(not_while_syncing_filter)
@@ -33,24 +38,25 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(chain_filter)
         .then(
             |slot: Slot,
+             beacon_block_root: Hash256,
              accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    debug!(?slot, "Execution payload envelope request from HTTP API");
+                    debug!(?slot, ?beacon_block_root, "Execution payload envelope request from HTTP API");
 
                     not_synced_filter?;
 
-                    // Get the envelope from the pending cache (local building only)
+                    // Get the envelope from the pending cache (local building only).
                     let envelope = chain
                         .pending_payload_envelopes
                         .read()
-                        .get_by_slot(slot)
+                        .get_by_block_root(beacon_block_root)
                         .cloned()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(format!(
-                                "Execution payload envelope not available for slot {slot}"
+                                "Execution payload envelope not available for slot {slot} and root {beacon_block_root:?}"
                             ))
                         })?;
 
