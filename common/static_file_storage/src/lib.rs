@@ -263,6 +263,9 @@ impl StaticFile {
                 ));
             }
         }
+        if *last_slot == EMPTY_SLOT {
+            return Err(Error::Invalid("slot u64::MAX is reserved".into()));
+        }
 
         let mut committed = self.committed.lock();
         let start = self.skip_committed_prefix(&items, committed.highest_slot)?;
@@ -377,19 +380,19 @@ impl StaticFile {
         {
             // 1 MiB batches tiny record writes during imports.
             let mut writer = std::io::BufWriter::with_capacity(1 << 20, &mut data_file);
-            let mut cursor = cursor;
+            let mut next_offset = cursor;
             for &(slot, value) in group {
                 if (value.len() as u64) > self.config.max_value_bytes {
                     return Err(Error::Invalid("record exceeds size limit".into()));
                 }
                 let payload_len = u32::try_from(value.len())
                     .map_err(|_| Error::Invalid("record too large".into()))?;
-                offsets.push((slot, cursor));
+                offsets.push((slot, next_offset));
                 writer.write_all(&self.config.record_type)?; // type
                 writer.write_all(&payload_len.to_le_bytes())?; // len
-                cursor += RECORD_HEADER_SIZE as u64;
+                next_offset += RECORD_HEADER_SIZE as u64;
                 writer.write_all(value)?; // payload
-                cursor += value.len() as u64;
+                next_offset += value.len() as u64;
             }
             writer.flush()?;
         }
@@ -403,6 +406,7 @@ impl StaticFile {
             .create(true)
             .truncate(false)
             .open(&off_path)?;
+        // Pre-size so skipped slots read as zero offsets.
         if off_file.metadata()?.len() < OFFSET_FILE_LEN {
             off_file.set_len(OFFSET_FILE_LEN)?;
         }
@@ -750,5 +754,11 @@ mod tests {
             ..CONFIG
         };
         assert!(StaticFile::open(dir.path().to_path_buf(), other).is_err());
+    }
+
+    #[test]
+    fn max_slot_is_reserved() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(open(&dir).put(u64::MAX, b"x").is_err());
     }
 }
