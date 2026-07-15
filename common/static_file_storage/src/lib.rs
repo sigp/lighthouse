@@ -39,6 +39,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// 8192-slot chunks; 8192 offsets fit in 64 KiB.
 pub const SLOTS_PER_FILE: u64 = 8192;
 type SlotGroup<'a> = (u64, Vec<(u64, &'a [u8])>);
 
@@ -47,9 +48,13 @@ const OFFSET_FILE_LEN: u64 = SLOTS_PER_FILE * OFFSET_SIZE;
 const CONFIG_FILE: &str = "column.conf";
 const CONFIG_TMP_FILE: &str = "column.conf.tmp";
 const DATA_FILE_PREFIX: &str = "data_";
+/// Reject stale/incompatible layouts.
 const CONFIG_MAGIC: &[u8; 8] = b"LHSF0001";
+/// 8 magic + 8 slot + 8 data_len + 2 type + 8 max_len.
 const CONFIG_LEN: usize = 34;
+/// Skip 8 magic + 8 slot + 8 data_len.
 const CONFIG_DATA_START: usize = 24;
+/// 2 type + 8 max_len.
 const CONFIG_DATA_LEN: usize = 10;
 /// Empty-store sentinel for `highest_written_slot` in the per-file config.
 const EMPTY_SLOT: u64 = u64::MAX;
@@ -67,13 +72,18 @@ pub struct Config {
     pub max_value_bytes: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
 /// Last durable `column.conf` marker.
+#[derive(Debug, Clone, Copy)]
 struct CommittedState {
     /// Highest committed slot, or `None` when empty.
     highest_slot: Option<u64>,
     /// Committed end of the file containing `highest_slot`.
     data_len: u64,
+}
+
+struct ConfigOnDisk {
+    committed: CommittedState,
+    config: Config,
 }
 
 impl Config {
@@ -94,6 +104,39 @@ impl Config {
         Ok(Self {
             record_type,
             max_value_bytes,
+        })
+    }
+}
+
+impl ConfigOnDisk {
+    fn serialize(&self) -> [u8; CONFIG_LEN] {
+        let mut bytes = [0u8; CONFIG_LEN];
+        bytes[0..8].copy_from_slice(CONFIG_MAGIC);
+        bytes[8..16].copy_from_slice(
+            &self
+                .committed
+                .highest_slot
+                .unwrap_or(EMPTY_SLOT)
+                .to_le_bytes(),
+        );
+        bytes[16..24].copy_from_slice(&self.committed.data_len.to_le_bytes());
+        bytes[CONFIG_DATA_START..].copy_from_slice(&self.config.serialize());
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() != CONFIG_LEN || &bytes[0..8] != CONFIG_MAGIC {
+            return Err(Error::Invalid("invalid config".into()));
+        }
+        let highest = u64::from_le_bytes(bytes[8..16].try_into().expect("slice length checked"));
+        let data_len = u64::from_le_bytes(bytes[16..24].try_into().expect("slice length checked"));
+        let config = Config::deserialize(&bytes[CONFIG_DATA_START..])?;
+        Ok(Self {
+            committed: CommittedState {
+                highest_slot: (highest != EMPTY_SLOT).then_some(highest),
+                data_len,
+            },
+            config,
         })
     }
 }
@@ -147,28 +190,29 @@ impl StaticFile {
         let config_path = root_dir.join(CONFIG_FILE);
         let tmp_path = root_dir.join(CONFIG_TMP_FILE);
 
-        let (highest, data_len) = if config_path.exists() {
-            let (highest, data_len, on_disk) = read_config(&config_path)?;
-            if on_disk != config {
+        let committed = if config_path.exists() {
+            let on_disk = read_config(&config_path)?;
+            if on_disk.config != config {
                 return Err(Error::Invalid(format!(
-                    "config mismatch: on-disk {on_disk:?}, build {config:?}"
+                    "config mismatch: on-disk {:?}, build {config:?}",
+                    on_disk.config
                 )));
             }
-            (highest, data_len)
+            on_disk.committed
         } else {
             atomic_write_config(&config_path, &tmp_path, &root_dir, None, 0, &config)?;
-            (None, 0)
+            CommittedState {
+                highest_slot: None,
+                data_len: 0,
+            }
         };
 
         let handle = Self {
             root_dir,
             config,
-            committed: Mutex::new(CommittedState {
-                highest_slot: highest,
-                data_len,
-            }),
+            committed: Mutex::new(committed),
         };
-        handle.heal_to_marker(highest, data_len)?;
+        handle.heal_to_marker(committed.highest_slot, committed.data_len)?;
         Ok(handle)
     }
 
@@ -341,10 +385,11 @@ impl StaticFile {
                 let payload_len = u32::try_from(value.len())
                     .map_err(|_| Error::Invalid("record too large".into()))?;
                 offsets.push((slot, cursor));
-                writer.write_all(&self.config.record_type)?;
-                writer.write_all(&payload_len.to_le_bytes())?;
-                writer.write_all(value)?;
-                cursor += RECORD_HEADER_SIZE as u64 + value.len() as u64;
+                writer.write_all(&self.config.record_type)?; // type
+                writer.write_all(&payload_len.to_le_bytes())?; // len
+                cursor += RECORD_HEADER_SIZE as u64;
+                writer.write_all(value)?; // payload
+                cursor += value.len() as u64;
             }
             writer.flush()?;
         }
@@ -416,18 +461,15 @@ impl StaticFile {
 
     /// Re-read `column.conf` and restore files to whatever marker is durable.
     fn heal_from_config(&self) -> Result<CommittedState, Error> {
-        let (highest, data_len, on_disk) = read_config(&self.config_path())?;
-        if on_disk != self.config {
+        let on_disk = read_config(&self.config_path())?;
+        if on_disk.config != self.config {
             return Err(Error::Invalid(format!(
-                "config mismatch: on-disk {on_disk:?}, build {:?}",
-                self.config
+                "config mismatch: on-disk {:?}, build {:?}",
+                on_disk.config, self.config
             )));
         }
-        self.heal_to_marker(highest, data_len)?;
-        Ok(CommittedState {
-            highest_slot: highest,
-            data_len,
-        })
+        self.heal_to_marker(on_disk.committed.highest_slot, on_disk.committed.data_len)?;
+        Ok(on_disk.committed)
     }
 
     /// Truncate the committed file back to the config marker after a crash.
@@ -547,21 +589,8 @@ impl StaticFile {
     }
 }
 
-/// Returns (highest_written_slot, current_data_len, on-disk config).
-fn read_config(path: &Path) -> Result<(Option<u64>, u64, Config), Error> {
-    let bytes = fs::read(path)?;
-    if bytes.len() != CONFIG_LEN || &bytes[0..8] != CONFIG_MAGIC {
-        return Err(Error::Invalid("invalid config".into()));
-    }
-    let highest = u64::from_le_bytes(bytes[8..16].try_into().expect("slice length checked"));
-    let current_data_len =
-        u64::from_le_bytes(bytes[16..24].try_into().expect("slice length checked"));
-    let config = Config::deserialize(&bytes[CONFIG_DATA_START..])?;
-    Ok((
-        (highest != EMPTY_SLOT).then_some(highest),
-        current_data_len,
-        config,
-    ))
+fn read_config(path: &Path) -> Result<ConfigOnDisk, Error> {
+    ConfigOnDisk::deserialize(&fs::read(path)?)
 }
 
 /// Write `column.conf.tmp`, fsync it, rename over `column.conf`, then fsync
@@ -574,11 +603,14 @@ fn atomic_write_config(
     current_data_len: u64,
     config: &Config,
 ) -> Result<(), Error> {
-    let mut bytes = [0u8; CONFIG_LEN];
-    bytes[0..8].copy_from_slice(CONFIG_MAGIC);
-    bytes[8..16].copy_from_slice(&highest_written_slot.unwrap_or(EMPTY_SLOT).to_le_bytes());
-    bytes[16..24].copy_from_slice(&current_data_len.to_le_bytes());
-    bytes[CONFIG_DATA_START..].copy_from_slice(&config.serialize());
+    let bytes = ConfigOnDisk {
+        committed: CommittedState {
+            highest_slot: highest_written_slot,
+            data_len: current_data_len,
+        },
+        config: *config,
+    }
+    .serialize();
 
     {
         let mut tmp = File::create(tmp_path)?;
