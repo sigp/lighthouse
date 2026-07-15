@@ -932,8 +932,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     CouplingError::BlobPeerFailure(msg) => {
                         debug!(?batch_id, msg, "Blob peer failure");
                     }
-                    CouplingError::EnvelopePeerFailure(msg) => {
-                        debug!(?batch_id, msg, "Envelope peer failure");
+                    CouplingError::EnvelopePeerFailure {
+                        error,
+                        peer_id: envelope_peer,
+                    } => {
+                        let action = PeerAction::LowToleranceError;
+                        debug!(?batch_id, error, %envelope_peer, score_adjustment = %action, "Envelope peer failure");
+                        network.report_peer(*envelope_peer, action, "envelope_peer_failure");
                     }
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
