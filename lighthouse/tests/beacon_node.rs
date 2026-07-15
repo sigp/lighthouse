@@ -2648,6 +2648,8 @@ fn beacon_processor() {
         .flag("beacon-processor-reprocess-queue-len", Some("3"))
         .flag("beacon-processor-attestation-batch-size", Some("4"))
         .flag("beacon-processor-aggregate-batch-size", Some("5"))
+        .flag("beacon-processor-attestation-batch-trigger", Some("8"))
+        .flag("beacon-processor-attestation-batch-max-age-ms", Some("10"))
         .flag("disable-backfill-rate-limiting", None)
         .run_with_zero_port()
         .with_config(|config| {
@@ -2659,6 +2661,8 @@ fn beacon_processor() {
                     max_scheduled_work_queue_len: 3,
                     max_gossip_attestation_batch_size: 4,
                     max_gossip_aggregate_batch_size: 5,
+                    attestation_batch_trigger: 8,
+                    attestation_batch_max_age: Some(Duration::from_millis(10)),
                     enable_backfill_rate_limiting: false
                 }
             )
@@ -2670,6 +2674,15 @@ fn beacon_processor() {
 fn beacon_processor_zero_workers() {
     CommandLineTest::new()
         .flag("beacon-processor-max-workers", Some("0"))
+        .run_with_zero_port();
+}
+
+// An attestation batch trigger above 1 requires max age.
+#[test]
+#[should_panic]
+fn beacon_processor_attestation_batch_trigger_requires_max_age() {
+    CommandLineTest::new()
+        .flag("beacon-processor-attestation-batch-trigger", Some("8"))
         .run_with_zero_port();
 }
 

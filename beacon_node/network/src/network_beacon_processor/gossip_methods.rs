@@ -37,7 +37,7 @@ use lighthouse_network::{
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use ssz::Encode;
 use std::fs;
 use std::io::Write;
@@ -90,6 +90,12 @@ pub enum ReprocessAllowance {
 }
 
 impl ReprocessAllowance {
+    /// Whether this is the attestation's first processing attempt: fresh from gossip, not a
+    /// re-process replay.
+    fn is_first_attempt(self) -> bool {
+        matches!(self, ReprocessAllowance::BlockAndPayload)
+    }
+
     /// Whether the attestation may be re-queued for an unknown block.
     fn allows_block(self) -> bool {
         matches!(
@@ -114,6 +120,18 @@ impl ReprocessAllowance {
             | ReprocessAllowance::PayloadOnly
             | ReprocessAllowance::None => ReprocessAllowance::None,
         }
+    }
+}
+
+/// Record how long an unaggregated attestation waited between arriving over gossip
+/// (`seen_timestamp`) and its signature verification completing (`now`), so we can measure the
+/// latency cost of attestation batch collection.
+fn observe_attestation_verification_delay(now: Duration, seen_timestamp: Duration) {
+    if let Some(delay) = now.checked_sub(seen_timestamp) {
+        metrics::observe_duration(
+            &metrics::BEACON_UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_DELAY_TIME,
+            delay,
+        );
     }
 }
 
@@ -298,6 +316,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(error) => Err(RejectedUnaggregate { attestation, error }),
         };
 
+        // Only record the delay on the first attempt. Re-process replays keep their original
+        // `seen_timestamp`, so they'd double-count and skew the histogram with multi-second
+        // block-wait samples.
+        if reprocess_allowance.is_first_attempt() {
+            observe_attestation_verification_delay(timestamp_now(), seen_timestamp);
+        }
+
         self.process_gossip_attestation_result(
             result,
             message_id,
@@ -356,7 +381,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect::<Vec<_>>();
 
+        // The whole batch verified at one instant, so read the clock once. Re-reading it per
+        // package would add earlier packages' result-processing time to later packages' delays.
+        let verified_at = timestamp_now();
+
         for (result, package) in results.into_iter().zip(packages) {
+            // Record each attestation's age at verification (queue wait + batch verification) to
+            // measure batch-collection latency. Each package keeps its own `seen_timestamp` through
+            // batch formation, unlike the beacon-processor queue timer, which resets per batch.
+            observe_attestation_verification_delay(verified_at, package.seen_timestamp);
+
             let result = match result {
                 Ok((indexed_attestation, attestation)) => Ok(VerifiedUnaggregate {
                     indexed_attestation,
