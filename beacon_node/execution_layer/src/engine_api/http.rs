@@ -1877,6 +1877,33 @@ mod test {
     }
 
     #[tokio::test]
+    async fn get_inclusion_list_v1_request() {
+        Tester::new(true)
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_inclusion_list_v1::<MainnetEthSpec>(ExecutionBlockHash::repeat_byte(1))
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_GET_INCLUSION_LIST_V1,
+                    "params": [HASH_01]
+                }),
+            )
+            .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_inclusion_list_v1::<MainnetEthSpec>(ExecutionBlockHash::repeat_byte(1))
+                    .await
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn forkchoice_updated_v1_with_payload_attributes_request() {
         Tester::new(true)
             .assert_request_equals(

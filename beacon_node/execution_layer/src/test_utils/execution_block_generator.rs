@@ -178,6 +178,11 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /// execution requests with the generated payload ID.
     next_execution_requests: Option<ExecutionRequests<E>>,
     generate_blobs: bool,
+    /*
+     * Inclusion lists (heze+)
+     */
+    /// The transactions returned by `getInclusionList` for any known block.
+    inclusion_list: Transactions<E>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -221,6 +226,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             execution_requests: <_>::default(),
             next_execution_requests: None,
             generate_blobs: true,
+            inclusion_list: <_>::default(),
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -492,6 +498,18 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     /// Set execution requests to be returned alongside the next generated payload.
     pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
         self.next_execution_requests = Some(requests);
+    }
+
+    /// Return the configured inclusion list transactions for the provided block.
+    pub fn get_inclusion_list(&self, block_hash: ExecutionBlockHash) -> Option<Transactions<E>> {
+        self.blocks
+            .contains_key(&block_hash)
+            .then(|| self.inclusion_list.clone())
+    }
+
+    /// Set the transactions returned by `getInclusionList`.
+    pub fn set_inclusion_list(&mut self, transactions: Transactions<E>) {
+        self.inclusion_list = transactions;
     }
 
     /// Look up a blob and proof by versioned hash across all stored bundles.

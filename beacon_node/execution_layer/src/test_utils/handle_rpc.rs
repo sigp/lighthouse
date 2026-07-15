@@ -563,6 +563,17 @@ pub async fn handle_rpc<E: EthSpec>(
             let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
             Ok(serde_json::to_value(response).unwrap())
         }
+        ENGINE_GET_INCLUSION_LIST_V1 => {
+            let block_hash = get_param::<ExecutionBlockHash>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let transactions = ctx
+                .execution_block_generator
+                .read()
+                .get_inclusion_list(block_hash)
+                .ok_or_else(|| ("Unknown payload".to_string(), UNKNOWN_PAYLOAD_ERROR_CODE))?;
+
+            Ok(serde_json::to_value(JsonInclusionListV1::<E>(transactions)).unwrap())
+        }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3
