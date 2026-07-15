@@ -6,15 +6,15 @@
 //! <root>/
 //!   data_{file_id:05}         # file_id = slot / SLOTS_PER_FILE
 //!   data_{file_id:05}.off     # SLOTS_PER_FILE × u64 LE offsets, 0 = no record
-//!   column.conf               # 36-byte commit marker, atomic-renamed
+//!   column.conf               # 34-byte commit marker, atomic-renamed
 //! ```
 //!
 //! # File format
 //!
-//! Data file: e2store version record (`65 32 00 00 00 00 00 00`), then records
-//! appended as `type[2] | length[4 LE] | reserved[2]=0 | payload`.
+//! Data file: `b"LHSF"`, then records appended as
+//! `type[2] | length[4 LE] | payload`.
 //!
-//! `column.conf`: `b"LHSTBLK3" | highest_slot u64 LE (u64::MAX = empty) |
+//! `column.conf`: `b"LHSF0001" | highest_slot u64 LE (u64::MAX = empty) |
 //! current_data_len u64 LE | record_type[2] | max_value_bytes u64 LE`.
 //! Atomic update: write `.tmp`, fsync, rename, fsync dir.
 //!
@@ -47,16 +47,15 @@ const OFFSET_FILE_LEN: u64 = SLOTS_PER_FILE * OFFSET_SIZE;
 const CONFIG_FILE: &str = "column.conf";
 const CONFIG_TMP_FILE: &str = "column.conf.tmp";
 const DATA_FILE_PREFIX: &str = "data_";
-const CONFIG_MAGIC: &[u8; 8] = b"LHSTBLK3";
+const CONFIG_MAGIC: &[u8; 8] = b"LHSF0001";
 const CONFIG_LEN: usize = 34;
 const CONFIG_DATA_START: usize = 24;
 const CONFIG_DATA_LEN: usize = 10;
 /// Empty-store sentinel for `highest_written_slot` in the per-file config.
 const EMPTY_SLOT: u64 = u64::MAX;
-/// e2store version record, written once at the start of each data file.
-const VERSION_RECORD: [u8; 8] = [0x65, 0x32, 0, 0, 0, 0, 0, 0];
-/// e2store record header reserved bytes.
-const RECORD_RESERVED: [u8; 2] = [0, 0];
+/// Header marker, written once at the start of each data file.
+const DATA_FILE_HEADER: [u8; 4] = *b"LHSF";
+const RECORD_HEADER_SIZE: usize = 6;
 
 /// On-disk format settings for one `StaticFile`. Persisted on first creation;
 /// on re-open the on-disk values must match what the caller passes in.
@@ -66,6 +65,15 @@ pub struct Config {
     pub record_type: [u8; 2],
     /// Upper bound on a single stored record's size in bytes.
     pub max_value_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Last durable `column.conf` marker.
+struct CommittedState {
+    /// Highest committed slot, or `None` when empty.
+    highest_slot: Option<u64>,
+    /// Committed end of the file containing `highest_slot`.
+    data_len: u64,
 }
 
 impl Config {
@@ -126,9 +134,8 @@ impl From<io::Error> for Error {
 pub struct StaticFile {
     root_dir: PathBuf,
     config: Config,
-    /// `None` = empty store, `Some(s)` = highest committed slot.
-    /// Persisted as `u64::MAX` (`EMPTY_SLOT`) when `None`.
-    highest_written_slot: Mutex<Option<u64>>,
+    /// Highest committed slot and committed data length from `column.conf`.
+    committed: Mutex<CommittedState>,
 }
 
 impl StaticFile {
@@ -156,7 +163,10 @@ impl StaticFile {
         let handle = Self {
             root_dir,
             config,
-            highest_written_slot: Mutex::new(highest),
+            committed: Mutex::new(CommittedState {
+                highest_slot: highest,
+                data_len,
+            }),
         };
         handle.heal_to_marker(highest, data_len)?;
         Ok(handle)
@@ -164,7 +174,7 @@ impl StaticFile {
 
     /// Slot of the most recently committed record, if any.
     fn highest_written_slot(&self) -> Option<u64> {
-        *self.highest_written_slot.lock()
+        self.committed.lock().highest_slot
     }
 
     /// Read the record at `slot`, if present.
@@ -210,9 +220,10 @@ impl StaticFile {
             }
         }
 
-        let mut highest_written_slot = self.highest_written_slot.lock();
-        let start = self.skip_committed_prefix(&items, *highest_written_slot)?;
+        let mut committed = self.committed.lock();
+        let start = self.skip_committed_prefix(&items, committed.highest_slot)?;
         if start == items.len() {
+            // Avoid rewriting config with no fresh data_len.
             return Ok(());
         }
 
@@ -220,11 +231,12 @@ impl StaticFile {
         // data fsync + one offset fsync. Single config commit at end of batch.
         let mut last_data_len: u64 = 0;
         for (target_file_id, group) in group_by_file_id(&items[start..]) {
-            match self.write_group(target_file_id, &group) {
+            match self.write_group(target_file_id, &group, *committed) {
                 Ok(data_len) => last_data_len = data_len,
                 Err(e) => {
-                    if let Ok(committed_highest) = self.heal_from_config() {
-                        *highest_written_slot = committed_highest;
+                    // Reconcile after partial write.
+                    if let Ok(config_committed) = self.heal_from_config() {
+                        *committed = config_committed;
                     }
                     return Err(e);
                 }
@@ -232,12 +244,16 @@ impl StaticFile {
         }
 
         if let Err(e) = self.write_config(Some(*last_slot), last_data_len) {
-            if let Ok(committed_highest) = self.heal_from_config() {
-                *highest_written_slot = committed_highest;
+            // Rename may have committed before the error.
+            if let Ok(config_committed) = self.heal_from_config() {
+                *committed = config_committed;
             }
             return Err(e);
         }
-        *highest_written_slot = Some(*last_slot);
+        *committed = CommittedState {
+            highest_slot: Some(*last_slot),
+            data_len: last_data_len,
+        };
         Ok(())
     }
 
@@ -276,25 +292,48 @@ impl StaticFile {
     /// the data file, write all offsets, fsync the offset file. Returns the
     /// committed data file length. Does NOT update `highest_written_slot` or
     /// `column.conf` — the caller commits via `write_config` after this.
-    fn write_group(&self, target_file_id: u64, group: &[(u64, &[u8])]) -> Result<u64, Error> {
+    fn write_group(
+        &self,
+        target_file_id: u64,
+        group: &[(u64, &[u8])],
+        committed: CommittedState,
+    ) -> Result<u64, Error> {
         let data_path = self.data_path(target_file_id);
         let off_path = self.offset_path(target_file_id);
 
         let mut data_file = OpenOptions::new()
             .read(true)
-            .append(true)
+            .write(true)
             .create(true)
+            .truncate(false)
             .open(&data_path)?;
         if data_file.metadata()?.len() == 0 {
-            data_file.write_all(&VERSION_RECORD)?;
+            data_file.write_all(&DATA_FILE_HEADER)?;
         }
+        let cursor = if committed
+            .highest_slot
+            .is_some_and(|slot| file_id(slot) == target_file_id)
+        {
+            committed.data_len
+        } else {
+            DATA_FILE_HEADER.len() as u64
+        };
+        let data_len = data_file.metadata()?.len();
+        if data_len < cursor {
+            return Err(Error::Invalid(
+                "data file shorter than committed length".into(),
+            ));
+        }
+        if data_len != cursor {
+            data_file.set_len(cursor)?;
+        }
+        data_file.seek(SeekFrom::Start(cursor))?;
 
         let mut offsets = Vec::with_capacity(group.len());
         {
-            // BufWriter coalesces the 8-byte record headers + payloads into
-            // larger syscalls; cheap for one record, load-bearing for batches.
+            // 1 MiB batches tiny record writes during imports.
             let mut writer = std::io::BufWriter::with_capacity(1 << 20, &mut data_file);
-            let mut cursor = writer.get_ref().metadata()?.len();
+            let mut cursor = cursor;
             for &(slot, value) in group {
                 if (value.len() as u64) > self.config.max_value_bytes {
                     return Err(Error::Invalid("record exceeds size limit".into()));
@@ -304,9 +343,8 @@ impl StaticFile {
                 offsets.push((slot, cursor));
                 writer.write_all(&self.config.record_type)?;
                 writer.write_all(&payload_len.to_le_bytes())?;
-                writer.write_all(&RECORD_RESERVED)?;
                 writer.write_all(value)?;
-                cursor += 8 + value.len() as u64;
+                cursor += RECORD_HEADER_SIZE as u64 + value.len() as u64;
             }
             writer.flush()?;
         }
@@ -345,9 +383,9 @@ impl StaticFile {
         let mut data_file = File::open(&data_path)?;
         data_file.seek(SeekFrom::Start(offset))?;
 
-        let mut header = [0; 8];
+        let mut header = [0; RECORD_HEADER_SIZE];
         data_file.read_exact(&mut header)?;
-        if header[0..2] != self.config.record_type || header[6..8] != RECORD_RESERVED {
+        if header[0..2] != self.config.record_type {
             return Err(Error::Invalid("invalid record header".into()));
         }
 
@@ -377,7 +415,7 @@ impl StaticFile {
     }
 
     /// Re-read `column.conf` and restore files to whatever marker is durable.
-    fn heal_from_config(&self) -> Result<Option<u64>, Error> {
+    fn heal_from_config(&self) -> Result<CommittedState, Error> {
         let (highest, data_len, on_disk) = read_config(&self.config_path())?;
         if on_disk != self.config {
             return Err(Error::Invalid(format!(
@@ -386,7 +424,10 @@ impl StaticFile {
             )));
         }
         self.heal_to_marker(highest, data_len)?;
-        Ok(highest)
+        Ok(CommittedState {
+            highest_slot: highest,
+            data_len,
+        })
     }
 
     /// Truncate the committed file back to the config marker after a crash.
