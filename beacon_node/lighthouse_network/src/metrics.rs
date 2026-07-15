@@ -11,6 +11,13 @@ pub static PEERS_CONNECTED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("libp2p_peers", "Count of libp2p peers currently connected")
 });
 
+pub static PEERS_SUPPORTING_BLOCKS_BY_HEAD: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "libp2p_peers_supporting_blocks_by_head",
+        "Count of connected peers advertising the beacon_blocks_by_head protocol",
+    )
+});
+
 pub static PEERS_CONNECTED_MULTI: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "libp2p_peers_multi",

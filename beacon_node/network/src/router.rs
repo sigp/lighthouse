@@ -355,10 +355,8 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::PayloadEnvelopesByRange(envelope) => {
                 self.on_payload_envelopes_by_range_response(peer_id, app_request_id, envelope);
             }
-            // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
-            // so receiving a response is unexpected. Drop it without crashing.
-            Response::BlocksByHead(_) => {
-                debug!("BlocksByHead response received but not requested by lighthouse");
+            Response::BlocksByHead(beacon_block) => {
+                self.on_blocks_by_head_response(peer_id, app_request_id, beacon_block);
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -710,6 +708,29 @@ impl<T: BeaconChainTypes> Router<T> {
             %peer_id,
             "Received BlocksByRoot Response"
         );
+        self.send_to_sync(SyncMessage::RpcBlock {
+            peer_id,
+            sync_request_id,
+            beacon_block,
+        });
+    }
+
+    /// Handle a `BlocksByHead` response from the peer.
+    /// A `beacon_block` behaves as a stream which is terminated on a `None` response.
+    pub fn on_blocks_by_head_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match app_request_id {
+            AppRequestId::Sync(id @ SyncRequestId::BlocksByHead { .. }) => id,
+            other => {
+                crit!(request = ?other, "BlocksByHead response on incorrect request");
+                return;
+            }
+        };
+
         self.send_to_sync(SyncMessage::RpcBlock {
             peer_id,
             sync_request_id,

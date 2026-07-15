@@ -79,6 +79,13 @@ impl AwaitingParent {
         self.parent_root
     }
 
+    pub fn from_block<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Self {
+        Self::new(
+            block.parent_root(),
+            block.payload_bid_parent_block_hash().ok(),
+        )
+    }
+
     pub fn into_peer_type(self) -> PeerType {
         PeerType::new(self.parent_block_hash)
     }
@@ -203,6 +210,9 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     #[educe(Debug(method(fmt_peer_map_as_len)))]
     gloas_child_peers: HashMap<ExecutionBlockHash, PeerSet>,
     awaiting_parent: Option<AwaitingParent>,
+    /// Count to request over `beacon_blocks_by_head`: small for a lone lookup, large once it's known
+    /// to be part of a deep chain. Fixed at creation from the lookup graph.
+    by_head_count: u64,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -214,6 +224,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         peer_type: &PeerType,
         id: Id,
         awaiting_parent: Option<AwaitingParent>,
+        by_head_count: u64,
     ) -> Self {
         let lookup_span = debug_span!(
             "lh_single_block_lookup",
@@ -239,6 +250,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             peers: block_peers,
             gloas_child_peers,
             awaiting_parent,
+            by_head_count,
             created: Instant::now(),
             span: lookup_span,
         }
@@ -382,13 +394,42 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_request
             .state
             .maybe_start_downloading(|failed_peers| {
-                cx.block_lookup_request(self.id, self.peers.clone(), failed_peers, self.block_root)
+                cx.block_lookup_request(
+                    self.id,
+                    self.peers.clone(),
+                    failed_peers,
+                    self.block_root,
+                    self.by_head_count,
+                )
             })?;
         if self.awaiting_parent.is_none()
-            && let Some(data) = self.block_request.state.maybe_start_processing()
+            && let Some(data) = self.block_request.state.is_awaiting_process()
         {
-            cx.send_block_for_processing(self.id, self.block_root, data.value)
-                .map_err(LookupRequestError::SendFailedProcessor)?;
+            let block = &data.value;
+            // Eagerly check if we can import without having to send the block for processing. This
+            // allows us to check many lookups in the same sync execution / loop. The block may also
+            // already be in fork choice itself (e.g. genesis/anchor, or one whose parent has been
+            // pruned by finalization), in which case it's importable rather than parent-unknown.
+            if cx.chain.is_parent_imported(block)
+                || cx.chain.block_is_known_to_fork_choice(&self.block_root)
+            {
+                cx.send_block_for_processing(self.id, self.block_root, block.clone())
+                    .map_err(LookupRequestError::SendFailedProcessor)?;
+                self.block_request.state.start_processing()?;
+            } else if let Some(reason) = cx.conflicts_with_finality(block) {
+                return Err(LookupRequestError::Failed(reason));
+            } else if let Some(reason) = cx.block_is_in_future(block) {
+                // Bogus future block: drop it instead of chasing a phantom parent chain.
+                return Err(LookupRequestError::Failed(reason));
+            } else {
+                self.awaiting_parent = Some(AwaitingParent::from_block(block));
+                return Ok(LookupResult::ParentUnknown {
+                    parent_root: block.parent_root(),
+                    parent_block_hash: block.payload_bid_parent_block_hash().ok(),
+                    block_root: self.block_root,
+                    peers: self.all_peers(),
+                });
+            }
         }
 
         // === Data request ===
@@ -832,6 +873,16 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
+    fn is_awaiting_process(&self) -> Option<&DownloadResult<T>> {
+        match &self.state {
+            State::AwaitingDownload { .. } => None,
+            State::Downloading { .. } => None,
+            State::AwaitingProcess(result) => Some(result),
+            State::Processing(_) => None,
+            State::Processed(..) => None,
+        }
+    }
+
     /// Drive download: check max attempts, issue request, handle result.
     fn maybe_start_downloading(
         &mut self,
@@ -948,7 +999,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
     pub fn maybe_start_processing(&mut self) -> Option<DownloadResult<T>> {
-        // For 2 lines replace state with placeholder to gain ownership of `result`
         match &self.state {
             State::AwaitingProcess(result) => {
                 let result = result.clone();
@@ -956,6 +1006,20 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Some(result)
             }
             _ => None,
+        }
+    }
+
+    /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
+    pub fn start_processing(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingProcess(result) => {
+                let result = result.clone();
+                self.state = State::Processing(result.clone());
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state start_processing expected AwaitingProcess got {other}"
+            ))),
         }
     }
 

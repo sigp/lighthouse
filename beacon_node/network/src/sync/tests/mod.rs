@@ -53,6 +53,15 @@ type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 ///                       +-----------------+
 ///                       |  - BlockLookups |
 ///                       +-----------------+
+/// Whether the rig's peers advertise `beacon_blocks_by_head` (so block lookups fetch via it) or
+/// only `beacon_blocks_by_root`.
+#[derive(Clone, Copy, Default, PartialEq)]
+enum ByHeadSupport {
+    Supported,
+    #[default]
+    Unsupported,
+}
+
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
     beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
@@ -88,6 +97,8 @@ struct TestRig {
     initial_block_lookups_metrics: BlockLookupsMetrics,
     /// Fulu test type
     fulu_test_type: FuluTestType,
+    /// Whether peers added to the rig advertise `beacon_blocks_by_head` so lookups fetch via it.
+    by_head_support: ByHeadSupport,
 }
 
 enum FuluTestType {

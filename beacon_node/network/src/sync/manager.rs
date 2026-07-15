@@ -498,6 +498,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::BlocksByHead(id) => {
+                self.on_blocks_by_head_response(id, peer_id, RpcEvent::RPCError(error))
+            }
             SyncRequestId::SinglePayloadEnvelope { id } => {
                 self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
             }
@@ -1158,6 +1161,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::from_chunk(block))
             }
+            SyncRequestId::BlocksByHead(id) => {
+                self.on_blocks_by_head_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
             SyncRequestId::BlocksByRange(id) => {
                 self.on_blocks_by_range_response(id, peer_id, RpcEvent::from_chunk(block))
             }
@@ -1174,6 +1180,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
+            self.block_lookups.on_block_download_response(
+                id,
+                peer_id,
+                resp.map(|value| DownloadResult::new(value, PeerGroup::from_single(peer_id))),
+                &mut self.network,
+            )
+        }
+    }
+
+    fn on_blocks_by_head_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self.network.on_blocks_by_head_response(id, peer_id, block) {
             self.block_lookups.on_block_download_response(
                 id,
                 peer_id,

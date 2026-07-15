@@ -547,6 +547,22 @@ pub static SYNC_LOOKUPS_STUCK: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
         "Total count of sync lookups that are stuck and dropped",
     )
 });
+pub static SYNC_BLOCKS_BY_HEAD_REQUESTED_ANCESTORS: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram_with_buckets(
+            "sync_blocks_by_head_requested_ancestors",
+            "Distribution of the count parameter (ancestors requested) in beacon_blocks_by_head requests",
+            Ok(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 48.0, 64.0]),
+        )
+    },
+);
+pub static SYNC_LOOKUP_KNOWN_PARENT_REUSED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "sync_lookups_known_parent_reused_total",
+        "Total blocks reused from a prior beacon_blocks_by_head response to seed a parent lookup, \
+         instead of being re-downloaded (KnownParents optimization)",
+    )
+});
 pub static SYNC_ACTIVE_NETWORK_REQUESTS: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "sync_active_network_requests",
