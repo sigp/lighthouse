@@ -11,7 +11,7 @@ use crate::sync::block_lookups::{
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{BatchProcessResult, BlockProcessType, SLOT_IMPORT_TOLERANCE, SyncManager},
+    manager::{BatchProcessResult, BlockProcessType, SyncManager},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -2528,14 +2528,14 @@ async fn blocks_by_head_request_count_grows_for_a_chain() {
     );
 }
 
-/// A peer serves a block whose slot is far ahead of the wall-clock slot. It must be dropped, not
-/// turned into a parent lookup / forced range sync to a bogus future head.
+/// A peer serves a block from a future slot. It must be dropped, not turned into a parent lookup /
+/// forced range sync to a phantom future head.
 #[tokio::test]
-async fn lookup_drops_block_too_far_in_future() {
+async fn lookup_drops_block_in_future() {
     let mut r = TestRig::default();
-    // Tip is `> SLOT_IMPORT_TOLERANCE` slots ahead of where we hold the clock, so the served block
-    // looks far in the future. Set the clock directly (back) to dodge the harness epoch guard.
-    let block_root = r.build_chain(SLOT_IMPORT_TOLERANCE + 2).await;
+    // Hold the clock a few slots behind the tip so the served block is in the future. Set the clock
+    // directly (back) to dodge the harness epoch guard.
+    let block_root = r.build_chain(4).await;
     r.harness.chain.slot_clock.set_slot(1);
     let peer = r.new_connected_supernode_peer();
     r.trigger_unknown_block_from_attestation(block_root, peer);

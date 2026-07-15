@@ -418,9 +418,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 self.block_request.state.start_processing()?;
             } else if let Some(reason) = cx.conflicts_with_finality(block) {
                 return Err(LookupRequestError::Failed(reason));
-            } else if let Some(reason) = cx.block_too_far_in_future(block) {
-                // A peer served a block too far ahead of our head for an unknown root. Drop it
-                // instead of walking ancestors / forcing range sync to a bogus future head.
+            } else if let Some(reason) = cx.block_is_in_future(block) {
+                // Bogus future block: drop it instead of chasing a phantom parent chain.
                 return Err(LookupRequestError::Failed(reason));
             } else {
                 self.awaiting_parent = Some(AwaitingParent::from_block(block));

@@ -7,7 +7,7 @@ pub use self::requests::{
 };
 use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
-use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
+use super::manager::BlockProcessType;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -76,6 +76,9 @@ macro_rules! new_range_request_span {
         )
     }};
 }
+
+/// Slots a block may lead our clock by (clock skew).
+const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -491,11 +494,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// Returns `Some(reason)` if `block`'s slot is implausibly far ahead of the current wall-clock
     /// slot — a peer shouldn't be serving it, so it must not trigger parent lookups or forced range
     /// sync. Compared against the clock (not our head) so normal deep sync isn't rejected.
-    pub fn block_too_far_in_future(&self, block: &SignedBeaconBlock<T::EthSpec>) -> Option<String> {
+    pub fn block_is_in_future(&self, block: &SignedBeaconBlock<T::EthSpec>) -> Option<String> {
         let current_slot = self.chain.slot().ok()?;
-        if block.slot().as_u64() > current_slot.as_u64() + SLOT_IMPORT_TOLERANCE as u64 {
+        // Real blocks aren't from the future, beyond clock skew.
+        if block.slot().as_u64() > current_slot.as_u64() + FUTURE_SLOT_TOLERANCE {
             Some(format!(
-                "block slot {} more than {SLOT_IMPORT_TOLERANCE} ahead of current slot {current_slot}",
+                "block slot {} ahead of current slot {current_slot}",
                 block.slot()
             ))
         } else {
