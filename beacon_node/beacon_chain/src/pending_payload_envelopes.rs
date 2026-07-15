@@ -57,14 +57,6 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
             .map(|data| &data.envelope)
     }
 
-    /// Find a pending envelope by slot.
-    pub fn get_by_slot(&self, slot: Slot) -> Option<&Arc<ExecutionPayloadEnvelope<E>>> {
-        self.envelopes
-            .values()
-            .map(|data| &data.envelope)
-            .find(|envelope| envelope.slot() == slot)
-    }
-
     /// Remove and return the blobs for a beacon block root, leaving the envelope in place.
     pub fn take_blobs(&mut self, beacon_block_root: Hash256) -> Option<Arc<BlobsList<E>>> {
         self.envelopes
@@ -149,7 +141,6 @@ mod tests {
 
         assert!(cache.contains_slot(slot));
         assert_eq!(cache.len(), 1);
-        assert_eq!(cache.get_by_slot(slot), Some(&expected_envelope));
         assert_eq!(
             cache.get_by_block_root(block_root),
             Some(&expected_envelope)
