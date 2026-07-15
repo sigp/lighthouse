@@ -155,6 +155,7 @@ pub enum Error {
     },
     ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
+    PayloadBodiesNotSupportedForFork(ForkName),
     GetBlobsNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
@@ -1699,6 +1700,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
         fork: ForkName,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_hash(fork) {
+            return Err(Error::PayloadBodiesNotSupportedForFork(fork));
+        }
+
         self.engine()
             .request(|engine: &Engine<E>| async move {
                 engine.api.get_payload_bodies_by_hash::<E>(fork, hashes).await
@@ -1714,6 +1720,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_range(fork) {
+            return Err(Error::PayloadBodiesNotSupportedForFork(fork));
+        }
+
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine<E>| async move {
@@ -1757,7 +1768,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range() {
+        if capabilities.get_payload_bodies_by_range(fork) {
             let mut payload_bodies = self.get_payload_bodies_by_range(fork, block_number, 1).await?;
 
             if payload_bodies.len() != 1 {

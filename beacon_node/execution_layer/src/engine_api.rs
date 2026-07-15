@@ -634,16 +634,23 @@ impl EngineCapabilities {
         }
     }
 
-    pub fn get_payload_bodies_by_range(&self) -> bool {
+    pub fn get_payload_bodies_by_range(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
-            Self::Ssz(capabilities) => capabilities.bodies,
+            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
         }
     }
 
-    pub fn get_payload_bodies_by_hash(&self) -> bool {
+    pub fn get_payload_bodies_by_hash(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
+            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
+        }
+    }
+
+    pub fn supports_payload_bodies_endpoint(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
             Self::Ssz(capabilities) => capabilities.bodies,
         }
     }

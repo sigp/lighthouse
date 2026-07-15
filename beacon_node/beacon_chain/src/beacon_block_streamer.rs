@@ -661,7 +661,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             .map_err(BeaconChainError::EngineGetCapabilititesFailed)
         {
             Ok(engine_capabilities) => {
-                if engine_capabilities.get_payload_bodies_by_range() {
+                if engine_capabilities.supports_payload_bodies_endpoint() {
                     self.stream_blocks(block_roots, sender).await;
                 } else {
                     // use the fallback method
