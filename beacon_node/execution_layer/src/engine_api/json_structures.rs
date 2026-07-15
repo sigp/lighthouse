@@ -1300,6 +1300,7 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct JsonInclusionListV1<E: EthSpec>(
+    // TODO(heze): switch to using `ProgressiveList` instead of `Transactions` once the support for EIP-7916 is added
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")] pub Transactions<E>,
 );
 

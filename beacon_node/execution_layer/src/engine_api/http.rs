@@ -1781,6 +1781,46 @@ mod test {
         );
     }
 
+    fn assert_inclusion_list_serde<E: EthSpec>(
+        name: &str,
+        as_obj: Transactions<E>,
+        as_json: serde_json::Value,
+    ) {
+        assert_eq!(
+            serde_json::to_value(JsonInclusionListV1::<E>(as_obj.clone())).unwrap(),
+            as_json,
+            "encoding for {}",
+            name
+        );
+        assert_eq!(
+            serde_json::from_value::<JsonInclusionListV1<E>>(as_json)
+                .unwrap()
+                .0,
+            as_obj,
+            "decoding for {}",
+            name
+        );
+    }
+
+    #[test]
+    fn inclusion_list_serde() {
+        assert_inclusion_list_serde::<MainnetEthSpec>(
+            "empty",
+            generate_transactions::<MainnetEthSpec>(&[]),
+            json!([]),
+        );
+        assert_inclusion_list_serde::<MainnetEthSpec>(
+            "one empty tx",
+            generate_transactions::<MainnetEthSpec>(&[0]),
+            json!(["0x"]),
+        );
+        assert_inclusion_list_serde::<MainnetEthSpec>(
+            "mixed bag",
+            generate_transactions::<MainnetEthSpec>(&[0, 1, 3, 0]),
+            json!(["0x", "0x00", "0x000000", "0x"]),
+        );
+    }
+
     #[tokio::test]
     async fn get_block_by_number_request() {
         Tester::new(true)
