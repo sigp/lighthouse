@@ -321,7 +321,9 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
-            Protocol::LightClientUpdatesByRange => None,
+            Protocol::LightClientUpdatesByRange => {
+                Some(ResponseTermination::LightClientUpdatesByRange)
+            }
         }
     }
 }
@@ -1262,5 +1264,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn light_client_updates_by_range_is_streaming_protocol() {
+        assert!(matches!(
+            Protocol::LightClientUpdatesByRange.terminator(),
+            Some(ResponseTermination::LightClientUpdatesByRange)
+        ));
     }
 }
