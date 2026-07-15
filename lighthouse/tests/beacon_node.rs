@@ -2852,6 +2852,21 @@ fn enable_mplex_no_value() {
 }
 
 #[test]
+fn disable_range_sync() {
+    CommandLineTest::new()
+        .flag("disable-range-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.disable_range_sync);
+        });
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.disable_range_sync);
+        })
+}
+
+#[test]
 fn partial_columns() {
     CommandLineTest::new()
         .flag("enable-partial-columns", Some("true"))

@@ -1507,6 +1507,8 @@ pub fn set_network_config(
             })?;
     }
 
+    config.disable_range_sync = cli_args.get_flag("disable-range-sync");
+
     Ok(())
 }
 

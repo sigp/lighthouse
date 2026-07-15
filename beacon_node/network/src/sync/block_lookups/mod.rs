@@ -98,6 +98,14 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
 
+    /// Maximum depth of the parent chain searched before forcing range sync. `PARENT_DEPTH_TOLERANCE`
+    /// normally, unbounded when range sync is disabled (`--disable-range-sync`).
+    max_parent_depth: usize,
+
+    /// Maximum number of concurrent block lookups. `MAX_LOOKUPS` normally, unbounded when range sync
+    /// is disabled (`--disable-range-sync`).
+    max_lookups: usize,
+
     /// Used for testing assertions
     metrics: BlockLookupsMetrics,
 }
@@ -119,12 +127,22 @@ pub(crate) struct BlockLookupSummary {
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
-    pub fn new() -> Self {
+    pub fn new(disable_range_sync: bool) -> Self {
+        // Range sync is the fallback when a parent chain grows too long or too many lookups pile
+        // up. With range sync disabled there is no fallback, so the caps are removed (unbounded)
+        // and lookup sync follows the full tree of lookups without dropping chains.
+        let (max_parent_depth, max_lookups) = if disable_range_sync {
+            (usize::MAX, usize::MAX)
+        } else {
+            (PARENT_DEPTH_TOLERANCE, MAX_LOOKUPS)
+        };
         Self {
             ignored_chains: LRUTimeCache::new(Duration::from_secs(
                 IGNORED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
+            max_parent_depth,
+            max_lookups,
             metrics: <_>::default(),
         }
     }
@@ -250,7 +268,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             let trigger_is_chain_tip = parent_chain.tip == child_block_root_trigger;
 
             if (block_would_extend_chain || trigger_is_chain_tip)
-                && parent_chain.len() >= PARENT_DEPTH_TOLERANCE
+                && parent_chain.len() >= self.max_parent_depth
             {
                 debug!(block_root = ?block_root_to_search, "Parent lookup chain too long");
 
@@ -382,7 +400,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
         // the risk of OOM in case of bugs of malicious activity.
-        if self.single_block_lookups.len() >= MAX_LOOKUPS {
+        if self.single_block_lookups.len() >= self.max_lookups {
             warn!(?block_root, "Dropping lookup reached max");
             return false;
         }

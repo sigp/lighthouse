@@ -146,6 +146,10 @@ pub struct Config {
 
     /// Whether to enable partial data column support.
     pub enable_partial_columns: bool,
+
+    /// Disable range sync and route every peer with an unknown head straight to block (lookup)
+    /// sync, regardless of how far ahead the peer is. Experimental.
+    pub disable_range_sync: bool,
 }
 
 impl Config {
@@ -372,6 +376,7 @@ impl Default for Config {
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
             enable_partial_columns: false,
+            disable_range_sync: false,
         }
     }
 }

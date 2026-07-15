@@ -693,6 +693,16 @@ pub fn cli_app() -> Command {
                 .default_missing_value("true")
                 .display_order(0)
         )
+        .arg(
+            Arg::new("disable-range-sync")
+                .long("disable-range-sync")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Disable range sync and route every peer with an unknown head to block \
+                (lookup) sync regardless of how far ahead it is. Experimental.")
+                .hide(true)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */

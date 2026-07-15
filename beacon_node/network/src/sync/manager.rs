@@ -309,6 +309,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         fork_context: Arc<ForkContext>,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
+        let disable_range_sync = network_globals.config.disable_range_sync;
         Self {
             chain: beacon_chain.clone(),
             input_channel: sync_recv,
@@ -321,7 +322,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             range_sync: RangeSync::new(beacon_chain.clone()),
             backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals.clone()),
             custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
-            block_lookups: BlockLookups::new(),
+            block_lookups: BlockLookups::new(disable_range_sync),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
@@ -410,6 +411,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let is_still_connected = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
         if is_still_connected {
             match sync_type {
+                // Range sync disabled: direct every peer with an unknown head to block (lookup)
+                // sync regardless of how far ahead it is.
+                _ if self.network_globals().config.disable_range_sync => {
+                    if !self.chain.block_is_known_to_fork_choice(&remote.head_root) {
+                        self.handle_unknown_block_root(peer_id, remote.head_root);
+                    }
+                }
                 PeerSyncType::Behind => {} // Do nothing
                 PeerSyncType::Advanced => {
                     self.range_sync
@@ -1024,7 +1032,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_slot: Option<Slot>,
         peer_id: &PeerId,
     ) -> Result<(), &'static str> {
-        if !self.network_globals().sync_state.read().is_synced() {
+        // With range sync disabled, lookup sync is the only sync method, so search for blocks
+        // regardless of how far behind we are; the not-synced distance gate would otherwise reject
+        // every head lookup and stall.
+        if !self.network_globals().config.disable_range_sync
+            && !self.network_globals().sync_state.read().is_synced()
+        {
             let Some(block_slot) = block_slot else {
                 return Err("not synced");
             };
