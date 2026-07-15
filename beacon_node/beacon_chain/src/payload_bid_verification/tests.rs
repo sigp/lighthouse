@@ -51,7 +51,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
-    bid_cache: GossipVerifiedPayloadBidCache<T>,
+    bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
