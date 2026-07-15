@@ -26,6 +26,7 @@ use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
+    chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
@@ -147,8 +148,15 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            PayloadStatus::Pending,
+            FastConfirmationMode::Disabled,
+            &store,
+            &spec,
+        )
+        .unwrap();
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
