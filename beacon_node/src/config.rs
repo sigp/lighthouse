@@ -864,6 +864,25 @@ pub fn get_config<E: EthSpec>(
         .beacon_processor
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
+    client_config.beacon_processor.attestation_batch_trigger =
+        clap_utils::parse_required(cli_args, "beacon-processor-attestation-batch-trigger")?;
+    client_config.beacon_processor.attestation_batch_max_age = clap_utils::parse_optional::<u64>(
+        cli_args,
+        "beacon-processor-attestation-batch-max-age-ms",
+    )?
+    .map(Duration::from_millis);
+    if client_config.beacon_processor.attestation_batch_trigger > 1
+        && client_config
+            .beacon_processor
+            .attestation_batch_max_age
+            .is_none()
+    {
+        return Err(
+            "--beacon-processor-attestation-batch-trigger greater than 1 requires \
+             --beacon-processor-attestation-batch-max-age-ms to bound the attestation delay"
+                .to_string(),
+        );
+    }
 
     #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {

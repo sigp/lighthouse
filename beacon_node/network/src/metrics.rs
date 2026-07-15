@@ -642,6 +642,18 @@ pub static BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLo
         decimal_buckets(-3, -1),
     )
 });
+pub static BEACON_UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_DELAY_TIME: LazyLock<
+    Result<Histogram>,
+> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_unaggregated_attestation_gossip_verification_delay_time",
+        "Duration between when an unaggregated attestation is received over gossip and when its \
+         signature verification completes. Includes time spent waiting in the beacon-processor \
+         attestation queue, so it captures the latency cost of attestation batch collection.",
+        // [0.001 .. 5.0]
+        decimal_buckets(-3, 0),
+    )
+});
 pub static BEACON_PARTIAL_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLock<
     Result<Histogram>,
 > = LazyLock::new(|| {

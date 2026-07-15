@@ -1,6 +1,7 @@
 use crate::Work;
 use logging::TimeLatch;
 use std::collections::VecDeque;
+use std::time::Instant;
 use tracing::error;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
@@ -88,6 +89,11 @@ impl<T> LifoQueue<T> {
     /// Remove the next item from the queue.
     pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
+    }
+
+    /// Returns a reference to the item at the back of the queue (the oldest item), if any.
+    pub fn back(&self) -> Option<&T> {
+        self.queue.back()
     }
 
     /// Returns `true` if the queue is full.
@@ -244,9 +250,11 @@ impl BeaconProcessorQueueLengths {
 }
 
 pub struct WorkQueues<E: EthSpec> {
-    pub aggregate_queue: LifoQueue<Work<E>>,
+    /// Aggregates and unaggregated attestations are stored alongside their enqueue time so the
+    /// batch-collection logic can derive the age of the oldest queued item from the queue itself.
+    pub aggregate_queue: LifoQueue<(Instant, Work<E>)>,
     pub aggregate_debounce: TimeLatch,
-    pub attestation_queue: LifoQueue<Work<E>>,
+    pub attestation_queue: LifoQueue<(Instant, Work<E>)>,
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
