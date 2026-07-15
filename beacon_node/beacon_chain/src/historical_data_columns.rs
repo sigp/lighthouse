@@ -81,7 +81,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (block_root, slot) = block_iter_result
                 .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
-            // The iterator repeats the prior block root for skip slots — skip those entries.
+            // The iterator repeats the prior block root for skip slots. We need to skip those entries.
             // The first entry has no prior root to compare against, so check the block's slot.
             let is_skip_slot = match previous_block_root {
                 Some(previous_root) => previous_root == block_root,

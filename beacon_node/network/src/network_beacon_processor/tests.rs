@@ -2278,7 +2278,10 @@ async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
     }
 
     assert_eq!(received_count, expected_count);
-    assert!(expected_count > 0, "TEMP probe");
+    assert!(
+        expected_count > 0,
+        "in-range blocks should have data columns"
+    );
 }
 
 /// Create a test `SignedExecutionPayloadEnvelope` with the given slot and beacon block root.
