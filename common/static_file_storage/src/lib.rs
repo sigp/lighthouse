@@ -631,9 +631,16 @@ fn group_by_file_id<'a>(items: &[(u64, &'a [u8])]) -> Vec<SlotGroup<'a>> {
     groups
 }
 
+#[cfg(not(windows))]
 fn sync_dir(path: &Path) -> Result<(), Error> {
     let dir = File::open(path)?;
     dir.sync_all()?;
+    Ok(())
+}
+
+/// Windows can't open directories to fsync them; NTFS journals metadata ops.
+#[cfg(windows)]
+fn sync_dir(_path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
