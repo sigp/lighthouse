@@ -96,7 +96,7 @@ fn bench_put_batch(c: &mut Criterion) {
                     (dir, sf, values.clone())
                 },
                 |(_dir, sf, items)| {
-                    sf.put_batch(borrowed_items(&items)).expect("put_batch");
+                    sf.put_batch(&borrowed_items(&items)).expect("put_batch");
                 },
                 BatchSize::PerIteration,
             );

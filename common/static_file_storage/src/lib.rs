@@ -212,7 +212,7 @@ impl StaticFile {
     /// after a mid-loop crash are safe). A previously-skipped slot (offset
     /// zero) cannot be filled — that would break the append-only data file.
     pub fn put(&self, slot: u64, bytes: &[u8]) -> Result<(), Error> {
-        self.put_batch(vec![(slot, bytes)])
+        self.put_batch(&[(slot, bytes)])
     }
 
     /// Append `items` with one fsync per file (data + offset), not per slot.
@@ -220,7 +220,7 @@ impl StaticFile {
     /// `put` — but with O(1) syncs per underlying file instead of O(n) per
     /// item. Items must be strictly ascending. Already-committed prefix items
     /// are treated as idempotent re-puts if their bytes match, then skipped.
-    pub fn put_batch(&self, items: Vec<(u64, &[u8])>) -> Result<(), Error> {
+    pub fn put_batch(&self, items: &[(u64, &[u8])]) -> Result<(), Error> {
         let Some((last_slot, _)) = items.last() else {
             return Ok(());
         };
@@ -241,7 +241,7 @@ impl StaticFile {
                 "writes rejected after an earlier write failure; reopen to heal".into(),
             ));
         }
-        let start = self.skip_committed_prefix(&items, state.committed.highest_slot)?;
+        let start = self.skip_committed_prefix(items, state.committed.highest_slot)?;
         if start == items.len() {
             // Avoid rewriting config with no fresh data_len.
             return Ok(());
@@ -703,7 +703,7 @@ mod tests {
     fn reopen_preserves_committed_records() {
         let dir = tempfile::tempdir().unwrap();
         open(&dir)
-            .put_batch(vec![(SLOTS_PER_FILE - 1, b"a"), (SLOTS_PER_FILE, b"b")])
+            .put_batch(&[(SLOTS_PER_FILE - 1, b"a"), (SLOTS_PER_FILE, b"b")])
             .unwrap();
 
         let store = open(&dir);
@@ -716,13 +716,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
 
-        store.put_batch(vec![(0, b"a"), (1, b"b")]).unwrap();
-        store
-            .put_batch(vec![(0, b"a"), (1, b"b"), (2, b"c")])
-            .unwrap();
+        store.put_batch(&[(0, b"a"), (1, b"b")]).unwrap();
+        store.put_batch(&[(0, b"a"), (1, b"b"), (2, b"c")]).unwrap();
 
         assert_eq!(store.get(2).unwrap(), Some(b"c".to_vec()));
-        assert!(store.put_batch(vec![(1, b"wrong")]).is_err());
+        assert!(store.put_batch(&[(1, b"wrong")]).is_err());
     }
 
     #[test]
@@ -765,7 +763,7 @@ mod tests {
         store.put(0, b"a").unwrap();
 
         let oversized = vec![0u8; (MAX_VALUE_BYTES + 1) as usize];
-        assert!(store.put_batch(vec![(1, b"b"), (2, &oversized)]).is_err());
+        assert!(store.put_batch(&[(1, b"b"), (2, &oversized)]).is_err());
 
         // writes rejected, reads still served
         assert!(store.put(3, b"c").is_err());
@@ -782,7 +780,7 @@ mod tests {
     fn missing_conf_with_data_files_errors() {
         let dir = tempfile::tempdir().unwrap();
         open(&dir)
-            .put_batch(vec![(0, b"a"), (SLOTS_PER_FILE, b"b")])
+            .put_batch(&[(0, b"a"), (SLOTS_PER_FILE, b"b")])
             .unwrap();
         fs::remove_file(dir.path().join("column.conf")).unwrap();
 
@@ -809,7 +807,7 @@ mod tests {
     #[test]
     fn reopen_truncates_torn_append() {
         let dir = tempfile::tempdir().unwrap();
-        open(&dir).put_batch(vec![(0, b"a"), (1, b"b")]).unwrap();
+        open(&dir).put_batch(&[(0, b"a"), (1, b"b")]).unwrap();
         let data = dir.path().join("data_00000");
         let committed_len = fs::metadata(&data).unwrap().len();
         forge_uncommitted(&dir, 0, 2, committed_len, b"Z");
