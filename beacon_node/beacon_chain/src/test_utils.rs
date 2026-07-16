@@ -335,6 +335,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
     }
 
     /// Create an ephemeral store initialized from an existing block and its post-state.
+    #[cfg(any(test, feature = "ef_tests"))]
     pub fn initial_state_ephemeral_store(
         mut self,
         initial_state: BeaconState<E>,

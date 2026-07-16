@@ -362,7 +362,7 @@ impl<E: EthSpec> GossipTester<E> {
         let peer_id = PeerId::random();
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
             message_id.clone(),
-            peer_id.clone(),
+            peer_id,
             Client::default(),
             block,
             self.network_beacon_processor.duplicate_cache.clone(),
