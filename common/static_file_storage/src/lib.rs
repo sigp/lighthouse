@@ -115,8 +115,7 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Slot-keyed file set. Owns one directory of `data_*`, `data_*.off`, and
-/// `column.conf` files.
+/// Slot-keyed file set owning one column directory.
 #[derive(Debug)]
 pub struct StaticFile {
     root_dir: PathBuf,
@@ -148,8 +147,8 @@ impl StaticFile {
             sync_dir(parent)?;
         }
 
-        // Exclusive advisory lock before touching anything: a second handle
-        // would heal destructively under a live writer. Released on drop.
+        // Lock before touching anything: a second handle would heal
+        // destructively under a live writer.
         let lock = OpenOptions::new()
             .create(true)
             .write(true)
@@ -220,20 +219,14 @@ impl StaticFile {
         Ok(self.read_offset(file_id(slot), slot)? != 0)
     }
 
-    /// Durably store `bytes` at `slot`. Slots must arrive strictly ascending,
-    /// or be an identical-value re-put of a previously committed slot
-    /// (re-puts at any committed slot are idempotent so migration retries
-    /// after a mid-loop crash are safe). A previously-skipped slot (offset
-    /// zero) cannot be filled — that would break the append-only data file.
+    /// Durably store `bytes` at `slot`; single-item [`Self::put_batch`].
     pub fn put(&self, slot: u64, bytes: &[u8]) -> Result<(), Error> {
         self.put_batch(&[(slot, bytes)])
     }
 
-    /// Append `items` with one fsync per file (data + offset), not per slot.
-    /// Whole batch is durable on return — the same caller-visible contract as
-    /// `put` — but with O(1) syncs per underlying file instead of O(n) per
-    /// item. Items must be strictly ascending. Already-committed prefix items
-    /// are treated as idempotent re-puts if their bytes match, then skipped.
+    /// Append `items`, strictly ascending, durable on return; one fsync per
+    /// file rather than per slot. An already-committed prefix is skipped if
+    /// byte-identical, so retrying a crashed batch is safe.
     pub fn put_batch(&self, items: &[(u64, &[u8])]) -> Result<(), Error> {
         let Some((last_slot, _)) = items.last() else {
             return Ok(());
@@ -268,12 +261,9 @@ impl StaticFile {
             return Ok(());
         }
 
-        // Group remaining items by file_id, write each group with one
-        // data fsync + one offset fsync. Single config commit at end of batch.
-        // Fail-stop: any error past this point leaves on-disk state unverified
-        // (stale offsets, or a conf rename that landed despite the Err), so
-        // poison writes and let open-time healing recover. Reads stay safe:
-        // `committed` never runs ahead of disk.
+        // One data fsync + one offset fsync per file group, one config commit
+        // per batch. Any error past this point leaves disk state unverified,
+        // so poison writes; open-time healing recovers.
         let mut last_data_len: u64 = 0;
         for (target_file_id, group) in group_by_file_id(&items[start..]) {
             match self.write_group(target_file_id, &group, state.committed) {
@@ -408,8 +398,7 @@ impl StaticFile {
         Ok(data_len)
     }
 
-    /// Read a record at `slot` without consulting the writer mutex. Used by
-    /// callers that already hold the lock (`put` for the idempotency check).
+    /// Read the record at `slot`; lock-free — committed bytes are immutable.
     fn read_record(&self, slot: u64) -> Result<Option<Vec<u8>>, Error> {
         let file_id = file_id(slot);
         let offset = self.read_offset(file_id, slot)?;

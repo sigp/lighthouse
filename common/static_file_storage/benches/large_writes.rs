@@ -4,10 +4,9 @@
 //! state-diff records. Callers are expected to pre-compress payloads if they
 //! want compression; this benchmark measures only static storage write cost.
 //!
-//! Each iteration fixtures a fresh temp directory: this measures the first
-//! batch into an empty store (file creation included); open/heal cost is
-//! excluded by the setup closure. Point TMPDIR at a real disk — on tmpfs
-//! fsyncs are nearly free and the dominant cost disappears.
+//! Fresh temp dir per iteration: measures the first batch into an empty
+//! store (open/heal excluded). Point TMPDIR at a real disk — tmpfs makes
+//! fsyncs free.
 //!
 //! Run with: `cargo bench -p static_file_storage --bench large_writes`.
 
