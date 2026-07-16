@@ -2249,6 +2249,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Produce the inclusion list transactions for `request_slot`.
+    ///
+    /// The transactions are requested from the execution layer via
+    /// `getInclusionListV1`, built on top of the current head.
+    pub async fn produce_inclusion_list(
+        &self,
+        request_slot: Slot,
+    ) -> Result<Transactions<T::EthSpec>, Error> {
+        // Inclusion lists are only produced for the current slot.
+        let current_slot = self.slot()?;
+        if request_slot != current_slot {
+            return Err(Error::InvalidSlot(request_slot));
+        }
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        let fcu_params = self
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters();
+        let head_hash = fcu_params
+            .head_hash
+            .ok_or(Error::ExecutionHashMissingFromHead(fcu_params.head_root))?;
+
+        execution_layer
+            .get_inclusion_list_v1(head_hash)
+            .await
+            .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))
+    }
+
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
     /// multiple attestations using batch BLS verification. Batch verification can provide
     /// significant CPU-time savings compared to individual verification.
