@@ -665,17 +665,25 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
         };
-        let newly_cached = assembler.init(group_id, header.clone());
+        // Only cache the header if the block data is not already imported. This avoids
+        // reintroducing (and regossiping) headers of already available blocks.
+        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+            assembler.init(group_id, header.clone())
+        } else {
+            false
+        };
 
-        chain
-            .observed_slashable
-            .write()
-            .observe_slashable(
-                column_slot,
-                header.signed_block_header.message.proposer_index,
-                header_hash,
-            )
-            .map_err(GossipDataColumnError::from)?;
+        if newly_cached {
+            chain
+                .observed_slashable
+                .write()
+                .observe_slashable(
+                    column_slot,
+                    header.signed_block_header.message.proposer_index,
+                    header_hash,
+                )
+                .map_err(GossipDataColumnError::from)?;
+        }
 
         Ok(Self {
             header,

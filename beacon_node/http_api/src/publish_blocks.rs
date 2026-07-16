@@ -437,7 +437,9 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
                         request_cells,
                     });
                 }
-                Err(err) => crit!(?err, "Could not convert from full to partial"),
+                Err(err) => {
+                    crit!(?err, "Could not convert from full to partial");
+                }
             }
         }
 
