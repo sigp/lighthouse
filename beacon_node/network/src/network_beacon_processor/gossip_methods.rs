@@ -1594,11 +1594,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::MidToleranceError,
                     "gossip_block_mid",
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 debug!(?block_root, "Unknown parent for gossip block");
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -1634,16 +1636,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+            Err(e @ BlockError::WouldRevertFinalizedSlot { .. }) => {
                 debug!(
                     error = %e,
                     "Could not verify block for gossip. Ignoring the block"
                 );
-                // The spec says we must IGNORE these blocks but there's no reason for an honest
-                // and non-buggy client to be gossiping blocks that blatantly conflict with
-                // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
-                // blocks and we want to isolate them to encourage an update.
+                // The spec says we must IGNORE these blocks, but there is no reason for an honest
+                // and non-buggy client to gossip blocks from finalized slots. Old versions of
+                // Erigon/Caplin are known to do this, and we isolate them to encourage an update.
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
@@ -1652,7 +1652,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
+            Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+                warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                return None;
+            }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+                debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::ParentExecutionPayloadInvalid { .. }) => {
                 debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
@@ -1669,7 +1684,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
-            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
             | Err(e @ BlockError::InvalidBlobCount { .. })
