@@ -1148,10 +1148,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
-                            Work::GossipAttestationBatch { .. } => crit!(
-                                work_type = "GossipAttestationBatch",
-                                "Unsupported inbound event"
-                            ),
+                            Work::GossipAttestationBatch { .. } => {
+                                crit!(
+                                    work_type = "GossipAttestationBatch",
+                                    "Unsupported inbound event"
+                                );
+                            }
                             Work::GossipAggregate { .. } => work_queues.aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
@@ -1159,7 +1161,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 crit!(
                                     work_type = "GossipAggregateBatch",
                                     "Unsupported inbound event"
-                                )
+                                );
                             }
                             Work::GossipBlock { .. } => {
                                 work_queues.gossip_block_queue.push(work, work_id)
