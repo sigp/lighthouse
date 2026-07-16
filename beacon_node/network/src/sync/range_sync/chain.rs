@@ -738,7 +738,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 BatchState::Downloading(..) => {}
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
-                    crit!("batch indicates inconsistent chain state while advancing chain")
+                    crit!("batch indicates inconsistent chain state while advancing chain");
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
