@@ -1209,7 +1209,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                     // The message was not sent and we didn't get the correct
                     // return result. This is a logic error.
-                    _ => crit!("Unexpected return from try_send error"),
+                    _ => {
+                        crit!("Unexpected return from try_send error");
+                    }
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
