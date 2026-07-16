@@ -2761,10 +2761,11 @@ impl BeaconNodeHttpClient {
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
-    /// `GET v1/validator/execution_payload_envelopes/{slot}`
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}`
     pub async fn get_validator_execution_payload_envelopes<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2772,15 +2773,17 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelopes")
-            .push(&slot.to_string());
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         self.get(path).await
     }
 
-    /// `GET v1/validator/execution_payload_envelopes/{slot}` in SSZ format
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` in SSZ format
     pub async fn get_validator_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2788,7 +2791,8 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelopes")
-            .push(&slot.to_string());
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)

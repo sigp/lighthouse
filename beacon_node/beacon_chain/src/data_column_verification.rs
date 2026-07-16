@@ -6,6 +6,7 @@ use crate::kzg_utils::{
     reconstruct_data_columns, validate_data_columns_with_commitments, validate_full_data_columns,
     validate_partial_data_columns,
 };
+use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
@@ -223,6 +224,25 @@ impl From<BeaconChainError> for GossipDataColumnError {
 impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
+    }
+}
+
+impl From<ObservedBlockProducersError> for GossipDataColumnError {
+    fn from(e: ObservedBlockProducersError) -> Self {
+        // This error can occur in certain race conditions, where an epoch is finalized after the
+        // finalization check but before the observation.
+        if let ObservedBlockProducersError::FinalizedBlock {
+            slot,
+            finalized_slot,
+        } = e
+        {
+            GossipDataColumnError::PastFinalizedSlot {
+                column_slot: slot,
+                finalized_slot,
+            }
+        } else {
+            GossipDataColumnError::BeaconChainError(Box::new(e.into()))
+        }
     }
 }
 
@@ -595,17 +615,25 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
         };
-        let newly_cached = assembler.init(group_id, header.clone());
+        // Only cache the header if the block data is not already imported. This avoids
+        // reintroducing (and regossiping) headers of already available blocks.
+        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+            assembler.init(group_id, header.clone())
+        } else {
+            false
+        };
 
-        chain
-            .observed_slashable
-            .write()
-            .observe_slashable(
-                column_slot,
-                header.signed_block_header.message.proposer_index,
-                header_hash,
-            )
-            .map_err(BeaconChainError::from)?;
+        if newly_cached {
+            chain
+                .observed_slashable
+                .write()
+                .observe_slashable(
+                    column_slot,
+                    header.signed_block_header.message.proposer_index,
+                    header_hash,
+                )
+                .map_err(GossipDataColumnError::from)?;
+        }
 
         Ok(Self {
             header,
@@ -1045,7 +1073,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
             data_column_fulu.block_proposer_index(),
             data_column.block_root(),
         )
-        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+        .map_err(GossipDataColumnError::from)?;
 
     if O::observe() {
         observe_gossip_data_column(&data_column, chain)?;

@@ -1893,7 +1893,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 epoch - 2
             };
 
-            for (_, validator) in self.validators.iter() {
+            for validator in self.validators.values() {
                 let id = &validator.id;
                 let summaries = validator.summaries.read();
 

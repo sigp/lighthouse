@@ -484,7 +484,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
-    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -3731,7 +3731,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)

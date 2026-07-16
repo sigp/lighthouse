@@ -60,6 +60,8 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
+    # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
+    "tests/.*/gloas/fast_confirmation/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
     "tests/general/phase0/ssz_generic/basic_progressive_list",
@@ -91,8 +93,6 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
-    # TODO: fast confirmation rule not merged yet
-    "tests/.*/.*/fast_confirmation",
 ]
 
 
