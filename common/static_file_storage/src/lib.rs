@@ -71,6 +71,13 @@ struct CommittedState {
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
+    /// Writes rejected after an earlier write failure; reopen to heal.
+    Poisoned,
+    /// Another handle holds the column lock.
+    AlreadyOpen(PathBuf),
+    /// On-disk state failed validation — repair or rebuild.
+    Corrupt(String),
+    /// Caller contract violation; state unchanged.
     Invalid(String),
 }
 
@@ -78,6 +85,16 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => write!(f, "static file io error: {e}"),
+            Self::Poisoned => {
+                write!(
+                    f,
+                    "writes rejected after an earlier write failure; reopen to heal"
+                )
+            }
+            Self::AlreadyOpen(path) => {
+                write!(f, "already open by another handle: {}", path.display())
+            }
+            Self::Corrupt(message) => write!(f, "static file corrupt: {message}"),
             Self::Invalid(message) => write!(f, "static file invalid data: {message}"),
         }
     }
@@ -87,7 +104,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
-            Self::Invalid(_) => None,
+            _ => None,
         }
     }
 }
@@ -141,10 +158,7 @@ impl StaticFile {
         match lock.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
-                return Err(Error::Invalid(format!(
-                    "already open by another handle: {}",
-                    root_dir.display()
-                )));
+                return Err(Error::AlreadyOpen(root_dir));
             }
             Err(TryLockError::Error(e)) => return Err(e.into()),
         }
@@ -158,7 +172,7 @@ impl StaticFile {
             // A store writes column.conf before any data file, so data files
             // without a conf mean external damage — don't wipe them.
             if dir_has_static_files(&root_dir)? {
-                return Err(Error::Invalid(format!(
+                return Err(Error::Corrupt(format!(
                     "column.conf missing but data files exist in {}",
                     root_dir.display()
                 )));
@@ -246,9 +260,7 @@ impl StaticFile {
 
         let mut state = self.state.lock();
         if state.poisoned {
-            return Err(Error::Invalid(
-                "writes rejected after an earlier write failure; reopen to heal".into(),
-            ));
+            return Err(Error::Poisoned);
         }
         let start = self.skip_committed_prefix(items, state.committed.highest_slot)?;
         if start == items.len() {
@@ -347,7 +359,7 @@ impl StaticFile {
         };
         let data_len = data_file.metadata()?.len();
         if data_len < cursor {
-            return Err(Error::Invalid(
+            return Err(Error::Corrupt(
                 "data file shorter than committed length".into(),
             ));
         }
@@ -413,7 +425,7 @@ impl StaticFile {
         data_file.read_exact(&mut header)?;
         let len = u32::from_le_bytes(header);
         if u64::from(len) > self.max_value_bytes {
-            return Err(Error::Invalid("record exceeds size limit".into()));
+            return Err(Error::Corrupt("record exceeds size limit".into()));
         }
 
         let len = len as usize;
@@ -444,7 +456,7 @@ impl StaticFile {
         let data_file = OpenOptions::new().read(true).write(true).open(&data_path)?;
         let data_len = data_file.metadata()?.len();
         if data_len < current_data_len {
-            return Err(Error::Invalid(
+            return Err(Error::Corrupt(
                 "data file shorter than committed length".into(),
             ));
         }
@@ -458,7 +470,7 @@ impl StaticFile {
         let required_len = offset_position(slot) + OFFSET_SIZE;
         let off_len = off_file.metadata()?.len();
         if off_len < required_len {
-            return Err(Error::Invalid(
+            return Err(Error::Corrupt(
                 "offset file shorter than committed slot".into(),
             ));
         }
@@ -494,7 +506,7 @@ impl StaticFile {
             if max_file_id.is_none_or(|max| file_id > max) {
                 let file_type = entry.file_type()?;
                 if !file_type.is_file() {
-                    return Err(Error::Invalid(format!(
+                    return Err(Error::Corrupt(format!(
                         "static data path is not a file: {}",
                         entry.path().display()
                     )));
@@ -565,14 +577,14 @@ fn serialize_on_disk_config(committed: CommittedState) -> Vec<u8> {
 /// Parse the `column.conf` marker.
 fn deserialize_on_disk_config(bytes: &[u8]) -> Result<CommittedState, Error> {
     if bytes.len() != 24 {
-        return Err(Error::Invalid("invalid config length".into()));
+        return Err(Error::Corrupt("invalid config length".into()));
     }
     if &bytes[0..4] != CONFIG_MAGIC {
-        return Err(Error::Invalid("invalid config magic".into()));
+        return Err(Error::Corrupt("invalid config magic".into()));
     }
     let version = u32::from_le_bytes(bytes[4..8].try_into().expect("slice length checked"));
     if version != FORMAT_VERSION {
-        return Err(Error::Invalid(format!(
+        return Err(Error::Corrupt(format!(
             "unsupported config version {version}, expected {FORMAT_VERSION}"
         )));
     }
@@ -727,7 +739,10 @@ mod tests {
         store.put_batch(&[(0, b"a"), (1, b"b"), (2, b"c")]).unwrap();
 
         assert_eq!(store.get(2).unwrap(), Some(b"c".to_vec()));
-        assert!(store.put_batch(&[(1, b"wrong")]).is_err());
+        assert!(matches!(
+            store.put_batch(&[(1, b"wrong")]),
+            Err(Error::Invalid(_))
+        ));
     }
 
     #[test]
@@ -748,7 +763,10 @@ mod tests {
     #[test]
     fn max_slot_is_reserved() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(open(&dir).put(u64::MAX, b"x").is_err());
+        assert!(matches!(
+            open(&dir).put(u64::MAX, b"x"),
+            Err(Error::Invalid(_))
+        ));
     }
 
     #[test]
@@ -757,7 +775,10 @@ mod tests {
         let store = open(&dir);
         store.put(0, b"a").unwrap();
 
-        assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+        assert!(matches!(
+            StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES),
+            Err(Error::AlreadyOpen(_))
+        ));
 
         drop(store);
         assert_eq!(open(&dir).get(0).unwrap(), Some(b"a".to_vec()));
@@ -774,12 +795,12 @@ mod tests {
         let orig = fs::read(&data_path).unwrap();
         fs::remove_file(&data_path).unwrap();
         fs::create_dir(&data_path).unwrap();
-        assert!(store.put(1, b"b").is_err());
+        assert!(matches!(store.put(1, b"b"), Err(Error::Io(_))));
         fs::remove_dir(&data_path).unwrap();
         fs::write(&data_path, &orig).unwrap();
 
         // writes rejected, reads still served
-        assert!(store.put(3, b"c").is_err());
+        assert!(matches!(store.put(3, b"c"), Err(Error::Poisoned)));
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
 
         // reopen heals and lifts the poison
@@ -794,7 +815,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
         let oversized = vec![0u8; (MAX_VALUE_BYTES + 1) as usize];
-        assert!(store.put(0, &oversized).is_err());
+        assert!(matches!(store.put(0, &oversized), Err(Error::Invalid(_))));
         // caller mistake, not a write failure: store stays usable
         store.put(0, b"a").unwrap();
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
@@ -821,7 +842,10 @@ mod tests {
             good[..good.len() - 1].to_vec(), // length
         ] {
             fs::write(&conf_path, &bad).unwrap();
-            assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+            assert!(matches!(
+                StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES),
+                Err(Error::Corrupt(_))
+            ));
         }
 
         fs::write(&conf_path, &good).unwrap();
@@ -833,7 +857,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
         store.put(10, b"a").unwrap();
-        assert!(store.put(5, b"b").is_err());
+        assert!(matches!(store.put(5, b"b"), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -853,7 +877,10 @@ mod tests {
             .unwrap();
         fs::remove_file(dir.path().join("column.conf")).unwrap();
 
-        assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+        assert!(matches!(
+            StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES),
+            Err(Error::Corrupt(_))
+        ));
         assert!(dir.path().join("data_00000").exists());
         assert!(dir.path().join("data_00001").exists());
     }
