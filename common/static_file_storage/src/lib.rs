@@ -234,6 +234,15 @@ impl StaticFile {
         if *last_slot == EMPTY_SLOT {
             return Err(Error::Invalid("slot u64::MAX is reserved".into()));
         }
+        // Reject oversized records before any mutation: a caller mistake must
+        // not poison the store.
+        for (slot, value) in items {
+            if (value.len() as u64) > self.max_value_bytes || u32::try_from(value.len()).is_err() {
+                return Err(Error::Invalid(format!(
+                    "record at slot {slot} exceeds size limit"
+                )));
+            }
+        }
 
         let mut state = self.state.lock();
         if state.poisoned {
@@ -353,9 +362,7 @@ impl StaticFile {
             let mut writer = std::io::BufWriter::with_capacity(1 << 20, &mut data_file);
             let mut next_offset = cursor;
             for &(slot, value) in group {
-                if (value.len() as u64) > self.max_value_bytes {
-                    return Err(Error::Invalid("record exceeds size limit".into()));
-                }
+                // Sizes pre-validated by put_batch.
                 let payload_len = u32::try_from(value.len())
                     .map_err(|_| Error::Invalid("record too large".into()))?;
                 offsets.push((slot, next_offset));
@@ -762,8 +769,14 @@ mod tests {
         let store = open(&dir);
         store.put(0, b"a").unwrap();
 
-        let oversized = vec![0u8; (MAX_VALUE_BYTES + 1) as usize];
-        assert!(store.put_batch(&[(1, b"b"), (2, &oversized)]).is_err());
+        // Force a real write error: swap the data file for a directory.
+        let data_path = dir.path().join("data_00000");
+        let orig = fs::read(&data_path).unwrap();
+        fs::remove_file(&data_path).unwrap();
+        fs::create_dir(&data_path).unwrap();
+        assert!(store.put(1, b"b").is_err());
+        fs::remove_dir(&data_path).unwrap();
+        fs::write(&data_path, &orig).unwrap();
 
         // writes rejected, reads still served
         assert!(store.put(3, b"c").is_err());
@@ -774,6 +787,62 @@ mod tests {
         let store = open(&dir);
         store.put(3, b"c").unwrap();
         assert_eq!(store.get(3).unwrap(), Some(b"c".to_vec()));
+    }
+
+    #[test]
+    fn oversized_put_rejected_without_poisoning() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        let oversized = vec![0u8; (MAX_VALUE_BYTES + 1) as usize];
+        assert!(store.put(0, &oversized).is_err());
+        // caller mistake, not a write failure: store stays usable
+        store.put(0, b"a").unwrap();
+        assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
+    }
+
+    #[test]
+    fn corrupt_conf_rejected_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir).put(0, b"a").unwrap();
+        let conf_path = dir.path().join("column.conf");
+        let good = fs::read(&conf_path).unwrap();
+
+        for bad in [
+            {
+                let mut b = good.clone();
+                b[0] ^= 0xff; // magic
+                b
+            },
+            {
+                let mut b = good.clone();
+                b[4] ^= 0xff; // version
+                b
+            },
+            good[..good.len() - 1].to_vec(), // length
+        ] {
+            fs::write(&conf_path, &bad).unwrap();
+            assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+        }
+
+        fs::write(&conf_path, &good).unwrap();
+        assert_eq!(open(&dir).get(0).unwrap(), Some(b"a".to_vec()));
+    }
+
+    #[test]
+    fn cannot_fill_skipped_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        store.put(10, b"a").unwrap();
+        assert!(store.put(5, b"b").is_err());
+    }
+
+    #[test]
+    fn empty_value_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        store.put(0, b"").unwrap();
+        assert_eq!(store.get(0).unwrap(), Some(vec![]));
+        assert!(store.contains(0).unwrap());
     }
 
     #[test]
