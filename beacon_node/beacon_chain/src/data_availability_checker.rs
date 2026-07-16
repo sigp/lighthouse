@@ -234,8 +234,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.
-                Some(AssemblyColumn::Complete(_)) => {
-                    return Ok(None);
+                Some(AssemblyColumn::Complete(cached)) => {
+                    return if data_column == cached.as_data_column() {
+                        Ok(None)
+                    } else {
+                        Err(MissingCellsError::MismatchesCachedColumn)
+                    };
                 }
                 None => {
                     // No cached data, all cells are "missing" (new data we want)
@@ -248,6 +252,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Filter out all cells that are already cached for the given `block_root`.
     /// Returns input for kzg verification, or None if all cells are already cached.
+    /// We do not need to check individual cells when returning `Ok(None)` in here, as we do not
+    /// do anything with the received column in that case.
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
         partial_data_column: &'a PartialDataColumn<T::EthSpec>,
