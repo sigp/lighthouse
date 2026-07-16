@@ -183,8 +183,9 @@ impl StaticFile {
         Ok(handle)
     }
 
-    /// Slot of the most recently committed record, if any.
-    fn highest_written_slot(&self) -> Option<u64> {
+    /// Slot of the most recently committed record, if any — the resume point
+    /// for interrupted migrations. Slots below it may still be gaps.
+    pub fn highest_written_slot(&self) -> Option<u64> {
         self.state.lock().committed.highest_slot
     }
 
@@ -686,9 +687,11 @@ mod tests {
     fn round_trip_sparse_slots() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
+        assert_eq!(store.highest_written_slot(), None);
 
         store.put(100, b"a").unwrap();
         store.put(9000, b"b").unwrap();
+        assert_eq!(store.highest_written_slot(), Some(9000));
 
         assert_eq!(store.get(100).unwrap(), Some(b"a".to_vec()));
         assert_eq!(store.get(101).unwrap(), None);
