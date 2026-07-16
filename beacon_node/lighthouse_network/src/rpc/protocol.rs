@@ -919,6 +919,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
             RequestType::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
+            RequestType::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
             RequestType::Status(_) => unreachable!(),
             RequestType::Goodbye(_) => unreachable!(),
             RequestType::Ping(_) => unreachable!(),
@@ -926,7 +929,6 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
-            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
@@ -1023,7 +1025,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
-            RequestType::LightClientUpdatesByRange(_) => true,
+            RequestType::LightClientUpdatesByRange(_) => false,
         }
     }
 }
@@ -1264,13 +1266,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn light_client_updates_by_range_is_streaming_protocol() {
-        assert!(matches!(
-            Protocol::LightClientUpdatesByRange.terminator(),
-            Some(ResponseTermination::LightClientUpdatesByRange)
-        ));
     }
 }
