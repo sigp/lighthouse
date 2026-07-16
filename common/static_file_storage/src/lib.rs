@@ -6,7 +6,7 @@
 //! <root>/
 //!   data_{file_id:05}         # file_id = slot / SLOTS_PER_FILE
 //!   data_{file_id:05}.off     # SLOTS_PER_FILE × u64 LE offsets, 0 = no record
-//!   column.conf               # 24-byte commit marker, atomic-renamed
+//!   column.conf               # commit marker, atomic-renamed
 //!   lock                      # exclusive advisory lock held while open
 //! ```
 //!
@@ -40,7 +40,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// 8192-slot chunks; 8192 offsets fit in 64 KiB.
+/// Slots per data file.
 pub const SLOTS_PER_FILE: u64 = 8192;
 type SlotGroup<'a> = (u64, Vec<(u64, &'a [u8])>);
 
@@ -126,6 +126,10 @@ impl StaticFile {
     /// a runtime-only read OOM cap. The column is identified by its directory.
     pub fn open(root_dir: PathBuf, max_value_bytes: u64) -> Result<Self, Error> {
         fs::create_dir_all(&root_dir)?;
+        // Make the column dir's own dirent durable; fsyncs inside it don't.
+        if let Some(parent) = root_dir.parent().filter(|p| !p.as_os_str().is_empty()) {
+            sync_dir(parent)?;
+        }
 
         // Exclusive advisory lock before touching anything: a second handle
         // would heal destructively under a live writer. Released on drop.
@@ -540,7 +544,7 @@ impl StaticFile {
     }
 }
 
-/// Pack the 24-byte `column.conf` marker.
+/// Pack the `column.conf` marker.
 fn serialize_on_disk_config(committed: CommittedState) -> Vec<u8> {
     let mut bytes = vec![0u8; 24];
     bytes[0..4].copy_from_slice(CONFIG_MAGIC);
@@ -550,7 +554,7 @@ fn serialize_on_disk_config(committed: CommittedState) -> Vec<u8> {
     bytes
 }
 
-/// Parse the 24-byte `column.conf` marker.
+/// Parse the `column.conf` marker.
 fn deserialize_on_disk_config(bytes: &[u8]) -> Result<CommittedState, Error> {
     if bytes.len() != 24 {
         return Err(Error::Invalid("invalid config length".into()));
