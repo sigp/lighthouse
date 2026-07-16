@@ -340,7 +340,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 results = results.len(),
                 packages = packages.len(),
                 "Batch attestation result mismatch"
-            )
+            );
         }
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
@@ -551,7 +551,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 results = results.len(),
                 packages = packages.len(),
                 "Batch agg. attestation result mismatch"
-            )
+            );
         }
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
@@ -831,7 +831,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         crit!(
                             error = ?err,
                             "Internal error when verifying column sidecar"
-                        )
+                        );
                     }
                     GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
@@ -956,10 +956,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             }],
                         });
                     } else {
-                        crit!("Converting from full to partial yielded headerless partial")
+                        crit!("Converting from full to partial yielded headerless partial");
                     };
                 }
-                Err(err) => crit!(?err, "Could not convert from full to partial"),
+                Err(err) => {
+                    crit!(?err, "Could not convert from full to partial");
+                }
             }
         }
 
@@ -1152,7 +1154,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     crit!(
                         error = ?err,
                         "Internal error when verifying partial column sidecar"
-                    )
+                    );
                 }
                 GossipDataColumnError::InvalidVariant
                 | GossipDataColumnError::ProposalSignatureInvalid
