@@ -119,6 +119,14 @@ impl StaticFile {
         let committed = if config_path.exists() {
             deserialize_on_disk_config(&fs::read(&config_path)?)?
         } else {
+            // A store writes column.conf before any data file, so data files
+            // without a conf mean external damage — don't wipe them.
+            if dir_has_static_files(&root_dir)? {
+                return Err(Error::Invalid(format!(
+                    "column.conf missing but data files exist in {}",
+                    root_dir.display()
+                )));
+            }
             atomic_write_config(&config_path, &tmp_path, &root_dir, None, 0)?;
             CommittedState {
                 highest_slot: None,
@@ -575,6 +583,21 @@ fn static_file_id(file_name: &str) -> Option<u64> {
     id.parse().ok()
 }
 
+/// `true` if `root_dir` contains any data or offset file.
+fn dir_has_static_files(root_dir: &Path) -> Result<bool, Error> {
+    for entry in fs::read_dir(root_dir)? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        if static_file_id(file_name).is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Convert an ascending slot list into consecutive groups for each data file.
 fn group_by_file_id<'a>(items: &[(u64, &'a [u8])]) -> Vec<SlotGroup<'a>> {
     let mut groups = Vec::new();
@@ -677,6 +700,19 @@ mod tests {
     fn max_slot_is_reserved() {
         let dir = tempfile::tempdir().unwrap();
         assert!(open(&dir).put(u64::MAX, b"x").is_err());
+    }
+
+    #[test]
+    fn missing_conf_with_data_files_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir)
+            .put_batch(vec![(0, b"a"), (SLOTS_PER_FILE, b"b")])
+            .unwrap();
+        fs::remove_file(dir.path().join("column.conf")).unwrap();
+
+        assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+        assert!(dir.path().join("data_00000").exists());
+        assert!(dir.path().join("data_00001").exists());
     }
 
     /// Forge a record + offset for `slot` without committing `column.conf`,
