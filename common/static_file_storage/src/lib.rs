@@ -377,7 +377,7 @@ impl StaticFile {
         }
         let data_len = data_file.seek(SeekFrom::End(0))?;
         // Data must hit disk before offsets, both before config commit.
-        data_file.sync_all()?;
+        sync_file(&data_file)?;
 
         let mut off_file = OpenOptions::new()
             .read(true)
@@ -393,7 +393,7 @@ impl StaticFile {
             off_file.seek(SeekFrom::Start(offset_position(*slot)))?;
             off_file.write_all(&offset.to_le_bytes())?;
         }
-        off_file.sync_all()?;
+        sync_file(&off_file)?;
 
         Ok(data_len)
     }
@@ -451,7 +451,7 @@ impl StaticFile {
         }
         if data_len != current_data_len {
             data_file.set_len(current_data_len)?;
-            data_file.sync_all()?;
+            sync_file(&data_file)?;
         }
 
         let off_path = self.offset_path(file_id);
@@ -473,7 +473,7 @@ impl StaticFile {
             off_file.seek(SeekFrom::Start(clear_start))?;
             let zeroes = vec![0; (OFFSET_FILE_LEN - clear_start) as usize];
             off_file.write_all(&zeroes)?;
-            off_file.sync_all()?;
+            sync_file(&off_file)?;
         }
 
         Ok(())
@@ -602,7 +602,7 @@ fn atomic_write_config(
     {
         let mut tmp = File::create(tmp_path)?;
         tmp.write_all(&bytes)?;
-        tmp.sync_all()?;
+        sync_file(&tmp)?;
     }
 
     fs::rename(tmp_path, config_path)?;
@@ -670,15 +670,36 @@ fn group_by_file_id<'a>(items: &[(u64, &'a [u8])]) -> Vec<SlotGroup<'a>> {
 
 #[cfg(not(windows))]
 fn sync_dir(path: &Path) -> Result<(), Error> {
-    let dir = File::open(path)?;
-    dir.sync_all()?;
-    Ok(())
+    sync_file(&File::open(path)?)
 }
 
 /// Windows can't open directories to fsync them; NTFS journals metadata ops.
 #[cfg(windows)]
 fn sync_dir(_path: &Path) -> Result<(), Error> {
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn sync_file(file: &File) -> Result<(), Error> {
+    file.sync_all()?;
+    Ok(())
+}
+
+/// macOS sync_all is F_FULLFSYNC, unsupported on some volumes (e.g. SMB);
+/// fall back to plain fsync like LevelDB does.
+#[cfg(target_os = "macos")]
+fn sync_file(file: &File) -> Result<(), Error> {
+    use std::os::fd::AsRawFd;
+    match file.sync_all() {
+        Err(e) if e.raw_os_error() == Some(libc::ENOTSUP) => {
+            if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error().into())
+            }
+        }
+        other => Ok(other?),
+    }
 }
 
 #[cfg(test)]
