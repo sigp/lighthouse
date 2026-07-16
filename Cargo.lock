@@ -2967,6 +2967,7 @@ dependencies = [
  "ssz_types",
  "state_processing",
  "swap_or_not_shuffle",
+ "tokio",
  "tree_hash",
  "tree_hash_derive",
  "typenum",
