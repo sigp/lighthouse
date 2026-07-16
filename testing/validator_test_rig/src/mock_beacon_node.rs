@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
     PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
@@ -209,15 +209,17 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` (SSZ)
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` (SSZ)
     pub fn mock_get_validator_execution_payload_envelope_ssz(
         &mut self,
         envelope: &ExecutionPayloadEnvelope<E>,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
+            r"^/eth/v1/validator/execution_payload_envelopes/{}/{}$",
+            slot.as_u64(),
+            beacon_block_root,
         ))
         .unwrap();
 
@@ -232,11 +234,16 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` returning error.
-    pub fn mock_get_validator_execution_payload_envelope_ssz_error(&mut self, slot: Slot) -> Mock {
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` returning error.
+    pub fn mock_get_validator_execution_payload_envelope_ssz_error(
+        &mut self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+    ) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
+            r"^/eth/v1/validator/execution_payload_envelopes/{}/{}$",
+            slot.as_u64(),
+            beacon_block_root,
         ))
         .unwrap();
 

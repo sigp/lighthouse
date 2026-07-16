@@ -941,7 +941,11 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
         let mock_post_envelope = test_harness
             .harness
             .mock_beacon_node_1
@@ -1070,11 +1074,11 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz_error(slot);
+            .mock_get_validator_execution_payload_envelope_ssz_error(slot, Hash256::default());
         test_harness
             .harness
             .mock_beacon_node_2
-            .mock_get_validator_execution_payload_envelope_ssz_error(slot);
+            .mock_get_validator_execution_payload_envelope_ssz_error(slot, Hash256::default());
 
         let mock_post_envelope = test_harness
             .harness
@@ -1088,7 +1092,12 @@ mod tests {
 
         let result = test_harness
             .service
-            .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
+            .fetch_sign_and_publish_payload_envelope(
+                &proposer_fallback,
+                slot,
+                Hash256::default(),
+                &validator_pubkey,
+            )
             .await;
 
         let Err(BlockError::Recoverable(msg)) = result else {
@@ -1112,7 +1121,7 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
+            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot, Hash256::default());
 
         // Both beacon nodes return error for post_beacon_execution_payload_envelope_ssz
         let mock_post_envelope_1 = test_harness
@@ -1131,7 +1140,12 @@ mod tests {
 
         let result = test_harness
             .service
-            .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
+            .fetch_sign_and_publish_payload_envelope(
+                &proposer_fallback,
+                slot,
+                Hash256::default(),
+                &validator_pubkey,
+            )
             .await;
 
         let Err(BlockError::Recoverable(msg)) = result else {
