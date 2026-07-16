@@ -4,17 +4,16 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::type_name::TypeName;
 use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::store::{HotColdDB, config::StoreConfig};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{BlockError, NotifyExecutionLayer};
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerId};
-use network::NetworkBeaconProcessor;
+use network::{NetworkBeaconProcessor, NetworkMessage};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconState, BlobSchedule, BlockImportSource, ChainSpec, Checkpoint, EthSpec,
@@ -185,6 +184,7 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
 struct GossipTester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     network_beacon_processor: Arc<NetworkBeaconProcessor<EphemeralHarnessType<E>>>,
+    network_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<NetworkMessage<E>>>,
     spec: ChainSpec,
     genesis_time: u64,
     current_time_ms: u64,
@@ -198,12 +198,13 @@ impl<E: EthSpec> GossipTester<E> {
 
         let (harness, initial_block_index) =
             Self::build_harness(case, spec.clone(), &blocks, genesis_time)?;
-        let network_beacon_processor =
-            Arc::new(NetworkBeaconProcessor::null_from_harness(&harness));
+        let (network_beacon_processor, network_rx) =
+            NetworkBeaconProcessor::null_from_harness_with_network_receiver(&harness);
 
         let tester = Self {
             harness,
-            network_beacon_processor,
+            network_beacon_processor: Arc::new(network_beacon_processor),
+            network_rx: Mutex::new(network_rx),
             spec: spec.as_ref().clone(),
             genesis_time,
             current_time_ms: case.meta.current_time_ms,
@@ -211,6 +212,7 @@ impl<E: EthSpec> GossipTester<E> {
 
         tester.set_time_ms(case.meta.current_time_ms)?;
         tester.import_setup_blocks(case, &blocks, initial_block_index)?;
+        tester.set_finalized_checkpoint(case.finalized_checkpoint(&blocks)?);
 
         Ok(tester)
     }
@@ -238,21 +240,19 @@ impl<E: EthSpec> GossipTester<E> {
             let initial_setup_block = &case.meta.blocks[initial_block_index];
             // The first setup block's post-state is `state.ssz_snappy`. Other setup blocks are
             // imported below through Lighthouse's normal block import path.
-            let finalized_checkpoint = case.finalized_checkpoint(blocks)?;
             let initial_block = blocks
                 .get(&initial_setup_block.block)
                 .ok_or_else(|| Error::FailedToParseTest("missing initial setup block".into()))?
                 .clone();
-            let initial_state = case.state.clone();
-            let store =
-                Arc::new(HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap());
+            let finalized_checkpoint = case
+                .finalized_checkpoint(blocks)?
+                .filter(|checkpoint| checkpoint.root == initial_block.canonical_root());
             harness_builder()
-                .resumed_ephemeral_store(store)
-                .override_store_mutator(Box::new(move |builder| {
-                    builder
-                        .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
-                        .expect("should build test initial state")
-                }))
+                .initial_state_ephemeral_store(
+                    case.state.clone(),
+                    initial_block,
+                    finalized_checkpoint,
+                )
                 .build()
         } else {
             harness_builder()
@@ -261,6 +261,16 @@ impl<E: EthSpec> GossipTester<E> {
         };
 
         Ok((harness, initial_block_index))
+    }
+
+    fn set_finalized_checkpoint(&self, checkpoint: Option<Checkpoint>) {
+        let Some(checkpoint) = checkpoint else {
+            return;
+        };
+        let mut fork_choice = self.harness.chain.canonical_head.fork_choice_write_lock();
+        if fork_choice.finalized_checkpoint() != checkpoint {
+            fork_choice.testing_set_finalized_checkpoint(checkpoint);
+        }
     }
 
     fn import_setup_blocks(
@@ -348,9 +358,11 @@ impl<E: EthSpec> GossipTester<E> {
             .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
         let seen_duration = self.set_time_ms(time_ms)?;
 
+        let message_id = MessageId::new(&[]);
+        let peer_id = PeerId::random();
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
-            MessageId::new(&[]),
-            PeerId::random(),
+            message_id.clone(),
+            peer_id.clone(),
             Client::default(),
             block,
             self.network_beacon_processor.duplicate_cache.clone(),
@@ -358,7 +370,28 @@ impl<E: EthSpec> GossipTester<E> {
             seen_duration,
         ));
 
-        self.block_on_dangerous(process_fn)
+        self.block_on_dangerous(process_fn)?;
+
+        let mut network_rx = self
+            .network_rx
+            .lock()
+            .map_err(|_| Error::InternalError("network receiver lock poisoned".into()))?;
+        while let Ok(network_message) = network_rx.try_recv() {
+            if let NetworkMessage::ValidationResult {
+                propagation_source,
+                message_id: received_message_id,
+                validation_result,
+            } = network_message
+                && received_message_id == message_id
+                && propagation_source == peer_id
+            {
+                return Ok(validation_result);
+            }
+        }
+
+        Err(Error::InternalError(
+            "gossip block processing did not emit a validation result".into(),
+        ))
     }
 
     fn import_setup_block(
@@ -492,15 +525,12 @@ impl<E: EthSpec> GossipValidation<E> {
 
     fn is_known_production_mismatch(&self) -> bool {
         const IGNORED_BEACON_BLOCK_CASES: &[&str] = &[
-            // This case sets finalized_checkpoint.root to 0xabab... without providing a block for
-            // that root. Lighthouse fork choice requires finalized roots to correspond to stored
-            // blocks, so the harness cannot construct this pre-state faithfully.
-            "gossip_beacon_block__reject_finalized_checkpoint_not_ancestor",
-            // Lighthouse does not retain consensus-failed parents as seen blocks.
+            // These vectors record a consensus-failed setup block so descendants can be classified
+            // using the known-invalid parent. Lighthouse does not insert consensus-invalid blocks
+            // into fork choice, so these preconditions cannot be constructed through the
+            // production import path.
             "gossip_beacon_block__ignore_parent_consensus_failed_execution_known",
-            // Lighthouse does not retain consensus-failed parents as seen blocks.
             "gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified",
-            // Lighthouse does not retain consensus-failed parents as seen blocks.
             "gossip_beacon_block__reject_parent_failed_validation",
         ];
 

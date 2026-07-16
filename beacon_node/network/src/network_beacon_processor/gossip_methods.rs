@@ -1465,8 +1465,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         duplicate_cache: DuplicateCache,
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
-    ) -> MessageAcceptance {
-        let (gossip_verified_block_opt, validation_result) = self
+    ) {
+        if let Some(gossip_verified_block) = self
             .process_gossip_unverified_block(
                 message_id,
                 peer_id,
@@ -1474,9 +1474,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 block.clone(),
                 seen_duration,
             )
-            .await;
-
-        if let Some(gossip_verified_block) = gossip_verified_block_opt {
+            .await
+        {
             let block_root = gossip_verified_block.block_root;
             Span::current().record("block_root", block_root.to_string());
 
@@ -1497,8 +1496,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
-
-        validation_result
     }
 
     /// Process the beacon block received from the gossip network and
@@ -1512,7 +1509,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_duration: Duration,
-    ) -> (Option<GossipVerifiedBlock<T>>, MessageAcceptance) {
+    ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
@@ -1542,7 +1539,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             block.canonical_root()
         };
 
-        let (verified_block_opt, message_acceptance) = match verification_result {
+        let verified_block = match verification_result {
             Ok(verified_block) => {
                 if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -1560,6 +1557,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     root = ?verified_block.block_root,
                     "New block received"
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 // Log metrics to keep track of propagation delay times.
                 if let Some(duration) = SystemTime::now()
@@ -1573,7 +1571,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                (Some(verified_block), MessageAcceptance::Accept)
+                verified_block
             }
             Err(e @ BlockError::Slashable) => {
                 warn!(
@@ -1586,19 +1584,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::MidToleranceError,
                     "gossip_block_mid",
                 );
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 debug!(?block_root, "Unknown parent for gossip block");
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
                     "Gossip block beacon chain error"
                 );
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(
                 BlockError::DuplicateFullyImported(_)
@@ -1608,7 +1609,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Gossip block is already known"
                 );
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::FutureSlot { .. }) => {
                 debug!(
@@ -1621,32 +1623,44 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::HighToleranceError,
                     "gossip_block_high",
                 );
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
-            Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+            Err(e @ BlockError::WouldRevertFinalizedSlot { .. }) => {
                 debug!(
                     error = %e,
                     "Could not verify block for gossip. Ignoring the block"
                 );
-                // The spec says we must IGNORE these blocks but there's no reason for an honest
-                // and non-buggy client to be gossiping blocks that blatantly conflict with
-                // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
-                // blocks and we want to isolate them to encourage an update.
+                // The spec says we must IGNORE these blocks, but there is no reason for an honest
+                // and non-buggy client to gossip blocks from finalized slots. Old versions of
+                // Erigon/Caplin are known to do this, and we isolate them to encourage an update.
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+                warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                return None;
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::ParentExecutionPayloadInvalid { .. }) => {
                 debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
-                (None, MessageAcceptance::Ignore)
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
@@ -1665,129 +1679,124 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::InvalidBlobCount { .. })
             | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
-                (None, MessageAcceptance::Reject)
+                return None;
             }
             // Note: This error variant cannot be reached when doing gossip validation
             // as we do not do availability checks here.
             Err(e @ BlockError::AvailabilityCheck(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
-                (None, MessageAcceptance::Ignore)
+                return None;
             }
             // This error variant cannot be reached when doing gossip block validation: a block has
             // no envelope to verify, and `BlockError::EnvelopeError` is only ever produced by the
             // envelope import pipeline.
             Err(e @ BlockError::EnvelopeError(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
-                (None, MessageAcceptance::Ignore)
+                return None;
             }
             Err(e @ BlockError::InternalError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
-                (None, MessageAcceptance::Ignore)
+                return None;
             }
         };
 
-        self.propagate_validation_result(message_id, peer_id, message_acceptance);
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
 
-        if let Some(verified_block) = verified_block_opt {
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
+        // Register the block with any monitored validators.
+        //
+        // Run this event *prior* to importing the block, where the block is only partially
+        // verified.
+        self.chain.validator_monitor.read().register_gossip_block(
+            seen_duration,
+            verified_block.block.message(),
+            verified_block.block_root,
+            &self.chain.slot_clock,
+        );
 
-            // Register the block with any monitored validators.
-            //
-            // Run this event *prior* to importing the block, where the block is only partially
-            // verified.
-            self.chain.validator_monitor.read().register_gossip_block(
-                seen_duration,
-                verified_block.block.message(),
-                verified_block.block_root,
-                &self.chain.slot_clock,
-            );
+        let block_slot = verified_block.block.slot();
+        let block_root = verified_block.block_root;
 
-            let block_slot = verified_block.block.slot();
-            let block_root = verified_block.block_root;
+        // Try read the current slot to determine if this block should be imported now or after some
+        // delay.
+        match self.chain.slot() {
+            // We only need to do a simple check about the block slot and the current slot since the
+            // `verify_block_for_gossip` function already ensures that the block is within the
+            // tolerance for block imports.
+            Ok(current_slot) if block_slot > current_slot => {
+                warn!(
+                    %block_slot,
+                    ?block_root,
+                    msg = "if this happens consistently, check system clock",
+                    "Block arrived early"
+                );
 
-            // Try read the current slot to determine if this block should be imported now or after some
-            // delay.
-            match self.chain.slot() {
-                // We only need to do a simple check about the block slot and the current slot since the
-                // `verify_block_for_gossip` function already ensures that the block is within the
-                // tolerance for block imports.
-                Ok(current_slot) if block_slot > current_slot => {
-                    warn!(
-                        %block_slot,
-                        ?block_root,
-                        msg = "if this happens consistently, check system clock",
-                        "Block arrived early"
+                // Take note of how early this block arrived.
+                if let Some(duration) = self
+                    .chain
+                    .slot_clock
+                    .start_of(block_slot)
+                    .and_then(|start| start.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS,
+                        duration,
                     );
-
-                    // Take note of how early this block arrived.
-                    if let Some(duration) = self
-                        .chain
-                        .slot_clock
-                        .start_of(block_slot)
-                        .and_then(|start| start.checked_sub(seen_duration))
-                    {
-                        metrics::observe_duration(
-                            &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS,
-                            duration,
-                        );
-                    }
-
-                    metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
-
-                    let inner_self = self.clone();
-                    let process_fn = Box::pin(async move {
-                        let invalid_block_storage = inner_self.invalid_block_storage.clone();
-                        inner_self
-                            .process_gossip_verified_block(
-                                peer_id,
-                                verified_block,
-                                invalid_block_storage,
-                                seen_duration,
-                            )
-                            .await;
-                    });
-                    if self
-                        .beacon_processor_send
-                        .try_send(WorkEvent {
-                            drop_during_sync: false,
-                            work: Work::Reprocess(ReprocessQueueMessage::EarlyBlock(
-                                QueuedGossipBlock {
-                                    beacon_block_slot: block_slot,
-                                    beacon_block_root: block_root,
-                                    process_fn,
-                                },
-                            )),
-                        })
-                        .is_err()
-                    {
-                        error!(
-                            %block_slot,
-                            ?block_root,
-                            location = "block gossip",
-                            "Failed to defer block import"
-                        )
-                    }
-                    (None, message_acceptance)
                 }
-                Ok(_) => (Some(verified_block), message_acceptance),
-                Err(e) => {
+
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
+
+                let inner_self = self.clone();
+                let process_fn = Box::pin(async move {
+                    let invalid_block_storage = inner_self.invalid_block_storage.clone();
+                    inner_self
+                        .process_gossip_verified_block(
+                            peer_id,
+                            verified_block,
+                            invalid_block_storage,
+                            seen_duration,
+                        )
+                        .await;
+                });
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::EarlyBlock(
+                            QueuedGossipBlock {
+                                beacon_block_slot: block_slot,
+                                beacon_block_root: block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
                     error!(
-                        error = ?e,
                         %block_slot,
                         ?block_root,
                         location = "block gossip",
                         "Failed to defer block import"
-                    );
-                    (None, message_acceptance)
+                    )
                 }
+                None
             }
-        } else {
-            (None, message_acceptance)
+            Ok(_) => Some(verified_block),
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %block_slot,
+                    ?block_root,
+                    location = "block gossip",
+                    "Failed to defer block import"
+                );
+                None
+            }
         }
     }
 

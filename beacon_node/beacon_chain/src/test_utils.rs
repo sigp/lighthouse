@@ -334,6 +334,27 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
+    /// Create an ephemeral store initialized from an existing block and its post-state.
+    pub fn initial_state_ephemeral_store(
+        mut self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<Checkpoint>,
+    ) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
+                .expect("should build test initial state")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
     /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,

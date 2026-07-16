@@ -75,9 +75,9 @@ excluded_paths = [
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
-    # Must match IGNORED_BEACON_BLOCK_CASES in ef_tests::cases::gossip_validation.
-    # See that list for the per-case rationale.
-    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_finalized_checkpoint_not_ancestor/.*",
+    # These cases return SkippedKnownFailure before their fixture files are loaded. Keep these
+    # synchronized with IGNORED_BEACON_BLOCK_CASES in gossip_validation.rs, where the per-case
+    # rationale is documented.
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",

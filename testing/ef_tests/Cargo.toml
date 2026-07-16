@@ -39,6 +39,7 @@ snap = { workspace = true }
 ssz_types = { workspace = true }
 state_processing = { workspace = true }
 swap_or_not_shuffle = { workspace = true }
+tokio = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
