@@ -22,7 +22,8 @@
 //! Durable on return. Slots arrive ascending **or** are identical-value
 //! re-puts of an already-committed slot (so migration retries after a
 //! mid-loop crash are safe). Previously-skipped slots (offset 0) cannot
-//! be filled — that would break the append-only data file.
+//! be filled — that would break the append-only data file. A failed write
+//! poisons the handle: further writes error until reopen; reads stay live.
 //!
 //! # Recovery on open
 //!
@@ -102,10 +103,18 @@ pub struct StaticFile {
     root_dir: PathBuf,
     /// Max record size, an OOM guard on reads.
     max_value_bytes: u64,
-    /// Highest committed slot and committed data length from `column.conf`.
     // Writer holds this across put_batch's fsyncs, so readers block. Accepted:
     // simplicity over read concurrency.
-    committed: Mutex<CommittedState>,
+    state: Mutex<State>,
+}
+
+#[derive(Debug)]
+struct State {
+    /// Highest committed slot and committed data length from `column.conf`.
+    committed: CommittedState,
+    /// Set when a write error leaves on-disk state unverified; further writes
+    /// error until reopen. Reads stay safe: `committed` never runs ahead of disk.
+    poisoned: bool,
 }
 
 impl StaticFile {
@@ -137,7 +146,10 @@ impl StaticFile {
         let handle = Self {
             root_dir,
             max_value_bytes,
-            committed: Mutex::new(committed),
+            state: Mutex::new(State {
+                committed,
+                poisoned: false,
+            }),
         };
         handle.heal_to_marker(committed.highest_slot, committed.data_len)?;
         Ok(handle)
@@ -145,7 +157,7 @@ impl StaticFile {
 
     /// Slot of the most recently committed record, if any.
     fn highest_written_slot(&self) -> Option<u64> {
-        self.committed.lock().highest_slot
+        self.state.lock().committed.highest_slot
     }
 
     /// Read the record at `slot`, if present.
@@ -194,8 +206,13 @@ impl StaticFile {
             return Err(Error::Invalid("slot u64::MAX is reserved".into()));
         }
 
-        let mut committed = self.committed.lock();
-        let start = self.skip_committed_prefix(&items, committed.highest_slot)?;
+        let mut state = self.state.lock();
+        if state.poisoned {
+            return Err(Error::Invalid(
+                "writes rejected after an earlier write failure; reopen to heal".into(),
+            ));
+        }
+        let start = self.skip_committed_prefix(&items, state.committed.highest_slot)?;
         if start == items.len() {
             // Avoid rewriting config with no fresh data_len.
             return Ok(());
@@ -203,30 +220,26 @@ impl StaticFile {
 
         // Group remaining items by file_id, write each group with one
         // data fsync + one offset fsync. Single config commit at end of batch.
+        // Fail-stop: any error past this point leaves on-disk state unverified
+        // (stale offsets, or a conf rename that landed despite the Err), so
+        // poison writes and let open-time healing recover. Reads stay safe:
+        // `committed` never runs ahead of disk.
         let mut last_data_len: u64 = 0;
         for (target_file_id, group) in group_by_file_id(&items[start..]) {
-            match self.write_group(target_file_id, &group, *committed) {
+            match self.write_group(target_file_id, &group, state.committed) {
                 Ok(data_len) => last_data_len = data_len,
                 Err(e) => {
-                    // Reconcile after partial write.
-                    if let Ok(config_committed) = self.heal_from_config() {
-                        *committed = config_committed;
-                    }
+                    state.poisoned = true;
                     return Err(e);
                 }
             }
         }
 
         if let Err(e) = self.write_config(Some(*last_slot), last_data_len) {
-            // Edge: rename may have landed, so the batch can be durable despite this
-            // Err; safe because retry is idempotent. heal error is swallowed here;
-            // next open re-heals.
-            if let Ok(config_committed) = self.heal_from_config() {
-                *committed = config_committed;
-            }
+            state.poisoned = true;
             return Err(e);
         }
-        *committed = CommittedState {
+        state.committed = CommittedState {
             highest_slot: Some(*last_slot),
             data_len: last_data_len,
         };
@@ -385,13 +398,6 @@ impl StaticFile {
         } else {
             self.remove_uncommitted_files(None)
         }
-    }
-
-    /// Re-read `column.conf` and restore files to whatever marker is durable.
-    fn heal_from_config(&self) -> Result<CommittedState, Error> {
-        let committed = deserialize_on_disk_config(&fs::read(self.config_path())?)?;
-        self.heal_to_marker(committed.highest_slot, committed.data_len)?;
-        Ok(committed)
     }
 
     /// Truncate the committed file back to the config marker after a crash.
@@ -700,6 +706,26 @@ mod tests {
     fn max_slot_is_reserved() {
         let dir = tempfile::tempdir().unwrap();
         assert!(open(&dir).put(u64::MAX, b"x").is_err());
+    }
+
+    #[test]
+    fn write_failure_poisons_writes_until_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        store.put(0, b"a").unwrap();
+
+        let oversized = vec![0u8; (MAX_VALUE_BYTES + 1) as usize];
+        assert!(store.put_batch(vec![(1, b"b"), (2, &oversized)]).is_err());
+
+        // writes rejected, reads still served
+        assert!(store.put(3, b"c").is_err());
+        assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
+
+        // reopen heals and lifts the poison
+        drop(store);
+        let store = open(&dir);
+        store.put(3, b"c").unwrap();
+        assert_eq!(store.get(3).unwrap(), Some(b"c".to_vec()));
     }
 
     #[test]
