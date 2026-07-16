@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{error, trace};
+use types::PartialDataColumnSidecarError;
 use types::core::{EthSpec, Hash256};
 use types::data::{
     CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
@@ -222,8 +223,8 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let send = self
                     .partial_column
                     .sidecar
-                    .filter(|idx| want.get(idx).unwrap_or(false))
-                    .map_err(|err| {
+                    .try_filter(|idx, _, _| Ok(want.get(idx).unwrap_or(false)))
+                    .map_err(|err: PartialDataColumnSidecarError| {
                         error!(?err, "Unexpected error filtering sidecar");
                         PartialError::InvalidFormat
                     })?
