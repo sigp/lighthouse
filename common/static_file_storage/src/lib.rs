@@ -6,7 +6,8 @@
 //! <root>/
 //!   data_{file_id:05}         # file_id = slot / SLOTS_PER_FILE
 //!   data_{file_id:05}.off     # SLOTS_PER_FILE × u64 LE offsets, 0 = no record
-//!   column.conf               # 34-byte commit marker, atomic-renamed
+//!   column.conf               # 24-byte commit marker, atomic-renamed
+//!   lock                      # exclusive advisory lock held while open
 //! ```
 //!
 //! # File format
@@ -34,7 +35,7 @@
 use parking_lot::Mutex;
 use std::{
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
@@ -48,6 +49,7 @@ const OFFSET_FILE_LEN: u64 = SLOTS_PER_FILE * OFFSET_SIZE;
 const CONFIG_FILE: &str = "column.conf";
 const CONFIG_TMP_FILE: &str = "column.conf.tmp";
 const DATA_FILE_PREFIX: &str = "data_";
+const LOCK_FILE: &str = "lock";
 /// Config file identity. Format revisions bump `FORMAT_VERSION`, not this.
 const CONFIG_MAGIC: &[u8; 4] = b"LHSF";
 /// On-disk format version. Bump on any breaking layout change (implies a rebuild).
@@ -106,6 +108,8 @@ pub struct StaticFile {
     // Writer holds this across put_batch's fsyncs, so readers block. Accepted:
     // simplicity over read concurrency.
     state: Mutex<State>,
+    /// Exclusive lock on the column dir, released by the OS on drop.
+    _lock: File,
 }
 
 #[derive(Debug)]
@@ -122,6 +126,25 @@ impl StaticFile {
     /// a runtime-only read OOM cap. The column is identified by its directory.
     pub fn open(root_dir: PathBuf, max_value_bytes: u64) -> Result<Self, Error> {
         fs::create_dir_all(&root_dir)?;
+
+        // Exclusive advisory lock before touching anything: a second handle
+        // would heal destructively under a live writer. Released on drop.
+        let lock = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(root_dir.join(LOCK_FILE))?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Err(Error::Invalid(format!(
+                    "already open by another handle: {}",
+                    root_dir.display()
+                )));
+            }
+            Err(TryLockError::Error(e)) => return Err(e.into()),
+        }
+
         let config_path = root_dir.join(CONFIG_FILE);
         let tmp_path = root_dir.join(CONFIG_TMP_FILE);
 
@@ -150,6 +173,7 @@ impl StaticFile {
                 committed,
                 poisoned: false,
             }),
+            _lock: lock,
         };
         handle.heal_to_marker(committed.highest_slot, committed.data_len)?;
         Ok(handle)
@@ -713,6 +737,18 @@ mod tests {
     fn max_slot_is_reserved() {
         let dir = tempfile::tempdir().unwrap();
         assert!(open(&dir).put(u64::MAX, b"x").is_err());
+    }
+
+    #[test]
+    fn second_open_rejected_while_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        store.put(0, b"a").unwrap();
+
+        assert!(StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES).is_err());
+
+        drop(store);
+        assert_eq!(open(&dir).get(0).unwrap(), Some(b"a".to_vec()));
     }
 
     #[test]
