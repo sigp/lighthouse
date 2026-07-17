@@ -12,7 +12,7 @@ use crate::{
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionRequests,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionRequestsElectra,
     },
     fork::{ForkName, ForkVersionDecode},
     kzg_ext::KzgCommitments,
@@ -59,7 +59,7 @@ pub struct BuilderBid<E: EthSpec> {
     #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsElectra<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,

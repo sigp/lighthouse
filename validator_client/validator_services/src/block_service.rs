@@ -14,7 +14,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, Slot};
+use types::{BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]
@@ -611,6 +611,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             ));
         }
 
+        // Capture before `sign_and_publish_block` moves `unsigned_block`.
+        let produced_block_root = fork_name
+            .gloas_enabled()
+            .then(|| unsigned_block.block_root());
+
         self_ref
             .sign_and_publish_block(
                 &proposer_fallback,
@@ -624,11 +629,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // TODO(gloas) we only need to fetch, sign and publish the envelope in the local building case.
         // Right now we always default to local building. Once we implement trustless/trusted builder logic
         // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
-        if fork_name.gloas_enabled() {
+        if let Some(beacon_block_root) = produced_block_root {
             self_ref
                 .fetch_sign_and_publish_payload_envelope(
                     &proposer_fallback,
                     slot,
+                    beacon_block_root,
                     &validator_pubkey,
                 )
                 .await?;
@@ -649,17 +655,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         &self,
         _proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
+        beacon_block_root: Hash256,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), BlockError> {
-        info!(slot = slot.as_u64(), "Fetching execution payload envelope");
+        info!(
+            slot = slot.as_u64(),
+            %beacon_block_root,
+            "Fetching execution payload envelope"
+        );
 
         // Fetch the envelope from the beacon node.
-        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
         let envelope = self
             .beacon_nodes
             .first_success(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelopes_ssz::<S::E>(slot)
+                    .get_validator_execution_payload_envelopes_ssz::<S::E>(slot, beacon_block_root)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
@@ -895,8 +905,16 @@ mod tests {
             .do_update(same_notification)
             .await
             .unwrap();
-        // Give any spawned tasks time to execute
-        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        // .matched() becomes true if mock_same_slot has been hit once
+        // mock_same_slot.matched() will be false when the spawned thread for get_validator_block_and_publish_block has not been created
+        // (therefore mock_same_slot hasn't been called/hit)
+        // Once a spawned thread is created, the while loop becomes false and exits the loop
+        // This ensures that a spawned thread is created for get_validator_block_and_publish_block
+        while !mock_same_slot.matched() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
 
         // When the slot is the same as notification slot, the flow to produce and publish block proceeds normally
         // so the BN should be called once (in this case it succeeded on the first call)
@@ -923,7 +941,11 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
         let mock_post_envelope = test_harness
             .harness
             .mock_beacon_node_1
@@ -1052,11 +1074,11 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz_error(slot);
+            .mock_get_validator_execution_payload_envelope_ssz_error(slot, Hash256::default());
         test_harness
             .harness
             .mock_beacon_node_2
-            .mock_get_validator_execution_payload_envelope_ssz_error(slot);
+            .mock_get_validator_execution_payload_envelope_ssz_error(slot, Hash256::default());
 
         let mock_post_envelope = test_harness
             .harness
@@ -1070,7 +1092,12 @@ mod tests {
 
         let result = test_harness
             .service
-            .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
+            .fetch_sign_and_publish_payload_envelope(
+                &proposer_fallback,
+                slot,
+                Hash256::default(),
+                &validator_pubkey,
+            )
             .await;
 
         let Err(BlockError::Recoverable(msg)) = result else {
@@ -1094,7 +1121,7 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
+            .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot, Hash256::default());
 
         // Both beacon nodes return error for post_beacon_execution_payload_envelope_ssz
         let mock_post_envelope_1 = test_harness
@@ -1113,7 +1140,12 @@ mod tests {
 
         let result = test_harness
             .service
-            .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
+            .fetch_sign_and_publish_payload_envelope(
+                &proposer_fallback,
+                slot,
+                Hash256::default(),
+                &validator_pubkey,
+            )
             .await;
 
         let Err(BlockError::Recoverable(msg)) = result else {

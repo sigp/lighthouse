@@ -226,29 +226,30 @@ pub fn test_da_checker<E: EthSpec>(
     spec: Arc<ChainSpec>,
     node_custody_type: NodeCustodyType,
 ) -> DataAvailabilityChecker<EphemeralHarnessType<E>> {
+    let kzg = get_kzg(&spec);
+    let custody_context = test_custody_context(node_custody_type, spec.clone());
+    DataAvailabilityChecker::new(kzg, custody_context, spec, true, false)
+        .expect("should initialise data availability checker")
+}
+
+pub fn test_custody_context<E: EthSpec>(
+    node_custody_type: NodeCustodyType,
+    spec: Arc<ChainSpec>,
+) -> Arc<CustodyContext<EphemeralHarnessType<E>>> {
+    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let complete_blob_backfill = false;
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(0),
         spec.get_slot_duration(),
     );
-    let kzg = get_kzg(&spec);
-    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
-    let custody_context = Arc::new(CustodyContext::new(
+    Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
-        &spec,
-    ));
-    let complete_blob_backfill = false;
-    DataAvailabilityChecker::new(
-        complete_blob_backfill,
         slot_clock,
-        kzg,
-        custody_context,
+        complete_blob_backfill,
         spec,
-        true,
-        false,
-    )
-    .expect("should initialise data availability checker")
+    ))
 }
 
 pub struct Builder<T: BeaconChainTypes> {
@@ -328,6 +329,28 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Create an ephemeral store initialized from an existing block and its post-state.
+    #[cfg(any(test, feature = "ef_tests"))]
+    pub fn initial_state_ephemeral_store(
+        mut self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<Checkpoint>,
+    ) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
+                .expect("should build test initial state")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
@@ -3163,26 +3186,28 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let is_gloas = block.fork_name_unchecked().gloas_enabled();
         // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
         // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
         // handles both shapes.
         let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
-            return if is_gloas {
+            return if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| AvailableEnvelope::new(envelope, vec![]));
+                    .map(|envelope| {
+                        AvailableEnvelope::new(envelope, vec![], bid, &self.chain.custody_context)
+                    })
+                    .transpose()
+                    .unwrap();
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
+                    &self.chain.custody_context,
                 )
                 .unwrap()
             };
@@ -3197,23 +3222,26 @@ where
                 .unwrap()
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
-            if is_gloas {
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| AvailableEnvelope::new(envelope, custody_columns));
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            custody_columns,
+                            bid,
+                            &self.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(
-                    block,
-                    block_data,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )
-                .unwrap()
+                RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
             }
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
@@ -3223,13 +3251,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.chain.data_availability_checker,
-                self.chain.spec.clone(),
-            )
-            .unwrap()
+            RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
         }
     }
 
@@ -3239,7 +3261,7 @@ where
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RangeSyncBlock<E>, BlockError> {
-        if block.fork_name_unchecked().gloas_enabled() {
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             let columns = blob_items
                 .map(|_| generate_data_column_sidecars_from_block(&block, &self.spec))
                 .unwrap_or_default();
@@ -3248,13 +3270,17 @@ where
                 .get_payload_envelope(&block.canonical_root())
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
                 .map(Arc::new)
-                .map(|envelope| AvailableEnvelope::new(envelope, columns));
+                .map(|envelope| {
+                    AvailableEnvelope::new(envelope, columns, bid, &self.chain.custody_context)
+                })
+                .transpose()
+                .unwrap();
             return RangeSyncBlock::new_gloas(block, envelope).map_err(BlockError::InternalError);
         }
 
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
-            let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
+            let sampling_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
 
             if blob_items.is_some_and(|(kzg_proofs, _)| !kzg_proofs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -3265,18 +3291,12 @@ where
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
                 let block_data = AvailableBlockData::new_with_data_columns(columns);
-                RangeSyncBlock::new(
-                    block,
-                    block_data,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
+                RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
             } else {
                 RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
+                    &self.chain.custody_context,
                 )?
             }
         } else {
@@ -3292,12 +3312,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(
-                block,
-                block_data,
-                &self.chain.data_availability_checker,
-                self.chain.spec.clone(),
-            )?
+            RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
         })
     }
 
@@ -4007,6 +4022,7 @@ where
         let custody_columns = custody_columns_opt.unwrap_or_else(|| {
             let epoch = block.slot().epoch(E::slots_per_epoch());
             self.chain
+                .custody_context
                 .sampling_columns_for_epoch(epoch)
                 .iter()
                 .copied()

@@ -208,6 +208,9 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            // Drop a trailing empty segment so a base URL with a trailing slash
+            // (e.g. `https://host/<api-key>/`) does not produce a double slash.
+            .pop_if_empty()
             .push("eth")
             .push(&version.to_string());
 
@@ -2758,10 +2761,11 @@ impl BeaconNodeHttpClient {
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
-    /// `GET v1/validator/execution_payload_envelopes/{slot}`
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}`
     pub async fn get_validator_execution_payload_envelopes<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2769,15 +2773,17 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelopes")
-            .push(&slot.to_string());
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         self.get(path).await
     }
 
-    /// `GET v1/validator/execution_payload_envelopes/{slot}` in SSZ format
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` in SSZ format
     pub async fn get_validator_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2785,7 +2791,8 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelopes")
-            .push(&slot.to_string());
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
@@ -3232,6 +3239,7 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .pop_if_empty()
             .push("lighthouse")
             .push("liveness");
 
@@ -3506,5 +3514,39 @@ impl BeaconNodeHttpClient {
             self.timeouts.ptc_duties,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn eth_v2_prefix(base: &str) -> String {
+        let server = SensitiveUrl::parse(base).expect("valid base url");
+        let client = BeaconNodeHttpClient::new(server, Timeouts::set_all(Duration::from_secs(1)));
+        client.eth_path(V2).unwrap().to_string()
+    }
+
+    // A trailing slash on the base URL must not change the resulting endpoint
+    // path. With a path-embedded API key this previously produced a `//eth`
+    // double slash that providers redirect to a key-less, unauthenticated path.
+    // See https://github.com/sigp/lighthouse/issues/9545.
+    #[test]
+    fn eth_path_is_trailing_slash_tolerant() {
+        // The reported case: a path-embedded API key with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            "https://example.com/secret-key/eth/v2"
+        );
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            eth_v2_prefix("https://example.com/secret-key")
+        );
+        // Regression guard: a bare host with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("http://localhost:5052/"),
+            eth_v2_prefix("http://localhost:5052")
+        );
     }
 }

@@ -1,16 +1,15 @@
-use crate::per_block_processing::process_operations::apply_deposit_for_builder;
+use crate::per_block_processing::is_valid_deposit_signature;
 use crate::per_block_processing::process_operations::is_pending_validator;
 use milhouse::{List, Vector};
 use safe_arith::SafeArith;
-use ssz_types::BitVector;
-use ssz_types::FixedVector;
-use std::collections::HashMap;
-use std::mem;
+use ssz_types::{BitVector, FixedVector};
+use std::{collections::HashMap, mem};
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
+    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
+    consts::gloas::PAYLOAD_BUILDER_VERSION, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -79,7 +78,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
-            execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella
@@ -187,36 +186,49 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             continue;
         }
 
-        if !builder_pubkey_to_index.contains_key(&deposit.pubkey) {
-            // Deposits without builder withdrawal credentials are for new validators.
-            if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
-                pending_deposits.push(deposit.clone())?;
-                continue;
+        match builder_pubkey_to_index.get(&deposit.pubkey).copied() {
+            None => {
+                // Deposits without builder withdrawal credentials are for new validators.
+                if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
+                    pending_deposits.push(deposit.clone())?;
+                    continue;
+                }
+
+                // If there is a valid pending deposit for a new validator with this pubkey,
+                // keep this deposit in the pending queue to be applied to that validator later.
+                if is_pending_validator(&pending_deposits, &deposit.pubkey, spec) {
+                    pending_deposits.push(deposit.clone())?;
+                    continue;
+                }
+
+                let deposit_data = DepositData {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    amount: deposit.amount,
+                    signature: deposit.signature.clone(),
+                };
+                if is_valid_deposit_signature(&deposit_data, spec).is_err() {
+                    continue;
+                }
+
+                let builder_index = state.add_builder_to_registry(
+                    deposit.pubkey,
+                    PAYLOAD_BUILDER_VERSION,
+                    deposit.withdrawal_credentials,
+                    deposit.amount,
+                    deposit.slot,
+                    spec,
+                )?;
+                builder_pubkey_to_index.insert(deposit.pubkey, builder_index);
             }
+            Some(builder_index) => {
+                let builder = state
+                    .builders_mut()?
+                    .get_mut(builder_index as usize)
+                    .ok_or(Error::UnknownBuilder(builder_index))?;
 
-            // If there is a valid pending deposit for a new validator with this pubkey,
-            // keep this deposit in the pending queue to be applied to that validator later.
-            if is_pending_validator(&pending_deposits, &deposit.pubkey, spec) {
-                pending_deposits.push(deposit.clone())?;
-                continue;
+                builder.balance.safe_add_assign(deposit.amount)?;
             }
-        }
-
-        let builder_index = builder_pubkey_to_index.get(&deposit.pubkey).copied();
-
-        if let Some(new_builder_index) = apply_deposit_for_builder(
-            state,
-            builder_index,
-            deposit.pubkey,
-            deposit.withdrawal_credentials,
-            deposit.amount,
-            deposit.signature.clone(),
-            deposit.slot,
-            spec,
-        )? {
-            builder_pubkey_to_index
-                .entry(deposit.pubkey)
-                .or_insert(new_builder_index);
         }
     }
 

@@ -17,6 +17,7 @@ members = [
     "beacon_node/timer",
     "boot_node",
     "common/account_utils",
+    "common/axum_utils",
     "common/clap_utils",
     "common/deposit_contract",
     "common/directory",
@@ -46,6 +47,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
+    "consensus/fast_confirmation",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",
@@ -106,7 +108,8 @@ alloy-signer-local = { version = "1", default-features = false }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
-axum = "0.7.7"
+axum = "0.8"
+axum_utils = { path = "common/axum_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
@@ -144,6 +147,7 @@ ethereum_serde_utils = "0.8.0"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }
+fast_confirmation = { path = "consensus/fast_confirmation" }
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
 fnv = "1"
@@ -229,9 +233,11 @@ sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 tempfile = "3"
+thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
+tower = "0.5"
 tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
@@ -253,7 +259,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
-warp = { version = "0.3.7", default-features = false, features = ["tls"] }
+warp = { version = "0.4", default-features = false, features = ["server"] }
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c0515bd7c8fc671f47875e3ccc" }
@@ -271,6 +277,10 @@ incremental = false
 [profile.release-debug]
 inherits = "release"
 debug = true
+
+[patch.crates-io]
+# Temporary patch until the axum migration is complete
+warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
 
 [patch."https://github.com/libp2p/rust-libp2p.git"]
 libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "3563de5ed20e509885592b391aa816992eef55d4" }

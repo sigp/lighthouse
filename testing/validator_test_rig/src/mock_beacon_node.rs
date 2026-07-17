@@ -1,9 +1,11 @@
 use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
+use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
+use ssz::{Decode, Encode};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -11,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
     PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
@@ -209,15 +211,17 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` (SSZ)
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` (SSZ)
     pub fn mock_get_validator_execution_payload_envelope_ssz(
         &mut self,
         envelope: &ExecutionPayloadEnvelope<E>,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
+            r"^/eth/v1/validator/execution_payload_envelopes/{}/{}$",
+            slot.as_u64(),
+            beacon_block_root,
         ))
         .unwrap();
 
@@ -232,11 +236,16 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` returning error.
-    pub fn mock_get_validator_execution_payload_envelope_ssz_error(&mut self, slot: Slot) -> Mock {
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` returning error.
+    pub fn mock_get_validator_execution_payload_envelope_ssz_error(
+        &mut self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+    ) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
+            r"^/eth/v1/validator/execution_payload_envelopes/{}/{}$",
+            slot.as_u64(),
+            beacon_block_root,
         ))
         .unwrap();
 
@@ -391,40 +400,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) returning error.
     pub fn mock_post_beacon_execution_payload_envelope_ssz_error(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/octet-stream")
-            .with_status(500)
-            .with_body(r#"{"message":"Internal server error"}"#)
-            .create()
-    }
-
-    /// Mocks `POST /eth/v1/validator/proposer_preferences`
-    pub fn mock_post_validator_proposer_preferences_json(&mut self) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/json")
-            .with_status(200)
-            .create()
-    }
-
-    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
-    pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/octet-stream")
-            .with_status(200)
-            .create()
-    }
-
-    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ) returning error
-    pub fn mock_post_validator_proposer_preferences_ssz_error(&mut self) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))

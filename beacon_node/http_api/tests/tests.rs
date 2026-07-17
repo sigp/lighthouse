@@ -2924,8 +2924,16 @@ impl ApiTester {
             .get(lookahead_index)
             .expect("slot index should be in lookahead") as usize;
 
+        let dependent_root = head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                proposal_slot.epoch(E::slots_per_epoch()),
+                head.beacon_block_root,
+                &self.chain.spec,
+            )
+            .expect("should compute proposer shuffling decision root");
+
         let preferences = ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
@@ -4433,12 +4441,23 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot, block.tree_hash_root())
                 .await
                 .unwrap()
                 .data;
 
             self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+
+            // A request for a root this node did not build must miss (reorg-resistance).
+            assert!(
+                self.client
+                    .get_validator_execution_payload_envelopes::<E>(
+                        slot,
+                        Hash256::repeat_byte(0xff)
+                    )
+                    .await
+                    .is_err()
+            );
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
@@ -4495,7 +4514,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes_ssz::<E>(slot)
+                .get_validator_execution_payload_envelopes_ssz::<E>(slot, block.tree_hash_root())
                 .await
                 .unwrap();
 
@@ -4955,7 +4974,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelopes::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot, block_root)
                 .await
                 .unwrap()
                 .data;
