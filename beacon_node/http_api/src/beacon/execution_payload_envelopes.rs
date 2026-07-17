@@ -158,7 +158,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // TODO(gloas): if the block commits to blobs but none are cached, return 400 before
     // publishing (beacon-APIs "no cached blobs and KZG proofs to attach"), rather than
-    // proceeding to a 200 via MissingComponents.
+    // proceeding to a 202 via MissingComponents.
     let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
 
     // Spawn the column-build task (CPU-bound KZG cell-and-proof computation) before
@@ -202,7 +202,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })
     };
 
-    let published = Arc::new(AtomicBool::new(false));
+    let published = AtomicBool::new(false);
     if validation_level == BroadcastValidation::Gossip {
         publish_envelope().map_err(|_| {
             warp_utils::reject::custom_server_error(
@@ -212,7 +212,6 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         published.store(true, Ordering::SeqCst);
     }
 
-    let published_in_callback = published.clone();
     let publish_fn = || {
         match validation_level {
             BroadcastValidation::Gossip => return Ok(()),
@@ -228,7 +227,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         }
 
         publish_envelope()?;
-        published_in_callback.store(true, Ordering::SeqCst);
+        published.store(true, Ordering::SeqCst);
         Ok(())
     };
 
@@ -267,61 +266,26 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     };
 
     // Column failures leave `envelope_imported` unchanged for the response below.
-    let gossip_verified_columns = match column_build_future {
-        Some(column_build_future) => match column_build_future.await {
-            Ok(columns) => columns,
-            Err(e) => {
-                error!(
-                    %slot,
-                    error = ?e,
-                    "Failed to build data columns after envelope publication"
-                );
-                vec![]
-            }
-        },
-        None => vec![],
-    };
-
-    if !gossip_verified_columns.is_empty() {
-        match publish_column_sidecars(network_tx, &gossip_verified_columns, &chain) {
-            Ok(()) => {
-                let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                let sampling_column_indices =
-                    chain.custody_context.sampling_columns_for_epoch(epoch);
-                let sampling_columns = gossip_verified_columns
-                    .into_iter()
-                    .filter(|col| sampling_column_indices.contains(&col.index()))
-                    .collect::<Vec<_>>();
-
-                if !sampling_columns.is_empty() {
-                    match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(())))
-                        .await
-                    {
-                        Ok(AvailabilityProcessingStatus::Imported(_, _)) => {
-                            envelope_imported = true
-                        }
-                        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
-                        Err(e) => {
-                            error!(
-                                %slot,
-                                error = ?e,
-                                "Failed to process sampling data columns during envelope publication"
-                            );
-                        }
-                    }
+    if let Some(column_build_future) = column_build_future {
+        match column_build_future.await {
+            Ok(columns) => {
+                if publish_and_import_columns(&chain, network_tx, slot, columns).await {
+                    envelope_imported = true;
                 }
             }
             Err(e) => {
                 error!(
                     %slot,
                     error = ?e,
-                    "Failed to publish data column sidecars after envelope publication"
+                    "Failed to build data columns after envelope publication"
                 );
             }
         }
     }
 
-    // Return 202 when broadcast succeeds but integration does not.
+    // Return 202 when broadcast succeeds but integration does not. Unlike the block path,
+    // 202 applies at every validation level: missing components here are node-cached columns
+    // rather than request-supplied blobs, so incomplete import is not the submitter's fault.
     if envelope_imported {
         chain.recompute_head_at_current_slot().await;
         Ok(warp::reply().into_response())
@@ -329,6 +293,55 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         Err(warp_utils::reject::broadcast_without_import(format!(
             "envelope for slot {slot} was broadcast but not fully imported"
         )))
+    }
+}
+
+/// Publishes locally-built data columns and imports the node's sampling subset.
+///
+/// Returns `true` iff sampling-column processing completed envelope import. All failures are
+/// logged and swallowed: the envelope is already on the wire, so the caller's final
+/// 200-vs-202 decision reflects import state rather than column errors.
+async fn publish_and_import_columns<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    slot: types::Slot,
+    gossip_verified_columns: Vec<GossipVerifiedDataColumn<T>>,
+) -> bool {
+    if gossip_verified_columns.is_empty() {
+        return false;
+    }
+
+    if let Err(e) = publish_column_sidecars(network_tx, &gossip_verified_columns, chain) {
+        error!(
+            %slot,
+            error = ?e,
+            "Failed to publish data column sidecars after envelope publication"
+        );
+        return false;
+    }
+
+    let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+    let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
+    let sampling_columns = gossip_verified_columns
+        .into_iter()
+        .filter(|col| sampling_column_indices.contains(&col.index()))
+        .collect::<Vec<_>>();
+
+    if sampling_columns.is_empty() {
+        return false;
+    }
+
+    match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await {
+        Ok(AvailabilityProcessingStatus::Imported(_, _)) => true,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => false,
+        Err(e) => {
+            error!(
+                %slot,
+                error = ?e,
+                "Failed to process sampling data columns during envelope publication"
+            );
+            false
+        }
     }
 }
 
