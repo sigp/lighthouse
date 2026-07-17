@@ -194,11 +194,11 @@ opentelemetry = "0.30.0"
 opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls-roots"] }
 opentelemetry_sdk = "0.30.0"
 operation_pool = { path = "beacon_node/operation_pool" }
-proof_engine = { path = "beacon_node/proof_engine" }
 parking_lot = "0.12"
 paste = "1"
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 prometheus = { version = "0.13", default-features = false }
+proof_engine = { path = "beacon_node/proof_engine" }
 proptest = "1"
 proto_array = { path = "consensus/proto_array" }
 quote = "1"
