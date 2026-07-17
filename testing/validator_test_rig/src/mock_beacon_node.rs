@@ -1,11 +1,9 @@
 use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
-use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
-use ssz::{Decode, Encode};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -400,6 +398,40 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) returning error.
     pub fn mock_post_beacon_execution_payload_envelope_ssz_error(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences`
+    pub fn mock_post_validator_proposer_preferences_json(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
+    pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ) returning error
+    pub fn mock_post_validator_proposer_preferences_ssz_error(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
