@@ -10,9 +10,7 @@ use beacon_chain::data_column_verification::{
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedPartialDataColumn,
     PartialColumnVerificationResult,
 };
-use beacon_chain::execution_proof_verification::{
-    Error as ExecutionProofError, verify_execution_proof_for_gossip,
-};
+use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
     EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
@@ -4018,7 +4016,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let beacon_block_root = execution_proof.beacon_block_root();
         let proof_type = execution_proof.proof_type();
 
-        match verify_execution_proof_for_gossip(&self.chain, execution_proof).await {
+        match self
+            .chain
+            .verify_execution_proof_for_gossip(execution_proof)
+            .await
+        {
             Ok(verified) => {
                 debug!(
                     %beacon_block_root,
