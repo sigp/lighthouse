@@ -13,7 +13,7 @@ portable = ["beacon_chain/portable"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
-beacon_chain = { workspace = true }
+beacon_chain = { workspace = true, features = ["ef_tests"] }
 bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
@@ -40,6 +40,7 @@ snap = { workspace = true }
 ssz_types = { workspace = true }
 state_processing = { workspace = true }
 swap_or_not_shuffle = { workspace = true }
+tokio = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }

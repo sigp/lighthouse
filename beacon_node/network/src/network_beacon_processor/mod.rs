@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     invalid_block_storage,
                     seen_timestamp,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
@@ -1218,12 +1218,28 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+        let (processor, beacon_processor_rx, _network_rx) =
+            Self::null_for_testing_with_network_receiver(network_globals, sync_tx, chain, executor);
+
+        (processor, beacon_processor_rx)
+    }
+
+    fn null_for_testing_with_network_receiver(
+        network_globals: Arc<NetworkGlobals<E>>,
+        sync_tx: UnboundedSender<SyncMessage<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+    ) -> (
+        Self,
+        mpsc::Receiver<BeaconWorkEvent<E>>,
+        mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    ) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
         } = <_>::default();
 
-        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
@@ -1236,24 +1252,34 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             executor,
         };
 
-        (network_beacon_processor, beacon_processor_rx)
+        (network_beacon_processor, beacon_processor_rx, network_rx)
     }
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
     /// suitable for directly calling gossip processing methods in tests.
     pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+        Self::null_from_harness_with_network_receiver(harness).0
+    }
+
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` and returns its network event
+    /// receiver so tests can observe messages sent to the network service.
+    pub fn null_from_harness_with_network_receiver(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage<E>>) {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),
             harness.spec.clone(),
         );
 
-        Self::null_for_testing(
-            Arc::new(network_globals),
-            mpsc::unbounded_channel().0,
-            harness.chain.clone(),
-            harness.runtime.task_executor.clone(),
-        )
-        .0
+        let (processor, _beacon_processor_rx, network_rx) =
+            Self::null_for_testing_with_network_receiver(
+                Arc::new(network_globals),
+                mpsc::unbounded_channel().0,
+                harness.chain.clone(),
+                harness.runtime.task_executor.clone(),
+            );
+
+        (processor, network_rx)
     }
 }
