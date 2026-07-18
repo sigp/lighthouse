@@ -468,7 +468,6 @@ mod tests {
     }
 
     impl TestHarness {
-
         async fn new_with_validators(
             num_validators: usize,
             payload_rx: Option<mpsc::Receiver<PayloadAvailableEvent>>,
@@ -1181,7 +1180,10 @@ mod tests {
             .await
             .unwrap();
 
-        let event = test_harness.service.poll_for_payload_available_event().await;
+        let event = test_harness
+            .service
+            .poll_for_payload_available_event()
+            .await;
 
         assert_eq!(
             event.slot, current_slot,
