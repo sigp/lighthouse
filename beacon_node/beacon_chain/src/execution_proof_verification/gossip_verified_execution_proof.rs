@@ -1,5 +1,4 @@
 use super::Error;
-use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::execution_proof_verification::observed_execution_proofs::{
     ObservedExecutionProofs, ProofObservation,
@@ -8,16 +7,17 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::execution::SignedExecutionProof;
-use types::{ChainSpec, Domain, Hash256, SignedRoot, Slot};
+use types::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot};
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_proofs: &'a RwLock<ObservedExecutionProofs>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
-    pub store: &'a BeaconStore<T>,
+    pub slot_clock: &'a T::SlotClock,
     pub proof_engine: &'a Option<Arc<ProofEngine>>,
     pub spec: &'a ChainSpec,
     pub genesis_validators_root: Hash256,
@@ -77,22 +77,24 @@ impl GossipVerifiedExecutionProof {
             ProofObservation::New => {}
         }
 
-        // [REJECT] The validator is active. Use the state of the referenced block rather than the
-        // head state, so that proofs for blocks on other forks are judged against their own fork.
-        // `slot: None` so that non-canonical hot states are found.
-        let state = ctx
-            .store
-            .get_state(&proto_block.state_root, None, true)
-            .map_err(BeaconChainError::from)
+        // [REJECT] The validator is active in the current epoch.
+        //
+        // The spec leaves `state` unbound for this check. The head state is used to avoid
+        // loading a state per proof; on a forked network this may mis-judge validators whose
+        // activation or exit differs on the proof's branch.
+        let current_epoch = ctx
+            .slot_clock
+            .now()
+            .ok_or(BeaconChainError::UnableToReadSlot)
             .map_err(Error::from)?
-            .ok_or(Error::BeaconChainError(Box::new(
-                BeaconChainError::MissingBeaconState(proto_block.state_root),
-            )))?;
-        let validator = state
+            .epoch(T::EthSpec::slots_per_epoch());
+        let head_snapshot = ctx.canonical_head.cached_head().snapshot;
+        let validator = head_snapshot
+            .beacon_state
             .validators()
             .get(validator_index as usize)
             .ok_or(Error::UnknownValidatorIndex(validator_index))?;
-        if !validator.is_active_at(state.current_epoch()) {
+        if !validator.is_active_at(current_epoch) {
             return Err(Error::ValidatorNotActive { validator_index });
         }
 
@@ -160,7 +162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: &self.canonical_head,
             observed_execution_proofs: &self.observed_execution_proofs,
             validator_pubkey_cache: &self.validator_pubkey_cache,
-            store: &self.store,
+            slot_clock: &self.slot_clock,
             proof_engine: &self.proof_engine,
             spec: &self.spec,
             genesis_validators_root: self.genesis_validators_root,
