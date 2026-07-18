@@ -156,17 +156,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .duties_service
                     .spec
                     .get_sync_message_due_at_slot::<S::E>(next_slot);
-                let head_event_root = head_event_or_deadline(
+                let head_event = head_event_or_deadline(
                     &mut head_monitor_rx,
                     &self.slot_clock,
                     duration_to_next_slot + sync_message_due,
                 )
-                .await
-                .map(|event| event.beacon_block_root);
+                .await;
 
-                let Some(current_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock after trigger");
-                    continue;
+                // Take the slot from the trigger itself rather than re-reading the clock: the
+                // validated event slot for the head event arm, or the armed slot for the timer
+                // arm. If a slot boundary passes during triggering, the event still signs for
+                // its own slot and can never suppress the next slot's messages via the dedupe
+                // below.
+                let (current_slot, head_event_root) = match head_event {
+                    Some(event) => (event.slot, Some(event.beacon_block_root)),
+                    None => (next_slot, None),
                 };
 
                 if last_sync_message_slot.is_some_and(|last_slot| current_slot <= last_slot) {
