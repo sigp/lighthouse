@@ -205,7 +205,7 @@ rand = "0.9.0"
 rand_xorshift = "0.4.0"
 rayon = "1.7"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "http2"] }
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.38", features = ["bundled"] }

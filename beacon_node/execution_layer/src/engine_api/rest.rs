@@ -23,9 +23,10 @@ use reqwest::{Client, Method, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Deserialize;
 use ssz::{Decode, Encode};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
+use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
 
 const BASE: &str = "/engine/v1";
@@ -35,6 +36,8 @@ const X_ENGINE_CLIENT_VERSION: &str = "X-Engine-Client-Version";
 // SSZ for hot-path bodies/responses, JSON for the diagnostic endpoints.
 const OCTET_STREAM: &str = "application/octet-stream";
 const APPLICATION_JSON: &str = "application/json";
+const H2_CONNECTION_WINDOW: u32 = 1024 * 1024;
+const H2_STREAM_WINDOW: u32 = 1024 * 1024;
 
 // A single HTTP-standard request timeout applied to every REST call (scaled by
 // `execution_timeout_multiplier`), replacing the JSON-RPC per-method timeout SHOULDs.
@@ -48,6 +51,21 @@ static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+#[derive(Debug, Copy, Clone)]
+pub enum HttpVersion {
+    Http2,
+    Http1
+}
+
+impl HttpVersion {
+    fn as_str(&self) -> &'static str {
+        match self {
+            HttpVersion::Http2 => "http2",
+            HttpVersion::Http1 => "http1",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct JsonProblem {
     #[serde(rename = "type")]
@@ -58,7 +76,9 @@ struct JsonProblem {
 /// A REST + SSZ Engine API client. Mirrors `HttpJsonRpc`, but speaks `/engine/v1/...` with
 /// `application/octet-stream` SSZ bodies and RFC 7807 problem responses.
 pub struct HttpRestSsz {
-    pub client: Client,
+    pub client_h2c: Client,
+    pub client_h1: Client,
+    pub http_version: OnceLock<HttpVersion>,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub ssz_capabilities_cache: Mutex<Option<CachedResponse<SszCapabilities>>>,
@@ -70,9 +90,16 @@ impl HttpRestSsz {
     pub fn new(url: SensitiveUrl, execution_timeout_multiplier: Option<u32>) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client: Client::builder()
+            client_h2c:Client::builder()
+                .timeout(REST_REQUEST_TIMEOUT * execution_timeout_multiplier)
+                .http2_prior_knowledge() 
+                .http2_initial_stream_window_size(H2_STREAM_WINDOW)
+                .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
+                .build()?,
+            client_h1: Client::builder()
                 .timeout(REST_REQUEST_TIMEOUT * execution_timeout_multiplier)
                 .build()?,
+            http_version: OnceLock::new(),
             url,
             execution_timeout_multiplier,
             ssz_capabilities_cache: Mutex::new(None),
@@ -92,6 +119,36 @@ impl HttpRestSsz {
         })
     }
 
+    fn selected_client(&self) -> &Client {
+        match self.http_version.get() {
+            None | Some(HttpVersion::Http2) => &self.client_h2c,
+            Some(HttpVersion::Http1) => &self.client_h1,
+        }
+    }
+
+    /// Probe h2c then latch the REST transport (HTTP/2, else HTTP/1.1), returning capabilities.
+    pub async fn resolve_http_and_get_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        let capabilities = match self.get_engine_capabilities(age_limit).await {
+            Err(e) if e.is_transport_unreachable() => {
+                let _ = self.http_version.set(HttpVersion::Http1);
+                self.get_engine_capabilities(age_limit).await
+            }
+            other => {
+                let _ = self.http_version.set(HttpVersion::Http2);
+                other
+            }
+        };
+        if capabilities.is_ok() {
+            if let Some(version) = self.http_version.get() {
+                info!(transport = version.as_str(), "Selected REST-SSZ engine transport");
+            }
+        }
+        capabilities
+    }
+
     /// The single REST-SSZ transport chokepoint. `Some(bytes)` on `200`, `None` on `204`.
     pub async fn rest_request(
         &self,
@@ -101,14 +158,14 @@ impl HttpRestSsz {
         body: Option<Vec<u8>>,
         accept: &str,
     ) -> Result<Option<Bytes>, Error> {
+        let client = self.selected_client();
         let url = self
             .url
             .expose_full()
             .join(&format!("{BASE}/{path}"))
             .map_err(|e| Error::RequestFailed(format!("failed to build REST url: {e}")))?;
 
-        let mut request = self
-            .client
+        let mut request = client
             .request(method, url)
             .header(ACCEPT, accept)
             .header(X_ENGINE_CLIENT_VERSION, CLIENT_VERSION_HEADER.as_str());
@@ -123,7 +180,13 @@ impl HttpRestSsz {
             request = request.bearer_auth(auth.generate_token()?);
         }
 
-        let response = request.send().await?;
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(e) if e.status().is_none() && !e.is_timeout() => {
+                return Err(Error::TransportUnreachable(e.to_string()));
+            }
+            Err(e) => return Err(e.into()),
+        };
         match response.status() {
             StatusCode::OK => Ok(Some(response.bytes().await?)),
             StatusCode::NO_CONTENT => Ok(None),

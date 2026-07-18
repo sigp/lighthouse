@@ -71,6 +71,7 @@ pub enum Error {
     TooManyConsolidationRequests(usize),
     SszDecode(ssz::DecodeError),
     RestProblem { status: u16, problem: String, detail: Option<String> },
+    TransportUnreachable(String),
     TransportAlreadyResolved(transport::Transport),
 }
 
@@ -121,6 +122,10 @@ impl Error {
     /// A REST `GET /payloads/{id}` 404 whose id the EL has expired (build-bound TTL)
     pub fn is_unknown_payload(&self) -> bool {
         matches!(self, Error::RestProblem { status: 404, problem, .. } if problem == "unknown-payload")
+    }
+
+    pub fn is_transport_unreachable(&self) -> bool {
+        matches!(self, Error::TransportUnreachable(_))
     }
 }
 
@@ -912,5 +917,30 @@ mod tests {
         .is_unknown_payload());
         assert!(!Error::PayloadIdUnavailable.is_unknown_payload());
         assert!(!Error::IsSyncing.is_unknown_payload());
+    }
+
+    #[test]
+    fn is_transport_unreachable_matches_transport_unreachable() {
+        // The h2c -> HTTP/1.1 fallback trigger: a statusless, non-timeout REST send failure.
+        assert!(Error::TransportUnreachable("connection reset".to_string()).is_transport_unreachable());
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_status_bearing_errors() {
+        // Any error carrying an HTTP status means the peer responded over the attempted
+        // transport, so it must never trigger the HTTP/2 -> HTTP/1.1 fallback. A non-2xx status
+        // surfaces as `RestProblem`; a 401/403 surfaces as `Auth` (see `From<reqwest::Error>`).
+        assert!(!rest_problem(400, "unsupported-fork").is_transport_unreachable());
+        assert!(!rest_problem(415, "").is_transport_unreachable());
+        assert!(
+            !Error::Auth(crate::auth::Error::InvalidToken("401".to_string()))
+                .is_transport_unreachable()
+        );
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_non_rest_errors() {
+        assert!(!Error::PayloadIdUnavailable.is_transport_unreachable());
+        assert!(!Error::IsSyncing.is_transport_unreachable());
     }
 }

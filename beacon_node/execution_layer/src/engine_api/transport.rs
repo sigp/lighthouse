@@ -182,7 +182,7 @@ impl EngineApi {
     async fn resolve_transport(&self, age_limit: Option<Duration>) -> Result<EngineCapabilities, EngineApiError> {
         match self.rest.as_ref() {
             Some(rest) => {
-                match rest.get_engine_capabilities(age_limit).await {
+                match rest.resolve_http_and_get_capabilities(age_limit).await {
                     Ok(capabilities) => {
                         self.decision.set(Transport::Rest)?;
                         Ok(capabilities)
