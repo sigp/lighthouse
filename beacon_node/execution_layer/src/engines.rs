@@ -1,11 +1,11 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
+use crate::ClientVersionV1;
 use crate::engine_api::transport::EngineApi;
 use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::ClientVersionV1;
 use hashlink::lru_cache::LruCache;
 use ssz_derive::{Decode, Encode};
 use std::future::Future;
@@ -129,7 +129,7 @@ pub struct Engine<E: EthSpec> {
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<(ForkchoiceState, ForkName)>>,
     executor: TaskExecutor,
-    _phantom: PhantomData<E>
+    _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> Engine<E> {
@@ -141,7 +141,7 @@ impl<E: EthSpec> Engine<E> {
             state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
-            _phantom: PhantomData
+            _phantom: PhantomData,
         }
     }
 
@@ -179,7 +179,7 @@ impl<E: EthSpec> Engine<E> {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-        fork: ForkName
+        fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
@@ -223,7 +223,11 @@ impl<E: EthSpec> Engine<E> {
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated::<E>(forkchoice_state, None, fork).await {
+            if let Err(e) = self
+                .api
+                .forkchoice_updated::<E>(forkchoice_state, None, fork)
+                .await
+            {
                 debug!(
                     error = ?e,
                     "Failed to issue latest head to engine"

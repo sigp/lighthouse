@@ -6669,7 +6669,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 current_slot,
                 head_block_root,
                 head_payload_status,
-                prepare_fork
+                prepare_fork,
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);

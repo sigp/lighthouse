@@ -1,14 +1,14 @@
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 
-use super::*;
 use super::json_structures::RequestsError;
+use super::*;
 use serde::Deserialize;
 use ssz::{Decode, DecodeError};
-use std::collections::HashSet;
+use ssz_derive::{Decode, Encode};
 use ssz_types::{BitVector, VariableList};
+use std::collections::HashSet;
 use superstruct::superstruct;
-use ssz_derive::{Encode, Decode};
-use types::{EthSpec, Transactions};
+use typenum::{U1, U32};
 use types::execution::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
     ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
@@ -18,8 +18,7 @@ use types::{
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
     ForkName,
 };
-use typenum::{U1, U32};
-
+use types::{EthSpec, Transactions};
 
 #[superstruct(
     variants(V1, V2, V3),
@@ -28,40 +27,37 @@ use typenum::{U1, U32};
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz( enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SszExecutionPayloadBody<E: EthSpec> {
     pub transactions: Transactions<E>,
     #[superstruct(only(V2, V3))]
     pub withdrawals: Withdrawals<E>,
     #[superstruct(only(V3))]
-    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>
+    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
 }
 
 impl<E: EthSpec> From<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
-
     fn from(value: SszExecutionPayloadBodyV1<E>) -> Self {
         Self {
             transactions: value.transactions,
-            withdrawals: None
+            withdrawals: None,
         }
     }
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV1<E> {
-
     fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
         Self {
-            transactions: value.transactions
+            transactions: value.transactions,
         }
     }
 }
 
 impl<E: EthSpec> From<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV1<E> {
-
-    fn from(value: SszExecutionPayloadBodyV2<E>) -> Self{
+    fn from(value: SszExecutionPayloadBodyV2<E>) -> Self {
         Self {
             transactions: value.transactions,
-            withdrawals: Some(value.withdrawals)
+            withdrawals: Some(value.withdrawals),
         }
     }
 }
@@ -84,7 +80,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
 
 //SszExecutionPayloadBodyV3 conversion support once block_access_list support is added to ExecutionPayloadBodyV1
 
-type SszExecutionRequests<E> = VariableList<VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>, <E as EthSpec>::MaxExecutionRequestsPerPayload>;
+type SszExecutionRequests<E> = VariableList<
+    VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>,
+    <E as EthSpec>::MaxExecutionRequestsPerPayload,
+>;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
@@ -102,7 +101,7 @@ type SszExecutionRequests<E> = VariableList<VariableList<u8, <E as EthSpec>::Max
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 #[ssz(enum_behaviour = "transparent")]
 pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
-     #[superstruct(
+    #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
     )]
@@ -123,62 +122,84 @@ pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
     pub execution_requests: SszExecutionRequests<E>,
 }
 
-impl<'block,E: EthSpec> From<NewPayloadRequestBellatrix<'block, E>> for SszExecutionPayloadEnvelopeBellatrix<E> {
+impl<'block, E: EthSpec> From<NewPayloadRequestBellatrix<'block, E>>
+    for SszExecutionPayloadEnvelopeBellatrix<E>
+{
     fn from(value: NewPayloadRequestBellatrix<E>) -> Self {
-        Self { execution_payload: value.execution_payload.clone() }
-    }
-}
-
-impl<'block,E: EthSpec> From<NewPayloadRequestCapella<'block, E>> for SszExecutionPayloadEnvelopeCapella<E> {
-    fn from(value: NewPayloadRequestCapella<E>) -> Self {
-        Self { execution_payload: value.execution_payload.clone() }
-    }
-}
-
-impl<'block,E: EthSpec> From<NewPayloadRequestDeneb<'block, E>> for SszExecutionPayloadEnvelopeDeneb<E> {
-    fn from(value: NewPayloadRequestDeneb<'block, E>) -> Self {
-        Self { 
-            execution_payload: value.execution_payload.clone(), 
-            parent_beacon_block_root: value.parent_beacon_block_root 
+        Self {
+            execution_payload: value.execution_payload.clone(),
         }
     }
-} 
+}
 
-impl<'block,E: EthSpec> TryFrom<NewPayloadRequestElectra<'block, E>> for SszExecutionPayloadEnvelopeElectra<E> {
+impl<'block, E: EthSpec> From<NewPayloadRequestCapella<'block, E>>
+    for SszExecutionPayloadEnvelopeCapella<E>
+{
+    fn from(value: NewPayloadRequestCapella<E>) -> Self {
+        Self {
+            execution_payload: value.execution_payload.clone(),
+        }
+    }
+}
+
+impl<'block, E: EthSpec> From<NewPayloadRequestDeneb<'block, E>>
+    for SszExecutionPayloadEnvelopeDeneb<E>
+{
+    fn from(value: NewPayloadRequestDeneb<'block, E>) -> Self {
+        Self {
+            execution_payload: value.execution_payload.clone(),
+            parent_beacon_block_root: value.parent_beacon_block_root,
+        }
+    }
+}
+
+impl<'block, E: EthSpec> TryFrom<NewPayloadRequestElectra<'block, E>>
+    for SszExecutionPayloadEnvelopeElectra<E>
+{
     type Error = ssz_types::Error;
     fn try_from(value: NewPayloadRequestElectra<'block, E>) -> Result<Self, Self::Error> {
         Ok(Self {
             execution_payload: value.execution_payload.clone(),
             parent_beacon_block_root: value.parent_beacon_block_root,
-            execution_requests: execution_requests_to_ssz(ExecutionRequests::Electra(value.execution_requests.clone()))?
+            execution_requests: execution_requests_to_ssz(ExecutionRequests::Electra(
+                value.execution_requests.clone(),
+            ))?,
         })
     }
 }
 
-impl<'block,E: EthSpec> TryFrom<NewPayloadRequestFulu<'block, E>> for SszExecutionPayloadEnvelopeFulu<E> {
+impl<'block, E: EthSpec> TryFrom<NewPayloadRequestFulu<'block, E>>
+    for SszExecutionPayloadEnvelopeFulu<E>
+{
     type Error = ssz_types::Error;
     fn try_from(value: NewPayloadRequestFulu<'block, E>) -> Result<Self, Self::Error> {
         Ok(Self {
             execution_payload: value.execution_payload.clone(),
             parent_beacon_block_root: value.parent_beacon_block_root,
-            execution_requests: execution_requests_to_ssz(ExecutionRequests::Electra(value.execution_requests.clone()))?
+            execution_requests: execution_requests_to_ssz(ExecutionRequests::Electra(
+                value.execution_requests.clone(),
+            ))?,
         })
     }
 }
 
-impl<'block,E: EthSpec> TryFrom<NewPayloadRequestGloas<'block, E>> for SszExecutionPayloadEnvelopeGloas<E> {
+impl<'block, E: EthSpec> TryFrom<NewPayloadRequestGloas<'block, E>>
+    for SszExecutionPayloadEnvelopeGloas<E>
+{
     type Error = ssz_types::Error;
     fn try_from(value: NewPayloadRequestGloas<'block, E>) -> Result<Self, Self::Error> {
         Ok(Self {
             execution_payload: value.execution_payload.clone(),
             parent_beacon_block_root: value.parent_beacon_block_root,
-            execution_requests: execution_requests_to_ssz(ExecutionRequests::Gloas(value.execution_requests.clone()))?
+            execution_requests: execution_requests_to_ssz(ExecutionRequests::Gloas(
+                value.execution_requests.clone(),
+            ))?,
         })
     }
 }
 
 fn execution_requests_to_ssz<E>(
-    req: ExecutionRequests<E>
+    req: ExecutionRequests<E>,
 ) -> Result<SszExecutionRequests<E>, ssz_types::Error>
 where
     E: EthSpec,
@@ -232,8 +253,8 @@ where
         }
 
         // Elements of the list **MUST** be ordered by `request_type` in ascending order.
-        let current_prefix = RequestType::from_u8(*prefix_byte)
-            .ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
+        let current_prefix =
+            RequestType::from_u8(*prefix_byte).ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
         if let Some(prev) = prev_prefix
             && prev.to_u8() >= current_prefix.to_u8()
         {
@@ -269,8 +290,8 @@ where
                     })?;
             }
             RequestType::BuilderDeposit => {
-                builder_deposits =
-                    BuilderDepositRequests::<E>::from_ssz_bytes(request_data).map_err(|e| {
+                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_data)
+                    .map_err(|e| {
                         RequestsError::DecodeError(format!(
                             "Failed to decode BuilderDepositRequest from EL: {:?}",
                             e
@@ -338,7 +359,7 @@ where
 pub struct SszPayloadStatusV1<E: EthSpec> {
     pub payload_status: u8,
     pub latest_valid_hash: VariableList<Hash256, U1>,
-    pub validation_error: VariableList<VariableList<u8, E::MaxErrorBytes>, U1>
+    pub validation_error: VariableList<VariableList<u8, E::MaxErrorBytes>, U1>,
 }
 
 impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
@@ -353,13 +374,18 @@ impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
             other => return Err(format!("invalid payload status {other} from EL")),
         };
 
-        Ok(
-            Self { 
-                status, 
-                latest_valid_hash: value.latest_valid_hash.first().copied().map(ExecutionBlockHash::from_root), 
-                validation_error: value.validation_error.first().map(|bytes| String::from_utf8_lossy(bytes).into_owned()) 
-            }
-        )
+        Ok(Self {
+            status,
+            latest_valid_hash: value
+                .latest_valid_hash
+                .first()
+                .copied()
+                .map(ExecutionBlockHash::from_root),
+            validation_error: value
+                .validation_error
+                .first()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+        })
     }
 }
 
@@ -373,23 +399,29 @@ impl<E: EthSpec> TryFrom<PayloadStatusV1> for SszPayloadStatusV1<E> {
             PayloadStatusV1Status::Syncing => 2,
             PayloadStatusV1Status::Accepted => 3,
             // INVALID_BLOCK_HASH is folded into INVALID on the wire
-            PayloadStatusV1Status::InvalidBlockHash => 1
+            PayloadStatusV1Status::InvalidBlockHash => 1,
         };
-        let latest_valid_hash = 
-            VariableList::new(value.latest_valid_hash.map(|h| h.into_root()).into_iter().collect())?;
+        let latest_valid_hash = VariableList::new(
+            value
+                .latest_valid_hash
+                .map(|h| h.into_root())
+                .into_iter()
+                .collect(),
+        )?;
 
         let validation_error = VariableList::new(
-            value.validation_error
+            value
+                .validation_error
                 .map(|s| VariableList::new(s.into_bytes()))
                 .transpose()?
                 .into_iter()
                 .collect(),
         )?;
 
-        Ok(Self { 
-            payload_status: status, 
-            latest_valid_hash, 
-            validation_error 
+        Ok(Self {
+            payload_status: status,
+            latest_valid_hash,
+            validation_error,
         })
     }
 }
@@ -430,14 +462,21 @@ pub struct SszGetPayloadResponse<E: EthSpec> {
 impl<E: EthSpec> SszGetPayloadResponse<E> {
     pub fn from_ssz_bytes_by_fork(bytes: &[u8], fork: ForkName) -> Result<Self, DecodeError> {
         match fork {
-            ForkName::Bellatrix => SszGetPayloadResponseBellatrix::from_ssz_bytes(bytes).map(Self::Bellatrix),
-            ForkName::Capella => SszGetPayloadResponseCapella::from_ssz_bytes(bytes).map(Self::Capella),
+            ForkName::Bellatrix => {
+                SszGetPayloadResponseBellatrix::from_ssz_bytes(bytes).map(Self::Bellatrix)
+            }
+            ForkName::Capella => {
+                SszGetPayloadResponseCapella::from_ssz_bytes(bytes).map(Self::Capella)
+            }
             ForkName::Deneb => SszGetPayloadResponseDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
-            ForkName::Electra => SszGetPayloadResponseElectra::from_ssz_bytes(bytes).map(Self::Electra),
+            ForkName::Electra => {
+                SszGetPayloadResponseElectra::from_ssz_bytes(bytes).map(Self::Electra)
+            }
             ForkName::Fulu => SszGetPayloadResponseFulu::from_ssz_bytes(bytes).map(Self::Fulu),
             ForkName::Gloas => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
-            ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(
-                format!("unsupported fork for get_payload response: {fork}"))),
+            ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
+                "unsupported fork for get_payload response: {fork}"
+            ))),
         }
     }
 }
@@ -449,55 +488,54 @@ impl<E: EthSpec> TryFrom<SszGetPayloadResponse<E>> for GetPayloadResponse<E> {
         match value {
             SszGetPayloadResponse::Bellatrix(response) => {
                 Ok(GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
-                    execution_payload: response.execution_payload, 
-                    block_value: response.block_value
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
                 }))
-            },
+            }
             SszGetPayloadResponse::Capella(response) => {
                 Ok(GetPayloadResponse::Capella(GetPayloadResponseCapella {
-                    execution_payload: response.execution_payload, 
-                    block_value: response.block_value
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
                 }))
-            },
+            }
             SszGetPayloadResponse::Deneb(response) => {
                 Ok(GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
-                    execution_payload: response.execution_payload, 
+                    execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
-                    should_override_builder: response.should_override_builder
+                    should_override_builder: response.should_override_builder,
                 }))
-            },
+            }
             SszGetPayloadResponse::Electra(response) => {
                 Ok(GetPayloadResponse::Electra(GetPayloadResponseElectra {
                     execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
                     should_override_builder: response.should_override_builder,
-                    requests: execution_requests_electra_from_ssz(response.requests)?
+                    requests: execution_requests_electra_from_ssz(response.requests)?,
                 }))
-            },
+            }
             SszGetPayloadResponse::Fulu(response) => {
                 Ok(GetPayloadResponse::Fulu(GetPayloadResponseFulu {
                     execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
                     should_override_builder: response.should_override_builder,
-                    requests: execution_requests_electra_from_ssz(response.requests)?
+                    requests: execution_requests_electra_from_ssz(response.requests)?,
                 }))
-            },
+            }
             SszGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
                     execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
                     should_override_builder: response.should_override_builder,
-                    requests: execution_requests_gloas_from_ssz(response.requests)?
+                    requests: execution_requests_gloas_from_ssz(response.requests)?,
                 }))
             }
         }
     }
 }
-
 
 /// Pre-Amsterdam SSZ `engine_forkchoiceUpdated` request body.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -552,7 +590,7 @@ impl<E: EthSpec> TryFrom<SszForkchoiceUpdatedResponse<E>> for ForkchoiceUpdatedR
     fn try_from(value: SszForkchoiceUpdatedResponse<E>) -> Result<Self, Self::Error> {
         Ok(Self {
             payload_status: PayloadStatusV1::try_from(value.payload_status)?,
-            payload_id: value.payload_id.first().copied()
+            payload_id: value.payload_id.first().copied(),
         })
     }
 }
@@ -561,9 +599,9 @@ impl<E: EthSpec> TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResp
     type Error = ssz_types::Error;
 
     fn try_from(value: ForkchoiceUpdatedResponse) -> Result<Self, Self::Error> {
-        Ok(Self { 
-            payload_status: SszPayloadStatusV1::try_from(value.payload_status)?, 
-            payload_id: VariableList::new(value.payload_id.into_iter().collect())?
+        Ok(Self {
+            payload_status: SszPayloadStatusV1::try_from(value.payload_status)?,
+            payload_id: VariableList::new(value.payload_id.into_iter().collect())?,
         })
     }
 }
@@ -575,30 +613,29 @@ impl<E: EthSpec> TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResp
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz( enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SszBlobsRequest<E: EthSpec> {
     pub versioned_hashes: VariableList<Hash256, E::MaxVersionedHashesPerRequest>,
     #[superstruct(only(V2))]
-    pub indices_bitarray: BitVector<E::CellsPerExtBlob>
+    pub indices_bitarray: BitVector<E::CellsPerExtBlob>,
 }
 
 impl<E: EthSpec> SszBlobsRequest<E> {
     pub fn new_blobs_request_v1(
-        versioned_hashes: Vec<Hash256>
-    )-> Result<SszBlobsRequestV1<E>, ssz_types::Error>
-    {
-        Ok(SszBlobsRequestV1 { 
-            versioned_hashes: VariableList::new(versioned_hashes)? 
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<SszBlobsRequestV1<E>, ssz_types::Error> {
+        Ok(SszBlobsRequestV1 {
+            versioned_hashes: VariableList::new(versioned_hashes)?,
         })
     }
 
     pub fn new_blobs_request_v2(
         versioned_hashes: Vec<Hash256>,
-        indices_bitarray: BitVector<E::CellsPerExtBlob>
+        indices_bitarray: BitVector<E::CellsPerExtBlob>,
     ) -> Result<SszBlobsRequestV2<E>, ssz_types::Error> {
-        Ok(SszBlobsRequestV2 { 
-            versioned_hashes: VariableList::new(versioned_hashes)? ,
-            indices_bitarray
+        Ok(SszBlobsRequestV2 {
+            versioned_hashes: VariableList::new(versioned_hashes)?,
+            indices_bitarray,
         })
     }
 }
@@ -634,13 +671,13 @@ impl<E: EthSpec> SszBlobsResponse<E> {
 
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 pub struct SszBodiesByHashRequest {
-    pub block_hashes: VariableList<Hash256, U32>
+    pub block_hashes: VariableList<Hash256, U32>,
 }
 
 impl SszBodiesByHashRequest {
     pub fn new(block_hashes: Vec<Hash256>) -> Result<Self, ssz_types::Error> {
         Ok(Self {
-            block_hashes: VariableList::new(block_hashes)?
+            block_hashes: VariableList::new(block_hashes)?,
         })
     }
 }
@@ -689,10 +726,7 @@ pub struct SszBodiesResponse<E: EthSpec> {
 }
 
 impl<E: EthSpec> SszBodiesResponse<E> {
-    pub fn from_ssz_bytes_by_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, DecodeError> {
+    pub fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for execution payload bodies: {fork_name}"
@@ -710,12 +744,20 @@ impl<E: EthSpec> SszBodiesResponse<E> {
             Self::V1(resp) => Ok(resp
                 .entries
                 .into_iter()
-                .map(|entry| entry.available.then(|| ExecutionPayloadBodyV1::from(entry.body)))
+                .map(|entry| {
+                    entry
+                        .available
+                        .then(|| ExecutionPayloadBodyV1::from(entry.body))
+                })
                 .collect()),
             Self::V2(resp) => Ok(resp
                 .entries
                 .into_iter()
-                .map(|entry| entry.available.then(|| ExecutionPayloadBodyV1::from(entry.body)))
+                .map(|entry| {
+                    entry
+                        .available
+                        .then(|| ExecutionPayloadBodyV1::from(entry.body))
+                })
                 .collect()),
             // FIXME(rest-ssz): needs `ExecutionPayloadBodyV1 += block_access_list: Option<..>`
             // plus a `From<SszExecutionPayloadBodyV3>` before Amsterdam bodies can be mapped.

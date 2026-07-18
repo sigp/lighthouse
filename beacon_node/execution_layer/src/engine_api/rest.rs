@@ -54,7 +54,7 @@ static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
 #[derive(Debug, Copy, Clone)]
 pub enum HttpVersion {
     Http2,
-    Http1
+    Http1,
 }
 
 impl HttpVersion {
@@ -87,12 +87,15 @@ pub struct HttpRestSsz {
 }
 
 impl HttpRestSsz {
-    pub fn new(url: SensitiveUrl, execution_timeout_multiplier: Option<u32>) -> Result<Self, Error> {
+    pub fn new(
+        url: SensitiveUrl,
+        execution_timeout_multiplier: Option<u32>,
+    ) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client_h2c:Client::builder()
+            client_h2c: Client::builder()
                 .timeout(REST_REQUEST_TIMEOUT * execution_timeout_multiplier)
-                .http2_prior_knowledge() 
+                .http2_prior_knowledge()
                 .http2_initial_stream_window_size(H2_STREAM_WINDOW)
                 .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
                 .build()?,
@@ -143,7 +146,10 @@ impl HttpRestSsz {
         };
         if capabilities.is_ok() {
             if let Some(version) = self.http_version.get() {
-                info!(transport = version.as_str(), "Selected REST-SSZ engine transport");
+                info!(
+                    transport = version.as_str(),
+                    "Selected REST-SSZ engine transport"
+                );
             }
         }
         capabilities
@@ -264,7 +270,11 @@ impl HttpRestSsz {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
-        if !self.get_ssz_capabilities(None).await?.get_client_version_v1() {
+        if !self
+            .get_ssz_capabilities(None)
+            .await?
+            .get_client_version_v1()
+        {
             return Ok(vec![]);
         }
         let mut lock = self.engine_version_cache.lock().await;
@@ -313,11 +323,18 @@ impl HttpRestSsz {
         };
 
         let response = self
-            .rest_request(Method::POST, "payloads", Some(fork), Some(body), OCTET_STREAM)
+            .rest_request(
+                Method::POST,
+                "payloads",
+                Some(fork),
+                Some(body),
+                OCTET_STREAM,
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads".to_string()))?;
 
-        let status = SszPayloadStatusV1::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let status =
+            SszPayloadStatusV1::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         PayloadStatusV1::try_from(status).map_err(Error::BadResponse)
     }
 
@@ -335,17 +352,26 @@ impl HttpRestSsz {
         };
 
         let response = self
-            .rest_request(Method::POST, "forkchoice", Some(fork), Some(body), OCTET_STREAM)
+            .rest_request(
+                Method::POST,
+                "forkchoice",
+                Some(fork),
+                Some(body),
+                OCTET_STREAM,
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /forkchoice".to_string()))?;
 
-        let ssz_response =
-            SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let ssz_response = SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes(&response)
+            .map_err(Error::SszDecode)?;
         let response =
             ForkchoiceUpdatedResponse::try_from(ssz_response).map_err(Error::BadResponse)?;
 
         // `/forkchoice` MUST NOT return ACCEPTED; treat a `3` as a non-conformant EL error.
-        if matches!(response.payload_status.status, PayloadStatusV1Status::Accepted) {
+        if matches!(
+            response.payload_status.status,
+            PayloadStatusV1Status::Accepted
+        ) {
             return Err(Error::BadResponse(
                 "forkchoiceUpdated returned ACCEPTED, which is not a valid forkchoice status"
                     .to_string(),
@@ -368,7 +394,8 @@ impl HttpRestSsz {
 
         let built_payload = SszGetPayloadResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
             .map_err(Error::SszDecode)?;
-        GetPayloadResponse::try_from(built_payload).map_err(|e| Error::BadResponse(format!("{e:?}")))
+        GetPayloadResponse::try_from(built_payload)
+            .map_err(|e| Error::BadResponse(format!("{e:?}")))
     }
 
     pub async fn get_blobs_v2<E: EthSpec>(
@@ -382,7 +409,8 @@ impl HttpRestSsz {
         else {
             return Ok(None);
         };
-        let response = SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let response =
+            SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         Ok(Some(response.into_v2()))
     }
 
@@ -397,7 +425,8 @@ impl HttpRestSsz {
         else {
             return Ok(None);
         };
-        let response = SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let response =
+            SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         Ok(Some(response.into_v3()))
     }
 
@@ -406,10 +435,19 @@ impl HttpRestSsz {
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let block_hashes = block_hashes.into_iter().map(|hash| hash.into_root()).collect();
+        let block_hashes = block_hashes
+            .into_iter()
+            .map(|hash| hash.into_root())
+            .collect();
         let body = SszBodiesByHashRequest::new(block_hashes)?.as_ssz_bytes();
         let response = self
-            .rest_request(Method::POST, "bodies/hash", Some(fork), Some(body), OCTET_STREAM)
+            .rest_request(
+                Method::POST,
+                "bodies/hash",
+                Some(fork),
+                Some(body),
+                OCTET_STREAM,
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies/hash".to_string()))?;
 
@@ -483,8 +521,9 @@ mod tests {
                 "payload.max_bytes": 67108864
             }
         }"#;
-        let capabilities: SszCapabilities =
-            serde_json::from_str::<JsonCapabilities>(body).unwrap().into();
+        let capabilities: SszCapabilities = serde_json::from_str::<JsonCapabilities>(body)
+            .unwrap()
+            .into();
 
         for fork in [
             ForkName::Bellatrix,
@@ -521,8 +560,9 @@ mod tests {
             "independently_versioned": { "blobs": [] },
             "unscoped_endpoints": []
         }"#;
-        let capabilities: SszCapabilities =
-            serde_json::from_str::<JsonCapabilities>(body).unwrap().into();
+        let capabilities: SszCapabilities = serde_json::from_str::<JsonCapabilities>(body)
+            .unwrap()
+            .into();
 
         // Unrecognised forks are dropped rather than rejected.
         assert!(capabilities.supported_forks.contains(&ForkName::Gloas));

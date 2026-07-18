@@ -982,7 +982,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 slot - 1,
                 head_block_root,
                 head_payload_status,
-                fork
+                fork,
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;

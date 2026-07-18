@@ -67,7 +67,7 @@ impl<E: EthSpec> BlockParts<E> {
     pub fn new(
         fork: ForkName,
         blinded: Box<SignedBlindedBeaconBlock<E>>,
-        header: ExecutionPayloadHeader<E>
+        header: ExecutionPayloadHeader<E>,
     ) -> Self {
         Self {
             fork,

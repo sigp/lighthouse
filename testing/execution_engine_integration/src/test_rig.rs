@@ -737,7 +737,8 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 
     assert!(
         // if the engine doesn't have these capabilities, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash(TEST_FORK) && capabilities.get_payload_bodies_by_range(TEST_FORK),
+        capabilities.get_payload_bodies_by_hash(TEST_FORK)
+            && capabilities.get_payload_bodies_by_range(TEST_FORK),
         "Testing engine does not support payload bodies methods"
     );
 

@@ -256,8 +256,8 @@ mod tests {
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
     use eth2::types::GraffitiPolicy;
-    use execution_layer::{EngineCapabilities, JsonRpcCapabilities};
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_JSON_RPC_CAPABILITIES};
+    use execution_layer::{EngineCapabilities, JsonRpcCapabilities};
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;

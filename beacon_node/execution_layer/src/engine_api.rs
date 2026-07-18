@@ -10,6 +10,7 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -23,7 +24,6 @@ use types::{
     KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
-use ssz_derive::{Encode, Decode};
 
 pub mod auth;
 pub mod http;
@@ -52,7 +52,10 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage { code: i64, message: String },
+    ServerMessage {
+        code: i64,
+        message: String,
+    },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -70,7 +73,11 @@ pub enum Error {
     InvalidClientVersion(String),
     TooManyConsolidationRequests(usize),
     SszDecode(ssz::DecodeError),
-    RestProblem { status: u16, problem: String, detail: Option<String> },
+    RestProblem {
+        status: u16,
+        problem: String,
+        detail: Option<String>,
+    },
     TransportUnreachable(String),
     TransportAlreadyResolved(transport::Transport),
 }
@@ -684,7 +691,7 @@ impl EngineCapabilities {
     pub fn to_response(&self) -> Vec<&str> {
         match self {
             Self::JsonRpc(capabilities) => capabilities.to_response(),
-            Self::Ssz(_capabilities) => vec![]
+            Self::Ssz(_capabilities) => vec![],
         }
     }
 }
@@ -910,11 +917,13 @@ mod tests {
     fn is_unknown_payload_rejects_non_rest_errors() {
         // JSON-RPC / non-REST errors never match, so the JSON-RPC path never enters the retry arm.
         // `ServerMessage` is a JSON-RPC error response from the EL — the closest JSON-RPC analogue.
-        assert!(!Error::ServerMessage {
-            code: -38001,
-            message: "Unknown payload".to_string(),
-        }
-        .is_unknown_payload());
+        assert!(
+            !Error::ServerMessage {
+                code: -38001,
+                message: "Unknown payload".to_string(),
+            }
+            .is_unknown_payload()
+        );
         assert!(!Error::PayloadIdUnavailable.is_unknown_payload());
         assert!(!Error::IsSyncing.is_unknown_payload());
     }
@@ -922,7 +931,9 @@ mod tests {
     #[test]
     fn is_transport_unreachable_matches_transport_unreachable() {
         // The h2c -> HTTP/1.1 fallback trigger: a statusless, non-timeout REST send failure.
-        assert!(Error::TransportUnreachable("connection reset".to_string()).is_transport_unreachable());
+        assert!(
+            Error::TransportUnreachable("connection reset".to_string()).is_transport_unreachable()
+        );
     }
 
     #[test]

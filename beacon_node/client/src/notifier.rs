@@ -3,9 +3,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, ExecutionStatus,
     bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
-use execution_layer::{
-    EngineCapabilities
-};
+use execution_layer::EngineCapabilities;
 use lighthouse_network::{NetworkGlobals, types::SyncState};
 use logging::crit;
 use slot_clock::SlotClock;
@@ -508,7 +506,7 @@ fn methods_required_for_fork(
     capabilities: &EngineCapabilities,
 ) -> Vec<&'static str> {
     let mut missing_methods = vec![];
-    
+
     match fork {
         ForkName::Base | ForkName::Altair | ForkName::Bellatrix => {
             warn!(

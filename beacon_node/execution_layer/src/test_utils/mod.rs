@@ -61,7 +61,8 @@ pub const DEFAULT_JSON_RPC_CAPABILITIES: JsonRpcCapabilities = JsonRpcCapabiliti
     get_blobs_v3: true,
 };
 
-pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities::JsonRpc(DEFAULT_JSON_RPC_CAPABILITIES);
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities =
+    EngineCapabilities::JsonRpc(DEFAULT_JSON_RPC_CAPABILITIES);
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     LazyLock::new(|| JsonClientVersionV1 {

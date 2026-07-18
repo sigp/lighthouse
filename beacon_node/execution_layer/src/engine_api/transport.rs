@@ -11,9 +11,9 @@ use crate::rest::HttpRestSsz;
 use crate::{ClientVersionV1, HttpJsonRpc};
 use std::sync::OnceLock;
 use std::time::Duration;
-use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
 use tokio::sync::Mutex;
 use tracing::warn;
+use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
 #[derive(Debug)]
@@ -28,7 +28,7 @@ pub struct EngineApi {
     json_rpc: HttpJsonRpc,
     rest: Option<HttpRestSsz>,
     decision: OnceLock<Transport>,
-    fcu_lock: Mutex<()>
+    fcu_lock: Mutex<()>,
 }
 
 impl EngineApi {
@@ -37,7 +37,7 @@ impl EngineApi {
             json_rpc,
             rest,
             decision: OnceLock::new(),
-            fcu_lock: Mutex::new(())
+            fcu_lock: Mutex::new(()),
         }
     }
 
@@ -75,15 +75,20 @@ impl EngineApi {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-        fork: ForkName
+        fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         match self.active_rest() {
             Some(rest) => {
                 // At most one POST /forkchoice in flight based on REST-SSZ spec.
                 let _fcu_guard = self.fcu_lock.lock().await;
-                rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes).await
-            },
-            None => self.json_rpc.forkchoice_updated(forkchoice_state, payload_attributes).await,
+                rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes)
+                    .await
+            }
+            None => {
+                self.json_rpc
+                    .forkchoice_updated(forkchoice_state, payload_attributes)
+                    .await
+            }
         }
     }
 
@@ -93,8 +98,15 @@ impl EngineApi {
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
         match self.active_rest() {
-            Some(rest) => rest.get_payload_bodies_by_hash::<E>(fork, block_hashes).await,
-            None => self.json_rpc.get_payload_bodies_by_hash_v1(block_hashes).await,
+            Some(rest) => {
+                rest.get_payload_bodies_by_hash::<E>(fork, block_hashes)
+                    .await
+            }
+            None => {
+                self.json_rpc
+                    .get_payload_bodies_by_hash_v1(block_hashes)
+                    .await
+            }
         }
     }
 
@@ -105,8 +117,15 @@ impl EngineApi {
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
         match self.active_rest() {
-            Some(rest) => rest.get_payload_bodies_by_range::<E>(fork, start, count).await,
-            None => self.json_rpc.get_payload_bodies_by_range_v1(start, count).await,
+            Some(rest) => {
+                rest.get_payload_bodies_by_range::<E>(fork, start, count)
+                    .await
+            }
+            None => {
+                self.json_rpc
+                    .get_payload_bodies_by_range_v1(start, count)
+                    .await
+            }
         }
     }
 
@@ -130,13 +149,13 @@ impl EngineApi {
         }
     }
 
-    pub async fn get_engine_capabilities(&self, age_limit: Option<Duration>)
-    -> Result<EngineCapabilities, EngineApiError>
-    {
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, EngineApiError> {
         if self.decision.get().is_none() {
             self.resolve_transport(age_limit).await
-        }
-        else {
+        } else {
             match self.active_rest() {
                 Some(rest) => rest.get_engine_capabilities(age_limit).await,
                 None => self.json_rpc.get_engine_capabilities(age_limit).await,
@@ -179,7 +198,10 @@ impl EngineApi {
         }
     }
 
-    async fn resolve_transport(&self, age_limit: Option<Duration>) -> Result<EngineCapabilities, EngineApiError> {
+    async fn resolve_transport(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, EngineApiError> {
         match self.rest.as_ref() {
             Some(rest) => {
                 match rest.resolve_http_and_get_capabilities(age_limit).await {
@@ -195,7 +217,7 @@ impl EngineApi {
                         Ok(capabilities)
                     }
                 }
-            },
+            }
             None => {
                 let capabilities = self.json_rpc.get_engine_capabilities(age_limit).await?;
                 self.decision.set(Transport::JsonRpcOnly)?;

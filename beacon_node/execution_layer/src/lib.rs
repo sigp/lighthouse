@@ -13,9 +13,9 @@ use bls::{PublicKeyBytes, Signature};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
+use engine_api::transport::EngineApi;
 pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz};
-use engine_api::transport::EngineApi;
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -521,7 +521,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
-            engine_api_rest_ssz
+            engine_api_rest_ssz,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -562,7 +562,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let rest_ssz = if engine_api_rest_ssz {
                 let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), jwt_version.clone());
-                Some(HttpRestSsz::new_with_auth(execution_url.clone(), rest_auth, execution_timeout_multiplier).map_err(Error::ApiError)?)
+                Some(
+                    HttpRestSsz::new_with_auth(
+                        execution_url.clone(),
+                        rest_auth,
+                        execution_timeout_multiplier,
+                    )
+                    .map_err(Error::ApiError)?,
+                )
             } else {
                 None
             };
@@ -1583,7 +1590,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
-        fork: ForkName
+        fork: ForkName,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1707,7 +1714,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(|engine: &Engine<E>| async move {
-                engine.api.get_payload_bodies_by_hash::<E>(fork, hashes).await
+                engine
+                    .api
+                    .get_payload_bodies_by_hash::<E>(fork, hashes)
+                    .await
             })
             .await
             .map_err(Box::new)
@@ -1769,7 +1779,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
         if capabilities.get_payload_bodies_by_range(fork) {
-            let mut payload_bodies = self.get_payload_bodies_by_range(fork, block_number, 1).await?;
+            let mut payload_bodies = self
+                .get_payload_bodies_by_range(fork, block_number, 1)
+                .await?;
 
             if payload_bodies.len() != 1 {
                 return Ok(None);
