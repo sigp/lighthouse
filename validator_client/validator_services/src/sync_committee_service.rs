@@ -40,6 +40,16 @@ fn delay_until_slot_offset<T: SlotClock>(
     Some(due_at.saturating_sub(now))
 }
 
+/// The next slot and the duration until it starts, derived from a single clock read so that a
+/// slot boundary passing between reads cannot pair one slot's start with another slot's due
+/// point.
+fn next_slot_with_duration<T: SlotClock>(slot_clock: &T) -> Option<(Slot, Duration)> {
+    let now = slot_clock.now_duration()?;
+    let next_slot = slot_clock.slot_of(now)? + 1;
+    let duration_to_next_slot = slot_clock.start_of(next_slot)?.saturating_sub(now);
+    Some((next_slot, duration_to_next_slot))
+}
+
 pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static> {
     inner: Arc<Inner<S, T>>,
 }
@@ -132,10 +142,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             let mut head_monitor_rx = self.head_monitor_rx.lock().await.take();
             let mut last_sync_message_slot: Option<Slot> = None;
             loop {
-                let Some((duration_to_next_slot, next_slot)) = self
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .zip(self.slot_clock.now().map(|slot| slot + 1))
+                let Some((next_slot, duration_to_next_slot)) =
+                    next_slot_with_duration(&self.slot_clock)
                 else {
                     error!("Failed to read slot clock");
                     sleep(slot_duration).await;
@@ -171,7 +179,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     continue;
                 }
 
-                match self.spawn_contribution_tasks(head_event_root).await {
+                match self
+                    .spawn_contribution_tasks(current_slot, head_event_root)
+                    .await
+                {
                     Ok(()) => {
                         last_sync_message_slot = Some(current_slot);
                         trace!("Spawned sync contribution tasks");
@@ -195,10 +206,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
     async fn spawn_contribution_tasks(
         &self,
-        head_event_root: Option<Hash256>,
+        slot: Slot,
+        mut head_event_root: Option<Hash256>,
     ) -> Result<(), String> {
         let spec = &self.duties_service.spec;
-        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
         let mut slot_duties = self
             .duties_service
@@ -220,6 +231,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 .duties_service
                 .sync_duties
                 .get_duties_for_slot::<S::E>(slot, spec);
+
+            // The head may have changed while sleeping, so discard the event root and fall
+            // back to a fresh head lookup below.
+            head_event_root = None;
         }
 
         let Some(slot_duties) = slot_duties else {
@@ -871,6 +886,13 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn duties_available_before_deadline_are_retried_once() {
         let mut harness = TestHarness::new(true).await;
+        // The head may have changed during the retry sleep, so the retry discards the event
+        // root (11) and fetches the current head from the beacon node instead.
+        let expected_root = Hash256::from_low_u64_be(33);
+        let root_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_head_block_root(expected_root);
         let post_mock = harness
             .harness
             .mock_beacon_node_1
@@ -890,7 +912,8 @@ mod tests {
 
         let messages = harness.messages();
         assert_eq!(messages[0].slot, Slot::new(0));
-        assert_eq!(messages[0].beacon_block_root, Hash256::from_low_u64_be(11));
+        assert_eq!(messages[0].beacon_block_root, expected_root);
+        root_mock.expect(1).assert();
         post_mock.expect(1).assert();
     }
 
