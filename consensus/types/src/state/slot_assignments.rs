@@ -58,18 +58,25 @@ impl WindowEpoch {
         }
     }
 
-    /// The committee cache for this window position. `Current`/`Previous` are read from the state's
-    /// caches; `PrevPrev` has no cached slot in the state, so its shuffling is recomputed.
+    /// The committee cache for this window position. `Current`/`Previous` are read from the
+    /// state's caches when built, falling back to recomputing the shuffling; `PrevPrev` has no
+    /// cached slot in the state, so its shuffling is always recomputed.
     fn committee_cache<E: EthSpec>(
         self,
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
-        match self {
-            Self::Current => Ok(state.committee_cache(RelativeEpoch::Current)?.clone()),
-            Self::Previous => Ok(state.committee_cache(RelativeEpoch::Previous)?.clone()),
-            Self::PrevPrev => state.initialize_committee_cache(self.epoch(state), spec),
+        let relative_epoch = match self {
+            Self::Current => Some(RelativeEpoch::Current),
+            Self::Previous => Some(RelativeEpoch::Previous),
+            Self::PrevPrev => None,
+        };
+        if let Some(relative_epoch) = relative_epoch
+            && let Ok(cache) = state.committee_cache(relative_epoch)
+        {
+            return Ok(cache.clone());
         }
+        state.initialize_committee_cache(self.epoch(state), spec)
     }
 }
 
