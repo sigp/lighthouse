@@ -766,29 +766,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Update the shared slot-assignments cache from the pulled-up head state while we still
         // hold the fork choice read lock. This runs even when the head hasn't changed so the
-        // cache rotates at epoch boundaries; errors must never affect consensus.
-        //
-        // Skip while the head is more than `MAX_ADVANCE_DISTANCE` behind wall-clock (deep
-        // sync): the state-advance timer won't have cached the pulled-up head state, so
-        // proceeding would force an expensive load+advance under the fork-choice lock.
-        let head_state_and_assignments =
-            if new_head_proto_block.slot.as_u64() + MAX_ADVANCE_DISTANCE >= current_slot.as_u64() {
-                match self.update_head_slot_assignments(
-                    current_slot,
-                    new_view.head_block_root,
-                    new_head_proto_block.state_root,
-                ) {
-                    Ok(head_state_and_assignments) => Some(head_state_and_assignments),
-                    Err(e) => {
-                        let label: &'static str = (&e).into();
-                        metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
-                        error!("Error updating head slot assignments: {e:?}");
-                        None
-                    }
-                }
-            } else {
-                None
-            };
+        // cache rotates at epoch boundaries. `None` means the cache was left stale (deep sync
+        // or error).
+        let head_state_and_assignments = self.update_head_slot_assignments(
+            current_slot,
+            new_head_proto_block.slot,
+            new_view.head_block_root,
+            new_head_proto_block.state_root,
+        );
 
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR must run even when the head hasn't changed, because new attestations may advance
@@ -1027,24 +1012,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Fetch the pulled-up head state and rebuild the shared slot-assignments cache from it
-    /// when the head's current-epoch shuffling has changed. Errors must never affect
-    /// consensus, so on failure the caller logs and skips the update this tick.
+    /// when the head's current-epoch shuffling has changed, returning the state and a clone
+    /// of the up-to-date cache.
     ///
-    /// Returns the state and a clone of the up-to-date cache.
+    /// Returns `None` without updating when the head is more than `MAX_ADVANCE_DISTANCE`
+    /// behind wall-clock (deep sync: the state-advance timer won't have cached the pulled-up
+    /// head state, so proceeding would force an expensive load+advance under the fork-choice
+    /// lock) or when the update fails (logged and counted; errors never abort head
+    /// recomputation). In both cases the cache is left stale — consumers must verify its
+    /// `key()` before making consensus-affecting decisions on it.
     fn update_head_slot_assignments(
         &self,
         current_slot: Slot,
+        head_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
-    ) -> Result<(BeaconState<T::EthSpec>, SlotAssignments), FastConfirmationError> {
-        let head_state =
-            Self::get_pulled_up_head_state(&self.store, current_slot, head_root, head_state_root)?;
-        let mut slot_assignments = self.canonical_head.slot_assignments.lock();
-        slot_assignments
-            .rebuild_if_stale(&head_state, &self.spec)
-            .map_err(FastConfirmationError::CommitteeCacheError)?;
-        let slot_assignments = slot_assignments.clone();
-        Ok((head_state, slot_assignments))
+    ) -> Option<(BeaconState<T::EthSpec>, SlotAssignments)> {
+        if head_slot.as_u64() + MAX_ADVANCE_DISTANCE < current_slot.as_u64() {
+            return None;
+        }
+        let result =
+            Self::get_pulled_up_head_state(&self.store, current_slot, head_root, head_state_root)
+                .and_then(|head_state| {
+                    let mut slot_assignments = self.canonical_head.slot_assignments.lock();
+                    slot_assignments
+                        .rebuild_if_stale(&head_state, &self.spec)
+                        .map_err(FastConfirmationError::CommitteeCacheError)?;
+                    let slot_assignments = slot_assignments.clone();
+                    Ok((head_state, slot_assignments))
+                });
+        match result {
+            Ok(head_state_and_assignments) => Some(head_state_and_assignments),
+            Err(e) => {
+                let label: &'static str = (&e).into();
+                metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                error!("Error updating head slot assignments: {e:?}");
+                None
+            }
+        }
     }
 
     /// The current head's pulled-up state (spec `get_pulled_up_head_state`): the head state
