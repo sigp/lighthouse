@@ -11,6 +11,7 @@ mod iter;
 mod progressive_balances_cache;
 mod pubkey_cache;
 mod slashings_cache;
+mod slot_assignments;
 
 pub use activation_queue::ActivationQueue;
 pub use balance::Balance;
@@ -33,3 +34,4 @@ pub use progressive_balances_cache::{
 };
 pub use pubkey_cache::PubkeyCache;
 pub use slashings_cache::SlashingsCache;
+pub use slot_assignments::SlotAssignments;

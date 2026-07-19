@@ -40,18 +40,18 @@
 mod balance_source;
 pub mod metrics;
 pub mod optimizations;
-mod slot_assignments;
 
 pub use balance_source::{BalanceSourceData, BalanceSourceKey};
 pub use optimizations::CheckpointAndBalance;
 use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
-use slot_assignments::{SlotAssignments, WindowEpoch, attestation_shuffling_id};
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
-use types::{BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, Slot, SlotAssignments,
+};
 
 #[derive(Debug, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -72,7 +72,6 @@ pub enum Error {
     BlockRootsOutOfBounds(String),
     SlashingsOutOfBounds(String),
     IndexOutOfBounds(usize),
-    AttestationShufflingIdError(BeaconStateError),
     CommitteeCacheError(BeaconStateError),
     ArithError(ArithError),
 }
@@ -163,20 +162,21 @@ impl FastConfirmationRule {
     const MAX_BYZANTINE_THRESHOLD: u64 = 25;
 
     /// Initialize FCR from the finalized checkpoint, its checkpoint state and the head state,
-    /// building the balance sources and committee assignments up front (each tagged with its own
-    /// `BalanceSourceKey` derived from the state). The spec seeds both observed-justified
-    /// checkpoints with the finalized checkpoint, so both balance sources come from
-    /// `checkpoint_state` (spec: `store.checkpoint_states[finalized_checkpoint]`); the
-    /// head-derived caches come from `head_state`, whose block root is `head_root`.
+    /// building the balance sources up front (each tagged with its own `BalanceSourceKey`
+    /// derived from the state). The spec seeds both observed-justified checkpoints with the
+    /// finalized checkpoint, so both balance sources come from `checkpoint_state`
+    /// (spec: `store.checkpoint_states[finalized_checkpoint]`); the head balance source and
+    /// `slot_assignments` (the caller-maintained committee assignment cache) come from
+    /// `head_state`, whose block root is `head_root`.
     /// `byzantine_threshold` is clamped to [0, 25].
     pub fn new<E: EthSpec>(
         head_root: Hash256,
         head_state: &BeaconState<E>,
+        slot_assignments: SlotAssignments,
         finalized_checkpoint: Checkpoint,
         checkpoint_state: &BeaconState<E>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
-        spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let byzantine_threshold = byzantine_threshold.min(Self::MAX_BYZANTINE_THRESHOLD);
         // Sanity: the supplied state must be the checkpoint's state, advanced to the
@@ -201,7 +201,7 @@ impl FastConfirmationRule {
             current_slot_head: finalized_checkpoint.root,
             byzantine_threshold,
             proposer_score_boost,
-            slot_assignments: SlotAssignments::new(head_state, spec, None)?,
+            slot_assignments,
             head_balance_source: BalanceSourceData::new(head_state, head_root)?,
             last_update_slot: None,
             spec_test_mode: false,
@@ -224,11 +224,12 @@ impl FastConfirmationRule {
     ///
     /// Called after head selection, while the fork-choice read lock is held.
     /// All parameters are borrowed from fork choice. The `head_state` is used to
-    /// rebuild the head balance source and committee assignments; `checkpoint_state`
-    /// backs the observed-justified balance source at the epoch-boundary rotation
-    /// (spec: `store.checkpoint_states[checkpoint]`). Callers should obtain the
-    /// required checkpoint via `checkpoint_state_needed` and may pass `None` when
-    /// it returns `None`.
+    /// rebuild the head balance source; `slot_assignments` is the caller-maintained
+    /// committee assignment cache, rebuilt from the same `head_state`;
+    /// `checkpoint_state` backs the observed-justified balance source at the
+    /// epoch-boundary rotation (spec: `store.checkpoint_states[checkpoint]`).
+    /// Callers should obtain the required checkpoint via `checkpoint_state_needed`
+    /// and may pass `None` when it returns `None`.
     #[allow(clippy::too_many_arguments)]
     pub fn on_fast_confirmation<E: EthSpec>(
         &mut self,
@@ -240,8 +241,8 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
         head_state: &BeaconState<E>,
+        slot_assignments: &SlotAssignments,
         checkpoint_state: Option<&BeaconState<E>>,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
 
@@ -250,8 +251,8 @@ impl FastConfirmationRule {
             unrealized_justified_checkpoint,
             current_slot,
             head_state,
+            slot_assignments,
             checkpoint_state,
-            spec,
         )?;
 
         if !self.spec_test_mode {
@@ -312,23 +313,17 @@ impl FastConfirmationRule {
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
         head_state: &BeaconState<E>,
+        slot_assignments: &SlotAssignments,
         checkpoint_state: Option<&BeaconState<E>>,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
-        // Rebuild the head-derived caches when the head changes (including within a slot, e.g. a
-        // late block or reorg). Each cache is rebuilt from scratch, independently, when its own
-        // key is stale.
-        let head_current_epoch_shuffling_id =
-            attestation_shuffling_id(head_state, WindowEpoch::Current)?;
+        // Adopt the shared slot-assignments cache; the caller rebuilds it from the head state
+        // when the head's current-epoch shuffling changes.
+        self.slot_assignments = slot_assignments.clone();
 
-        if *self.slot_assignments.key() != head_current_epoch_shuffling_id {
-            let _span = debug_span!("fcr_rebuild_assignments").entered();
-            self.slot_assignments =
-                SlotAssignments::new(head_state, spec, Some(&self.slot_assignments))?;
-        }
-
+        // Rebuild the head balance source when the head changes (including within a slot, e.g. a
+        // late block or reorg) and its key is stale.
         let head_balance_key = BalanceSourceKey::compute(head_state, head_root)?;
         if self.head_balance_source.key != head_balance_key {
             let _span = debug_span!("fcr_rebuild_head_balance").entered();
@@ -789,7 +784,8 @@ impl FastConfirmationRule {
             if balance > 0
                 && self
                     .slot_assignments
-                    .is_in_range(val_idx, start_slot, end_slot)?
+                    .is_in_range(val_idx, start_slot, end_slot)
+                    .map_err(Error::CommitteeCacheError)?
                 && vote.current_root() == block_root
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
@@ -999,7 +995,8 @@ impl FastConfirmationRule {
             let idx = idx as usize;
             if self
                 .slot_assignments
-                .is_in_range(idx, start_slot, end_slot)?
+                .is_in_range(idx, start_slot, end_slot)
+                .map_err(Error::CommitteeCacheError)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
             }
@@ -1593,9 +1590,17 @@ mod tests {
             root: Hash256::repeat_byte(1),
         };
         let head_root_a = Hash256::repeat_byte(2);
-        let mut fcr =
-            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40, &spec)
-                .expect("fcr initialization");
+        let slot_assignments = SlotAssignments::new(&state, &spec, None).expect("slot assignments");
+        let mut fcr = FastConfirmationRule::new::<E>(
+            head_root_a,
+            &state,
+            slot_assignments.clone(),
+            checkpoint,
+            &state,
+            25,
+            40,
+        )
+        .expect("fcr initialization");
 
         assert!(matches!(
             fcr.head_balance_source.key,
@@ -1618,8 +1623,8 @@ mod tests {
             &checkpoint,
             state.slot(),
             &state,
+            &slot_assignments,
             None,
-            &spec,
         )
         .expect("update variables");
 
@@ -1640,8 +1645,8 @@ mod tests {
             &checkpoint,
             state.slot(),
             &state,
+            &slot_assignments,
             None,
-            &spec,
         )
         .expect("update variables");
         assert_eq!(
