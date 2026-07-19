@@ -1026,67 +1026,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if head_slot.as_u64() + MAX_ADVANCE_DISTANCE < current_slot.as_u64() {
             return None;
         }
-        let result =
-            Self::get_pulled_up_head_state(&self.store, current_slot, head_root, head_state_root)
-                .and_then(|head_state| {
-                    let mut slot_assignments = self.canonical_head.slot_assignments.lock();
-                    slot_assignments
-                        .rebuild_if_stale(&head_state, &self.spec)
-                        .map_err(FastConfirmationError::CommitteeCacheError)?;
-                    let slot_assignments = slot_assignments.clone();
-                    Ok((head_state, slot_assignments))
-                });
-        match result {
-            Ok(head_state_and_assignments) => Some(head_state_and_assignments),
+        let head_state = match Self::get_pulled_up_head_state(
+            &self.store,
+            current_slot,
+            head_root,
+            head_state_root,
+        ) {
+            Ok(head_state) => head_state,
             Err(e) => {
-                let label: &'static str = (&e).into();
-                metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
-                error!("Error updating head slot assignments: {e:?}");
-                None
+                metrics::inc_counter_vec(
+                    &metrics::SLOT_ASSIGNMENTS_ERRORS,
+                    &["unable_to_obtain_head_state"],
+                );
+                error!("Error obtaining pulled-up head state: {e:?}");
+                return None;
             }
+        };
+        let mut slot_assignments = self.canonical_head.slot_assignments.lock();
+        if let Err(e) = slot_assignments.rebuild_if_stale(&head_state, &self.spec) {
+            metrics::inc_counter_vec(
+                &metrics::SLOT_ASSIGNMENTS_ERRORS,
+                &["committee_cache_error"],
+            );
+            error!("Error rebuilding slot assignments: {e:?}");
+            return None;
         }
+        let slot_assignments = slot_assignments.clone();
+        Some((head_state, slot_assignments))
     }
 
-    /// The current head's pulled-up state (spec `get_pulled_up_head_state`): the head state
-    /// advanced to the current wall-clock epoch boundary with caches built.
+    /// The current head state advanced to the current wall-clock epoch boundary with caches built.
     fn get_pulled_up_head_state(
         store: &BeaconStore<T>,
         current_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
-    ) -> Result<BeaconState<T::EthSpec>, FastConfirmationError> {
-        let (state_root, mut head_state) =
-            match store.get_advanced_hot_state(head_root, current_slot, head_state_root) {
-                Ok(Some(state)) => state,
-                Ok(None) => {
-                    return Err(FastConfirmationError::UnableToObtainHeadState(
-                        "not found".to_owned(),
-                    ));
-                }
-                Err(e) => {
-                    return Err(FastConfirmationError::UnableToObtainHeadState(format!(
-                        "{e:?}"
-                    )));
-                }
-            };
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
+        let (state_root, mut head_state) = store
+            .get_advanced_hot_state(head_root, current_slot, head_state_root)?
+            .ok_or(Error::MissingBeaconState(head_state_root))?;
 
-        // A previous-epoch head is pulled up to the current epoch boundary; a current-epoch
-        // head is already pulled up, so leave it as-is.
+        // If a state is from a previous epoch we advance it to the current epoch boundary.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         if head_state.current_epoch() < current_epoch {
             let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            complete_state_advance(&mut head_state, Some(state_root), epoch_start, &store.spec)
-                .map_err(|e| {
-                    FastConfirmationError::UnableToObtainHeadState(format!(
-                        "Error advancing head state: {e:?}"
-                    ))
-                })?;
+            complete_state_advance(&mut head_state, Some(state_root), epoch_start, &store.spec)?;
         }
-        head_state.build_all_caches(&store.spec).map_err(|e| {
-            FastConfirmationError::UnableToObtainHeadState(format!(
-                "Error building head caches: {e:?}"
-            ))
-        })?;
+        head_state.build_all_caches(&store.spec)?;
         Ok(head_state)
     }
 

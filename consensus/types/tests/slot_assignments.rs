@@ -1,4 +1,3 @@
-#![cfg(test)]
 use state_processing::per_slot_processing;
 use types::*;
 
