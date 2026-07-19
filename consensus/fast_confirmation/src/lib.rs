@@ -166,8 +166,7 @@ impl FastConfirmationRule {
     /// derived from the state). The spec seeds both observed-justified checkpoints with the
     /// finalized checkpoint, so both balance sources come from `checkpoint_state`
     /// (spec: `store.checkpoint_states[finalized_checkpoint]`); the head balance source and
-    /// `slot_assignments` (the caller-maintained committee assignment cache) come from
-    /// `head_state`, whose block root is `head_root`.
+    /// `slot_assignments` come from `head_state`, whose block root is `head_root`.
     /// `byzantine_threshold` is clamped to [0, 25].
     pub fn new<E: EthSpec>(
         head_root: Hash256,
@@ -224,12 +223,11 @@ impl FastConfirmationRule {
     ///
     /// Called after head selection, while the fork-choice read lock is held.
     /// All parameters are borrowed from fork choice. The `head_state` is used to
-    /// rebuild the head balance source; `slot_assignments` is the caller-maintained
-    /// committee assignment cache, rebuilt from the same `head_state`;
-    /// `checkpoint_state` backs the observed-justified balance source at the
-    /// epoch-boundary rotation (spec: `store.checkpoint_states[checkpoint]`).
-    /// Callers should obtain the required checkpoint via `checkpoint_state_needed`
-    /// and may pass `None` when it returns `None`.
+    /// rebuild the head balance source and committee assignments; `checkpoint_state`
+    /// backs the observed-justified balance source at the epoch-boundary rotation
+    /// (spec: `store.checkpoint_states[checkpoint]`). Callers should obtain the
+    /// required checkpoint via `checkpoint_state_needed` and may pass `None` when
+    /// it returns `None`.
     #[allow(clippy::too_many_arguments)]
     pub fn on_fast_confirmation<E: EthSpec>(
         &mut self,
@@ -318,12 +316,8 @@ impl FastConfirmationRule {
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
-        // Adopt the shared slot-assignments cache; the caller rebuilds it from the head state
-        // when the head's current-epoch shuffling changes.
         self.slot_assignments = slot_assignments.clone();
 
-        // Rebuild the head balance source when the head changes (including within a slot, e.g. a
-        // late block or reorg) and its key is stale.
         let head_balance_key = BalanceSourceKey::compute(head_state, head_root)?;
         if self.head_balance_source.key != head_balance_key {
             let _span = debug_span!("fcr_rebuild_head_balance").entered();
