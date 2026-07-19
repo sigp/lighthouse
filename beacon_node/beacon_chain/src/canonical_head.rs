@@ -1011,16 +1011,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(el_update_handle))
     }
 
-    /// Fetch the pulled-up head state and rebuild the shared slot-assignments cache from it
-    /// when the head's current-epoch shuffling has changed, returning the state and a clone
-    /// of the up-to-date cache.
+    /// Build the `SlotAssignments` cache from the head state only when the shuffling has changed.
     ///
     /// Returns `None` without updating when the head is more than `MAX_ADVANCE_DISTANCE`
-    /// behind wall-clock (deep sync: the state-advance timer won't have cached the pulled-up
-    /// head state, so proceeding would force an expensive load+advance under the fork-choice
-    /// lock) or when the update fails (logged and counted; errors never abort head
-    /// recomputation). In both cases the cache is left stale — consumers must verify its
-    /// `key()` before making consensus-affecting decisions on it.
+    /// behind wall-clock or when the update fails. In both cases the cache is left stale
+    /// consumers must verify its `key()` before making consensus-affecting decisions on it.
     fn update_head_slot_assignments(
         &self,
         current_slot: Slot,
