@@ -1051,8 +1051,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             error!("Error rebuilding slot assignments: {e:?}");
             return None;
         }
-        let slot_assignments = slot_assignments.clone();
-        Some((head_state, slot_assignments))
+        Some((head_state, slot_assignments.clone()))
     }
 
     /// The current head state advanced to the current wall-clock epoch boundary with caches built.
