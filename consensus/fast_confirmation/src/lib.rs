@@ -72,7 +72,7 @@ pub enum Error {
     BlockRootsOutOfBounds(String),
     SlashingsOutOfBounds(String),
     IndexOutOfBounds(usize),
-    CommitteeCacheError(BeaconStateError),
+    SlotAssignmentsError(BeaconStateError),
     ArithError(ArithError),
 }
 
@@ -779,7 +779,7 @@ impl FastConfirmationRule {
                 && self
                     .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)
-                    .map_err(Error::CommitteeCacheError)?
+                    .map_err(Error::SlotAssignmentsError)?
                 && vote.current_root() == block_root
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
@@ -990,7 +990,7 @@ impl FastConfirmationRule {
             if self
                 .slot_assignments
                 .is_in_range(idx, start_slot, end_slot)
-                .map_err(Error::CommitteeCacheError)?
+                .map_err(Error::SlotAssignmentsError)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
             }
