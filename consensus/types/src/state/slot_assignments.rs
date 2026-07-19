@@ -29,33 +29,37 @@ impl WindowEpoch {
         }
     }
 
+    /// `None` for `PrevPrev`, which has no `RelativeEpoch` in the state.
+    fn relative_epoch(self) -> Option<RelativeEpoch> {
+        match self {
+            Self::Current => Some(RelativeEpoch::Current),
+            Self::Previous => Some(RelativeEpoch::Previous),
+            Self::PrevPrev => None,
+        }
+    }
+
     fn shuffling_id<E: EthSpec>(
         self,
         state: &BeaconState<E>,
     ) -> Result<AttestationShufflingId, BeaconStateError> {
         // Block root is only used for genesis so we use zero.
         let block_root = Hash256::ZERO;
-        match self {
-            Self::Current => AttestationShufflingId::new(block_root, state, RelativeEpoch::Current),
-            Self::Previous => {
-                AttestationShufflingId::new(block_root, state, RelativeEpoch::Previous)
-            }
-            Self::PrevPrev => {
-                let epoch = self.epoch(state);
-                let shuffling_decision_slot = epoch
-                    .saturating_sub(1u64)
-                    .start_slot(E::slots_per_epoch())
-                    .saturating_sub(1u64);
-                let shuffling_decision_root = state
-                    .get_block_root(shuffling_decision_slot)
-                    .copied()
-                    .unwrap_or(block_root);
-                Ok(AttestationShufflingId::from_components(
-                    epoch,
-                    shuffling_decision_root,
-                ))
-            }
+        if let Some(relative_epoch) = self.relative_epoch() {
+            return AttestationShufflingId::new(block_root, state, relative_epoch);
         }
+        let epoch = self.epoch(state);
+        let shuffling_decision_slot = epoch
+            .saturating_sub(1u64)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1u64);
+        let shuffling_decision_root = state
+            .get_block_root(shuffling_decision_slot)
+            .copied()
+            .unwrap_or(block_root);
+        Ok(AttestationShufflingId::from_components(
+            epoch,
+            shuffling_decision_root,
+        ))
     }
 
     /// The committee cache for this window position. `Current`/`Previous` are read from the
@@ -66,12 +70,7 @@ impl WindowEpoch {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
-        let relative_epoch = match self {
-            Self::Current => Some(RelativeEpoch::Current),
-            Self::Previous => Some(RelativeEpoch::Previous),
-            Self::PrevPrev => None,
-        };
-        if let Some(relative_epoch) = relative_epoch
+        if let Some(relative_epoch) = self.relative_epoch()
             && let Ok(cache) = state.committee_cache(relative_epoch)
         {
             return Ok(cache.clone());
