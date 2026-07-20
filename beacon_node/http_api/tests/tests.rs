@@ -4728,7 +4728,7 @@ impl ApiTester {
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
-        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
             return self;
         };
 
@@ -4739,10 +4739,9 @@ impl ApiTester {
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
-        // Envelope import does not yet persist to the database, so store it directly.
-        self.chain
-            .store
-            .put_payload_envelope(&block_root, &signed_envelope)
+        self.client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
             .unwrap();
 
         let json_envelope = self

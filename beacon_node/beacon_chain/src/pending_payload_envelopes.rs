@@ -65,7 +65,10 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     }
 
     /// Remove and return a pending envelope by the beacon block root it commits to.
-    pub fn remove(&mut self, beacon_block_root: Hash256) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
+    pub fn remove(
+        &mut self,
+        beacon_block_root: Hash256,
+    ) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
         self.envelopes
             .remove(&beacon_block_root)
             .map(|data| data.envelope)
