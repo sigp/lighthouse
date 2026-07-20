@@ -1,5 +1,5 @@
 use crate::block_id::BlockId;
-use crate::publish_blocks::publish_column_sidecars;
+use crate::publish_blocks::{check_slashable, publish_column_sidecars};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter};
 use crate::version::{
@@ -9,11 +9,14 @@ use crate::version::{
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
+    NotifyExecutionLayer,
 };
 use bytes::Bytes;
-use eth2::EXECUTION_PAYLOAD_BLINDED_HEADER;
-use eth2::types::{self as api_types, SignedExecutionPayloadEnvelopeContents};
+use eth2::{
+    BLOB_DATA_INCLUDED_HEADER, CONSENSUS_VERSION_HEADER,
+    types::{self as api_types, BroadcastValidation, SignedExecutionPayloadEnvelopeContents},
+};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
@@ -22,10 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{
-    BlobsList, BlockImportSource, EthSpec, KzgProofs, SignedBlindedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelope,
-};
+use types::{BlockImportSource, EthSpec, ForkName, KzgProofs, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection,
     http::response::Builder,
@@ -33,41 +33,40 @@ use warp::{
 };
 
 /// Request body for `POST beacon/execution_payload_envelopes`, selected via the
-/// `Eth-Execution-Payload-Blinded` header.
+/// `Eth-Blob-Data-Included` header.
 pub enum SignedEnvelopeSubmission<E: EthSpec> {
-    /// Full envelope with blobs and KZG proofs (stateless flow).
-    Full(Box<SignedExecutionPayloadEnvelopeContents<E>>),
-    /// Blinded envelope; the full envelope and blobs are reconstructed from the pending
-    /// envelope cache (stateful flow). Used during self-build block production, or builder
-    /// bid production.
-    Blinded(Box<SignedBlindedExecutionPayloadEnvelope<E>>),
+    /// Envelope only (stateful flow); blobs and KZG proofs are taken from the node's
+    /// pending payload envelope cache.
+    Envelope(Box<SignedExecutionPayloadEnvelope<E>>),
+    /// Full envelope bundled with blobs and KZG proofs (stateless flow), allowing
+    /// publication via a beacon node that did not build the payload.
+    Contents(Box<SignedExecutionPayloadEnvelopeContents<E>>),
 }
 
 impl<E: EthSpec> SignedEnvelopeSubmission<E> {
-    fn from_ssz_bytes(payload_blinded: bool, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_ssz_bytes(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
-        Ok(if payload_blinded {
-            Self::Blinded(Box::new(
-                SignedBlindedExecutionPayloadEnvelope::from_ssz_bytes(bytes)
+        Ok(if blob_data_included {
+            Self::Contents(Box::new(
+                SignedExecutionPayloadEnvelopeContents::from_ssz_bytes(bytes)
                     .map_err(invalid_ssz)?,
             ))
         } else {
-            Self::Full(Box::new(
-                SignedExecutionPayloadEnvelopeContents::from_ssz_bytes(bytes)
-                    .map_err(invalid_ssz)?,
+            Self::Envelope(Box::new(
+                SignedExecutionPayloadEnvelope::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
             ))
         })
     }
 
-    fn from_json(payload_blinded: bool, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_json(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_json =
             |e| warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"));
-        Ok(if payload_blinded {
-            Self::Blinded(Box::new(
+        Ok(if blob_data_included {
+            Self::Contents(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
             ))
         } else {
-            Self::Full(Box::new(
+            Self::Envelope(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
             ))
         })
@@ -84,24 +83,32 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
     eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelopes"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::header::header::<bool>(
-            EXECUTION_PAYLOAD_BLINDED_HEADER,
-        ))
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(warp::header::<bool>(BLOB_DATA_INCLUDED_HEADER))
         .and(warp::body::bytes())
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |payload_blinded: bool,
+            |validation_level: api_types::BroadcastValidationQuery,
+             _fork_name: ForkName,
+             blob_data_included: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let submission =
-                        SignedEnvelopeSubmission::from_ssz_bytes(payload_blinded, &body_bytes)?;
-                    publish_execution_payload_envelope(submission, chain, &network_tx).await
+                        SignedEnvelopeSubmission::from_ssz_bytes(blob_data_included, &body_bytes)?;
+                    publish_execution_payload_envelope(
+                        submission,
+                        validation_level.broadcast_validation,
+                        chain,
+                        &network_tx,
+                    )
+                    .await
                 })
             },
         )
@@ -118,34 +125,45 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelopes"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::header::header::<bool>(
-            EXECUTION_PAYLOAD_BLINDED_HEADER,
-        ))
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(warp::header::<bool>(BLOB_DATA_INCLUDED_HEADER))
         .and(warp::body::bytes())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
         .then(
-            |payload_blinded: bool,
+            |validation_level: api_types::BroadcastValidationQuery,
+             _fork_name: ForkName,
+             blob_data_included: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let submission =
-                        SignedEnvelopeSubmission::from_json(payload_blinded, &body_bytes)?;
-                    publish_execution_payload_envelope(submission, chain, &network_tx).await
+                        SignedEnvelopeSubmission::from_json(blob_data_included, &body_bytes)?;
+                    publish_execution_payload_envelope(
+                        submission,
+                        validation_level.broadcast_validation,
+                        chain,
+                        &network_tx,
+                    )
+                    .await
                 })
             },
         )
         .boxed()
 }
+
 /// Publishes a signed execution payload envelope to the network. Implements
-/// `POST /eth/v1/beacon/execution_payload_envelopes` per the in-flight beacon-APIs PR
-/// <https://github.com/ethereum/beacon-APIs/pull/580>.
+/// `POST /eth/v1/beacon/execution_payload_envelopes` per the in-flight beacon-APIs PRs
+/// <https://github.com/ethereum/beacon-APIs/pull/580> and
+/// <https://github.com/ethereum/beacon-APIs/pull/624>.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     submission: SignedEnvelopeSubmission<T::EthSpec>,
+    validation_level: BroadcastValidation,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
@@ -155,9 +173,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         ));
     }
 
-    let is_full_submission = matches!(&submission, SignedEnvelopeSubmission::Full(_));
+    let is_contents_submission = matches!(&submission, SignedEnvelopeSubmission::Contents(_));
     let (envelope, blobs_and_proofs) = match submission {
-        SignedEnvelopeSubmission::Full(contents) => {
+        SignedEnvelopeSubmission::Contents(contents) => {
             let SignedExecutionPayloadEnvelopeContents {
                 signed_execution_payload_envelope: envelope,
                 kzg_proofs,
@@ -173,9 +191,15 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             }
             (envelope, Some((Arc::new(blobs), Some(kzg_proofs))))
         }
-        SignedEnvelopeSubmission::Blinded(blinded) => {
-            let (envelope, blobs) = unblind_envelope_from_cache(&chain, &blinded)?;
-            (envelope, blobs.map(|blobs| (blobs, None)))
+        SignedEnvelopeSubmission::Envelope(envelope) => {
+            // TODO(gloas): if the block commits to blobs but none are cached, return 400 before
+            // publishing (beacon-APIs "no cached blobs and KZG proofs to attach"), rather than
+            // proceeding to a 202 via MissingComponents.
+            let blobs = chain
+                .pending_payload_envelopes
+                .write()
+                .take_blobs(envelope.message.beacon_block_root);
+            (*envelope, blobs.map(|blobs| (blobs, None)))
         }
     };
 
@@ -219,20 +243,46 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })?;
 
     let network_tx_clone = network_tx.clone();
-    let envelope_for_gossip = gossip_verified.signed_envelope.as_ref().clone();
-    let publish_fn_completed = Arc::new(AtomicBool::new(false));
-    let publish_fn_completed_clone = publish_fn_completed.clone();
-    let publish_fn = move || {
+    let block_for_equivocation_check = gossip_verified.block.clone();
+    let envelope_for_gossip = gossip_verified.signed_envelope.clone();
+    let publish_envelope = || {
         crate::utils::publish_pubsub_message(
             &network_tx_clone,
-            PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip)),
+            PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip.as_ref().clone())),
         )
         .map_err(|_| {
             EnvelopeError::BeaconChainError(Box::new(
                 beacon_chain::BeaconChainError::UnableToPublish,
             ))
+        })
+    };
+
+    let published = AtomicBool::new(false);
+    if validation_level == BroadcastValidation::Gossip {
+        publish_envelope().map_err(|_| {
+            warp_utils::reject::custom_server_error(
+                "unable to publish to network channel".to_string(),
+            )
         })?;
-        publish_fn_completed_clone.store(true, Ordering::SeqCst);
+        published.store(true, Ordering::SeqCst);
+    }
+
+    let publish_fn = || {
+        match validation_level {
+            BroadcastValidation::Gossip => return Ok(()),
+            BroadcastValidation::Consensus => {}
+            BroadcastValidation::ConsensusAndEquivocation => {
+                check_slashable(&chain, beacon_block_root, &block_for_equivocation_check).map_err(
+                    |e| match e {
+                        BlockError::BeaconChainError(e) => EnvelopeError::BeaconChainError(e),
+                        e => EnvelopeError::InternalError(format!("{e:?}")),
+                    },
+                )?;
+            }
+        }
+
+        publish_envelope()?;
+        published.store(true, Ordering::SeqCst);
         Ok(())
     };
 
@@ -246,125 +296,142 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )
         .await;
 
-    let mut envelope_imported = match &import_result {
+    let mut envelope_imported = match import_result {
         Ok(AvailabilityProcessingStatus::Imported(_, _)) => true,
         Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => false,
         Err(e) => {
-            warn!(%slot, error = ?e, "Failed to import execution payload envelope");
-            // Per the spec, return 202 if the envelope was broadcast but failed integration.
-            return if publish_fn_completed.load(Ordering::SeqCst) {
-                Ok(
-                    warp::reply::with_status(warp::reply(), warp::http::StatusCode::ACCEPTED)
-                        .into_response(),
-                )
-            } else {
-                Err(warp_utils::reject::custom_server_error(format!(
-                    "envelope import failed: {e}"
-                )))
-            };
+            if is_unable_to_publish(&e) {
+                return Err(warp_utils::reject::custom_server_error(
+                    "unable to publish to network channel".to_string(),
+                ));
+            }
+
+            if published.load(Ordering::SeqCst) {
+                warn!(%slot, error = ?e, "Failed to import execution payload envelope after broadcast");
+                return Err(warp_utils::reject::broadcast_without_import(format!(
+                    "envelope import failed: {e:?}"
+                )));
+            }
+
+            warn!(%slot, error = ?e, "Rejecting execution payload envelope before broadcast");
+            return Err(warp_utils::reject::custom_bad_request(format!(
+                "envelope rejected: {e:?}"
+            )));
         }
     };
 
-    // From here on the envelope is on the wire. For full (stateless) submissions the caller
-    // still holds the blobs, so return an error on column-build/publish failure to allow a
-    // retry or failover to another beacon node. For blinded submissions `take_blobs`
-    // already consumed the cache entry, so a retry would not republish columns; returning
-    // Err would mislead the caller — log and fall through to `Ok`.
+    // From here on the envelope is on the wire. For contents (stateless) submissions the
+    // caller still holds the blobs, so column-build/publish failures return an error to
+    // allow a retry or failover to another beacon node. For stateful submissions
+    // `take_blobs` already consumed the cache entry — a retry would not republish columns —
+    // so failures are logged and `envelope_imported` is left unchanged for the response
+    // below.
     if let Some(column_build_future) = column_build_future {
-        let gossip_verified_columns = match column_build_future.await {
-            Ok(columns) => columns,
+        match column_build_future.await {
+            Ok(columns) => {
+                match publish_and_import_columns(&chain, network_tx, slot, columns).await {
+                    Ok(imported) => {
+                        if imported {
+                            envelope_imported = true;
+                        }
+                    }
+                    Err(rejection) => {
+                        if is_contents_submission {
+                            return Err(rejection);
+                        }
+                    }
+                }
+            }
             Err(e) => {
                 error!(
                     %slot,
                     error = ?e,
                     "Failed to build data columns after envelope publication"
                 );
-                return if is_full_submission {
-                    Err(e)
-                } else {
-                    Ok(warp::reply().into_response())
-                };
-            }
-        };
-
-        if !gossip_verified_columns.is_empty() {
-            if let Err(e) = publish_column_sidecars(network_tx, &gossip_verified_columns, &chain) {
-                error!(
-                    %slot,
-                    error = ?e,
-                    "Failed to publish data column sidecars after envelope publication"
-                );
-                return if is_full_submission {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "failed to publish data column sidecars: {e:?}"
-                    )))
-                } else {
-                    Ok(warp::reply().into_response())
-                };
-            }
-
-            let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
-            let sampling_columns = gossip_verified_columns
-                .into_iter()
-                .filter(|col| sampling_column_indices.contains(&col.index()))
-                .collect::<Vec<_>>();
-
-            // Local processing only — envelope already broadcast, so log and fall through.
-            if !sampling_columns.is_empty() {
-                match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
-                {
-                    Ok(AvailabilityProcessingStatus::Imported(_, _)) => envelope_imported = true,
-                    Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
-                    Err(e) => {
-                        error!(
-                            %slot,
-                            error = ?e,
-                            "Failed to process sampling data columns during envelope publication"
-                        );
-                    }
+                if is_contents_submission {
+                    return Err(e);
                 }
             }
         }
     }
 
+    // Return 202 when broadcast succeeds but integration does not. Unlike the block path,
+    // 202 applies at every validation level: missing components here are node-cached columns
+    // rather than request-supplied blobs, so incomplete import is not the submitter's fault.
     if envelope_imported {
         chain.recompute_head_at_current_slot().await;
+        Ok(warp::reply().into_response())
+    } else {
+        Err(warp_utils::reject::broadcast_without_import(format!(
+            "envelope for slot {slot} was broadcast but not fully imported"
+        )))
     }
-
-    Ok(warp::reply().into_response())
 }
 
-/// A reconstructed signed execution payload envelope paired with any cached blobs.
-type UnblindedEnvelope<E> = (SignedExecutionPayloadEnvelope<E>, Option<Arc<BlobsList<E>>>);
+/// Publishes locally-built data columns and imports the node's sampling subset.
+///
+/// Returns `Ok(true)` iff sampling-column processing completed envelope import. A sidecar
+/// publication failure is returned as `Err` so callers can surface it to submitters able to
+/// retry; local sampling-import failures are logged and swallowed since the columns are
+/// already on the wire.
+async fn publish_and_import_columns<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    slot: types::Slot,
+    gossip_verified_columns: Vec<GossipVerifiedDataColumn<T>>,
+) -> Result<bool, Rejection> {
+    if gossip_verified_columns.is_empty() {
+        return Ok(false);
+    }
 
-/// Reconstruct the full signed envelope for a blinded submission from the pending envelope
-/// cache, along with any cached blobs.
-fn unblind_envelope_from_cache<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    blinded: &SignedBlindedExecutionPayloadEnvelope<T::EthSpec>,
-) -> Result<UnblindedEnvelope<T::EthSpec>, Rejection> {
-    let mut cache = chain.pending_payload_envelopes.write();
+    if let Err(e) = publish_column_sidecars(network_tx, &gossip_verified_columns, chain) {
+        error!(
+            %slot,
+            error = ?e,
+            "Failed to publish data column sidecars after envelope publication"
+        );
+        return Err(warp_utils::reject::custom_server_error(format!(
+            "failed to publish data column sidecars: {e:?}"
+        )));
+    }
 
-    let envelope = cache
-        .get_by_block_root(blinded.message.beacon_block_root)
-        .cloned()
-        .ok_or_else(|| {
-            warp_utils::reject::custom_bad_request(format!(
-                "no cached execution payload envelope for beacon block root {}",
-                blinded.message.beacon_block_root
-            ))
-        })?;
+    let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+    let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
+    let sampling_columns = gossip_verified_columns
+        .into_iter()
+        .filter(|col| sampling_column_indices.contains(&col.index()))
+        .collect::<Vec<_>>();
 
-    let blobs = cache.take_blobs(blinded.message.beacon_block_root);
+    if sampling_columns.is_empty() {
+        return Ok(false);
+    }
 
-    Ok((
-        SignedExecutionPayloadEnvelope {
-            message: Arc::unwrap_or_clone(envelope),
-            signature: blinded.signature.clone(),
-        },
-        blobs,
-    ))
+    match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await {
+        Ok(AvailabilityProcessingStatus::Imported(_, _)) => Ok(true),
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => Ok(false),
+        Err(e) => {
+            error!(
+                %slot,
+                error = ?e,
+                "Failed to process sampling data columns during envelope publication"
+            );
+            Ok(false)
+        }
+    }
+}
+
+fn is_unable_to_publish(error: &BlockError) -> bool {
+    match error {
+        BlockError::BeaconChainError(error) => {
+            matches!(error.as_ref(), BeaconChainError::UnableToPublish)
+        }
+        BlockError::EnvelopeError(error) => matches!(
+            error.as_ref(),
+            EnvelopeError::BeaconChainError(error)
+                if matches!(error.as_ref(), BeaconChainError::UnableToPublish)
+        ),
+        _ => false,
+    }
 }
 
 fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(

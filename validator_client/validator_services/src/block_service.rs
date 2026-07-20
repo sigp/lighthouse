@@ -478,7 +478,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
-                            false,
+                            Some(false),
                             builder_boost_factor,
                             self_ref.graffiti_policy,
                         )
@@ -506,7 +506,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
-                                    false,
+                                    Some(false),
                                     builder_boost_factor,
                                     self_ref.graffiti_policy,
                                 )
@@ -712,7 +712,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 let signed_envelope = signed_envelope.clone();
                 async move {
                     beacon_node
-                        .post_beacon_execution_payload_envelopes_ssz(&signed_envelope, fork_name)
+                        .post_beacon_execution_payload_envelopes_ssz(
+                            &signed_envelope,
+                            fork_name,
+                            None,
+                        )
                         .await
                         .map_err(|e| {
                             BlockError::Recoverable(format!(

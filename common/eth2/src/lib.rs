@@ -61,6 +61,7 @@ pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinde
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 pub const EXECUTION_PAYLOAD_INCLUDED_HEADER: &str = "Eth-Execution-Payload-Included";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
+pub const BLOB_DATA_INCLUDED_HEADER: &str = "Eth-Blob-Data-Included";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
@@ -463,39 +464,36 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function with `Eth-Consensus-Version` and optional
-    /// `Eth-Execution-Payload-Blinded` headers.
+    /// `Eth-Blob-Data-Included` headers.
     async fn post_generic_with_envelope_headers<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
         body: &T,
         timeout: Option<Duration>,
         fork: ForkName,
-        payload_blinded: Option<bool>,
+        blob_data_included: Option<bool>,
     ) -> Result<Response, Error> {
         let mut builder = self
             .client
             .post(url)
             .timeout(timeout.unwrap_or(self.timeouts.default))
             .header(CONSENSUS_VERSION_HEADER, fork.to_string());
-        if let Some(payload_blinded) = payload_blinded {
-            builder = builder.header(
-                EXECUTION_PAYLOAD_BLINDED_HEADER,
-                payload_blinded.to_string(),
-            );
+        if let Some(blob_data_included) = blob_data_included {
+            builder = builder.header(BLOB_DATA_INCLUDED_HEADER, blob_data_included.to_string());
         }
         let response = builder.json(body).send().await?;
         success_or_error(response).await
     }
 
     /// Generic POST function with `Eth-Consensus-Version` and optional
-    /// `Eth-Execution-Payload-Blinded` headers and an SSZ body.
+    /// `Eth-Blob-Data-Included` headers and an SSZ body.
     async fn post_generic_with_envelope_headers_and_ssz_body<T: Into<Body>, U: IntoUrl>(
         &self,
         url: U,
         body: T,
         timeout: Option<Duration>,
         fork: ForkName,
-        payload_blinded: Option<bool>,
+        blob_data_included: Option<bool>,
     ) -> Result<Response, Error> {
         let builder = self
             .client
@@ -506,10 +504,10 @@ impl BeaconNodeHttpClient {
             CONSENSUS_VERSION_HEADER,
             HeaderValue::from_str(&fork.to_string()).expect("Failed to create header value"),
         );
-        if let Some(payload_blinded) = payload_blinded {
+        if let Some(blob_data_included) = blob_data_included {
             headers.insert(
-                EXECUTION_PAYLOAD_BLINDED_HEADER,
-                HeaderValue::from_str(&payload_blinded.to_string())
+                BLOB_DATA_INCLUDED_HEADER,
+                HeaderValue::from_str(&blob_data_included.to_string())
                     .expect("Failed to create header value"),
             );
         }
@@ -2606,7 +2604,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: bool,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
@@ -2631,8 +2629,10 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
-        path.query_pairs_mut()
-            .append_pair("include_payload", &include_payload.to_string());
+        if let Some(include_payload) = include_payload {
+            path.query_pairs_mut()
+                .append_pair("include_payload", &include_payload.to_string());
+        }
 
         if let Some(builder_booster_factor) = builder_booster_factor {
             path.query_pairs_mut()
@@ -2656,7 +2656,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: bool,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2684,7 +2684,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: bool,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2743,7 +2743,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: bool,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2769,7 +2769,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: bool,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2863,7 +2863,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/execution_payload_envelopes`
-    fn post_beacon_execution_payload_envelopes_path(&self) -> Result<Url, Error> {
+    pub fn post_beacon_execution_payload_envelopes_path(
+        &self,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2871,27 +2874,33 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("execution_payload_envelopes");
 
+        if let Some(validation_level) = validation_level {
+            path.query_pairs_mut()
+                .append_pair("broadcast_validation", &validation_level.to_string());
+        }
+
         Ok(path)
     }
 
     /// `POST v1/beacon/execution_payload_envelopes`
     ///
-    /// Submits the blinded form of the envelope (stateful flow); the beacon node reconstructs
-    /// the full envelope and blobs from its cache, so this must be sent to the beacon node
-    /// that built the payload (self-build block production or builder bid production).
+    /// Submits the envelope alone (stateful flow); the beacon node attaches blobs and KZG
+    /// proofs from its cache, so this must be sent to the beacon node that built the
+    /// payload.
     pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
+        let path = self.post_beacon_execution_payload_envelopes_path(validation_level)?;
 
         self.post_generic_with_envelope_headers(
             path,
-            &envelope.clone_as_blinded(),
+            envelope,
             Some(self.timeouts.proposal),
             fork_name,
-            Some(true),
+            Some(false),
         )
         .await?;
 
@@ -2905,15 +2914,16 @@ impl BeaconNodeHttpClient {
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
+        let path = self.post_beacon_execution_payload_envelopes_path(validation_level)?;
 
         self.post_generic_with_envelope_headers_and_ssz_body(
             path,
-            envelope.clone_as_blinded().as_ssz_bytes(),
+            envelope.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
-            Some(true),
+            Some(false),
         )
         .await?;
 
@@ -2929,14 +2939,14 @@ impl BeaconNodeHttpClient {
         contents: &SignedExecutionPayloadEnvelopeContents<E>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
+        let path = self.post_beacon_execution_payload_envelopes_path(None)?;
 
         self.post_generic_with_envelope_headers(
             path,
             contents,
             Some(self.timeouts.proposal),
             fork_name,
-            Some(false),
+            Some(true),
         )
         .await?;
 
@@ -2951,14 +2961,14 @@ impl BeaconNodeHttpClient {
         contents: &SignedExecutionPayloadEnvelopeContents<E>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path()?;
+        let path = self.post_beacon_execution_payload_envelopes_path(None)?;
 
         self.post_generic_with_envelope_headers_and_ssz_body(
             path,
             contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
-            Some(false),
+            Some(true),
         )
         .await?;
 

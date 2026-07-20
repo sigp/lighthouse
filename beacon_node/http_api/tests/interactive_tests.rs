@@ -809,7 +809,7 @@ pub async fn fork_choice_before_proposal() {
     let block_d = if harness.spec.fork_name_at_slot::<E>(slot_d).gloas_enabled() {
         tester
             .client
-            .get_validator_blocks_v4::<E>(slot_d, &randao_reveal, None, false, None, None)
+            .get_validator_blocks_v4::<E>(slot_d, &randao_reveal, None, Some(false), None, None)
             .await
             .unwrap()
             .0
