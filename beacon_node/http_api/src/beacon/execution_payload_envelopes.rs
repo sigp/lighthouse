@@ -359,12 +359,11 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         }
     };
 
-    // From here on the envelope is on the wire. For contents (stateless) submissions the
-    // caller still holds the blobs, so column-build/publish failures return an error to
-    // allow a retry or failover to another beacon node. For stateful submissions
-    // `take_blobs` already consumed the cache entry — a retry would not republish columns —
-    // so failures are logged and `envelope_imported` is left unchanged for the response
-    // below.
+    // The envelope has already been published over gossip, only columns can fail from here.
+    // `EnvelopeAndBlobData`: the caller still holds the blobs so we return an error. The caller
+    // can retry against a different beacon node.
+    // `EnvelopeOnly`: the cached blobs have been consumed, a retry cannot rebuild the columns. We
+    // also cant retry against another beacon node. So we just log a failure and continue.
     if let Some(column_build_future) = column_build_future {
         match column_build_future.await {
             Ok(columns) => {
