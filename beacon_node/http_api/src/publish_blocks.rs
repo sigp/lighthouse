@@ -728,7 +728,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
 }
 
 /// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
-fn check_slashable<T: BeaconChainTypes>(
+pub(crate) fn check_slashable<T: BeaconChainTypes>(
     chain_clone: &BeaconChain<T>,
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
