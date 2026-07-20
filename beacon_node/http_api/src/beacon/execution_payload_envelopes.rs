@@ -43,6 +43,15 @@ pub enum SignedEnvelopeSubmission<E: EthSpec> {
     Contents(Box<SignedExecutionPayloadEnvelopeContents<E>>),
 }
 
+fn ensure_gloas_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+    if !fork_name.gloas_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "Eth-Consensus-Version {fork_name} is not supported for execution payload envelopes"
+        )));
+    }
+    Ok(())
+}
+
 impl<E: EthSpec> SignedEnvelopeSubmission<E> {
     fn from_ssz_bytes(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
@@ -93,13 +102,14 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
         .and(network_tx_filter)
         .then(
             |validation_level: api_types::BroadcastValidationQuery,
-             _fork_name: ForkName,
+             fork_name: ForkName,
              blob_data_included: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    ensure_gloas_consensus_version(fork_name)?;
                     let submission =
                         SignedEnvelopeSubmission::from_ssz_bytes(blob_data_included, &body_bytes)?;
                     publish_execution_payload_envelope(
@@ -135,13 +145,14 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(network_tx_filter)
         .then(
             |validation_level: api_types::BroadcastValidationQuery,
-             _fork_name: ForkName,
+             fork_name: ForkName,
              blob_data_included: bool,
              body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    ensure_gloas_consensus_version(fork_name)?;
                     let submission =
                         SignedEnvelopeSubmission::from_json(blob_data_included, &body_bytes)?;
                     publish_execution_payload_envelope(

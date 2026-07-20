@@ -88,7 +88,11 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })?;
 
-    let include_payload = query.include_payload.unwrap_or(true);
+    let include_payload = query.include_payload.ok_or_else(|| {
+        warp_utils::reject::custom_bad_request(
+            "include_payload query parameter is required".to_string(),
+        )
+    })?;
     let payload_contents = include_payload.then_some(payload_contents).flatten();
 
     build_response_v4::<T>(

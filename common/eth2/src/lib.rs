@@ -2604,7 +2604,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
@@ -2629,10 +2629,8 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
-        if let Some(include_payload) = include_payload {
-            path.query_pairs_mut()
-                .append_pair("include_payload", &include_payload.to_string());
-        }
+        path.query_pairs_mut()
+            .append_pair("include_payload", &include_payload.to_string());
 
         if let Some(builder_booster_factor) = builder_booster_factor {
             path.query_pairs_mut()
@@ -2656,7 +2654,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2684,7 +2682,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2743,7 +2741,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
@@ -2769,7 +2767,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-        include_payload: Option<bool>,
+        include_payload: bool,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
