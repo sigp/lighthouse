@@ -54,6 +54,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                         .read()
                         .get_by_block_root(beacon_block_root)
                         .cloned()
+                        .filter(|envelope| envelope.slot() == slot)
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(format!(
                                 "Execution payload envelope not available for slot {slot} and root {beacon_block_root:?}"
