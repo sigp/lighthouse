@@ -40,10 +40,10 @@ use warp::{
 pub enum SignedEnvelopeSubmission<E: EthSpec> {
     /// Envelope only (stateful flow); blobs and KZG proofs are taken from the node's
     /// pending payload envelope cache.
-    Envelope(Box<SignedExecutionPayloadEnvelope<E>>),
+    EnvelopeOnly(Box<SignedExecutionPayloadEnvelope<E>>),
     /// Full envelope bundled with blobs and KZG proofs (stateless flow), allowing
     /// publication via a beacon node that did not build the payload.
-    Contents(Box<SignedExecutionPayloadEnvelopeContents<E>>),
+    EnvelopeAndBlobData(Box<SignedExecutionPayloadEnvelopeContents<E>>),
 }
 
 fn ensure_gloas_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
@@ -59,12 +59,12 @@ impl<E: EthSpec> SignedEnvelopeSubmission<E> {
     fn from_ssz_bytes(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
         Ok(if blob_data_included {
-            Self::Contents(Box::new(
+            Self::EnvelopeAndBlobData(Box::new(
                 SignedExecutionPayloadEnvelopeContents::from_ssz_bytes(bytes)
                     .map_err(invalid_ssz)?,
             ))
         } else {
-            Self::Envelope(Box::new(
+            Self::EnvelopeOnly(Box::new(
                 SignedExecutionPayloadEnvelope::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
             ))
         })
@@ -74,11 +74,11 @@ impl<E: EthSpec> SignedEnvelopeSubmission<E> {
         let invalid_json =
             |e| warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"));
         Ok(if blob_data_included {
-            Self::Contents(Box::new(
+            Self::EnvelopeAndBlobData(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
             ))
         } else {
-            Self::Envelope(Box::new(
+            Self::EnvelopeOnly(Box::new(
                 serde_json::from_slice(bytes).map_err(invalid_json)?,
             ))
         })
@@ -195,9 +195,12 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         ));
     }
 
-    let is_contents_submission = matches!(&submission, SignedEnvelopeSubmission::Contents(_));
+    let includes_blob_data = matches!(
+        &submission,
+        SignedEnvelopeSubmission::EnvelopeAndBlobData(_)
+    );
     let (envelope, blobs_and_proofs) = match submission {
-        SignedEnvelopeSubmission::Contents(contents) => {
+        SignedEnvelopeSubmission::EnvelopeAndBlobData(contents) => {
             let SignedExecutionPayloadEnvelopeContents {
                 signed_execution_payload_envelope: envelope,
                 kzg_proofs,
@@ -213,7 +216,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             }
             (envelope, Some((Arc::new(blobs), Some(kzg_proofs))))
         }
-        SignedEnvelopeSubmission::Envelope(envelope) => {
+        SignedEnvelopeSubmission::EnvelopeOnly(envelope) => {
             let blobs = chain
                 .pending_payload_envelopes
                 .write()
@@ -263,7 +266,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // Reject stateful submissions before broadcast when the block commits to blobs but the
     // node has none cached (beacon-APIs: "no cached blobs and KZG proofs to attach").
-    if !is_contents_submission && column_build_future.is_none() {
+    if !includes_blob_data && column_build_future.is_none() {
         let commits_to_blobs = gossip_verified
             .block
             .message()
@@ -372,7 +375,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                         }
                     }
                     Err(rejection) => {
-                        if is_contents_submission {
+                        if includes_blob_data {
                             return Err(rejection);
                         }
                     }
@@ -384,7 +387,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                     error = ?e,
                     "Failed to build data columns after envelope publication"
                 );
-                if is_contents_submission {
+                if includes_blob_data {
                     return Err(e);
                 }
             }
