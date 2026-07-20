@@ -1,7 +1,10 @@
 use crate::block_id::BlockId;
 use crate::publish_blocks::{check_slashable, publish_column_sidecars};
 use crate::task_spawner::{Priority, TaskSpawner};
-use crate::utils::{ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter};
+use crate::utils::{
+    ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter, ResponseFilter,
+    TaskSpawnerFilter,
+};
 use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
@@ -88,6 +91,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -97,6 +101,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(warp::header::<bool>(BLOB_DATA_INCLUDED_HEADER))
         .and(warp::body::bytes())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
@@ -105,10 +110,12 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
              fork_name: ForkName,
              blob_data_included: bool,
              body_bytes: Bytes,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
                     let submission =
                         SignedEnvelopeSubmission::from_ssz_bytes(blob_data_included, &body_bytes)?;
@@ -131,6 +138,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -140,6 +148,7 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(warp::header::<bool>(BLOB_DATA_INCLUDED_HEADER))
         .and(warp::body::bytes())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
@@ -148,10 +157,12 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
              fork_name: ForkName,
              blob_data_included: bool,
              body_bytes: Bytes,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
                     let submission =
                         SignedEnvelopeSubmission::from_json(blob_data_included, &body_bytes)?;

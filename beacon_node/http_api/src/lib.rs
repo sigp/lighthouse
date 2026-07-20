@@ -1537,6 +1537,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_envelopes (SSZ)
@@ -1545,6 +1546,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_bids
