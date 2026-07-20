@@ -214,9 +214,6 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             (envelope, Some((Arc::new(blobs), Some(kzg_proofs))))
         }
         SignedEnvelopeSubmission::Envelope(envelope) => {
-            // TODO(gloas): if the block commits to blobs but none are cached, return 400 before
-            // publishing (beacon-APIs "no cached blobs and KZG proofs to attach"), rather than
-            // proceeding to a 202 via MissingComponents.
             let blobs = chain
                 .pending_payload_envelopes
                 .write()
@@ -263,6 +260,23 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                 "envelope failed gossip verification: {e}"
             ))
         })?;
+
+    // Reject stateful submissions before broadcast when the block commits to blobs but the
+    // node has none cached (beacon-APIs: "no cached blobs and KZG proofs to attach").
+    if !is_contents_submission && column_build_future.is_none() {
+        let commits_to_blobs = gossip_verified
+            .block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .is_ok_and(|bid| !bid.message.blob_kzg_commitments.is_empty());
+        if commits_to_blobs {
+            return Err(warp_utils::reject::custom_bad_request(
+                "block commits to blobs but the beacon node has no cached blobs and KZG proofs to attach"
+                    .into(),
+            ));
+        }
+    }
 
     let network_tx_clone = network_tx.clone();
     let block_for_equivocation_check = gossip_verified.block.clone();
