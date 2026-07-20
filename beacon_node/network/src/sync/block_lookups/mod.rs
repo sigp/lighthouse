@@ -278,6 +278,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             None,
             peer_source,
             &PeerType::PayloadEnvelope(bid_block_hash),
+            None,
             cx,
         )
     }
