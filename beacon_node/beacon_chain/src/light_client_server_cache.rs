@@ -3,7 +3,7 @@ use crate::{BeaconChainTypes, BeaconStore, metrics};
 use hashlink::lru_cache::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use ssz::Decode;
+use std::array::TryFromSliceError;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
@@ -279,13 +279,17 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let mut light_client_updates = vec![];
         for res in store
             .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_be_bytes())
         {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
-                .map_err(store::errors::Error::SszDecodeError)?;
+            let sync_committee_period =
+                u64::from_be_bytes(sync_committee_bytes.as_slice().try_into().map_err(
+                    |e: TryFromSliceError| store::errors::Error::InvalidKey(e.to_string()),
+                )?);
 
-            if sync_committee_period >= start_period + count {
+            let end_period = start_period.safe_add(count)?;
+
+            if sync_committee_period >= end_period {
                 break;
             }
 
