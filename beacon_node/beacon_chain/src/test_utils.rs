@@ -1309,7 +1309,7 @@ where
                 .chain
                 .pending_payload_envelopes
                 .write()
-                .remove_by_slot(slot)
+                .remove(signed_block.canonical_root())
                 .map(|envelope| {
                     let epoch = slot.epoch(E::slots_per_epoch());
                     let domain = self.spec.get_domain(

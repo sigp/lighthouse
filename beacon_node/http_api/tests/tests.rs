@@ -4586,6 +4586,194 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_v4_missing_include_payload_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let mut url = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let query_pairs = url
+            .query_pairs()
+            .filter(|(key, _)| key != "include_payload")
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        url.query_pairs_mut().clear();
+        for (key, value) in &query_pairs {
+            url.query_pairs_mut().append_pair(key, value);
+        }
+
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_envelope_post_when_syncing_returns_503(mut self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        // Simulate a syncing node: long-range sync with the head beyond the sync tolerance.
+        let network_globals = self.ctx.network_globals.as_ref().unwrap();
+        *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+            start_slot: Slot::new(0),
+            target_slot: Slot::new(u64::MAX),
+        };
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let tolerance = self.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+        let original_slot = self.chain.slot().unwrap();
+        self.chain
+            .slot_clock
+            .set_slot(head_slot.as_u64() + tolerance + 1);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
+            .expect_err("envelope post should fail while syncing");
+
+        assert_eq!(err.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+        self.chain.slot_clock.set_slot(original_slot.as_u64());
+
+        self
+    }
+
+    pub async fn test_envelope_post_stateful_no_cached_blobs_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        // Drain the cached blobs so the node has nothing to attach. The mock EL is configured
+        // with a minimum blob count, so the block's bid commits to blobs.
+        let drained_blobs = self
+            .chain
+            .pending_payload_envelopes
+            .write()
+            .take_blobs(envelope.beacon_block_root);
+        assert!(
+            drained_blobs.is_some_and(|blobs| !blobs.is_empty()),
+            "precondition: the block should commit to blobs"
+        );
+
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
+            .expect_err("stateful envelope post without cached blobs should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_get_beacon_execution_payload_envelopes(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+        let block_root = envelope.beacon_block_root;
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        // Envelope import does not yet persist to the database, so store it directly.
+        self.chain
+            .store
+            .put_payload_envelope(&block_root, &signed_envelope)
+            .unwrap();
+
+        let json_envelope = self
+            .client
+            .get_beacon_execution_payload_envelopes::<E>(CoreBlockId::Root(block_root))
+            .await
+            .unwrap()
+            .expect("envelope should be returned")
+            .into_data();
+        assert_eq!(json_envelope, signed_envelope);
+
+        let ssz_envelope = self
+            .client
+            .get_beacon_execution_payload_envelopes_ssz::<E>(CoreBlockId::Root(block_root))
+            .await
+            .unwrap()
+            .expect("envelope should be returned");
+        assert_eq!(ssz_envelope, signed_envelope);
+
+        let missing = self
+            .client
+            .get_beacon_execution_payload_envelopes::<E>(CoreBlockId::Root(Hash256::repeat_byte(
+                0xab,
+            )))
+            .await
+            .unwrap();
+        assert!(missing.is_none());
+
+        self
+    }
+
     /// Test V4 block production with `include_payload=false` (JSON). Only runs if Gloas is
     /// scheduled.
     pub async fn test_block_production_v4_without_payload(self) -> Self {
@@ -4724,78 +4912,18 @@ impl ApiTester {
         self
     }
 
-    /// Test V4 stateless block production with `include_payload=true`. The response should
-    /// bundle the execution payload envelope, blobs and KZG proofs.
+    /// Test V4 stateless block production with `include_payload=true` (JSON). The response
+    /// should bundle the execution payload envelope, blobs and KZG proofs.
     pub async fn test_block_production_v4_with_payload(self) -> Self {
-        if !self.chain.spec.is_gloas_scheduled() {
-            return self;
-        }
-
-        let fork = self.chain.canonical_head.cached_head().head_fork();
-        let genesis_validators_root = self.chain.genesis_validators_root;
-
-        for _ in 0..E::slots_per_epoch() * 3 {
-            let slot = self.chain.slot().unwrap();
-            let epoch = self.chain.epoch().unwrap();
-            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
-
-            if !fork_name.gloas_enabled() {
-                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
-                continue;
-            }
-
-            let (sk, randao_reveal) = self
-                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
-                .await;
-
-            let (response, metadata) = self
-                .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, true, None, None)
-                .await
-                .unwrap();
-
-            let BlockAndEnvelope {
-                block,
-                execution_payload_envelope: envelope,
-                kzg_proofs,
-                blobs,
-            } = self.unwrap_v4_block_contents(response, &metadata, slot);
-
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
-            let signed_block_request =
-                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
-            self.client
-                .post_beacon_blocks_v2(&signed_block_request, None)
-                .await
-                .unwrap();
-            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
-
-            // Clear the pending cache to simulate publishing via a beacon node that did not
-            // produce the block, then publish the bundled envelope, blobs and proofs.
-            self.chain
-                .pending_payload_envelopes
-                .write()
-                .remove_by_slot(slot);
-            let signed_envelope =
-                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
-            let contents = SignedExecutionPayloadEnvelopeContents {
-                signed_execution_payload_envelope: signed_envelope,
-                kzg_proofs,
-                blobs,
-            };
-            self.client
-                .post_beacon_execution_payload_envelope_contents(&contents, fork_name)
-                .await
-                .unwrap();
-
-            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
-        }
-
-        self
+        self.run_block_production_v4_with_payload(false).await
     }
 
-    /// Test V4 stateless block production with `include_payload=true`.
+    /// Test V4 stateless block production with `include_payload=true` (SSZ).
     pub async fn test_block_production_v4_with_payload_ssz(self) -> Self {
+        self.run_block_production_v4_with_payload(true).await
+    }
+
+    async fn run_block_production_v4_with_payload(self, ssz: bool) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
         }
@@ -4817,11 +4945,17 @@ impl ApiTester {
                 .proposer_setup(slot, epoch, &fork, genesis_validators_root)
                 .await;
 
-            let (response, metadata) = self
-                .client
-                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, true, None, None)
-                .await
-                .unwrap();
+            let (response, metadata) = if ssz {
+                self.client
+                    .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, true, None, None)
+                    .await
+                    .unwrap()
+            } else {
+                self.client
+                    .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, true, None, None)
+                    .await
+                    .unwrap()
+            };
 
             let BlockAndEnvelope {
                 block,
@@ -4833,10 +4967,17 @@ impl ApiTester {
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
-            self.client
-                .post_beacon_blocks_v2_ssz(&signed_block_request, None)
-                .await
-                .unwrap();
+            if ssz {
+                self.client
+                    .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                    .await
+                    .unwrap();
+            } else {
+                self.client
+                    .post_beacon_blocks_v2(&signed_block_request, None)
+                    .await
+                    .unwrap();
+            }
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
 
             // Clear the pending cache to simulate publishing via a beacon node that did not
@@ -4844,7 +4985,7 @@ impl ApiTester {
             self.chain
                 .pending_payload_envelopes
                 .write()
-                .remove_by_slot(slot);
+                .remove(envelope.beacon_block_root);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let contents = SignedExecutionPayloadEnvelopeContents {
@@ -4852,10 +4993,17 @@ impl ApiTester {
                 kzg_proofs,
                 blobs,
             };
-            self.client
-                .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name)
-                .await
-                .unwrap();
+            if ssz {
+                self.client
+                    .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name)
+                    .await
+                    .unwrap();
+            } else {
+                self.client
+                    .post_beacon_execution_payload_envelope_contents(&contents, fork_name)
+                    .await
+                    .unwrap();
+            }
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -9341,6 +9489,50 @@ async fn envelope_post_equivocation_returns_400() {
     ApiTester::new_with_hard_forks()
         .await
         .test_envelope_post_equivocation_returns_400()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4_missing_include_payload_returns_400() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4_missing_include_payload_returns_400()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_post_when_syncing_returns_503() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_envelope_post_when_syncing_returns_503()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_post_stateful_no_cached_blobs_returns_400() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_envelope_post_stateful_no_cached_blobs_returns_400()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_execution_payload_envelopes() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_execution_payload_envelopes()
         .await;
 }
 

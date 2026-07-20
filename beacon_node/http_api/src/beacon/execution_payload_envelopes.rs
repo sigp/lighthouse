@@ -564,7 +564,6 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
     Ok(gossip_verified_columns)
 }
 
-// TODO(gloas): add tests for this endpoint once we support importing payloads into the db
 // GET beacon/execution_payload_envelopes/{block_id}
 pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,

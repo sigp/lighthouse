@@ -59,6 +59,12 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
 ) -> Result<Response, warp::Rejection> {
+    let include_payload = query.include_payload.ok_or_else(|| {
+        warp_utils::reject::custom_bad_request(
+            "include_payload query parameter is required".to_string(),
+        )
+    })?;
+
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
             "randao reveal is not a valid BLS signature: {:?}",
@@ -88,11 +94,6 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })?;
 
-    let include_payload = query.include_payload.ok_or_else(|| {
-        warp_utils::reject::custom_bad_request(
-            "include_payload query parameter is required".to_string(),
-        )
-    })?;
     let payload_contents = include_payload.then_some(payload_contents).flatten();
 
     build_response_v4::<T>(
@@ -177,17 +178,21 @@ pub fn build_response_v4<T: BeaconChainTypes>(
 
     // When the payload is included, bundle the block with the execution payload envelope, blobs and
     // KZG proofs ([`BlockAndEnvelope`]); otherwise return only the block.
+    let data = match payload_contents {
+        Some((execution_payload_envelope, kzg_proofs, blobs)) => Ok(BlockAndEnvelope {
+            block,
+            execution_payload_envelope: Arc::unwrap_or_clone(execution_payload_envelope),
+            kzg_proofs,
+            blobs: Arc::unwrap_or_clone(blobs),
+        }),
+        None => Err(block),
+    };
+
     match accept_header {
         Some(api_types::Accept::Ssz) => {
-            let ssz_bytes = match payload_contents {
-                Some((execution_payload_envelope, kzg_proofs, blobs)) => BlockAndEnvelope {
-                    block,
-                    execution_payload_envelope: Arc::unwrap_or_clone(execution_payload_envelope),
-                    kzg_proofs,
-                    blobs: Arc::unwrap_or_clone(blobs),
-                }
-                .as_ssz_bytes(),
-                None => block.as_ssz_bytes(),
+            let ssz_bytes = match &data {
+                Ok(block_and_envelope) => block_and_envelope.as_ssz_bytes(),
+                Err(block) => block.as_ssz_bytes(),
             };
             Builder::new()
                 .status(200)
@@ -202,23 +207,14 @@ pub fn build_response_v4<T: BeaconChainTypes>(
                 })
         }
         _ => {
-            let response = match payload_contents {
-                Some((execution_payload_envelope, kzg_proofs, blobs)) => {
-                    warp::reply::json(&ForkVersionedResponse {
-                        version: fork_name,
-                        metadata,
-                        data: BlockAndEnvelope {
-                            block,
-                            execution_payload_envelope: Arc::unwrap_or_clone(
-                                execution_payload_envelope,
-                            ),
-                            kzg_proofs,
-                            blobs: Arc::unwrap_or_clone(blobs),
-                        },
-                    })
-                    .into_response()
-                }
-                None => warp::reply::json(&ForkVersionedResponse {
+            let response = match data {
+                Ok(block_and_envelope) => warp::reply::json(&ForkVersionedResponse {
+                    version: fork_name,
+                    metadata,
+                    data: block_and_envelope,
+                })
+                .into_response(),
+                Err(block) => warp::reply::json(&ForkVersionedResponse {
                     version: fork_name,
                     metadata,
                     data: block,

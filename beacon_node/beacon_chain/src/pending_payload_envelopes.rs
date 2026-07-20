@@ -64,23 +64,11 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
             .and_then(|data| data.blobs.take())
     }
 
-    /// Remove and return a pending envelope by slot.
-    pub fn remove_by_slot(&mut self, slot: Slot) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
-        let beacon_block_root = self
-            .envelopes
-            .iter()
-            .find(|(_, data)| data.envelope.slot() == slot)
-            .map(|(root, _)| *root)?;
+    /// Remove and return a pending envelope by the beacon block root it commits to.
+    pub fn remove(&mut self, beacon_block_root: Hash256) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
         self.envelopes
             .remove(&beacon_block_root)
             .map(|data| data.envelope)
-    }
-
-    /// Check if an envelope exists for the given slot.
-    pub fn contains_slot(&self, slot: Slot) -> bool {
-        self.envelopes
-            .values()
-            .any(|data| data.envelope.slot() == slot)
     }
 
     /// Prune envelopes older than `current_slot - max_slot_age`.
@@ -134,12 +122,10 @@ mod tests {
         let data = make_envelope(slot, block_root);
         let expected_envelope = data.envelope.clone();
 
-        assert!(!cache.contains_slot(slot));
         assert_eq!(cache.len(), 0);
 
         cache.insert(data);
 
-        assert!(cache.contains_slot(slot));
         assert_eq!(cache.len(), 1);
         assert_eq!(
             cache.get_by_block_root(block_root),
@@ -164,18 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn remove_by_slot() {
+    fn remove() {
         let mut cache = PendingPayloadEnvelopes::<E>::default();
         let slot = Slot::new(1);
-        let data = make_envelope(slot, Hash256::repeat_byte(42));
+        let block_root = Hash256::repeat_byte(42);
+        let data = make_envelope(slot, block_root);
         let expected_envelope = data.envelope.clone();
 
         cache.insert(data);
-        assert!(cache.contains_slot(slot));
+        assert!(cache.get_by_block_root(block_root).is_some());
 
-        let removed = cache.remove_by_slot(slot);
+        let removed = cache.remove(block_root);
         assert_eq!(removed, Some(expected_envelope));
-        assert!(!cache.contains_slot(slot));
+        assert!(cache.get_by_block_root(block_root).is_none());
         assert_eq!(cache.len(), 0);
     }
 
@@ -201,7 +188,6 @@ mod tests {
         assert!(taken_again.is_none());
 
         // Envelope is still in the cache
-        assert!(cache.contains_slot(slot));
         assert!(cache.get_by_block_root(block_root).is_some());
     }
 
@@ -237,7 +223,7 @@ mod tests {
         cache.prune(Slot::new(10));
 
         assert_eq!(cache.len(), 1);
-        assert!(!cache.contains_slot(slot_1)); // slot 5 < 8, pruned
-        assert!(cache.contains_slot(slot_2)); // slot 10 >= 8, kept
+        assert!(cache.get_by_block_root(Hash256::repeat_byte(1)).is_none()); // slot 5 < 8, pruned
+        assert!(cache.get_by_block_root(Hash256::repeat_byte(2)).is_some()); // slot 10 >= 8, kept
     }
 }

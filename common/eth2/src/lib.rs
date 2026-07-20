@@ -495,27 +495,16 @@ impl BeaconNodeHttpClient {
         fork: ForkName,
         blob_data_included: Option<bool>,
     ) -> Result<Response, Error> {
-        let builder = self
+        let mut builder = self
             .client
             .post(url)
-            .timeout(timeout.unwrap_or(self.timeouts.default));
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            CONSENSUS_VERSION_HEADER,
-            HeaderValue::from_str(&fork.to_string()).expect("Failed to create header value"),
-        );
+            .timeout(timeout.unwrap_or(self.timeouts.default))
+            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
+            .header("Content-Type", "application/octet-stream");
         if let Some(blob_data_included) = blob_data_included {
-            headers.insert(
-                BLOB_DATA_INCLUDED_HEADER,
-                HeaderValue::from_str(&blob_data_included.to_string())
-                    .expect("Failed to create header value"),
-            );
+            builder = builder.header(BLOB_DATA_INCLUDED_HEADER, blob_data_included.to_string());
         }
-        headers.insert(
-            "Content-Type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let response = builder.headers(headers).body(body).send().await?;
+        let response = builder.body(body).send().await?;
         success_or_error(response).await
     }
 

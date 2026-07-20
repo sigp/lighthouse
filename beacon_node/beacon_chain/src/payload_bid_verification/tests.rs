@@ -412,7 +412,10 @@ fn invalid_bid_slot() {
         ctx.genesis_block_root,
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
-    assert!(matches!(result, Err(PayloadBidError::InvalidBidSlot { .. })));
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::InvalidBidSlot { .. })
+    ));
 }
 
 #[test]
