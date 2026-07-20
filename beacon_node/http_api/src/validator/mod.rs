@@ -17,8 +17,9 @@ use context_deserialize::ContextDeserialize;
 use eth2::CONSENSUS_VERSION_HEADER;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
-    StandardLivenessResponseData, StateId as CoreStateId, ValidatorAggregateAttestationQuery,
-    ValidatorAttestationDataQuery, ValidatorBlocksQuery, ValidatorIndexData, ValidatorStatus,
+    InclusionListTransactions, StandardLivenessResponseData, StateId as CoreStateId,
+    ValidatorAggregateAttestationQuery, ValidatorAttestationDataQuery, ValidatorBlocksQuery,
+    ValidatorInclusionListQuery, ValidatorIndexData, ValidatorStatus,
 };
 use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
@@ -406,6 +407,64 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                                 })
                         }
                     }
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET validator/inclusion_list?slot
+pub fn get_validator_inclusion_list<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp::query::<ValidatorInclusionListQuery>())
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .then(
+            |query: ValidatorInclusionListQuery,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    not_synced_filter?;
+
+                    let slot = query.slot;
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+                    // Inclusion lists are only valid for Heze and later forks.
+                    if !fork_name.heze_enabled() {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "Inclusion lists are not supported for fork: {fork_name}"
+                        )));
+                    }
+
+                    let transactions =
+                        chain
+                            .produce_inclusion_list(slot)
+                            .await
+                            .map_err(|e| match e {
+                                BeaconChainError::InvalidSlot(_) => {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "Unable to produce inclusion list: {e:?}"
+                                    ))
+                                }
+                                _ => warp_utils::reject::custom_server_error(format!(
+                                    "Unable to produce inclusion list: {e:?}"
+                                )),
+                            })?;
+
+                    let response = GenericResponse::from(InclusionListTransactions::<T::EthSpec> {
+                        transactions,
+                    });
+                    Ok(warp::reply::json(&response).into_response())
                 })
             },
         )
