@@ -4502,6 +4502,8 @@ impl ApiTester {
         assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
         self
     }
 
@@ -4541,6 +4543,8 @@ impl ApiTester {
 
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         assert!(self.network_rx.network_recv.recv().now_or_never().is_some());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -4582,6 +4586,8 @@ impl ApiTester {
 
         assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -4626,6 +4632,8 @@ impl ApiTester {
 
         let response = reqwest::Client::new().get(url).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -4672,7 +4680,7 @@ impl ApiTester {
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
         *network_globals.sync_state.write() = SyncState::Synced;
-        self.chain.slot_clock.set_slot(original_slot.as_u64());
+        self.chain.slot_clock.set_slot(original_slot.as_u64() + 1);
 
         self
     }
@@ -4717,6 +4725,8 @@ impl ApiTester {
 
         assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -4769,6 +4779,8 @@ impl ApiTester {
             .await
             .unwrap();
         assert!(missing.is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -9459,79 +9471,25 @@ async fn payload_attestation_present_after_envelope_publish() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_consensus_invalid_returns_400_no_broadcast() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
-        .await
-        .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_gossip_partial_pass_returns_202() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
-        .await
-        .test_envelope_post_gossip_partial_pass_returns_202()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_equivocation_returns_400() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
-        .await
-        .test_envelope_post_equivocation_returns_400()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn block_production_v4_missing_include_payload_returns_400() {
+async fn envelope_api() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new_with_hard_forks()
         .await
         .test_block_production_v4_missing_include_payload_returns_400()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_when_syncing_returns_503() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
         .await
-        .test_envelope_post_when_syncing_returns_503()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_stateful_no_cached_blobs_returns_400() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
+        .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
+        .await
+        .test_envelope_post_gossip_partial_pass_returns_202()
+        .await
+        .test_envelope_post_equivocation_returns_400()
         .await
         .test_envelope_post_stateful_no_cached_blobs_returns_400()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_beacon_execution_payload_envelopes() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
         .await
         .test_get_beacon_execution_payload_envelopes()
+        .await
+        .test_envelope_post_when_syncing_returns_503()
         .await;
 }
 
