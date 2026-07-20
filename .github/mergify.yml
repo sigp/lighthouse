@@ -12,8 +12,7 @@ pull_request_rules:
               - milestone~=v[0-9]\.[0-9]{2}
     actions:
       comment:
-        message: This pull request has merge conflicts. Could you please resolve them
-          @{{author}}? 🙏
+        message: This pull request has merge conflicts. Could you please resolve them @{{author}}? 🙏
       label:
         add:
           - waiting-on-author
@@ -98,17 +97,11 @@ queue_rules:
     batch_max_wait_time: 60 s
     checks_timeout: 10800 s
     merge_method: squash
-    commit_message_template: |
-      {{ title }} (#{{ number }})
-
-        {{ body | get_section("## Issue Addressed", "") }}
-
-
-        {{ body | get_section("## Proposed Changes", "") }}
-      
-      {% for commit in commits | unique(attribute='email_author') %}
-      Co-Authored-By: {{ commit.author }} <{{ commit.email_author }}>
-      {% endfor %}
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+      trailers:
+        - co-authored-by
     queue_conditions:
       - "#approved-reviews-by >= 1"
       - "check-success=license/cla"
