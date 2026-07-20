@@ -265,7 +265,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })?;
 
     // Reject stateful submissions before broadcast when the block commits to blobs but the
-    // node has none cached (beacon-APIs: "no cached blobs and KZG proofs to attach").
+    // node has none cached.
     if !includes_blob_data && column_build_future.is_none() {
         let commits_to_blobs = gossip_verified
             .block
@@ -408,10 +408,8 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
 /// Publishes locally-built data columns and imports the node's sampling subset.
 ///
-/// Returns `Ok(true)` iff sampling-column processing completed envelope import. A sidecar
-/// publication failure is returned as `Err` so callers can surface it to submitters able to
-/// retry; local sampling-import failures are logged and swallowed since the columns are
-/// already on the wire.
+/// Returns `Ok(true)` if envelope import was completed.
+/// Returns `Err` on publication failure.
 async fn publish_and_import_columns<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
