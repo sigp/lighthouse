@@ -21,12 +21,18 @@
 use super::lookups::SimulateConfig;
 use super::*;
 use crate::status::ToStatusMessage;
-use crate::sync::SyncMessage;
-use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::range_sync::RangeSyncType;
-use lighthouse_network::rpc::RPCError;
-use lighthouse_network::rpc::methods::StatusMessageV2;
-use lighthouse_network::{PeerId, SyncInfo};
+use crate::sync::{
+    SyncMessage, block_sidecar_coupling::CouplingError, manager::SLOT_IMPORT_TOLERANCE,
+    network_context::RpcResponseError, range_sync::RangeSyncType,
+};
+use lighthouse_network::{
+    PeerId, SyncInfo,
+    rpc::{RPCError, methods::StatusMessageV2},
+    service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+        DataColumnsByRangeRequester,
+    },
+};
 use std::collections::HashSet;
 use types::{Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec as E, Slot};
 
@@ -252,13 +258,6 @@ impl TestRig {
     }
 
     async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
-        use crate::sync::block_sidecar_coupling::CouplingError;
-        use crate::sync::network_context::RpcResponseError;
-        use lighthouse_network::service::api_types::{
-            CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
-            DataColumnsByRangeRequester,
-        };
-
         self.build_chain(1).await;
         self.import_blocks_up_to_slot(1).await;
         let good_peer = self.new_connected_supernode_peer();
@@ -268,9 +267,16 @@ impl TestRig {
             .get(&Slot::new(1))
             .and_then(|block| block.data_columns())
             .expect("slot 1 should have data columns");
-        let good_column = columns[0].clone();
+        let mut columns = columns.iter();
+        let good_column = columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .clone();
         let good_column_index = *good_column.index();
-        let missing_column_index = *columns[1].index();
+        let missing_column_index = *columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .index();
 
         let batch_request_id = CustodyBackFillBatchRequestId {
             id: 999,
@@ -626,7 +632,6 @@ async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() 
     r.assert_range_sync_completed();
 }
 
-/// A completed custody-backfill request with missing columns must be removed before retrying.
 #[tokio::test]
 async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
     let mut r = TestRig::default();

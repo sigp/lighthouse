@@ -1662,8 +1662,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         req_id: DataColumnsByRangeRequestId,
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
-        // Remove before processing so every terminal result drops the request and its columns.
-        // Re-insert below only while waiting for more responses.
+        // Remove first so a failed request is not left in the map.
         let Some(mut request) = self
             .custody_backfill_data_column_batch_requests
             .remove(&custody_sync_request_id)
@@ -1685,13 +1684,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Some(Err(e));
         }
 
-        if let Some(data_column_result) = request.responses() {
-            Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
-        } else {
-            // Re-insert — still waiting for more data column responses.
-            self.custody_backfill_data_column_batch_requests
-                .insert(custody_sync_request_id, request);
-            None
+        match request.responses() {
+            Some(data_column_result) => {
+                Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
+            }
+            None => {
+                self.custody_backfill_data_column_batch_requests
+                    .insert(custody_sync_request_id, request);
+                None
+            }
         }
     }
 
