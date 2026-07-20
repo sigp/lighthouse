@@ -8533,7 +8533,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                false,
+                Some(false),
                 builder_boost_factor,
                 None,
             )
@@ -8548,7 +8548,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                false,
+                Some(false),
                 builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
@@ -8573,7 +8573,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                false,
+                Some(false),
                 builder_boost_factor,
                 Some(GraffitiPolicy::PreserveUserGraffiti),
             )
