@@ -1769,6 +1769,12 @@ where
         *self.fc_store.finalized_checkpoint()
     }
 
+    /// Override the finalized checkpoint when constructing an abstract specification test store.
+    #[cfg(feature = "test-utils")]
+    pub fn testing_set_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.fc_store.set_finalized_checkpoint(checkpoint);
+    }
+
     /// Return the justified checkpoint.
     pub fn justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.justified_checkpoint()
