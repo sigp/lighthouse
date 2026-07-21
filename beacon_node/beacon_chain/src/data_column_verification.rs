@@ -6,6 +6,7 @@ use crate::kzg_utils::{
     reconstruct_data_columns, validate_data_columns_with_commitments, validate_full_data_columns,
     validate_partial_data_columns,
 };
+use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
@@ -223,6 +224,25 @@ impl From<BeaconChainError> for GossipDataColumnError {
 impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
+    }
+}
+
+impl From<ObservedBlockProducersError> for GossipDataColumnError {
+    fn from(e: ObservedBlockProducersError) -> Self {
+        // This error can occur in certain race conditions, where an epoch is finalized after the
+        // finalization check but before the observation.
+        if let ObservedBlockProducersError::FinalizedBlock {
+            slot,
+            finalized_slot,
+        } = e
+        {
+            GossipDataColumnError::PastFinalizedSlot {
+                column_slot: slot,
+                finalized_slot,
+            }
+        } else {
+            GossipDataColumnError::BeaconChainError(Box::new(e.into()))
+        }
     }
 }
 
@@ -595,17 +615,25 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
         };
-        let newly_cached = assembler.init(group_id, header.clone());
+        // Only cache the header if the block data is not already imported. This avoids
+        // reintroducing (and regossiping) headers of already available blocks.
+        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+            assembler.init(group_id, header.clone())
+        } else {
+            false
+        };
 
-        chain
-            .observed_slashable
-            .write()
-            .observe_slashable(
-                column_slot,
-                header.signed_block_header.message.proposer_index,
-                header_hash,
-            )
-            .map_err(BeaconChainError::from)?;
+        if newly_cached {
+            chain
+                .observed_slashable
+                .write()
+                .observe_slashable(
+                    column_slot,
+                    header.signed_block_header.message.proposer_index,
+                    header_hash,
+                )
+                .map_err(GossipDataColumnError::from)?;
+        }
 
         Ok(Self {
             header,
@@ -1045,7 +1073,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
             data_column_fulu.block_proposer_index(),
             data_column.block_root(),
         )
-        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+        .map_err(GossipDataColumnError::from)?;
 
     if O::observe() {
         observe_gossip_data_column(&data_column, chain)?;
@@ -1314,11 +1342,8 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
 /// Loads the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
 /// `early_attester_cache`, or the on-disk store (in that order).
 ///
-/// TODO(gloas): the store fallback is a synchronous disk read and several callers run inside
-/// `async` gossip / RPC validation paths. Move the disk path off the async runtime (e.g. behind
-/// `spawn_blocking`) — or restructure callers to fetch the bid before entering async — once the
-/// gossip pipeline is reworked for Gloas. The cache and early-attester paths are short
-/// in-memory locks and acceptable as-is.
+/// The store fallback is a synchronous disk read, so this must be called from a blocking
+/// context, never directly on the async runtime.
 pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
@@ -1647,13 +1672,14 @@ mod test {
     use crate::data_column_verification::{
         GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
         GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-        PartialColumnVerificationResult, validate_data_column_sidecar_for_gossip_fulu,
+        PartialColumnVerificationResult, load_gloas_payload_bid,
+        validate_data_column_sidecar_for_gossip_fulu,
         validate_partial_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::{
-        BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
-        generate_data_column_sidecars_from_block, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs, fork_name_from_env,
+        generate_data_column_sidecars_from_block, generate_rand_block_and_data_columns, test_spec,
     };
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
@@ -1664,8 +1690,8 @@ mod test {
     use std::time::UNIX_EPOCH;
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader,
-        PartialDataColumnSidecar,
+        ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader,
+        PartialDataColumnSidecar, test_utils::test_unstructured,
     };
 
     type E = MainnetEthSpec;
@@ -1716,6 +1742,70 @@ mod test {
         };
         empty_data_column_sidecars_fails_validation_fulu(&harness, &verify_fn).await;
         data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+    }
+
+    #[tokio::test]
+    async fn test_load_gloas_payload_bid_disk_fallback() {
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        let mut u = test_unstructured();
+        let (block, _columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Gloas,
+            NumBlobs::Number(0),
+            &mut u,
+            &harness.spec,
+        )
+        .unwrap();
+        let block_root = block.canonical_root();
+        let expected_bid = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .clone();
+
+        // Put the block on disk only, so the bid can only be found via the store fallback.
+        harness.chain.store.put_block(&block_root, block).unwrap();
+        assert!(
+            harness
+                .chain
+                .pending_payload_cache
+                .get_bid(&block_root)
+                .is_none()
+        );
+        assert!(
+            !harness
+                .chain
+                .early_attester_cache
+                .contains_block(block_root)
+        );
+
+        let bid = load_gloas_payload_bid(block_root, &harness.chain)
+            .unwrap()
+            .expect("bid should be loaded from the store");
+        assert_eq!(*bid, expected_bid);
+
+        // The disk-loaded bid should be promoted into the pending payload cache.
+        assert!(
+            harness
+                .chain
+                .pending_payload_cache
+                .get_bid(&block_root)
+                .is_some()
+        );
+
+        // An unknown block root yields no bid.
+        assert!(
+            load_gloas_payload_bid(Hash256::repeat_byte(0x42), &harness.chain)
+                .unwrap()
+                .is_none()
+        );
     }
 
     // TODO(gloas) make this generic over gloas/fulu

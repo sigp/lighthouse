@@ -347,6 +347,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn network_context(&mut self) -> &mut SyncNetworkContext<T> {
+        &mut self.network
+    }
+
+    #[cfg(test)]
     pub(crate) fn get_range_sync_chains(
         &self,
     ) -> Result<Option<(RangeSyncType, Slot, Slot)>, &'static str> {

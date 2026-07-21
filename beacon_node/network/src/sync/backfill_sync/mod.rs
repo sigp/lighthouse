@@ -785,7 +785,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::Downloading(..) => {}
                 BatchState::AwaitingDownload => return,
                 BatchState::Failed | BatchState::Poisoned => {
-                    crit!("batch indicates inconsistent chain state while advancing chain")
+                    crit!("batch indicates inconsistent chain state while advancing chain");
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(..) => {

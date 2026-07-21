@@ -232,6 +232,20 @@ pub enum UnsignedBlock<E: EthSpec> {
     Blinded(BlindedBeaconBlock<E>),
 }
 
+impl<E: EthSpec> UnsignedBlock<E> {
+    /// The canonical root of this beacon block (identical for the full and blinded forms).
+    ///
+    /// This is the root of the block *this node produced*, which the local beacon node keys its
+    /// pending payload-envelope cache by. It is not necessarily the block ultimately signed or
+    /// published (e.g. under distributed validators).
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            UnsignedBlock::Full(block) => block.block().canonical_root(),
+            UnsignedBlock::Blinded(block) => block.canonical_root(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignedBlock<E: EthSpec> {
     Full(PublishBlockRequest<E>),
