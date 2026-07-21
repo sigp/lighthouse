@@ -707,6 +707,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self
             .chain
             .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), subnet_id)
+            .await
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
