@@ -292,12 +292,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// the fork-choice read lock is still held. The Mutex is only locked briefly during
     /// FCR computation, which is already serialized by `recompute_head_lock`.
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
-    /// Per-validator committee slot assignments for the pulled-up head state's
-    /// `[current-2, current]` epoch window.
-    ///
-    /// Rebuilt inside `recompute_head_at_slot_internal` when the head's current-epoch
-    /// shuffling changes, while the fork-choice read lock is still held. The Mutex is only
-    /// locked briefly; updates are already serialized by `recompute_head_lock`.
+    /// Per-validator committee slot assignments across the last 3 epochs.
     pub slot_assignments: Mutex<SlotAssignments>,
 }
 
@@ -398,7 +393,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         });
 
-        // Reset the slot assignments to the restored head so they don't carry stale state.
         let slot_assignments = SlotAssignments::new(&snapshot.beacon_state, spec, None)
             .map_err(|e| Error::DBInconsistent(format!("slot assignments reset: {e:?}")))?;
 
@@ -764,10 +758,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_forkchoice_update_parameters =
             fork_choice_read_lock.get_forkchoice_update_parameters();
 
-        // Update the shared slot-assignments cache from the pulled-up head state while we still
-        // hold the fork choice read lock. This runs even when the head hasn't changed so the
-        // cache rotates at epoch boundaries. `None` means the cache was left stale (deep sync
-        // or error).
+        // Runs even when the head hasn't changed so the cache rotates at epoch boundaries.
         let head_state_and_assignments = self.update_head_slot_assignments(
             current_slot,
             new_head_proto_block.slot,
@@ -1011,11 +1002,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(el_update_handle))
     }
 
-    /// Rebuild the `SlotAssignments` cache from the head state, re-using any unchanged epochs.
-    ///
-    /// Returns `None` without updating when the head is more than `MAX_ADVANCE_DISTANCE`
-    /// behind wall-clock or when the update fails. In both cases the cache is left stale
-    /// consumers must verify its `key()` before making consensus-affecting decisions on it.
+    /// Rebuild the slot assignments cache from the head state. Returns `None` and leaves the
+    /// cache stale on deep sync or error; consumers must check `key()` before relying on it.
     fn update_head_slot_assignments(
         &self,
         current_slot: Slot,
