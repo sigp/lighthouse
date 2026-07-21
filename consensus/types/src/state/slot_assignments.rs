@@ -138,19 +138,6 @@ impl SlotAssignments {
         })
     }
 
-    /// Rebuild from `state` if its current-epoch shuffling differs from the cached window,
-    /// re-using any unchanged epochs.
-    pub fn rebuild_if_stale<E: EthSpec>(
-        &mut self,
-        state: &BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<(), BeaconStateError> {
-        if *self.key() != WindowEpoch::Current.shuffling_id(state)? {
-            *self = Self::new(state, spec, Some(self))?;
-        }
-        Ok(())
-    }
-
     pub fn key(&self) -> &AttestationShufflingId {
         &self.assignments[2].key
     }

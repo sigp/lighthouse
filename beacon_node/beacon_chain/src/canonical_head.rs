@@ -1011,7 +1011,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(el_update_handle))
     }
 
-    /// Build the `SlotAssignments` cache from the head state only when the shuffling has changed.
+    /// Rebuild the `SlotAssignments` cache from the head state, re-using any unchanged epochs.
     ///
     /// Returns `None` without updating when the head is more than `MAX_ADVANCE_DISTANCE`
     /// behind wall-clock or when the update fails. In both cases the cache is left stale
@@ -1043,13 +1043,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
         let mut slot_assignments = self.canonical_head.slot_assignments.lock();
-        if let Err(e) = slot_assignments.rebuild_if_stale(&head_state, &self.spec) {
-            metrics::inc_counter_vec(
-                &metrics::SLOT_ASSIGNMENTS_ERRORS,
-                &["committee_cache_error"],
-            );
-            error!("Error rebuilding slot assignments: {e:?}");
-            return None;
+        match SlotAssignments::new(&head_state, &self.spec, Some(&slot_assignments)) {
+            Ok(rebuilt) => *slot_assignments = rebuilt,
+            Err(e) => {
+                metrics::inc_counter_vec(
+                    &metrics::SLOT_ASSIGNMENTS_ERRORS,
+                    &["committee_cache_error"],
+                );
+                error!("Error rebuilding slot assignments: {e:?}");
+                return None;
+            }
         }
         Some((head_state, slot_assignments.clone()))
     }
