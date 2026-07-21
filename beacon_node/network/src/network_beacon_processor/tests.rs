@@ -202,7 +202,7 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        // Ensure there is exactly one blob in the next block. Required for some tests.
+        // Ensure there is at least one blob in the next block. Required for some tests.
         harness
             .mock_execution_layer
             .as_ref()
@@ -1391,14 +1391,28 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
 
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    let gloas = test_spec::<E>().gloas_fork_epoch.is_some();
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            events.push(WorkType::GossipBlock);
-            for i in 0..num_data_columns {
-                rig.enqueue_gossip_data_columns(i);
-                events.push(WorkType::GossipDataColumnSidecar);
+            if gloas {
+                rig.assert_event_journal_contains_ordered(&[
+                    WorkType::GossipBlock,
+                    WorkType::UnknownBlockAttestation,
+                ])
+                .await;
+                for i in 0..num_data_columns {
+                    rig.enqueue_gossip_data_columns(i);
+                    events.push(WorkType::GossipDataColumnSidecar);
+                }
+            } else {
+                events.push(WorkType::GossipBlock);
+                for i in 0..num_data_columns {
+                    rig.enqueue_gossip_data_columns(i);
+                    events.push(WorkType::GossipDataColumnSidecar);
+                }
+                events.push(WorkType::UnknownBlockAttestation);
             }
         }
         BlockImportMethod::Rpc => {
@@ -1408,10 +1422,9 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
             }
+            events.push(WorkType::UnknownBlockAttestation);
         }
     };
-
-    events.push(WorkType::UnknownBlockAttestation);
 
     rig.assert_event_journal_contains_ordered(&events).await;
 
@@ -1468,14 +1481,28 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
 
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    let gloas = test_spec::<E>().gloas_fork_epoch.is_some();
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            events.push(WorkType::GossipBlock);
-            for i in 0..num_data_columns {
-                rig.enqueue_gossip_data_columns(i);
-                events.push(WorkType::GossipDataColumnSidecar)
+            if gloas {
+                rig.assert_event_journal_contains_ordered(&[
+                    WorkType::GossipBlock,
+                    WorkType::UnknownBlockAggregate,
+                ])
+                .await;
+                for i in 0..num_data_columns {
+                    rig.enqueue_gossip_data_columns(i);
+                    events.push(WorkType::GossipDataColumnSidecar)
+                }
+            } else {
+                events.push(WorkType::GossipBlock);
+                for i in 0..num_data_columns {
+                    rig.enqueue_gossip_data_columns(i);
+                    events.push(WorkType::GossipDataColumnSidecar)
+                }
+                events.push(WorkType::UnknownBlockAggregate);
             }
         }
         BlockImportMethod::Rpc => {
@@ -1485,10 +1512,9 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
             }
+            events.push(WorkType::UnknownBlockAggregate);
         }
     };
-
-    events.push(WorkType::UnknownBlockAggregate);
 
     rig.assert_event_journal_contains_ordered(&events).await;
 
@@ -1520,7 +1546,6 @@ async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
 }
 
 async fn payload_attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    // Only test when the Gloas fork is scheduled
     if test_spec::<E>().gloas_fork_epoch.is_none() {
         return;
     }
@@ -1557,7 +1582,11 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            events.push(WorkType::GossipBlock);
+            rig.assert_event_journal_contains_ordered(&[
+                WorkType::GossipBlock,
+                WorkType::UnknownBlockPayloadAttestation,
+            ])
+            .await;
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar);
@@ -1570,10 +1599,9 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
             }
+            events.push(WorkType::UnknownBlockPayloadAttestation);
         }
     };
-
-    events.push(WorkType::UnknownBlockPayloadAttestation);
 
     rig.assert_event_journal_contains_ordered(&events).await;
 
@@ -1628,7 +1656,6 @@ async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
 /// block is never seen, is received back on timeout without being imported.
 #[tokio::test]
 async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
-    // Only test when the Gloas fork is scheduled
     if test_spec::<E>().gloas_fork_epoch.is_none() {
         return;
     }
@@ -1760,10 +1787,7 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 /// the envelope arrives via the gossip import path.
 #[tokio::test]
 async fn payload_present_attestation_released_on_payload_envelope_import() {
-    if !test_spec::<E>()
-        .fork_name_at_epoch(Epoch::new(0))
-        .gloas_enabled()
-    {
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
         return;
     }
 
@@ -1831,10 +1855,7 @@ async fn payload_present_attestation_released_on_payload_envelope_import() {
 /// aggregated attestation.
 #[tokio::test]
 async fn payload_present_aggregate_released_on_payload_envelope_import() {
-    if !test_spec::<E>()
-        .fork_name_at_epoch(Epoch::new(0))
-        .gloas_enabled()
-    {
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
         return;
     }
 

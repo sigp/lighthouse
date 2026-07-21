@@ -1789,8 +1789,18 @@ where
             fork,
             payload_present_override,
         } = opts;
-        // Payload-present (`index == 1`) only applies post-Gloas; default to false.
-        let payload_present = payload_present_override.unwrap_or(false);
+        let payload_present = match payload_present_override {
+            Some(payload_present) => payload_present,
+            None => {
+                state.fork_name_unchecked().gloas_enabled()
+                    && state.latest_block_header().slot != attestation_slot
+                    && self
+                        .chain
+                        .canonical_head
+                        .block_has_canonical_payload(&head_block_root.into(), &self.spec)
+                        .unwrap()
+            }
+        };
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
