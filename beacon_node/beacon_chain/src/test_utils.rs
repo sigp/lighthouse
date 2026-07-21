@@ -4029,16 +4029,19 @@ where
                 .collect()
         });
 
-        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+        let mut verified_columns = vec![];
+        for sidecar in generate_data_column_sidecars_from_block(block, &self.spec)
             .into_iter()
             .filter(|c| custody_columns.contains(c.index()))
-            .map(|sidecar| {
-                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+        {
+            let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+            verified_columns.push(
                 self.chain
                     .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+                    .await
+                    .unwrap(),
+            );
+        }
 
         if !verified_columns.is_empty() {
             self.chain
