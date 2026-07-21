@@ -1028,6 +1028,12 @@ async fn data_column_reconstruction_at_slot_start() {
 
     let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
 
+    if test_spec::<E>().gloas_fork_epoch.is_some() {
+        rig.enqueue_gossip_block();
+        rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+            .await;
+    }
+
     let slot_start = rig
         .chain
         .slot_clock
@@ -1121,6 +1127,12 @@ async fn data_column_reconstruction_at_next_slot() {
     };
 
     let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    if test_spec::<E>().gloas_fork_epoch.is_some() {
+        rig.enqueue_gossip_block();
+        rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+            .await;
+    }
 
     let slot_start = rig
         .chain
