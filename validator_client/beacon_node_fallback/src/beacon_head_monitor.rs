@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ignores_stale_head_events() {
+    async fn test_ignores_stale_head_events() {
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
         slot_clock.set_slot(2);
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recovers_from_lagged_head_events() {
+    async fn test_recovers_from_lagged_head_events() {
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
         slot_clock.set_slot(2);
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returns_when_head_event_channel_closes() {
+    async fn test_returns_when_head_event_channel_closes() {
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
         let (sender, mut receiver) = broadcast::channel(1);
