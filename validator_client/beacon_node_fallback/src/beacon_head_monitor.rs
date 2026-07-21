@@ -20,7 +20,7 @@ pub struct HeadEvent {
     pub beacon_block_root: Hash256,
 }
 
-pub async fn poll_for_current_slot_head<T: SlotClock>(
+async fn poll_for_current_slot_head<T: SlotClock>(
     receiver: &mut broadcast::Receiver<HeadEvent>,
     slot_clock: &T,
 ) -> Option<HeadEvent> {
@@ -60,20 +60,17 @@ pub async fn head_event_or_deadline<T: SlotClock>(
     tokio::pin!(deadline);
     if let Some(receiver) = head_monitor_rx {
         tokio::select! {
-            _ = &mut deadline => None,
-            event = poll_for_current_slot_head(receiver, slot_clock) => match event {
-                Some(event) => Some(event),
-                None => {
-                    *head_monitor_rx = None;
-                    deadline.await;
-                    None
+            _ = &mut deadline => return None,
+            event = poll_for_current_slot_head(receiver, slot_clock) => {
+                if event.is_some() {
+                    return event;
                 }
+                *head_monitor_rx = None;
             },
         }
-    } else {
-        deadline.await;
-        None
     }
+    deadline.await;
+    None
 }
 
 /// Cache to maintain the latest head received from each of the beacon nodes
