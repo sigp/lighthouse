@@ -698,6 +698,33 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_GET_CLIENT_VERSION_V1 => {
             Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
         }
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1 => {
+            let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+
+            let mut response = vec![];
+            for block_hash in block_hashes {
+                let maybe_payload = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_payload_by_hash(block_hash);
+
+                match maybe_payload {
+                    Some(payload) => {
+                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
+                            transactions: payload.transactions().clone(),
+                            withdrawals: payload.withdrawals().ok().cloned(),
+                        };
+                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
+                            payload_body.try_into().unwrap();
+                        response.push(Some(json_payload_body));
+                    }
+                    None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
+        }
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]
             #[serde(transparent)]
