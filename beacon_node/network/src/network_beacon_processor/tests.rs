@@ -1193,11 +1193,14 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
+    let gloas = test_spec::<E>().gloas_fork_epoch.is_some();
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    for i in 0..num_data_columns {
-        rig.enqueue_gossip_data_columns(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-            .await;
+    if !gloas {
+        for i in 0..num_data_columns {
+            rig.enqueue_gossip_data_columns(i);
+            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+                .await;
+        }
     }
 
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
@@ -1222,6 +1225,14 @@ async fn import_gossip_block_acceptably_early() {
         rig.next_block.canonical_root(),
         "block should be imported and become head"
     );
+
+    if gloas {
+        for i in 0..num_data_columns {
+            rig.enqueue_gossip_data_columns(i);
+            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+                .await;
+        }
+    }
 }
 
 /// Blocks that are *too* early shouldn't get into the delay queue.
