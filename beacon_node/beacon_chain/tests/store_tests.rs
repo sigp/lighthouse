@@ -35,7 +35,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_xorshift::XorShiftRng;
+use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz::Encode;
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
@@ -44,6 +46,7 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
@@ -53,6 +56,7 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
+use types::test_utils::test_arbitrary_instance;
 use types::*;
 
 // Should ideally be divisible by 3.
@@ -216,6 +220,43 @@ fn get_states_descendant_of_block(
         .collect()
 }
 
+/// Builds a `LightClientUpdate` for the given fork,
+/// sets `signature_slot` to the provided `marker_slot` so tests can identify which update was returned.
+/// Uses `test_arbitrary_instance` for all other fields.
+fn make_light_client_update<E: EthSpec>(
+    fork_name: ForkName,
+    marker_slot: Slot,
+) -> LightClientUpdate<E> {
+    match fork_name {
+        ForkName::Base => panic!("light client updates don't exist pre-Altair"),
+        ForkName::Altair | ForkName::Bellatrix => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateAltair<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Altair(update)
+        }
+        ForkName::Capella => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateCapella<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Capella(update)
+        }
+        ForkName::Deneb => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateDeneb<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Deneb(update)
+        }
+        ForkName::Electra => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateElectra<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Electra(update)
+        }
+        ForkName::Fulu | ForkName::Gloas => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateFulu<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Fulu(update)
+        }
+    }
+}
+
 // TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
@@ -346,6 +387,53 @@ async fn light_client_updates_test() {
         .unwrap();
 
     assert_eq!(lc_updates.len(), 2);
+}
+
+/// Verifies that `get_light_client_updates` returns the full requested range
+/// even when it crosses a sync committee period boundary after
+/// switching to big-endian keys.
+#[tokio::test]
+async fn get_light_client_updates_crosses_256_period_boundary() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    let below = 100u64;
+    let cluster: Vec<u64> = (254..=260).collect();
+    let above = 500u64;
+    let all_periods: Vec<u64> = std::iter::once(below)
+        .chain(cluster.iter().copied())
+        .chain(std::iter::once(above))
+        .collect();
+
+    for &period in &all_periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store.store_light_client_update(period, &update).unwrap();
+    }
+
+    let start_period = 254;
+    let count = 5; // covers 254..=258, crossing the 256 boundary
+    let fetched = store.get_light_client_updates(start_period, count).unwrap();
+
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+
+    assert_eq!(
+        fetched_periods,
+        (start_period..start_period + count).collect::<Vec<_>>(),
+        "expected exactly periods 254..259 in order, got {fetched_periods:?}"
+    );
 }
 
 #[tokio::test]
@@ -4070,7 +4158,6 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
-    let is_gloas = spec.is_gloas_scheduled();
 
     let chain_config = ChainConfig {
         archive,
@@ -4093,11 +4180,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = if is_gloas {
-        SchemaVersion(29)
-    } else {
-        SchemaVersion(28)
-    };
+    let min_version = SchemaVersion(29);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -4207,6 +4290,91 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
         true,
     )
     .await
+}
+
+#[tokio::test]
+async fn light_client_update_schema_v30_migration() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+    
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    // Write entries directly under the OLD little-endian key encoding, bypassing
+    // store_light_client_update (which now writes big-endian keys) so we start from a
+    // pre-migration state.
+    let periods: Vec<u64> = (254..=260).collect();
+    for &period in &periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store
+            .hot_db
+            .put_bytes(
+                DBColumn::LightClientUpdate,
+                &period.to_le_bytes(),
+                &update.as_ssz_bytes(),
+            )
+            .unwrap();
+    }
+
+    // Sanity check: with only LE keys in place, the BE-based getter shouldn't see them yet.
+    assert!(store.get_light_client_update(254).unwrap().is_none());
+
+    // Upgrade v29 -> v30.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(29), SchemaVersion(30))
+        .expect("schema upgrade to v30 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_none(),
+            "LE key for period {period} should have been removed by the migration"
+        );
+        let update = store
+            .get_light_client_update(period)
+            .unwrap()
+            .unwrap_or_else(|| panic!("period {period} should be readable after migration"));
+        assert_eq!(update.signature_slot().as_u64(), period);
+    }
+
+    // Range scan should now work correctly across the 256 boundary too.
+    let fetched = store.get_light_client_updates(254, 5).unwrap();
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+    assert_eq!(fetched_periods, vec![254, 255, 256, 257, 258]);
+
+    // Downgrade v30 -> v29, keys should revert to LE.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(29))
+        .expect("schema downgrade to v29 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_be_bytes())
+                .unwrap()
+                .is_none(),
+            "BE key for period {period} should have been removed by the downgrade"
+        );
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_some(),
+            "LE key for period {period} should be restored by the downgrade"
+        );
+    }
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.

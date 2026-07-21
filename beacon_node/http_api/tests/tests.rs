@@ -2423,12 +2423,7 @@ impl ApiTester {
         let expected = self
             .chain
             .light_client_server_cache
-            .get_light_client_updates(
-                &self.chain.store,
-                current_sync_committee_period,
-                1,
-                &self.chain.spec,
-            )
+            .get_light_client_updates(&self.chain.store, current_sync_committee_period, 1)
             .unwrap();
 
         assert_eq!(1, expected.len());

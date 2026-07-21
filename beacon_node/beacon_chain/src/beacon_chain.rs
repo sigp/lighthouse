@@ -1458,7 +1458,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.store,
             sync_committee_period,
             count,
-            &self.spec,
         )
     }
 

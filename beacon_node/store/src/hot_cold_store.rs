@@ -904,7 +904,9 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     .map_err(|e: TryFromSliceError| Error::InvalidKey(e.to_string()))?,
             );
 
-            if sync_committee_period >= start_period + count {
+            let end_period = start_period.safe_add(count)?;
+
+            if sync_committee_period >= end_period {
                 break;
             }
 

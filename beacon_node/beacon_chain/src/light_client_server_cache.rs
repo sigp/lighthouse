@@ -2,11 +2,7 @@ use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore, metrics};
 use hashlink::lru_cache::LruCache;
 use parking_lot::{Mutex, RwLock};
-use safe_arith::SafeArith;
-use std::array::TryFromSliceError;
 use std::sync::Arc;
-use store::DBColumn;
-use store::KeyValueStore;
 use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
@@ -273,38 +269,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         store: &BeaconStore<T>,
         start_period: u64,
         count: u64,
-        chain_spec: &ChainSpec,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
-        let column = DBColumn::LightClientUpdate;
-        let mut light_client_updates = vec![];
-        for res in store
-            .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_be_bytes())
-        {
-            let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period =
-                u64::from_be_bytes(sync_committee_bytes.as_slice().try_into().map_err(
-                    |e: TryFromSliceError| store::errors::Error::InvalidKey(e.to_string()),
-                )?);
-
-            let end_period = start_period.safe_add(count)?;
-
-            if sync_committee_period >= end_period {
-                break;
-            }
-
-            let epoch = sync_committee_period
-                .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
-
-            let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
-
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
-                    .map_err(store::errors::Error::SszDecodeError)?;
-
-            light_client_updates.push(light_client_update);
-        }
-        Ok(light_client_updates)
+        Ok(store.get_light_client_updates(start_period, count)?)
     }
 
     /// Retrieves prev block cached data from cache. If not present re-computes by retrieving the
