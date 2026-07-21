@@ -1584,7 +1584,6 @@ impl ChainSpec {
             payload_due_bps: 7500,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
-            sync_message_due_bps_gloas: 2500,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1674,6 +1673,7 @@ impl ChainSpec {
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
             altair_fork_epoch: Some(Epoch::new(512)),
             sync_message_due_bps: 3333,
+            sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
 
             /*
