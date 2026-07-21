@@ -1653,8 +1653,9 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
         })
         .count();
     let expected_accepts_count = match import_method {
-        // The gossip block import also propagates an `Accept` for the block itself.
-        BlockImportMethod::Gossip => 2,
+        // The gossip block import also propagates an `Accept` for the block itself and for
+        // each gossip data column.
+        BlockImportMethod::Gossip => 2 + num_data_columns,
         // RPC blocks never touch gossipsub, so the only `Accept` is the re-processed
         // payload attestation's.
         BlockImportMethod::Rpc => 1,
