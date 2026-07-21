@@ -44,9 +44,9 @@ use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain,
     Epoch, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec,
-    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
 use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
@@ -368,7 +368,9 @@ impl TestRig {
             .fork_name_at_slot::<E>(block.slot())
             .gloas_enabled()
         {
-            let sampling_indices = chain.sampling_columns_for_epoch(block.epoch());
+            let sampling_indices = chain
+                .custody_context
+                .sampling_columns_for_epoch(block.epoch());
             let custody_columns: DataColumnSidecarList<E> =
                 generate_data_column_sidecars_from_block(&block, &chain.spec)
                     .into_iter()
