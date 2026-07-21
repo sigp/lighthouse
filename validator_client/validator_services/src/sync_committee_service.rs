@@ -40,9 +40,8 @@ fn delay_until_slot_offset<T: SlotClock>(
     Some(due_at.saturating_sub(now))
 }
 
-/// The next slot and the duration until it starts, derived from a single clock read so that a
-/// slot boundary passing between reads cannot pair one slot's start with another slot's due
-/// point.
+/// The next slot and the duration until it starts, derived from a single clock read so the
+/// two values always describe the same slot.
 fn next_slot_with_duration<T: SlotClock>(slot_clock: &T) -> Option<(Slot, Duration)> {
     let now = slot_clock.now_duration()?;
     let next_slot = slot_clock.slot_of(now)? + 1;
@@ -163,11 +162,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 )
                 .await;
 
-                // Take the slot from the trigger itself rather than re-reading the clock: the
-                // validated event slot for the head event arm, or the armed slot for the timer
-                // arm. If a slot boundary passes during triggering, the event still signs for
-                // its own slot and can never suppress the next slot's messages via the dedupe
-                // below.
+                // Take the slot from the trigger itself rather than re-reading the clock, so a
+                // head event arriving at the end of a slot is never attributed to the next slot.
                 let (current_slot, head_event_root) = match head_event {
                     Some(event) => (event.slot, Some(event.beacon_block_root)),
                     None => (next_slot, None),
