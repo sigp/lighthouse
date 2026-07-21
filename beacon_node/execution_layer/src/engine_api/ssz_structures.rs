@@ -78,7 +78,18 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
     }
 }
 
-//SszExecutionPayloadBodyV3 conversion support once block_access_list support is added to ExecutionPayloadBodyV1
+impl<E: EthSpec> From<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV1<E> {
+    fn from(value: SszExecutionPayloadBodyV3<E>) -> Self {
+        // FIXME(rest-ssz): needs `ExecutionPayloadBodyV1 += block_access_list: Option<..>`
+        // impl once block_access_list is added to ExecutionPayloadBodyV1
+        Self {
+            transactions: value.transactions,
+            withdrawals: Some(value.withdrawals),
+        }
+    }
+}
+
+//ExecutionPayloadBodyV1 <-> SszExecutionPayloadBodyV3 conversion support to be impl once block_access_list is added to ExecutionPayloadBodyV1
 
 type SszExecutionRequests<E> = VariableList<
     VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>,
@@ -759,11 +770,15 @@ impl<E: EthSpec> SszBodiesResponse<E> {
                         .then(|| ExecutionPayloadBodyV1::from(entry.body))
                 })
                 .collect()),
-            // FIXME(rest-ssz): needs `ExecutionPayloadBodyV1 += block_access_list: Option<..>`
-            // plus a `From<SszExecutionPayloadBodyV3>` before Amsterdam bodies can be mapped.
-            Self::V3(_resp) => {
-                Err("Amsterdam (Gloas) execution payload bodies are not yet supported".to_string())
-            }
+            Self::V3(resp) => Ok(resp
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    entry
+                        .available
+                        .then(|| ExecutionPayloadBodyV1::from(entry.body))
+                })
+                .collect())
         }
     }
 }
