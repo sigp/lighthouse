@@ -1548,20 +1548,21 @@ async fn verify_and_process_gossip_data_sidecars(
             // Blob gossip is deprecated, blobs are available via RPC.
         }
         DataSidecars::DataColumns(column_sidecars) => {
-            let gossip_verified = column_sidecars
-                .into_iter()
-                .map(|column_sidecar| {
-                    let subnet_id = DataColumnSubnetId::from_column_index(
-                        column_sidecar.index(),
-                        &harness.spec,
-                    );
-                    harness.chain.verify_data_column_sidecar_for_gossip(
-                        column_sidecar.into_inner(),
-                        subnet_id,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("should obtain gossip verified columns");
+            let mut gossip_verified = vec![];
+            for column_sidecar in column_sidecars {
+                let subnet_id =
+                    DataColumnSubnetId::from_column_index(column_sidecar.index(), &harness.spec);
+                gossip_verified.push(
+                    harness
+                        .chain
+                        .verify_data_column_sidecar_for_gossip(
+                            column_sidecar.into_inner(),
+                            subnet_id,
+                        )
+                        .await
+                        .expect("should obtain gossip verified columns"),
+                );
+            }
 
             harness
                 .chain

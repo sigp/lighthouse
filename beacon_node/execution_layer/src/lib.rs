@@ -1126,7 +1126,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
