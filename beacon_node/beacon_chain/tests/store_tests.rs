@@ -1834,7 +1834,7 @@ async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas
         "slashing must not alter the pre-fork-computed proposers"
     );
 
-    // The `gloas_fork_epoch + 2` proposers were computed post-fork and must exclude their slashed one
+    // The gloas_fork_epoch + 2 proposers were computed post-fork and must exclude their slashed one
     assert!(
         !lookahead[slots_per_epoch..].contains(&post_fork_target),
         "post-fork-computed proposers must exclude the slashed proposer"
