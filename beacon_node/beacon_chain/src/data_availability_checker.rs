@@ -267,8 +267,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler {
             match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    return partial_data_column.sidecar().try_filter(|idx, cell, proof| {
-                        match cached_partial.sidecar().get(idx) {
+                    return partial_data_column
+                        .sidecar()
+                        .try_filter(|idx, cell, proof| match cached_partial.sidecar().get(idx) {
                             None => Ok(true),
                             Some((cached_cell, cached_proof)) => {
                                 if cell == cached_cell && proof == cached_proof {
@@ -277,8 +278,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                                     Err(MissingCellsError::MismatchesCachedColumn)
                                 }
                             }
-                        }
-                    });
+                        });
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.

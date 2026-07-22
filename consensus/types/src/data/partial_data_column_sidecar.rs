@@ -101,10 +101,7 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed
     /// closure returns `true` and is present in `self`. Will return `None` if there is no overlap.
-    pub fn try_filter<F, Err>(
-        &self,
-        filter: F,
-    ) -> Result<Option<PartialDataColumnView<'a, E>>, Err>
+    pub fn try_filter<F, Err>(&self, filter: F) -> Result<Option<PartialDataColumnView<'a, E>>, Err>
     where
         F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
         Err: From<PartialDataColumnSidecarError>,

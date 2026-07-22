@@ -1873,7 +1873,8 @@ mod test {
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
         ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
         PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot, test_utils::test_unstructured,
+        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot,
+        test_utils::test_unstructured,
     };
 
     type E = MainnetEthSpec;
