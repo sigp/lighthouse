@@ -68,7 +68,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     pub fn start_update_service(self) -> Result<(), String> {
-        let slot_duration = self.chain_spec.get_slot_duration();
         info!("Proposer preferences service started");
 
         let executor = self.executor.clone();
@@ -77,27 +76,38 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             let mut published_preferences = PublishedPreferences::new();
 
             loop {
-                let Some(current_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
-                    continue;
-                };
-
-                let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-
-                self.poll_and_publish_preferences(current_epoch, &mut published_preferences)
-                    .await;
-
-                let duration_to_next_slot = self
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .unwrap_or(slot_duration);
-                sleep(duration_to_next_slot).await;
+                self.run_update(&mut published_preferences).await;
             }
         };
 
         executor.spawn(interval_fut, "proposer_preferences_service");
         Ok(())
+    }
+
+    async fn run_update(&self, published_preferences: &mut PublishedPreferences) {
+        let slot_duration = self.chain_spec.get_slot_duration();
+
+        let Some(current_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock");
+            sleep(slot_duration).await;
+            return;
+        };
+
+        let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+
+        self.poll_and_publish_preferences(current_epoch, published_preferences)
+            .await;
+
+        self.sleep_until_next_slot().await;
+    }
+
+    async fn sleep_until_next_slot(&self) {
+        let slot_duration = self.chain_spec.get_slot_duration();
+        let duration_to_next_slot = self
+            .slot_clock
+            .duration_to_next_slot()
+            .unwrap_or(slot_duration);
+        sleep(duration_to_next_slot).await;
     }
 
     /// Publish proposer preferences for `current_epoch` and `current_epoch + 1`.
@@ -298,7 +308,15 @@ fn preferences_to_publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::Address;
+    use crate::duties_service::DutiesServiceBuilder;
+    use eth2::types::ProposerData;
+    use futures::FutureExt;
+    use slot_clock::ManualSlotClock;
+    use std::time::Duration;
+    use types::{Address, ForkName, Hash256, Slot};
+    use validator_test_rig::validator_client_harness::{
+        S, ValidatorClientHarness, ValidatorStoreConfig,
+    };
 
     const FEE_RECIPIENT: Address = Address::repeat_byte(42);
     const GAS_LIMIT: u64 = 30_000_000;
@@ -349,6 +367,73 @@ mod tests {
                 .map(|(_, preferences)| (preferences.validator_index, preferences.proposal_slot)),
         );
         count
+    }
+
+    struct TestHarness {
+        harness: ValidatorClientHarness,
+        service: ProposerPreferencesService<S, ManualSlotClock>,
+    }
+
+    impl TestHarness {
+        async fn new_with_validators(num_validators: usize) -> Self {
+            let config = ValidatorStoreConfig {
+                // Need to have a fee_recipient for proposer preferences
+                fee_recipient: Some(FEE_RECIPIENT),
+                ..Default::default()
+            };
+            let harness = ValidatorClientHarness::new_with_config(num_validators, &config).await;
+
+            let duties_service = Arc::new(
+                DutiesServiceBuilder::new()
+                    .validator_store(harness.validator_store.clone())
+                    .slot_clock(harness.slot_clock.clone())
+                    .beacon_nodes(harness.beacon_nodes.clone())
+                    .executor(harness.test_runtime.task_executor.clone())
+                    .spec(harness.spec.clone())
+                    .build()
+                    .unwrap(),
+            );
+
+            let service = ProposerPreferencesService::new(
+                duties_service,
+                harness.validator_store.clone(),
+                harness.slot_clock.clone(),
+                harness.beacon_nodes.clone(),
+                harness.test_runtime.task_executor.clone(),
+                harness.spec.clone(),
+            );
+
+            Self { harness, service }
+        }
+
+        fn insert_proposer_duties(&self, epoch: Epoch) {
+            self.insert_proposer_duties_with_root(epoch, Hash256::ZERO);
+        }
+
+        fn insert_proposer_duties_with_root(&self, epoch: Epoch, dependent_root: Hash256) {
+            let duties = self
+                .harness
+                .pubkeys
+                .iter()
+                .enumerate()
+                .map(|(i, pubkey)| ProposerData {
+                    pubkey: *pubkey,
+                    validator_index: i as u64,
+                    slot: Slot::new(0),
+                })
+                .collect();
+            self.service
+                .duties_service
+                .proposers
+                .write()
+                .insert(epoch, (dependent_root, duties));
+        }
+    }
+
+    // advance_time so that we don't have to wait for real-time to elapse in the test
+    async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
+        slot_clock.advance_time(duration);
+        tokio::time::advance(duration).await;
     }
 
     #[test]
@@ -459,5 +544,261 @@ mod tests {
             publish_round(&mut published_preferences, epoch, root_a, &duties),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn test_sleep_until_next_slot() {
+        tokio::time::pause();
+
+        let test_harness = TestHarness::new_with_validators(1).await;
+        let service = &test_harness.service;
+
+        // sleep_until_next_epoch advances past epoch boundary
+        let sleep_fut = service.sleep_until_next_slot();
+        tokio::pin!(sleep_fut);
+
+        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        assert!(sleep_fut.as_mut().now_or_never().is_none());
+
+        let duration_to_next_slot = service.slot_clock.duration_to_next_slot().unwrap();
+
+        // After the advance_time, the time should be at exactly the sleep deadline (12s)
+        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
+        advance_time(&service.slot_clock, duration_to_next_slot).await;
+        assert!(
+            sleep_fut.as_mut().now_or_never().is_none(),
+            "Should return None before the sleep duration has elapsed"
+        );
+
+        // After the advance_time below, the time has now pass the deadline
+        // Without the advance time below, the assert! would fail
+        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        assert!(
+            sleep_fut.as_mut().now_or_never().is_some(),
+            "Sleep should complete after passing the boundary"
+        );
+
+        // After sleeping, slot_clock should be at Slot 1
+        let current_slot = service.slot_clock.now().unwrap();
+        assert_eq!(current_slot, Slot::new(1));
+    }
+
+    #[tokio::test]
+    async fn publish_proposer_preferences_ssz() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let current_epoch = Epoch::new(0);
+        test_harness.insert_proposer_duties(current_epoch);
+
+        let duties = test_harness
+            .harness
+            .pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| {
+                (
+                    *pubkey,
+                    ProposerPreferences {
+                        dependent_root: Hash256::ZERO,
+                        proposal_slot: Slot::new(0),
+                        validator_index: i as u64,
+                        fee_recipient: FEE_RECIPIENT,
+                        target_gas_limit: GAS_LIMIT,
+                    },
+                )
+            })
+            .collect();
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz();
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_post_validator_proposer_preferences_json();
+
+        let result = test_harness
+            .service
+            .publish_proposer_preferences(current_epoch, ForkName::Gloas, duties)
+            .await;
+
+        // assert that result is ok (successfully publishes proposer preferences)
+        assert!(!result.is_empty());
+        // First try on beacon_node_1 (mock_ssz) is successful
+        // therefore mock_json is not hit at all
+        mock_ssz.expect(1).assert();
+        mock_json.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn publish_proposer_preferences_ssz_fails_fallback_to_json() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let current_epoch = Epoch::new(0);
+        test_harness.insert_proposer_duties(current_epoch);
+
+        let duties = test_harness
+            .harness
+            .pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| {
+                (
+                    *pubkey,
+                    ProposerPreferences {
+                        dependent_root: Hash256::ZERO,
+                        proposal_slot: Slot::new(0),
+                        validator_index: i as u64,
+                        fee_recipient: FEE_RECIPIENT,
+                        target_gas_limit: GAS_LIMIT,
+                    },
+                )
+            })
+            .collect();
+
+        // mock_ssz returns 500 to simulate BN does not support SSZ, so that it fallbacks to mock_json
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz_error();
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_json();
+
+        let result = test_harness
+            .service
+            .publish_proposer_preferences(current_epoch, ForkName::Gloas, duties)
+            .await;
+
+        // still successfully publishes proposer preferences because JSON BN is working
+        assert!(!result.is_empty());
+        // first_success function tries both beacon nodes for SSZ post proposer preferences
+        // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
+        // second pass: repeats the first pass
+        // Therefore mock_ssz is hit twice.
+        // When SSZ fails, it fallbacks to JSON and should succeed on first call on mock_json.
+        mock_ssz.expect(2).assert();
+        mock_json.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn no_duties_no_publish() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let current_epoch = Epoch::new(0);
+        // We did not insert proposer duty
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz();
+
+        let result = test_harness
+            .service
+            .publish_proposer_preferences(current_epoch, ForkName::Gloas, vec![])
+            .await;
+
+        // No duties, publish_proposer_preference should return false
+        assert!(result.is_empty());
+        // When there is no proposer duty, the function should return early and does not call the post proposer preferences endpoint
+        mock_ssz.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn poll_and_publish_preferences_same_root() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let current_epoch = Epoch::new(0);
+        test_harness.insert_proposer_duties(current_epoch);
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz();
+
+        let mut published_preferences = HashMap::new();
+
+        // First call publishes
+        test_harness
+            .service
+            .poll_and_publish_preferences(current_epoch, &mut published_preferences)
+            .await;
+
+        // Second call with same epoch and same dependent root should be skipped
+        test_harness
+            .service
+            .poll_and_publish_preferences(current_epoch, &mut published_preferences)
+            .await;
+
+        // Only one call to BN is expected despite two poll_and_publish_preferences calls
+        mock_ssz.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn poll_and_publish_preferences_different_root() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let current_epoch = Epoch::new(0);
+        test_harness.insert_proposer_duties(current_epoch);
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz();
+
+        let mut published_preferences = HashMap::new();
+
+        // First call publishes with default dependent_root: Hash256::ZERO
+        test_harness
+            .service
+            .poll_and_publish_preferences(current_epoch, &mut published_preferences)
+            .await;
+
+        // Update duties with a different dependent root
+        let new_root = Hash256::repeat_byte(1);
+        test_harness.insert_proposer_duties_with_root(current_epoch, new_root);
+
+        // Second call should publish again because dependent root has changed
+        test_harness
+            .service
+            .poll_and_publish_preferences(current_epoch, &mut published_preferences)
+            .await;
+
+        // The BN should be called twice because poll_and_publish_preferences will call publish_proposer_preferences to insert the preferences
+        mock_ssz.expect(2).assert();
+    }
+
+    #[tokio::test]
+    async fn poll_retains_only_current_and_future_epochs() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_ssz();
+
+        let mut published_preferences = HashMap::new();
+
+        // Insert and publish for epoch 0
+        test_harness.insert_proposer_duties(Epoch::new(0));
+        test_harness
+            .service
+            .poll_and_publish_preferences(Epoch::new(0), &mut published_preferences)
+            .await;
+        assert!(published_preferences.contains_key(&(Epoch::new(0), Hash256::ZERO)));
+
+        // Now poll with Epoch = 1
+        // Epoch 0 should be removed from the HashMap
+        test_harness.insert_proposer_duties(Epoch::new(1));
+        test_harness
+            .service
+            .poll_and_publish_preferences(Epoch::new(1), &mut published_preferences)
+            .await;
+        assert!(published_preferences.contains_key(&(Epoch::new(1), Hash256::ZERO)));
+        assert!(!published_preferences.contains_key(&(Epoch::new(0), Hash256::ZERO)));
+
+        // The mock BN should be called once for each poll_and_publish_preferences call
+        mock_ssz.expect(2).assert();
     }
 }
