@@ -1266,6 +1266,12 @@ fn compute_columns_for_custody_group() {
 }
 
 #[test]
+fn gossip_beacon_block() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_beacon_block").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_beacon_block").run();
+}
+
+#[test]
 fn gossip_proposer_slashing() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_proposer_slashing").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_proposer_slashing").run();

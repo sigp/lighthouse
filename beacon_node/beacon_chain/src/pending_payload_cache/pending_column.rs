@@ -38,11 +38,6 @@ impl<E: EthSpec> PendingColumn<E> {
             .map(|(c, p)| c == cell && p == proof)
     }
 
-    /// Returns `true` if the cell at `index` is present.
-    pub fn has_cell(&self, index: usize) -> bool {
-        self.cells.get(index).is_some_and(|c| c.is_some())
-    }
-
     /// Returns `true` if all cells of this column are present.
     pub fn is_complete(&self) -> bool {
         self.cells.iter().all(|c| c.is_some())

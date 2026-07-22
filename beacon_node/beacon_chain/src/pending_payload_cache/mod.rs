@@ -187,12 +187,18 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         self.peek_pending_components(&block_root, |components| {
             let Some(cached) = components.and_then(|c| c.verified_data_columns.get(&column_index))
             else {
-                return Ok(partial_data_column.sidecar().filter(|_| true)?);
+                return partial_data_column.sidecar().try_filter(|_, _, _| Ok(true));
             };
 
-            Ok(partial_data_column
+            partial_data_column
                 .sidecar()
-                .filter(|idx| !cached.has_cell(idx))?)
+                .try_filter(|cell_idx, cell, proof| {
+                    match cached.cell_matches(cell_idx, cell, proof) {
+                        None => Ok(true),
+                        Some(true) => Ok(false),
+                        Some(false) => Err(MissingCellsError::MismatchesCachedColumn),
+                    }
+                })
         })
     }
 

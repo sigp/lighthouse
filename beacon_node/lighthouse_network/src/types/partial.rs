@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{error, trace};
+use types::PartialDataColumnSidecarError;
 use types::core::{EthSpec, Hash256};
 use types::data::{
     CellBitmap, PartialDataColumnFulu, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
@@ -232,8 +233,8 @@ fn action_from_present_metadata<E: EthSpec>(
 
     let send = partial_column
         .sidecar()
-        .filter(|idx| want.get(idx).expect("Bound checked above"))
-        .map_err(|err| {
+        .try_filter(|idx, _, _| Ok(want.get(idx).expect("Bound checked above")))
+        .map_err(|err: PartialDataColumnSidecarError| {
             error!(?err, "Unexpected error filtering sidecar");
             PartialError::InvalidFormat
         })?

@@ -101,12 +101,13 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed
     /// closure returns `true` and is present in `self`. Will return `None` if there is no overlap.
-    pub fn filter<F>(
+    pub fn try_filter<F, Err>(
         &self,
         filter: F,
-    ) -> Result<Option<PartialDataColumnView<'a, E>>, PartialDataColumnSidecarError>
+    ) -> Result<Option<PartialDataColumnView<'a, E>>, Err>
     where
-        F: Fn(usize) -> bool,
+        F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
+        Err: From<PartialDataColumnSidecarError>,
     {
         let len = self.verify_len()?;
 
@@ -120,7 +121,7 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
                 let (cell, proof) = iter
                     .next()
                     .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                if filter(blob_idx) {
+                if filter(blob_idx, cell, proof)? {
                     // Keep this cell
                     new_column.push(cell);
                     new_proofs.push(proof);
@@ -171,16 +172,6 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
 
     pub fn get(&self, idx: usize) -> Option<(&Cell<E>, &KzgProof)> {
         self.to_ref().get(idx)
-    }
-
-    pub fn filter<F>(
-        &self,
-        filter: F,
-    ) -> Result<Option<PartialDataColumnView<'_, E>>, PartialDataColumnSidecarError>
-    where
-        F: Fn(usize) -> bool,
-    {
-        self.to_ref().filter(filter)
     }
 
     pub fn verify_len(&self) -> Result<usize, PartialDataColumnSidecarError> {
@@ -458,7 +449,11 @@ mod tests {
     #[test]
     fn filter_keeps_matching_cells() {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
-        let filtered = sidecar.filter(|idx| idx == 0 || idx == 4).unwrap().unwrap();
+        let filtered = sidecar
+            .to_ref()
+            .try_filter::<_, PartialDataColumnSidecarError>(|idx, _, _| Ok(idx == 0 || idx == 4))
+            .unwrap()
+            .unwrap();
         assert_eq!(filtered.column().len(), 2);
         assert_eq!(filtered.kzg_proofs().len(), 2);
         assert!(filtered.cells_present_bitmap().get(0).unwrap());
@@ -471,7 +466,10 @@ mod tests {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
         assert!(
             sidecar
-                .filter(|idx| idx == 1 || idx == 3)
+                .to_ref()
+                .try_filter::<_, PartialDataColumnSidecarError>(
+                    |idx, _, _| Ok(idx == 1 || idx == 3)
+                )
                 .unwrap()
                 .is_none()
         );
@@ -480,7 +478,11 @@ mod tests {
     #[test]
     fn filter_preserves_all_when_all_match() {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
-        let filtered = sidecar.filter(|_| true).unwrap().unwrap();
+        let filtered = sidecar
+            .to_ref()
+            .try_filter::<_, PartialDataColumnSidecarError>(|_, _, _| Ok(true))
+            .unwrap()
+            .unwrap();
         assert_eq!(filtered.column().len(), 3);
         assert_eq!(filtered.kzg_proofs().len(), 3);
         assert_eq!(
