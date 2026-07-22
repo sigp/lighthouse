@@ -1929,6 +1929,58 @@ async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas
     );
 }
 
+/// Ensure the harness can produce and import a chain across the Heze fork boundary
+#[tokio::test]
+async fn heze_block_production_across_boundary() {
+    let gloas_fork_epoch = Epoch::new(1);
+    let heze_fork_epoch = Epoch::new(2);
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(E::default())
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let all_validators = harness.get_all_validators();
+
+    // Build a full epoch past the Heze boundary
+    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    let slots: Vec<Slot> = (1..=last_slot.as_u64()).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let (_, _, head_block_root, head_state) = harness
+        .add_attested_blocks_at_slots(state, &slots, &all_validators)
+        .await;
+
+    assert_eq!(head_state.current_epoch(), heze_fork_epoch + 1);
+
+    let head_block_root: Hash256 = head_block_root.into();
+    let head_block = harness
+        .chain
+        .store
+        .get_blinded_block(&head_block_root)
+        .unwrap()
+        .expect("head block should be stored");
+    assert!(
+        matches!(head_block, SignedBeaconBlock::Heze(_)),
+        "the head block should be a Heze block"
+    );
+    assert!(
+        harness
+            .chain
+            .get_payload_envelope(&head_block_root)
+            .unwrap()
+            .is_some(),
+        "the Heze block's execution payload envelope should be stored"
+    );
+}
+
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {

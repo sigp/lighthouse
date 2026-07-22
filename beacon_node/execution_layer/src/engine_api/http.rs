@@ -1066,7 +1066,7 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 let response: JsonGetPayloadResponseGloas<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V6,
@@ -1078,7 +1078,6 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            // TODO(heze): add a Heze arm once Heze payload retrieval is implemented.
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v6 with {}",
                 fork_name
@@ -1449,18 +1448,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
                 }
             }
-            // TODO(heze): implement the Heze getPayload path once the engine API for Heze
-            // is specified.
-            ForkName::Heze => Err(Error::UnsupportedForkVariant(
-                "getPayload not implemented for Heze".to_string(),
-            )),
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload with {}",
                 fork_name

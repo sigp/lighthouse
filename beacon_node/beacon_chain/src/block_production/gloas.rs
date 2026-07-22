@@ -29,12 +29,13 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
+    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -600,13 +601,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
-            // TODO(heze): construct a `BeaconBlockHeze` here once Heze block production is
-            // wired up end-to-end (get_payload, envelope handling, etc).
-            BeaconState::Heze(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Block production disabled for Heze".to_owned(),
-                ));
-            }
+            BeaconState::Heze(_) => BeaconBlock::Heze(BeaconBlockHeze {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::ZERO,
+                body: BeaconBlockBodyHeze {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings: proposer_slashings
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attester_slashings: attester_slashings
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attestations: attestations
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    deposits: deposits
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    voluntary_exits: voluntary_exits
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    sync_aggregate,
+                    bls_to_execution_changes: bls_to_execution_changes
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    parent_execution_requests,
+                    signed_execution_payload_bid,
+                    payload_attestations: payload_attestations
+                        .try_into()
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                },
+            }),
         };
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
