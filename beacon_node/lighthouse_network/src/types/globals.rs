@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error};
 use types::data::{compute_subnets_from_custody_group, get_custody_groups};
-use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
+use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec, Slot};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -196,14 +196,19 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// Returns a connected peer that:
     /// 1. is connected
     /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata
-    /// 3. has a good score
-    pub fn custody_peers_for_column(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    /// 3. has data available past the given slot
+    /// 4. has a good score
+    pub fn custody_peers_for_column(
+        &self,
+        column_index: ColumnIndex,
+        block_slot: Slot,
+    ) -> Vec<PeerId> {
         self.peers
             .read()
-            .good_custody_subnet_peer(DataColumnSubnetId::from_column_index(
-                column_index,
-                &self.spec,
-            ))
+            .good_custody_subnet_peer(
+                DataColumnSubnetId::from_column_index(column_index, &self.spec),
+                block_slot,
+            )
             .cloned()
             .collect::<Vec<_>>()
     }

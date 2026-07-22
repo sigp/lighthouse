@@ -5,7 +5,6 @@ use crate::attestation_verification::{
 };
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
@@ -17,25 +16,25 @@ use crate::block_verification_types::{
 };
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
-use crate::custody_context::CustodyContextSsz;
+use crate::custody_context::{CustodyContext, CustodyContextSsz};
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataColumnReconstructionResult as DataColumnReconstructionResultV1,
+    verify_columns_against_block,
 };
 
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
-    validate_partial_data_column_sidecar_for_gossip,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -116,6 +115,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
+use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -198,7 +198,7 @@ pub enum WhenSlotSkipped {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
     MissingComponents(Slot, Hash256),
-    Imported(Hash256),
+    Imported(Slot, Hash256),
 }
 
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
@@ -206,7 +206,7 @@ impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<SignedBeaconBlockHash, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash.into()),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash.into()),
             _ => Err(()),
         }
     }
@@ -217,7 +217,7 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<Hash256, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash),
             _ => Err(()),
         }
     }
@@ -431,8 +431,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_payload_attesters: RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
-    /// Maintains a record of blob sidecars seen over the gossip network.
-    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of column sidecars seen over the gossip network.
     pub observed_column_sidecars:
         RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
@@ -486,7 +484,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
-    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -504,6 +502,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
+    /// Contains all the information the node requires to calculate which columns to custody
+    pub custody_context: Arc<CustodyContext<T>>,
     /// Provides KZG verification and temporary storage for pre-Gloas blocks and blobs.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// Provides KZG verification and temporary storage for post-Gloas payload envelopes.
@@ -686,11 +686,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let custody_context: CustodyContextSsz = self
-            .data_availability_checker
-            .custody_context()
-            .as_ref()
-            .into();
+        let custody_context: CustodyContextSsz = self.custody_context.as_ref().into();
 
         // Pattern match to avoid accidentally missing fields and to ignore deprecated fields.
         let CustodyContextSsz {
@@ -1209,13 +1205,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn cached_data_column_indexes(
         &self,
         block_root: &Hash256,
-        slot: Slot,
+        block_epoch: Epoch,
     ) -> Option<Vec<ColumnIndex>> {
-        if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(slot)
-            .gloas_enabled()
-        {
+        if self.spec.fork_name_at_epoch(block_epoch).gloas_enabled() {
             self.pending_payload_cache
                 .cached_data_column_indexes(block_root)
         } else {
@@ -2201,8 +2193,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
             });
 
-        // TODO(EIP-7732): Check blob data availability. For now, default to true.
-        let blob_data_available = true;
+        // A payload is only imported into fork choice if its data was available.
+        let blob_data_available = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&beacon_block_root);
 
         Ok(PayloadAttestationData {
             beacon_block_root,
@@ -2388,16 +2383,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_data_column_sidecar_for_gossip(
+    pub async fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
-        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        let chain = self.clone();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                    let _timer = metrics::start_timer(
+                        &metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                    );
+                    GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, &chain).inspect(
+                        |_| {
+                            metrics::inc_counter(
+                                &metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                            );
+                        },
+                    )
+                },
+                "gossip_data_column_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 
     pub fn verify_partial_data_column_header_for_gossip(
@@ -2451,19 +2463,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
         }
         ret
-    }
-
-    #[instrument(skip_all, level = "trace")]
-    pub fn verify_blob_sidecar_for_gossip(
-        self: &Arc<Self>,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
-        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-        })
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
@@ -2971,6 +2970,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
+        let checkpoint_root = self.store.get_split_info().block_root;
 
         // Produce a list of the parent root and slot of the child of each block.
         //
@@ -3014,9 +3014,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
+            // The envelope needs import only if it's a Gloas block with an envelope and
+            // the envelope isn't already in fork choice.
+            let range_sync_envelope_needs_import = matches!(
+                block,
+                RangeSyncBlock::Gloas {
+                    envelope: Some(_),
+                    ..
+                }
+            ) && !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&block_root);
+
             match check_block_relevancy(block.as_block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
+                Err(BlockError::DuplicateFullyImported(_)) if range_sync_envelope_needs_import => {
+                    filtered_chain_segment.push((block_root, block));
+                }
                 // If the block is already known, simply ignore this block.
                 //
                 // Note that `check_block_relevancy` is incapable of returning
@@ -3032,12 +3048,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // 2. In some non-canonical chain at a slot that has been finalized already.
                 //
                 // In the case of (1), there's no need to re-import and later blocks in this
-                // segement might be useful.
+                // segment might be useful.
+                // This changes slightly post-gloas because the checkpoint sync block can be
+                // imported without its corresponding envelope. If the block we are processing is
+                // the checkpoint block then we still add it to the filtered chain segment so that
+                // its envelope can be processed.
                 //
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    if range_sync_envelope_needs_import && checkpoint_root == block_root {
+                        filtered_chain_segment.push((block_root, block));
+                    }
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
@@ -3122,6 +3146,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
+            // Here, we are special casing the checkpoint sync block's envelope processing.
+            // Post-gloas, if the first filtered block is the checkpoint block, range
+            // sync may still need to process its envelope so that the first post-checkpoint
+            // child can resolve its parent payload status.
+            // The block is an anchor, so there won't be a parent present in fork choice,
+            // so we need to avoid processing it.
+            let checkpoint_root = self.store.get_split_info().block_root;
+            if matches!(blocks.first(), Some((root, _)) if *root == checkpoint_root) {
+                let (block_root, block) = blocks.remove(0);
+                let block_slot = block.slot();
+
+                if let RangeSyncBlock::Gloas {
+                    block,
+                    envelope: Some(envelope),
+                } = block
+                {
+                    let chain = self.clone();
+                    if let Err(error) = async move {
+                        verify_columns_against_block(&chain.kzg, &block, &envelope.columns)
+                            .map_err(BlockError::AvailabilityCheck)?;
+
+                        self.process_range_sync_envelope(envelope, block_root, block)
+                            .await
+                            .map_err(BlockError::from)?;
+
+                        Ok::<(), BlockError>(())
+                    }
+                    .await
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error,
+                        };
+                    }
+                }
+                imported_blocks.push((block_root, block_slot));
+            }
+
+            // Extract envelopes before passing blocks to signature verification.
+            let envelopes: Vec<_> = blocks
+                .iter()
+                .map(|(_, block)| match block {
+                    RangeSyncBlock::Gloas { envelope, .. } => envelope.clone(),
+                    RangeSyncBlock::Base(_) => None,
+                })
+                .collect();
+
             let chain = self.clone();
             let signature_verification_future = self.spawn_blocking_handle(
                 move || signature_verify_chain_segment(blocks, &chain),
@@ -3146,11 +3217,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            for (signature_verified_block, maybe_envelope) in
+                signature_verified_blocks.into_iter().zip(envelopes)
+            {
                 let block_slot = signature_verified_block.slot();
+                let block_root = signature_verified_block.block_root();
+                let block = signature_verified_block.block_cloned();
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -3160,9 +3235,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     Ok(status) => {
                         match status {
-                            AvailabilityProcessingStatus::Imported(block_root) => {
+                            AvailabilityProcessingStatus::Imported(slot, block_root) => {
                                 // The block was imported successfully.
-                                imported_blocks.push((block_root, block_slot));
+                                imported_blocks.push((block_root, slot));
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(
@@ -3180,11 +3255,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
-                        debug!(
-                            ?block_root,
-                            "Ignoring already known blocks while processing chain segment"
-                        );
-                        continue;
+                        // Block was already imported, envelope might need re-import
+                        imported_blocks.push((block_root, block_slot));
                     }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
@@ -3192,6 +3264,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             error,
                         };
                     }
+                }
+
+                // Process the envelope after the block has been imported.
+                if let Some(envelope) = maybe_envelope
+                    && let Err(e) = self
+                        .process_range_sync_envelope(envelope, block_root, block)
+                        .await
+                {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::EnvelopeError(Box::new(e)),
+                    };
                 }
             }
         }
@@ -3253,35 +3337,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
     }
 
-    /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
-    /// imported or errors.
-    #[instrument(skip_all, level = "debug")]
-    pub async fn process_gossip_blob(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let block_root = blob.block_root();
-
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
-            return Err(BlockError::DuplicateFullyImported(blob.block_root()));
-        }
-
-        // No need to process and import blobs beyond the PeerDAS epoch.
-        if self.spec.is_peer_das_enabled_for_epoch(blob.epoch()) {
-            return Err(BlockError::BlobNotRequired(blob.slot()));
-        }
-
-        self.emit_sse_blob_sidecar_events(&block_root, std::iter::once(blob.as_blob()));
-
-        self.check_gossip_blob_availability_and_import(blob).await
-    }
-
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     /// Only accepts full columns. Partials are handled via PartialDataColumnAssembler.
@@ -3339,8 +3394,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Check if we have custody of this column
-        let sampling_columns =
-            self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
+        let sampling_columns = self
+            .custody_context
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
         let verified_partial = if sampling_columns.contains(&partial.index) {
             KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
         } else {
@@ -3428,19 +3484,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
-        // into the da_checker, where invalid = descendant of invalid blocks.
-        // Note: blobs should have at least one item and all items have the same parent root.
-        if let Some(parent_root) = blobs
-            .iter()
-            .filter_map(|b| b.as_ref().map(|b| b.block_parent_root()))
-            .next()
-            && !self
-                .canonical_head
-                .fork_choice_read_lock()
-                .contains_block(&parent_root)
-        {
-            return Err(BlockError::ParentUnknown { parent_root });
+        for blob in &blobs {
+            if let Some(blob) = blob.as_ref() {
+                // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
+                // into the da_checker, where invalid = descendant of invalid blocks.
+                // Note: blobs should have at least one item and all items have the same parent root.
+                if !self
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .contains_block(&blob.block_parent_root())
+                {
+                    return Err(BlockError::ParentUnknown {
+                        parent_root: blob.block_parent_root(),
+                        parent_block_hash: None,
+                    });
+                }
+            }
         }
 
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
@@ -3454,7 +3513,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T>,
+        engine_get_blobs_output: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
@@ -3466,17 +3525,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        match &engine_get_blobs_output {
-            EngineGetBlobsOutput::Blobs(blobs) => {
-                self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
-            }
-            EngineGetBlobsOutput::CustodyColumns(columns) => {
-                self.emit_sse_data_column_sidecar_events(
-                    &block_root,
-                    columns.iter().map(|column| column.as_data_column()),
-                );
-            }
-        }
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            engine_get_blobs_output
+                .iter()
+                .map(|column| column.as_data_column()),
+        );
 
         self.check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
             .await
@@ -3518,7 +3572,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return;
             };
             let imported_data_columns = self
-                .cached_data_column_indexes(block_root, slot)
+                .cached_data_column_indexes(block_root, slot.epoch(T::EthSpec::slots_per_epoch()))
                 .unwrap_or_default();
             let new_data_columns =
                 data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
@@ -3569,7 +3623,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
         {
-            return Err(BlockError::ParentUnknown { parent_root });
+            return Err(BlockError::ParentUnknown {
+                parent_root,
+                parent_block_hash: None,
+            });
         }
 
         self.emit_sse_data_column_sidecar_events(
@@ -3691,7 +3748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)
@@ -3828,10 +3885,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify and import the block.
         match import_block.await {
             // The block was successfully verified and imported. Yay.
-            Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
+            Ok(status @ AvailabilityProcessingStatus::Imported(slot, block_root)) => {
                 debug!(
                     ?block_root,
-                    %block_slot,
+                    %slot,
                     source = %block_source,
                     "Beacon block imported"
                 );
@@ -3911,24 +3968,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = block.block.slot();
         let availability = self.data_availability_checker.put_executed_block(block)?;
-        self.process_availability(slot, availability, || Ok(()))
-            .await
-    }
-
-    /// Checks if the provided blob can make any cached blocks available, and imports immediately
-    /// if so, otherwise caches the blob in the data availability checker.
-    async fn check_gossip_blob_availability_and_import(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let slot = blob.slot();
-        if let Some(slasher) = self.slasher.as_ref() {
-            slasher.accept_block_header(blob.signed_block_header());
-        }
-        let availability = self
-            .data_availability_checker
-            .put_gossip_verified_blobs(blob.block_root(), std::iter::once(blob))?;
-
         self.process_availability(slot, availability, || Ok(()))
             .await
     }
@@ -4015,11 +4054,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         self.check_blob_header_signature_and_slashability(
             block_root,
-            blobs.iter().flatten().map(Arc::as_ref),
+            blobs.iter().flatten().map(|b| b.as_ref()),
         )?;
         let availability = self
             .data_availability_checker
-            .put_rpc_blobs(block_root, blobs)
+            .put_rpc_blobs(block_root, blobs, &self.slot_clock)
             .map_err(BlockError::from)?;
 
         self.process_availability(slot, availability, || Ok(()))
@@ -4030,56 +4069,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T>,
+        engine_get_blobs_output: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        match engine_get_blobs_output {
-            EngineGetBlobsOutput::Blobs(blobs) => {
-                self.check_blob_header_signature_and_slashability(
-                    block_root,
-                    blobs.iter().map(|b| b.as_blob()),
-                )?;
-                let availability = self
-                    .data_availability_checker
-                    .put_kzg_verified_blobs(block_root, blobs)
-                    .map_err(BlockError::from)?;
-
-                Ok(self
-                    .process_availability(slot, availability, || Ok(()))
-                    .await?)
-            }
-            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                // TODO(gloas) verify that this check is no longer relevant for gloas
-                self.check_data_column_sidecar_header_signature_and_slashability(
-                    block_root,
-                    data_columns
-                        .iter()
-                        .filter_map(|c| match c.as_data_column() {
-                            DataColumnSidecar::Fulu(column) => Some(column),
-                            _ => None,
-                        }),
-                )?;
-                if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(slot)
-                    .gloas_enabled()
-                {
-                    let availability = self
-                        .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, &data_columns)
-                        .map_err(BlockError::from)?;
-                    Ok(self
-                        .process_payload_envelope_availability(slot, availability, || Ok(()))
-                        .await?)
-                } else {
-                    let availability = self
-                        .data_availability_checker
-                        .put_kzg_verified_custody_data_columns(block_root, data_columns)
-                        .map_err(BlockError::from)?;
-                    Ok(self
-                        .process_availability(slot, availability, || Ok(()))
-                        .await?)
-                }
-            }
+        // TODO(gloas) verify that this check is no longer relevant for gloas
+        self.check_data_column_sidecar_header_signature_and_slashability(
+            block_root,
+            engine_get_blobs_output
+                .iter()
+                .filter_map(|c| match c.as_data_column() {
+                    DataColumnSidecar::Fulu(column) => Some(column),
+                    _ => None,
+                }),
+        )?;
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            let availability = self
+                .pending_payload_cache
+                .put_kzg_verified_custody_data_columns(block_root, &engine_get_blobs_output)
+                .map_err(BlockError::from)?;
+            self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await
+        } else {
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(block_root, engine_get_blobs_output)
+                .map_err(BlockError::from)?;
+            self.process_availability(slot, availability, || Ok(()))
+                .await
         }
     }
 
@@ -4188,6 +4207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 publish_fn()?;
                 self.import_available_execution_payload_envelope(available_envelope)
                     .await
+                    .map_err(Into::into)
             }
             PayloadAvailability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
@@ -4206,6 +4226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_outcome,
         } = *block;
 
+        let slot = block.slot();
         let BlockImportData {
             block_root,
             state,
@@ -4240,7 +4261,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await??
         };
 
-        Ok(AvailabilityProcessingStatus::Imported(block_root))
+        Ok(AvailabilityProcessingStatus::Imported(slot, block_root))
     }
 
     /// Accepts a fully-verified and available block and imports it into the chain without performing any
@@ -4305,12 +4326,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let cached_head = self.canonical_head.cached_head();
         let old_head_slot = cached_head.head_slot();
 
-        // Compute the expected proposer for `current_slot` on the canonical chain. This is used by
-        // `on_block` to gate proposer boost on the block's proposer matching the canonical proposer
-        // (per spec `update_proposer_boost_root` added in v1.7.0-alpha.5).
-        let canonical_head_proposer_index =
-            self.canonical_head_proposer_index(current_slot, &cached_head)?;
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -4342,7 +4357,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    canonical_head_proposer_index,
                     &self.spec,
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
@@ -5061,16 +5075,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (
@@ -5088,42 +5105,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_block_number,
             parent_beacon_block_root: proposer_head,
         }))
-    }
-
-    /// Compute the expected beacon proposer for `slot` on the canonical chain extending `cached_head`.
-    ///
-    /// Uses the beacon proposer cache to avoid recomputing the shuffling on every block import.
-    ///
-    /// This is used by `update_proposer_boost_root` to gate proposer boost on the block's proposer
-    /// matching the canonical proposer, per consensus-specs v1.7.0-alpha.5.
-    ///
-    /// This function should never error unless there is some corruption of the head state. If a
-    /// state advance is needed, it will be handled by the proposer cache.
-    pub fn canonical_head_proposer_index(
-        &self,
-        slot: Slot,
-        cached_head: &CachedHead<T::EthSpec>,
-    ) -> Result<u64, Error> {
-        let proposal_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_block_root = cached_head.head_block_root();
-        let head_state = &cached_head.snapshot.beacon_state;
-
-        let shuffling_decision_root = head_state.proposer_shuffling_decision_root_at_epoch(
-            proposal_epoch,
-            head_block_root,
-            &self.spec,
-        )?;
-
-        self.with_proposer_cache::<_, Error>(
-            shuffling_decision_root,
-            proposal_epoch,
-            |proposers| {
-                proposers
-                    .get_slot::<T::EthSpec>(slot)
-                    .map(|p| p.index as u64)
-            },
-            || Ok((cached_head.head_state_root(), head_state.clone())),
-        )
     }
 
     pub fn get_expected_withdrawals(
@@ -5237,7 +5218,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
-    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
@@ -5264,10 +5244,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root,
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                &self.config.re_org_disallowed_offsets,
                 re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
+
+        // We don't need to override fork choice updates for Gloas.
+        if info.head_node.is_gloas() {
+            return Ok(*canonical_forkchoice_params);
+        }
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
@@ -5299,44 +5283,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         if !current_slot_ok {
             return Err(Box::new(DoNotReOrg::HeadDistance.into()));
-        }
-
-        // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = {
-            // We know our re-org block is not on the epoch boundary, so it has the same proposer
-            // shuffling as the head (but not necessarily the parent which may lie in the previous
-            // epoch).
-            let shuffling_decision_root = if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
-                .fulu_enabled()
-            {
-                info.head_node.current_epoch_shuffling_id()
-            } else {
-                info.head_node.next_epoch_shuffling_id()
-            }
-            .shuffling_decision_block;
-            let proposer_index = self
-                .beacon_proposer_cache
-                .lock()
-                .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
-                .ok_or_else(|| {
-                    debug!(
-                        slot = %re_org_block_slot,
-                        decision_root = ?shuffling_decision_root,
-                        "Fork choice override proposer shuffling miss"
-                    );
-                    Box::new(DoNotReOrg::NotProposing.into())
-                })?
-                .index as u64;
-
-            self.execution_layer
-                .as_ref()
-                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
-                .has_proposer_preparation_data_blocking(proposer_index)
-        };
-        if !proposing_at_re_org_slot {
-            return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
         // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
@@ -5382,9 +5328,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
-        // TODO(gloas): V29 nodes don't carry execution_status, so this returns
-        // None for post-Gloas re-orgs. Need to source the EL block hash from
-        // the bid's block_hash instead. Re-org is disabled for Gloas for now.
+        // Only attempt a re-org if we have a proposer registered for the re-org slot. This check
+        // runs after the cheaper checks above because it may compute (and cache) the proposer
+        // shuffling for the re-org slot's epoch on a cache miss.
+        let proposing_at_re_org_slot = {
+            // Since Fulu, proposer shuffling is computed one epoch in advance, so the shuffling
+            // for the re-org block's epoch is always decided by an ancestor of the head, even
+            // when the re-org block lies in the epoch after the head (epoch boundary re-org).
+            let proposal_in_head_epoch = re_org_block_slot.epoch(T::EthSpec::slots_per_epoch())
+                == head_slot.epoch(T::EthSpec::slots_per_epoch());
+            let shuffling_decision_root = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
+                .fulu_enabled()
+                && proposal_in_head_epoch
+            {
+                info.head_node.current_epoch_shuffling_id()
+            } else {
+                info.head_node.next_epoch_shuffling_id()
+            }
+            .shuffling_decision_block;
+            let proposer_index = self
+                .with_proposer_cache::<u64, Error>(
+                    shuffling_decision_root,
+                    re_org_block_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    |proposers| {
+                        proposers
+                            .get_slot::<T::EthSpec>(re_org_block_slot)
+                            .map(|proposer| proposer.index as u64)
+                    },
+                    || {
+                        debug!(
+                            slot = %re_org_block_slot,
+                            decision_root = ?shuffling_decision_root,
+                            "Fork choice override proposer shuffling miss"
+                        );
+                        let head = self.canonical_head.cached_head();
+                        Ok((head.head_state_root(), head.snapshot.beacon_state.clone()))
+                    },
+                )
+                .map_err(|e| match e {
+                    Error::ProposerCacheIncorrectState { .. } => {
+                        // The head changed while we were computing the proposer shuffling.
+                        // Decline the re-org rather than erroring out.
+                        warn!("Head changed during fork choice override check");
+                        Box::new(ProposerHeadError::from(DoNotReOrg::NotProposing))
+                    }
+                    e => Box::new(ProposerHeadError::Error(e)),
+                })?;
+
+            self.execution_layer
+                .as_ref()
+                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
+                .has_proposer_preparation_data_blocking(proposer_index)
+        };
+        if !proposing_at_re_org_slot {
+            return Err(Box::new(DoNotReOrg::NotProposing.into()));
+        }
+
+        // This only works pre-Gloas, but we don't run this code for Gloas anyway.
         let parent_head_hash = info
             .parent_node
             .execution_status()
@@ -6106,6 +6108,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6160,6 +6167,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
+                                .map(|r| ExecutionRequestsElectra {
+                                    deposits: r.deposits().clone(),
+                                    withdrawals: r.withdrawals().clone(),
+                                    consolidations: r.consolidations().clone(),
+                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6421,8 +6433,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     let canonical_fcu_params = cached_head.forkchoice_update_parameters();
-                    let fcu_params =
-                        chain.overridden_forkchoice_update_params(canonical_fcu_params)?;
+                    let fcu_params = if chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(head_slot)
+                        .gloas_enabled()
+                    {
+                        canonical_fcu_params
+                    } else {
+                        chain.overridden_forkchoice_update_params(canonical_fcu_params)?
+                    };
                     let pre_payload_attributes = chain.get_pre_payload_attributes(
                         prepare_slot,
                         fcu_params.head_root,
@@ -6545,14 +6564,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
-            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
                     proposer_index: proposer,
                     parent_block_root: head_root,
-                    parent_block_number,
+                    parent_block_number: pre_payload_attributes
+                        .parent_block_number
+                        .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                     payload_attributes: payload_attributes.into(),
                 },
@@ -7241,25 +7261,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
-    /// The data availability boundary for custodying columns. It will just be the
-    /// regular data availability boundary unless we are near the Fulu fork epoch.
-    pub fn column_data_availability_boundary(&self) -> Option<Epoch> {
-        match self.data_availability_boundary() {
-            Some(da_boundary_epoch) => {
-                if let Some(fulu_fork_epoch) = self.spec.fulu_fork_epoch {
-                    if da_boundary_epoch < fulu_fork_epoch {
-                        Some(fulu_fork_epoch)
-                    } else {
-                        Some(da_boundary_epoch)
-                    }
-                } else {
-                    None // Fulu hasn't been enabled
-                }
-            }
-            None => None, // Deneb hasn't been enabled
-        }
-    }
-
     /// Safely update data column custody info by ensuring that:
     /// - cgc values at the updated epoch and the earliest custodied column epoch are equal
     /// - we are only decrementing the earliest custodied data column epoch by one epoch
@@ -7277,14 +7278,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let cgc_at_effective_epoch = self
-            .data_availability_checker
-            .custody_context()
-            .custody_group_count_at_epoch(effective_epoch, &self.spec);
+            .custody_context
+            .custody_group_count_at_epoch(effective_epoch);
 
         let cgc_at_earliest_data_colum_epoch = self
-            .data_availability_checker
-            .custody_context()
-            .custody_group_count_at_epoch(earliest_data_column_epoch, &self.spec);
+            .custody_context
+            .custody_group_count_at_epoch(earliest_data_column_epoch);
 
         let can_update_data_column_custody_info = cgc_at_effective_epoch
             == cgc_at_earliest_data_colum_epoch
@@ -7311,16 +7310,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Compare columns custodied for `epoch` versus columns custodied for the head of the chain
     /// and return any column indices that are missing.
     pub fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
-        let custody_context = self.data_availability_checker.custody_context();
-
-        let columns_required = custody_context
-            .custody_columns_for_epoch(None, &self.spec)
+        let columns_required = self
+            .custody_context
+            .custody_columns_for_epoch(None)
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
 
-        let current_columns_at_epoch = custody_context
-            .custody_columns_for_epoch(Some(epoch), &self.spec)
+        let current_columns_at_epoch = self
+            .custody_context
+            .custody_columns_for_epoch(Some(epoch))
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
@@ -7329,24 +7328,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .difference(&current_columns_at_epoch)
             .cloned()
             .collect::<HashSet<_>>()
-    }
-
-    /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
-    pub fn get_column_da_boundary(&self) -> Option<Epoch> {
-        match self.data_availability_boundary() {
-            Some(da_boundary_epoch) => {
-                if let Some(fulu_fork_epoch) = self.spec.fulu_fork_epoch {
-                    if da_boundary_epoch < fulu_fork_epoch {
-                        Some(fulu_fork_epoch)
-                    } else {
-                        Some(da_boundary_epoch)
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None, // If no DA boundary set, dont try to custody backfill
-        }
     }
 
     /// This method serves to get a sense of the current chain health. It is used in block proposal
@@ -7551,30 +7532,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         gossip_attested || block_attested || aggregated || produced_block
     }
 
-    /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Deneb` fork is disabled.
-    pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.data_availability_checker.data_availability_boundary()
-    }
-
-    /// Returns true if epoch is within the data availability boundary
-    pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.data_availability_checker
-            .da_check_required_for_epoch(epoch)
-    }
-
-    /// Returns true if we should fetch blobs for this block
-    pub fn should_fetch_blobs(&self, block_epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(block_epoch)
-            && !self.spec.is_peer_das_enabled_for_epoch(block_epoch)
-    }
-
-    /// Returns true if we should fetch custody columns for this block
-    pub fn should_fetch_custody_columns(&self, block_epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(block_epoch)
-            && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
-    }
-
     /// Gets the `LightClientBootstrap` object for a requested block root.
     ///
     /// Returns `None` when the state or block is not found in the database.
@@ -7613,7 +7570,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Some(StoreOp::PutBlobs(block_root, blobs))
             }
             AvailableBlockData::DataColumns(mut data_columns) => {
-                let columns_to_custody = self.custody_columns_for_epoch(Some(
+                let columns_to_custody = self.custody_context.custody_columns_for_epoch(Some(
                     block_slot.epoch(T::EthSpec::slots_per_epoch()),
                 ));
                 // Supernodes need to persist all sampled custody columns
@@ -7658,25 +7615,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // return in ascending slot order
         roots.reverse();
         roots
-    }
-
-    /// Returns a list of column indices that should be sampled for a given epoch.
-    /// Used for data availability sampling in PeerDAS.
-    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
-        self.data_availability_checker
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &self.spec)
-    }
-
-    /// Returns a list of column indices that the node is expected to custody for a given epoch.
-    /// i.e. the node must have validated and persisted the column samples and should be able to
-    /// serve them to peers.
-    ///
-    /// If epoch is `None`, this function computes the custody columns at head.
-    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
-        self.data_availability_checker
-            .custody_context()
-            .custody_columns_for_epoch(epoch_opt, &self.spec)
     }
 }
 

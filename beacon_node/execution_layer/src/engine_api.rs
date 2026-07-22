@@ -1,12 +1,11 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2,
-    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -342,8 +341,13 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub requests: ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_electra")
+    )]
+    pub requests: types::ExecutionRequestsElectra<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    pub requests: types::ExecutionRequestsGloas<E>,
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
@@ -408,19 +412,19 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
                 ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Gloas(inner) => (
                 ExecutionPayload::Gloas(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Gloas(inner.requests)),
             ),
         }
     }
@@ -607,7 +611,6 @@ pub struct EngineCapabilities {
     pub get_payload_v5: bool,
     pub get_payload_v6: bool,
     pub get_client_version_v1: bool,
-    pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
     pub get_blobs_v3: bool,
 }
@@ -668,9 +671,6 @@ impl EngineCapabilities {
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
-        }
-        if self.get_blobs_v1 {
-            response.push(ENGINE_GET_BLOBS_V1);
         }
         if self.get_blobs_v2 {
             response.push(ENGINE_GET_BLOBS_V2);
@@ -837,16 +837,16 @@ impl ClientVersionV1 {
             // 12 characters for append_graffiti_full, plus one character for spacing
             // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
             if graffiti_length < 20 {
-                format!("{} {}", append_graffiti_full, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_full)
             // user-specified graffiti is between 20-23 characters
             } else if (20..24).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_one_byte, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_one_byte)
             // user-specified graffiti is between 24-27 characters
             } else if (24..28).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_no_commit, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_no_commit)
             // user-specified graffiti is between 28-29 characters
             } else if (28..30).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_only_el, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_only_el)
             // if user-specified graffiti is between 30-32 characters, append nothing
             } else {
                 return graffiti;

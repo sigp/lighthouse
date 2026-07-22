@@ -1,15 +1,16 @@
-use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::fetch_blobs::FetchEngineBlobError;
 use crate::observed_data_sidecars::ObservationKey;
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
+use execution_layer::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
 use std::collections::HashSet;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{ChainSpec, ColumnIndex, Hash256, Slot};
+use types::{ChainSpec, ColumnIndex, EthSpec, Hash256, Slot};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing fetch blobs logic.
 pub(crate) struct FetchBlobsBeaconAdapter<T: BeaconChainTypes> {
@@ -41,22 +42,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .data_availability_checker
             .partial_assembler()
             .cloned()
-    }
-
-    pub(crate) async fn get_blobs_v1(
-        &self,
-        versioned_hashes: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<T::EthSpec>>>, FetchEngineBlobError> {
-        let execution_layer = self
-            .chain
-            .execution_layer
-            .as_ref()
-            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
-
-        execution_layer
-            .get_blobs_v1(versioned_hashes)
-            .await
-            .map_err(FetchEngineBlobError::RequestFailed)
     }
 
     pub(crate) async fn get_blobs_v2(
@@ -91,17 +76,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
-    pub(crate) fn blobs_known_for_observation_key(
-        &self,
-        observation_key: ObservationKey,
-    ) -> Option<HashSet<u64>> {
-        self.chain
-            .observed_blob_sidecars
-            .read()
-            .known_for_observation_key(&observation_key)
-            .cloned()
-    }
-
     pub(crate) fn data_column_known_for_observation_key(
         &self,
         observation_key: ObservationKey,
@@ -113,25 +87,20 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .cloned()
     }
 
-    pub(crate) fn cached_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
-        self.chain
-            .data_availability_checker
-            .cached_blob_indexes(block_root)
-    }
-
     pub(crate) fn cached_data_column_indexes(
         &self,
         block_root: &Hash256,
         slot: Slot,
     ) -> Option<Vec<u64>> {
-        self.chain.cached_data_column_indexes(block_root, slot)
+        self.chain
+            .cached_data_column_indexes(block_root, slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     pub(crate) async fn process_engine_blobs(
         &self,
         slot: Slot,
         block_root: Hash256,
-        blobs: EngineGetBlobsOutput<T>,
+        blobs: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, FetchEngineBlobError> {
         self.chain
             .process_engine_blobs(slot, block_root, blobs)

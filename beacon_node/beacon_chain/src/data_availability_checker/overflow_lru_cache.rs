@@ -7,11 +7,10 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::{BeaconChainTypes, BlockProcessStatus};
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use ssz_types::{RuntimeFixedVector, RuntimeVariableList};
+use ssz_types::RuntimeFixedVector;
 use std::cmp::Ordering;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::data::BlobIdentifier;
@@ -200,7 +199,6 @@ impl<E: EthSpec> PendingComponents<E> {
     /// must be persisted in the DB along with the block.
     pub fn make_available(
         &self,
-        spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError> {
         let Some(CachedBlock::Executed(block)) = &self.block else {
@@ -235,36 +233,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 }
             }
         } else {
-            // Before PeerDAS, blobs
-            let num_received_blobs = self.verified_blobs.iter().flatten().count();
-            match num_received_blobs.cmp(&num_expected_blobs) {
-                Ordering::Greater => {
-                    // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many blobs got {num_received_blobs} expected {num_expected_blobs}"
-                    )));
-                }
-                Ordering::Equal => {
-                    let max_blobs = spec.max_blobs_per_block(block.block.epoch()) as usize;
-                    let blobs_vec = self
-                        .verified_blobs
-                        .iter()
-                        .flatten()
-                        .map(|blob| blob.clone().to_blob())
-                        .collect::<Vec<_>>();
-                    let blobs_len = blobs_vec.len();
-                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs).map_err(|_| {
-                        AvailabilityCheckError::Unexpected(format!(
-                            "over max_blobs len {blobs_len} max {max_blobs}"
-                        ))
-                    })?;
-                    Some(AvailableBlockData::Blobs(blobs))
-                }
-                Ordering::Less => {
-                    // Not enough blobs received yet
-                    None
-                }
-            }
+            Some(AvailableBlockData::NoData)
         };
 
         // Block's data not available yet
@@ -300,7 +269,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block: block.clone(),
             blob_data,
             blobs_available_timestamp,
-            spec: spec.clone(),
         };
 
         self.span.in_scope(|| {
@@ -381,7 +349,7 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -396,8 +364,8 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
-        capacity: NonZeroUsize,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        capacity: usize,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -466,6 +434,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+        &self.custody_context
+    }
+
     /// Puts the KZG verified blobs into the availability cache as pending components.
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
@@ -532,9 +504,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -558,7 +528,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) =
-            pending_components.make_available(&self.spec, num_expected_columns_opt)?
+            pending_components.make_available(num_expected_columns_opt)?
         {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
@@ -596,7 +566,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
 
         {
-            let pending_components = write_lock.get_or_insert_mut(block_root, || {
+            let pending_components = write_lock.entry(block_root).or_insert_with(|| {
                 PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
             });
             update_fn(pending_components)?
@@ -638,9 +608,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -703,7 +671,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
             // If the block is execution invalid, this status is permanent and idempotent to this
             // block_root. We drop its components (e.g. columns) because they will never be useful.
-            self.critical.write().pop(block_root);
+            self.critical.write().remove(block_root);
         }
     }
 
@@ -741,9 +709,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     fn get_num_expected_columns(&self, epoch: Epoch) -> Option<usize> {
         if self.spec.is_peer_das_enabled_for_epoch(epoch) {
-            let num_of_column_samples = self
-                .custody_context
-                .num_of_data_columns_to_sample(epoch, &self.spec);
+            let num_of_column_samples = self.custody_context.num_of_data_columns_to_sample(epoch);
             Some(num_of_column_samples)
         } else {
             None
@@ -764,7 +730,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
         // Now remove keys
         for key in keys_to_remove {
-            write_lock.pop(&key);
+            write_lock.remove(&key);
         }
 
         Ok(())
@@ -780,9 +746,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 mod test {
     use super::*;
 
-    use crate::test_utils::generate_data_column_indices_rand_order;
+    use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
+    use crate::test_utils::{
+        generate_data_column_indices_rand_order, generate_data_column_sidecars_from_block,
+    };
     use crate::{
-        blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
@@ -790,12 +758,12 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::TestingSlotClock;
     use state_processing::ConsensusContext;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
-    use types::MinimalEthSpec;
-    use types::new_non_zero_usize;
+    use types::{DataColumnSubnetId, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -819,21 +787,25 @@ mod test {
         .expect("disk store should initialize")
     }
 
-    // get a beacon chain harness advanced to just before deneb fork
-    async fn get_deneb_chain<E: EthSpec>(
+    // get a beacon chain harness advanced to just before fulu fork
+    async fn get_fulu_chain<E: EthSpec>(
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(0);
         let bellatrix_fork_epoch = Epoch::new(0);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
-        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+        let electra_fork_epoch = Epoch::new(5);
+        let fulu_fork_epoch = Epoch::new(6);
+        let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
 
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(altair_fork_epoch);
         spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         spec.capella_fork_epoch = Some(capella_fork_epoch);
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        spec.electra_fork_epoch = Some(electra_fork_epoch);
+        spec.fulu_fork_epoch = Some(fulu_fork_epoch);
         let spec = Arc::new(spec);
 
         let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
@@ -846,8 +818,10 @@ mod test {
             .mock_execution_layer()
             .build();
 
-        // go right before deneb slot
-        harness.extend_to_slot(deneb_fork_slot - 1).await;
+        harness.execution_block_generator().set_min_blob_count(1);
+
+        // go right before fulu slot
+        harness.extend_to_slot(fulu_fork_slot - 1).await;
 
         harness
     }
@@ -856,7 +830,7 @@ mod test {
         harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
     ) -> (
         AvailabilityPendingExecutedBlock<E>,
-        Vec<GossipVerifiedBlob<BaseHarnessType<E, Hot, Cold>>>,
+        Vec<GossipVerifiedDataColumn<BaseHarnessType<E, Hot, Cold>>>,
     )
     where
         E: EthSpec,
@@ -874,7 +848,7 @@ mod test {
             .expect("should get block")
             .expect("should have block");
 
-        let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
+        let (signed_beacon_block_hash, (block, _maybe_blobs), state) = harness
             .add_block_at_slot(target_slot, parent_state)
             .await
             .expect("should add block");
@@ -892,27 +866,25 @@ mod test {
                 .message()
                 .body()
                 .blob_kzg_commitments()
-                .expect("should be deneb fork")
+                .expect("should be fulu fork")
                 .clone(),
         ) {
             info!(commitment = ?comm, "kzg commitment");
         }
         info!("done printing kzg commitments");
 
-        let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars =
-                BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
-            Vec::from(sidecars)
-                .into_iter()
-                .map(|sidecar| {
-                    let subnet = sidecar.index;
-                    GossipVerifiedBlob::new(sidecar, subnet, &harness.chain)
-                        .expect("should validate blob")
-                })
-                .collect()
-        } else {
-            vec![]
-        };
+        // Generate data columns from the block
+        let data_columns = generate_data_column_sidecars_from_block(&block, &harness.spec);
+
+        let gossip_verified_columns: Vec<_> = data_columns
+            .into_iter()
+            .map(|sidecar| {
+                let subnet_id =
+                    DataColumnSubnetId::from_column_index(*sidecar.index(), &harness.spec);
+                GossipVerifiedDataColumn::new(sidecar, subnet_id, &harness.chain)
+                    .expect("should validate data column")
+            })
+            .collect();
 
         let slot = block.slot();
         let consensus_context = ConsensusContext::<E>::new(slot);
@@ -933,7 +905,7 @@ mod test {
             payload_verification_outcome,
         };
 
-        (availability_pending_block, gossip_verified_blobs)
+        (availability_pending_block, gossip_verified_columns)
     }
 
     async fn setup_harness_and_cache<E, T>(
@@ -949,25 +921,26 @@ mod test {
                 HotStore = BeaconNodeBackend,
                 ColdStore = BeaconNodeBackend,
                 EthSpec = E,
+                SlotClock = TestingSlotClock,
             >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(&chain_db_path).await;
+        let harness = get_fulu_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let capacity_non_zero = new_non_zero_usize(capacity);
+        let complete_blob_backfill = false;
+        let slot_clock = harness.chain.slot_clock.clone();
+
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
-            &spec,
+            slot_clock,
+            complete_blob_backfill,
+            spec.clone(),
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(
-                capacity_non_zero,
-                custody_context,
-                spec.clone(),
-            )
-            .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec)
+                .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -979,20 +952,25 @@ mod test {
         let capacity = 4;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
+        let (pending_block, columns) = availability_pending_block(&harness).await;
         let root = pending_block.import_data.block_root;
+        let epoch = pending_block.block.epoch();
 
-        let blobs_expected = pending_block.num_blobs_expected();
+        let num_blobs_expected = pending_block.num_blobs_expected();
+        let columns_expected = cache.custody_context.num_of_data_columns_to_sample(epoch);
+
+        // All columns are returned from availability_pending_block (E::number_of_columns())
+        // but we only need custody columns
         assert_eq!(
-            blobs.len(),
-            blobs_expected,
-            "should have expected number of blobs"
+            columns.len(),
+            E::number_of_columns(),
+            "should have all data columns from block"
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
             .put_executed_block(pending_block)
             .expect("should put block");
-        if blobs_expected == 0 {
+        if num_blobs_expected == 0 {
             assert!(
                 matches!(availability, Availability::Available(_)),
                 "block doesn't have blobs, should be available"
@@ -1005,7 +983,7 @@ mod test {
         } else {
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
+                "should be pending columns"
             );
             assert_eq!(
                 cache.critical.read().len(),
@@ -1018,13 +996,24 @@ mod test {
             );
         }
 
-        let mut kzg_verified_blobs = Vec::new();
-        for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
+        // Get sampling column indices for this epoch
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
+
+        // Filter to only sampling columns
+        let sampling_columns: Vec<_> = columns
+            .into_iter()
+            .filter(|col| sampling_column_indices.contains(&col.index()))
+            .collect();
+
+        let mut kzg_verified_columns = Vec::new();
+        for (col_index, gossip_column) in sampling_columns.into_iter().enumerate() {
+            kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                gossip_column.into_inner(),
+            ));
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
-            if blob_index == blobs_expected - 1 {
+                .put_kzg_verified_data_columns(root, kzg_verified_columns.clone())
+                .expect("should put column");
+            if col_index == columns_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
             } else {
                 assert!(matches!(availability, Availability::MissingComponents(_)));
@@ -1032,20 +1021,34 @@ mod test {
             }
         }
 
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
-        let blobs_expected = pending_block.num_blobs_expected();
+        let (pending_block, columns) = availability_pending_block(&harness).await;
+        let _num_blobs_expected = pending_block.num_blobs_expected();
+        let epoch = pending_block.block.epoch();
+        // All columns returned
         assert_eq!(
-            blobs.len(),
-            blobs_expected,
-            "should have expected number of blobs"
+            columns.len(),
+            E::number_of_columns(),
+            "should have all data columns"
         );
         let root = pending_block.import_data.block_root;
-        let mut kzg_verified_blobs = vec![];
-        for gossip_blob in blobs {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
+
+        // Get sampling column indices for this epoch
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
+
+        // Filter to only sampling columns
+        let sampling_columns: Vec<_> = columns
+            .into_iter()
+            .filter(|col| sampling_column_indices.contains(&col.index()))
+            .collect();
+
+        let mut kzg_verified_columns = vec![];
+        for gossip_column in sampling_columns {
+            kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                gossip_column.into_inner(),
+            ));
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
+                .put_kzg_verified_data_columns(root, kzg_verified_columns.clone())
+                .expect("should put column");
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
                 "should be pending block"

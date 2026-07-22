@@ -3,15 +3,15 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
-    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::time::Duration;
 use superstruct::superstruct;
@@ -134,6 +134,7 @@ impl ResetPayloadStatuses {
 #[derive(Debug)]
 pub enum InvalidBlock {
     UnknownParent(Hash256),
+    ParentPayloadNotVerified(Hash256),
     FutureSlot {
         current_slot: Slot,
         block_slot: Slot,
@@ -207,6 +208,18 @@ pub enum InvalidPayloadAttestation {
     },
 }
 
+/// The import status of a block's parent, as seen by fork choice.
+#[allow(clippy::large_enum_variant)]
+pub enum ParentImportStatus {
+    /// The parent block is imported and the child's bid commits to a parent payload known to fork
+    /// choice.
+    Imported(ProtoBlock),
+    /// The parent block is not known to fork choice.
+    UnknownBlock,
+    /// The parent block is known, but the child's bid commits to a payload not known to fork choice.
+    UnknownPayload,
+}
+
 impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
         Error::ProtoArrayStringError(e)
@@ -272,12 +285,12 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 /// information about the attestation.
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
-    slot: Slot,
-    attesting_indices: Vec<u64>,
-    block_root: Hash256,
-    target_epoch: Epoch,
+    pub slot: Slot,
+    pub attesting_indices: Vec<u64>,
+    pub block_root: Hash256,
+    pub target_epoch: Epoch,
     /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
-    payload_present: bool,
+    pub payload_present: bool,
 }
 
 /// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
@@ -301,25 +314,22 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
-/// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
-/// current slot. Also removes those values from `self.queued_attestations`.
-fn dequeue_attestations(
+/// Returns all attestations in `queued_attestations` with a slot earlier than the current slot,
+/// removing them from the queue.
+pub fn dequeue_attestations(
     current_slot: Slot,
-    queued_attestations: &mut Vec<QueuedAttestation>,
-) -> Vec<QueuedAttestation> {
-    let remaining = queued_attestations.split_off(
-        queued_attestations
-            .iter()
-            .position(|a| a.slot >= current_slot)
-            .unwrap_or(queued_attestations.len()),
-    );
+    queued_attestations: &mut BTreeMap<Slot, Vec<QueuedAttestation>>,
+) -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+    let remaining = queued_attestations.split_off(&current_slot);
+    let due = std::mem::replace(queued_attestations, remaining);
 
+    let dequeued_count: usize = due.values().map(Vec::len).sum();
     metrics::inc_counter_by(
         &metrics::FORK_CHOICE_DEQUEUED_ATTESTATIONS,
-        queued_attestations.len() as u64,
+        dequeued_count as u64,
     );
 
-    std::mem::replace(queued_attestations, remaining)
+    due
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
@@ -364,8 +374,9 @@ pub struct ForkChoice<T, E> {
     fc_store: T,
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
-    /// Attestations that arrived at the current slot and must be queued for later processing.
-    queued_attestations: Vec<QueuedAttestation>,
+    /// Attestations that arrived at the current slot and must be queued for later processing,
+    /// keyed by their slot.
+    queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     _phantom: PhantomData<E>,
@@ -462,7 +473,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: BTreeMap::new(),
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -528,6 +539,27 @@ where
             Ordering::Less => Ok(Some(block_root)),
             Ordering::Equal => Ok(Some(block_root)),
         }
+    }
+
+    /// Returns the dependent root for `block_root`, per the spec `get_dependent_root` helper.
+    fn get_dependent_root(
+        &self,
+        block_root: Hash256,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error<T::Error>> {
+        let epoch = current_slot.epoch(E::slots_per_epoch());
+
+        if epoch <= spec.min_seed_lookahead {
+            return Ok(Some(Hash256::zero()));
+        }
+
+        let dependent_slot = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
+
+        self.get_ancestor(block_root, dependent_slot)
     }
 
     /// Run the fork choice rule to determine the head.
@@ -610,7 +642,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
@@ -643,7 +674,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -654,7 +684,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
@@ -665,7 +694,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -760,7 +788,6 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        canonical_head_proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
@@ -772,16 +799,36 @@ where
             return Ok(());
         }
 
-        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
-        // the current slot. The `fc_store` will ensure that the `current_slot` is never
-        // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot)?;
+        let head_root = if system_time_current_slot == self.fc_store.get_current_slot() {
+            // Fork choice has already run for the current slot, so we can safely use the cached
+            // head without recomputing it.
+            self.cached_fork_choice_view().head_block_root
+        } else {
+            // Fork choice hasn't run for the current slot yet: run it, updating the fork choice
+            // store's current slot in the process.
+            self.get_head(system_time_current_slot, spec)?.0
+        };
+        let current_slot = self.fc_store.get_current_slot();
+        debug_assert_eq!(current_slot, system_time_current_slot);
 
         // Parent block must be known.
         let parent_block = self
             .proto_array
             .get_block(&block.parent_root())
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
+
+        // If the block builds on a full payload envelope, the envelope must be known.
+        if let Some(parent_block_hash) = parent_block.execution_payload_block_hash {
+            let builds_on_full = block
+                .body()
+                .signed_execution_payload_bid()
+                .is_ok_and(|bid| bid.message.parent_block_hash == parent_block_hash);
+            if builds_on_full && !self.is_payload_received(&block.parent_root()) {
+                return Err(Error::InvalidBlock(InvalidBlock::ParentPayloadNotVerified(
+                    block.parent_root(),
+                )));
+            }
+        }
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
         // they are in the past.
@@ -825,19 +872,24 @@ where
 
         let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
-        // Add proposer score boost if the block is the first timely block for this slot and its
-        // proposer matches the expected proposer on the canonical chain (per spec
-        // `update_proposer_boost_root`, introduced in v1.7.0-alpha.5).
+        // Add proposer score boost if the block is the first timely block for this slot and it
+        // shares the same dependent root as the canonical chain head (per spec
+        // `update_proposer_boost_root`).
         let is_before_attesting_interval = block_delay < attestation_threshold;
-
+        let is_timely = current_slot == block.slot() && is_before_attesting_interval;
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        let is_canonical_proposer = block.proposer_index() == canonical_head_proposer_index;
-        if current_slot == block.slot()
-            && is_before_attesting_interval
-            && is_first_block
-            && is_canonical_proposer
-        {
-            self.fc_store.set_proposer_boost_root(block_root);
+
+        if is_timely && is_first_block {
+            // The block isn't in fork choice so resolve its dependent root via its parent.
+            let block_dependent_root =
+                self.get_dependent_root(block.parent_root(), current_slot, spec)?;
+            let head_dependent_root = self.get_dependent_root(head_root, current_slot, spec)?;
+
+            // Add proposer score boost if the block is timely, not conflicting with an
+            // existing block, with the same dependent root as the canonical chain head.
+            if block_dependent_root.is_some() && block_dependent_root == head_dependent_root {
+                self.fc_store.set_proposer_boost_root(block_root);
+            }
         }
 
         // Update store with checkpoints if necessary
@@ -854,22 +906,29 @@ where
         // Update unrealized justified/finalized checkpoints.
         let block_epoch = block.slot().epoch(E::slots_per_epoch());
 
-        // If the parent checkpoints are already at the same epoch as the block being imported,
-        // it's impossible for the unrealized checkpoints to differ from the parent's. This
-        // holds true because:
+        // If the block has no slashings and the parent checkpoints are already at the same epoch as
+        // the block being imported, it's impossible for the unrealized checkpoints to differ from
+        // the parent's. This holds true because:
         //
         // 1. A child block cannot have lower FFG checkpoints than its parent.
         // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
         // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
         //
+        // Slashings are excluded from this optimization because they can reduce unslashed
+        // participation in the child state and therefore lower the child's unrealized checkpoints.
+        //
         // This is an optimization. It should reduce the amount of times we run
         // `process_justification_and_finalization` by approximately 1/3rd when the chain is
         // performing optimally.
+        let has_slashings = !block.body().proposer_slashings().is_empty()
+            || block.body().attester_slashings_len() > 0;
         let parent_checkpoints = parent_block
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)
             .filter(|(parent_justified, parent_finalized)| {
-                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
+                !has_slashings
+                    && parent_justified.epoch == block_epoch
+                    && parent_finalized.epoch.saturating_add(1u64) == block_epoch
             });
 
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
@@ -1024,6 +1083,8 @@ where
                 execution_payload_parent_hash,
                 execution_payload_block_hash,
                 proposer_index: Some(block.proposer_index()),
+                // Set on payload-envelope import, not block import.
+                payload_received: false,
             },
             current_slot,
             spec,
@@ -1304,8 +1365,11 @@ where
             // Attestations can only affect the fork choice of subsequent slots.
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
+            let queued_attestation = QueuedAttestation::from(attestation);
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .entry(queued_attestation.slot)
+                .or_default()
+                .push(queued_attestation);
         }
 
         Ok(())
@@ -1497,10 +1561,11 @@ where
     /// Processes and removes from the queue any queued attestations which may now be eligible for
     /// processing due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
-        for attestation in dequeue_attestations(
+        let dequeued = dequeue_attestations(
             self.fc_store.get_current_slot(),
             &mut self.queued_attestations,
-        ) {
+        );
+        for attestation in dequeued.into_values().flatten() {
             for validator_index in attestation.attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
@@ -1537,22 +1602,55 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
+    /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
+    /// parent's payload is imported too). See [`Self::get_parent_import_status`].
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        matches!(
+            self.get_parent_import_status(block),
+            ParentImportStatus::Imported(_)
+        )
+    }
+
+    /// Returns the import status of the parent of `block`.
+    ///
+    /// A post-Gloas FULL child also requires the parent's payload (committed to by the child's bid)
+    /// to have been received by fork choice.
+    pub fn get_parent_import_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportStatus {
+        if let Some(parent_block) = self.get_block(&block.parent_root()) {
+            let Some(parent_block_hash) = parent_block.execution_payload_block_hash else {
+                // Pre-Gloas parent: payload is embedded in the block, so treat as imported.
+                return ParentImportStatus::Imported(parent_block);
+            };
+            if block.is_parent_block_full(parent_block_hash)
+                && !self.is_payload_received(&block.parent_root())
+            {
+                ParentImportStatus::UnknownPayload
+            } else {
+                ParentImportStatus::Imported(parent_block)
+            }
+        } else {
+            ParentImportStatus::UnknownBlock
+        }
+    }
+
     /// Called by the proposer to decide whether to build on the full or empty parent.
     pub fn should_build_on_full(
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
+        current_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .should_build_on_full::<E>(block_root, parent_payload_status, current_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 
     /// Returns whether the proposer should extend the execution payload chain of the given block.
     pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        let current_slot = self.fc_store.get_current_slot();
         let proposer_boost_root = self.fc_store.proposer_boost_root();
         self.proto_array
-            .should_extend_payload::<E>(block_root, proposer_boost_root)
+            .should_extend_payload::<E>(block_root, current_slot, proposer_boost_root)
             .map_err(Error::ProtoArrayStringError)
     }
 
@@ -1671,6 +1769,12 @@ where
         *self.fc_store.finalized_checkpoint()
     }
 
+    /// Override the finalized checkpoint when constructing an abstract specification test store.
+    #[cfg(feature = "test-utils")]
+    pub fn testing_set_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.fc_store.set_finalized_checkpoint(checkpoint);
+    }
+
     /// Return the justified checkpoint.
     pub fn justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.justified_checkpoint()
@@ -1714,8 +1818,8 @@ where
         &self.fc_store
     }
 
-    /// Returns a reference to the currently queued attestations.
-    pub fn queued_attestations(&self) -> &[QueuedAttestation] {
+    /// Returns a reference to the currently queued attestations, keyed by slot.
+    pub fn queued_attestations(&self) -> &BTreeMap<Slot, Vec<QueuedAttestation>> {
         &self.queued_attestations
     }
 
@@ -1800,7 +1904,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: BTreeMap::new(),
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1913,20 +2017,33 @@ mod tests {
         }
     }
 
-    fn get_queued_attestations() -> Vec<QueuedAttestation> {
-        (1..4)
-            .map(|i| QueuedAttestation {
-                slot: Slot::new(i),
+    fn queue_from_slots(
+        slots: impl IntoIterator<Item = u64>,
+    ) -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+        let mut queued: BTreeMap<Slot, Vec<QueuedAttestation>> = BTreeMap::new();
+        for i in slots {
+            let slot = Slot::new(i);
+            queued.entry(slot).or_default().push(QueuedAttestation {
+                slot,
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
                 payload_present: false,
-            })
-            .collect()
+            });
+        }
+        queued
     }
 
-    fn get_slots(queued_attestations: &[QueuedAttestation]) -> Vec<u64> {
-        queued_attestations.iter().map(|a| a.slot.into()).collect()
+    fn get_queued_attestations() -> BTreeMap<Slot, Vec<QueuedAttestation>> {
+        queue_from_slots(1..4)
+    }
+
+    fn get_slots(queued_attestations: &BTreeMap<Slot, Vec<QueuedAttestation>>) -> Vec<u64> {
+        queued_attestations
+            .values()
+            .flatten()
+            .map(|a| a.slot.into())
+            .collect()
     }
 
     fn test_queued_attestations(current_time: Slot) -> (Vec<u64>, Vec<u64>) {
@@ -1957,5 +2074,26 @@ mod tests {
         let (queued, dequeued) = test_queued_attestations(Slot::new(4));
         assert!(queued.is_empty());
         assert_eq!(dequeued, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn dequeue_attestations_out_of_order() {
+        // A future-slot vote enqueued before a vote that becomes due sooner must not block the
+        // due vote from being released.
+        let mut queued = queue_from_slots([4, 3]);
+
+        // At slot 4, the slot-3 vote is due (3 < 4) and must be released.
+        let dequeued = dequeue_attestations(Slot::new(4), &mut queued);
+
+        assert_eq!(
+            get_slots(&dequeued),
+            vec![3],
+            "slot-3 vote must be dequeued at slot 4"
+        );
+        assert_eq!(
+            get_slots(&queued),
+            vec![4],
+            "only the not-yet-due slot-4 vote should remain"
+        );
     }
 }

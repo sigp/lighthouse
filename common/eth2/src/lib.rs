@@ -46,7 +46,10 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
+use types::{
+    PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
+    SignedProposerPreferences,
+};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -58,6 +61,7 @@ pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinde
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 pub const EXECUTION_PAYLOAD_INCLUDED_HEADER: &str = "Eth-Execution-Payload-Included";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
+pub const BLOB_DATA_INCLUDED_HEADER: &str = "Eth-Blob-Data-Included";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
@@ -205,6 +209,9 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            // Drop a trailing empty segment so a base URL with a trailing slash
+            // (e.g. `https://host/<api-key>/`) does not produce a double slash.
+            .pop_if_empty()
             .push("eth")
             .push(&version.to_string());
 
@@ -2390,12 +2397,12 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        // Only append the HTTP URL request if the graffiti_policy is to AppendClientVersions
-        // If PreserveUserGraffiti (default), then the HTTP URL request does not contain graffiti_policy
+        // Only append the HTTP URL request if the graffiti_policy is PreserveUserGraffiti
+        // If AppendClientVersions (default), then we do not modify the HTTP URL request
         // so that the default case is compliant to the spec
-        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+        if let Some(GraffitiPolicy::PreserveUserGraffiti) = graffiti_policy {
             path.query_pairs_mut()
-                .append_pair("graffiti_policy", "AppendClientVersions");
+                .append_pair("graffiti_policy", "PreserveUserGraffiti");
         }
 
         Ok(path)
@@ -2597,9 +2604,12 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+        // Only append the HTTP URL request if the graffiti_policy is PreserveUserGraffiti
+        // If AppendClientVersions (default), then we do not modify the HTTP URL request
+        // so that the default case is compliant to the spec
+        if let Some(GraffitiPolicy::PreserveUserGraffiti) = graffiti_policy {
             path.query_pairs_mut()
-                .append_pair("graffiti_policy", "AppendClientVersions");
+                .append_pair("graffiti_policy", "PreserveUserGraffiti");
         }
 
         Ok(path)
@@ -2752,34 +2762,38 @@ impl BeaconNodeHttpClient {
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
-    /// `GET v1/validator/execution_payload_envelope/{slot}`
-    pub async fn get_validator_execution_payload_envelope<E: EthSpec>(
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}`
+    pub async fn get_validator_execution_payload_envelopes<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("execution_payload_envelope")
-            .push(&slot.to_string());
+            .push("execution_payload_envelopes")
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         self.get(path).await
     }
 
-    /// `GET v1/validator/execution_payload_envelope/{slot}` in SSZ format
-    pub async fn get_validator_execution_payload_envelope_ssz<E: EthSpec>(
+    /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` in SSZ format
+    pub async fn get_validator_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         slot: Slot,
+        beacon_block_root: Hash256,
     ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("execution_payload_envelope")
-            .push(&slot.to_string());
+            .push("execution_payload_envelopes")
+            .push(&slot.to_string())
+            .push(&beacon_block_root.to_string());
 
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
@@ -2790,10 +2804,72 @@ impl BeaconNodeHttpClient {
         ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
-    /// `POST v1/beacon/execution_payload_envelope`
-    pub async fn post_beacon_execution_payload_envelope<E: EthSpec>(
+    pub fn post_beacon_execution_payload_envelopes_path(
+        &self,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelopes");
+
+        if let Some(validation_level) = validation_level {
+            path.query_pairs_mut()
+                .append_pair("broadcast_validation", &validation_level.to_string());
+        }
+
+        Ok(path)
+    }
+
+    /// `POST v1/beacon/execution_payload_envelopes`
+    pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<(), Error> {
+        let response = self
+            .client
+            .post(self.post_beacon_execution_payload_envelopes_path(validation_level)?)
+            .timeout(self.timeouts.proposal)
+            .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+            .header(BLOB_DATA_INCLUDED_HEADER, "false")
+            .json(envelope)
+            .send()
+            .await?;
+        success_or_error(response).await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_envelopes` in SSZ format
+    pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<(), Error> {
+        let response = self
+            .client
+            .post(self.post_beacon_execution_payload_envelopes_path(validation_level)?)
+            .timeout(self.timeouts.proposal)
+            .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+            .header(BLOB_DATA_INCLUDED_HEADER, "false")
+            .header(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+            .body(envelope.as_ssz_bytes())
+            .send()
+            .await?;
+        success_or_error(response).await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_bids`
+    pub async fn post_beacon_execution_payload_bids<E: EthSpec>(
+        &self,
+        bid: &SignedExecutionPayloadBid<E>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -2801,11 +2877,11 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
-            .push("execution_payload_envelope");
+            .push("execution_payload_bids");
 
         self.post_generic_with_consensus_version(
             path,
-            envelope,
+            bid,
             Some(self.timeouts.proposal),
             fork_name,
         )
@@ -2814,10 +2890,10 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST v1/beacon/execution_payload_envelope` in SSZ format
-    pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+    /// `POST v1/beacon/execution_payload_bids` in SSZ format
+    pub async fn post_beacon_execution_payload_bids_ssz<E: EthSpec>(
         &self,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
+        bid: &SignedExecutionPayloadBid<E>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -2825,11 +2901,11 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
-            .push("execution_payload_envelope");
+            .push("execution_payload_bids");
 
         self.post_generic_with_consensus_version_and_ssz_body(
             path,
-            envelope.as_ssz_bytes(),
+            bid.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
         )
@@ -2838,8 +2914,8 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// Path for `v1/beacon/execution_payload_envelope/{block_id}`
-    pub fn get_beacon_execution_payload_envelope_path(
+    /// Path for `v1/beacon/execution_payload_envelopes/{block_id}`
+    pub fn get_beacon_execution_payload_envelopes_path(
         &self,
         block_id: BlockId,
     ) -> Result<Url, Error> {
@@ -2847,35 +2923,35 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
-            .push("execution_payload_envelope")
+            .push("execution_payload_envelopes")
             .push(&block_id.to_string());
         Ok(path)
     }
 
-    /// `GET v1/beacon/execution_payload_envelope/{block_id}`
+    /// `GET v1/beacon/execution_payload_envelopes/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_beacon_execution_payload_envelope<E: EthSpec>(
+    pub async fn get_beacon_execution_payload_envelopes<E: EthSpec>(
         &self,
         block_id: BlockId,
     ) -> Result<
         Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
         Error,
     > {
-        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        let path = self.get_beacon_execution_payload_envelopes_path(block_id)?;
         self.get_opt(path)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
-    /// `GET v1/beacon/execution_payload_envelope/{block_id}` in SSZ format
+    /// `GET v1/beacon/execution_payload_envelopes/{block_id}` in SSZ format
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+    pub async fn get_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         block_id: BlockId,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
-        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        let path = self.get_beacon_execution_payload_envelopes_path(block_id)?;
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?;
@@ -3178,6 +3254,7 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .pop_if_empty()
             .push("lighthouse")
             .push("liveness");
 
@@ -3452,5 +3529,39 @@ impl BeaconNodeHttpClient {
             self.timeouts.ptc_duties,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn eth_v2_prefix(base: &str) -> String {
+        let server = SensitiveUrl::parse(base).expect("valid base url");
+        let client = BeaconNodeHttpClient::new(server, Timeouts::set_all(Duration::from_secs(1)));
+        client.eth_path(V2).unwrap().to_string()
+    }
+
+    // A trailing slash on the base URL must not change the resulting endpoint
+    // path. With a path-embedded API key this previously produced a `//eth`
+    // double slash that providers redirect to a key-less, unauthenticated path.
+    // See https://github.com/sigp/lighthouse/issues/9545.
+    #[test]
+    fn eth_path_is_trailing_slash_tolerant() {
+        // The reported case: a path-embedded API key with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            "https://example.com/secret-key/eth/v2"
+        );
+        assert_eq!(
+            eth_v2_prefix("https://example.com/secret-key/"),
+            eth_v2_prefix("https://example.com/secret-key")
+        );
+        // Regression guard: a bare host with a trailing slash.
+        assert_eq!(
+            eth_v2_prefix("http://localhost:5052/"),
+            eth_v2_prefix("http://localhost:5052")
+        );
     }
 }

@@ -22,6 +22,13 @@ pub(crate) enum BlockSource {
     Rpc,
 }
 
+/// The path through which a payload envelope was imported.
+#[derive(Debug, Clone, Copy, AsRefStr)]
+pub(crate) enum EnvelopeSource {
+    Gossip,
+    Rpc,
+}
+
 pub static BEACON_BLOCK_MESH_PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
@@ -128,13 +135,6 @@ pub static BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS: LazyLock<Result<Histogra
         )
     },
 );
-pub static BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_processor_gossip_blob_verified_total",
-            "Total number of gossip blob verified for propagation.",
-        )
-    });
 pub static BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: LazyLock<
     Result<IntCounter>,
 > = LazyLock::new(|| {
@@ -317,6 +317,13 @@ pub static BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: LazyLock<Resu
             "Total number of aggregated attestations that referenced an unknown block and were re-queued.",
         )
     });
+pub static BEACON_PROCESSOR_PAYLOAD_ATTESTATION_REQUEUED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_payload_attestation_requeued_total",
+            "Total number of payload attestations that referenced an unknown block and were re-queued.",
+        )
+    });
 // Sync committee messages.
 pub static BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
@@ -485,6 +492,30 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_downloading_seconds",
+        "Time range sync batches spend downloading",
+        Ok(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_PROCESSING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "sync_range_chain_batch_processing_seconds",
+        "Time range sync batches spend in processing",
+        Ok(vec![
+            0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0,
+        ]),
+    )
+});
+pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING_COUNT: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_range_chain_batch_awaiting_processing_count",
+            "Number of batches in AwaitingProcessing when a batch starts processing",
+            Ok(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+        )
+    });
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",
@@ -600,12 +631,6 @@ pub static BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL: LazyLock<Result<IntCoun
 /*
  * Blob Delay Metrics
  */
-pub static BEACON_BLOB_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "beacon_blob_delay_gossip_last_delay",
-        "The first time we see this blob as a delay from the start of the slot",
-    )
-});
 
 pub static BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLock<
     Result<Histogram>,
@@ -664,45 +689,12 @@ pub static BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL: LazyLock<Result<IntCounter
         )
     });
 
-pub static BEACON_BLOB_DELAY_GOSSIP_VERIFICATION: LazyLock<Result<IntGauge>> = LazyLock::new(
-    || {
-        try_create_int_gauge(
-            "beacon_blob_delay_gossip_verification",
-            "Keeps track of the time delay from the start of the slot to the point we propagate the blob",
-        )
-    },
-);
 pub static BEACON_BLOB_DELAY_FULL_VERIFICATION: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_blob_last_full_verification_delay",
         "The time it takes to verify a beacon blob",
     )
 });
-
-pub static BEACON_BLOB_RPC_SLOT_START_DELAY_TIME: LazyLock<Result<Histogram>> = LazyLock::new(
-    || {
-        try_create_histogram_with_buckets(
-            "beacon_blob_rpc_slot_start_delay_time",
-            "Duration between when a blob is received over rpc and the start of the slot it belongs to.",
-            // Create a custom bucket list for greater granularity in block delay
-            Ok(vec![
-                0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0,
-                6.0, 7.0, 8.0, 9.0, 10.0, 15.0, 20.0,
-            ]), // NOTE: Previous values, which we may want to switch back to.
-                // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-                //decimal_buckets(-1,2)
-        )
-    },
-);
-
-pub static BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(
-    || {
-        try_create_int_counter(
-            "beacon_blob_gossip_arrived_late_total",
-            "Count of times when a gossip blob arrived from the network later than the attestation deadline.",
-        )
-    },
-);
 
 /*
  * Light client update reprocessing queue metrics.

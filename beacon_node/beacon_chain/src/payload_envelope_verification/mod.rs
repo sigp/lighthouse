@@ -17,20 +17,21 @@
 //!      ExecutedEnvelope
 //!
 //! ```
-
+use crate::data_availability_checker::AvailabilityCheckError;
+use crate::{
+    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, CustodyContext,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+};
 use state_processing::envelope_processing::EnvelopeProcessingError;
+use std::collections::HashSet;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
-use tracing::instrument;
+use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
-};
-
-use crate::{
-    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationOutcome,
+    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -40,18 +41,87 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
-    pub fn new(
+    /// Constructs an `AvailableEnvelope` from an envelope and custody column data.
+    ///
+    /// This function validates that:
+    /// - All required custody columns are present
+    ///
+    /// If more columns are provided than necessary, a warning is logged and the extra
+    /// columns are filtered out of the list.
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `MissingCustodyColumns`: Required custody columns are missing or incomplete
+    pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-    ) -> Self {
-        Self { envelope, columns }
+        bid: &SignedExecutionPayloadBid<E>,
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        if custody_context.data_columns_required_for_bid(bid) {
+            let columns_expected = custody_context.num_of_data_columns_to_sample(bid.epoch());
+
+            // Get required custody column indices
+            let required_indices = custody_context
+                .sampling_columns_for_epoch(bid.epoch())
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>();
+
+            // Filter to only the columns we need (deduplicates if there are duplicates)
+            let mut filtered_columns = Vec::new();
+            let mut seen_indices = HashSet::new();
+            let num_provided_columns = columns.len();
+            for column in columns {
+                if required_indices.contains(column.index()) && seen_indices.insert(*column.index())
+                {
+                    filtered_columns.push(column);
+                }
+            }
+
+            // Check if we have all required columns
+            if filtered_columns.len() != columns_expected {
+                return Err(AvailabilityCheckError::MissingCustodyColumns);
+            }
+
+            if num_provided_columns != filtered_columns.len() {
+                warn!(
+                    message = "More columns provided than expected",
+                    envelope = %envelope.message.payload.block_hash,
+                    num_provided_columns = %num_provided_columns,
+                    columns_expected = %columns_expected,
+                );
+            }
+
+            Ok(Self {
+                envelope,
+                columns: filtered_columns,
+            })
+        } else if columns.is_empty() {
+            Ok(Self { envelope, columns })
+        } else {
+            warn!(
+                message = "Custody columns provided for envelope that does not require them",
+                envelope = %envelope.message.payload.block_hash,
+            );
+            Ok(Self {
+                envelope,
+                columns: vec![],
+            })
+        }
+    }
+
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
@@ -155,15 +225,23 @@ pub enum EnvelopeError {
         latest_finalized_slot: Slot,
     },
     /// Some Beacon Chain Error
-    BeaconChainError(Arc<BeaconChainError>),
+    BeaconChainError(Box<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from importing the envelope.
-    ImportError(BlockError),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
+    /// The envelope's beacon block was not present in fork choice at import time.
+    ///
+    /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
+    /// block may simply not have arrived yet), this is raised during import where the block is
+    /// expected to already be present, so it indicates an internal inconsistency.
+    BlockRootNotInForkChoice(Hash256),
+    /// An internal error occurred while importing the envelope (e.g. updating fork choice).
+    InternalError(String),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -172,9 +250,31 @@ impl std::fmt::Display for EnvelopeError {
     }
 }
 
+impl EnvelopeError {
+    pub fn penalize_peer(&self) -> bool {
+        match self {
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. }
+            | EnvelopeError::BlockRootNotInForkChoice(_)
+            | EnvelopeError::InternalError(_) => false,
+        }
+    }
+}
+
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(e))
+        EnvelopeError::BeaconChainError(Box::new(e))
     }
 }
 
@@ -192,7 +292,24 @@ impl From<BeaconStateError> for EnvelopeError {
 
 impl From<DBError> for EnvelopeError {
     fn from(e: DBError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
+        EnvelopeError::BeaconChainError(Box::new(BeaconChainError::DBError(e)))
+    }
+}
+
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        BlockError::EnvelopeError(Box::new(e))
+    }
+}
+
+impl From<PayloadVerificationError> for EnvelopeError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                EnvelopeError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => EnvelopeError::BeaconChainError(e),
+        }
     }
 }
 

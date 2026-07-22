@@ -6,10 +6,11 @@ use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{error, trace};
+use types::PartialDataColumnSidecarError;
 use types::core::{EthSpec, Hash256};
 use types::data::{
-    PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
     PartialDataColumnSidecar, PartialDataColumnSidecarRef,
 };
 
@@ -30,10 +31,29 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         partial_column: Arc<PartialDataColumn<E>>,
         header: &PartialDataColumnHeader<E>,
         header_sent_set: HeaderSentSet,
+        requests: CellBitmap<E>,
     ) -> Self {
-        // For now, always request all cells
-        let mut requests = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
-        requests.not_inplace();
+        // Always set the request bit for available cells.
+        //
+        // Gossipsub applys certain optimisations to avoid sending redundant messages. This
+        // requires that we stay consistent with our metadata. Gossipsub uses the `Metadata` trait
+        // impl below to determine whether it can perform these optimisations.
+        //
+        // If we request a cell and then receive it, un-setting the request bit in the next
+        // published message may cause issues:
+        // Gossipsub tries to avoid the impact of application race conditions by checking newly
+        // published metadata against previously published metadata. This no longer functions
+        // correctly if request bits are unset between calls, as Gossipsub will consider a message
+        // with new requests as new info to be propagated, possibly overwriting previous messages
+        // with more cells (but fewer request bits). This is because gossipsub will see that both
+        // metadata have some bits that are not set in the other metadata and therefore cannot
+        // decide which actually carries more data. By always setting request bits for available
+        // cells, we avoid this issue, as requests will never be unset between calls.
+        //
+        // In other words, gossipsub relies on the fact that metadata is additive. The request bit
+        // is, therefore, to be seen as a "request if not available" bit.
+        let requests = requests.union(&partial_column.sidecar.cells_present_bitmap);
+
         let metadata = PartialDataColumnPartsMetadata::<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
             requests,
@@ -168,7 +188,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                         Box::new(MaybeKnownMetadata::<E>::Unknown) as Box<dyn Metadata>,
                     )
                 });
-                debug!(
+                trace!(
                     peer=%peer_id,
                     group_id=%self.partial_column.block_root,
                     column_index=self.partial_column.index,
@@ -203,13 +223,13 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let send = self
                     .partial_column
                     .sidecar
-                    .filter(|idx| want.get(idx).unwrap_or(false))
-                    .map_err(|err| {
+                    .try_filter(|idx, _, _| Ok(want.get(idx).unwrap_or(false)))
+                    .map_err(|err: PartialDataColumnSidecarError| {
                         error!(?err, "Unexpected error filtering sidecar");
                         PartialError::InvalidFormat
                     })?
                     .map(|sidecar| {
-                        debug!(
+                        trace!(
                             peer=%peer_id,
                             group_id=%self.partial_column.block_root,
                             column_index=self.partial_column.index,
@@ -233,7 +253,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                     });
 
                 if send.is_none() {
-                    debug!(
+                    trace!(
                         peer=%peer_id,
                         group_id=%self.partial_column.block_root,
                         column_index=self.partial_column.index,
@@ -320,6 +340,14 @@ mod tests {
                 header: None.into(),
             },
         })
+    }
+
+    fn make_all_one_bitmap(len: usize) -> CellBitmap<E> {
+        let mut request_cells = CellBitmap::<E>::with_capacity(len).unwrap();
+        for idx in 0..request_cells.len() {
+            request_cells.set(idx, true).unwrap();
+        }
+        request_cells
     }
 
     fn random_peer_id() -> PeerId {
@@ -422,7 +450,8 @@ mod tests {
         let header = make_header(4);
         let partial = make_partial_column(root, 4, &[0, 1]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -442,7 +471,8 @@ mod tests {
         // We have cells [0, 2, 3]
         let partial = make_partial_column(root, 4, &[0, 2, 3]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -474,7 +504,8 @@ mod tests {
         // We have cells [0]
         let partial = make_partial_column(root, 4, &[0]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 

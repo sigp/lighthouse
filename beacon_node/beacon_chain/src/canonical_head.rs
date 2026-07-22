@@ -8,11 +8,14 @@
 //!
 //! ## Deadlock safety
 //!
-//! This module contains three locks:
+//! This module contains four locks:
 //!
 //! 1. `RwLock<BeaconForkChoice>`: Contains `proto_array` fork choice.
 //! 2. `RwLock<CachedHead>`: Contains a cached block/state from the last run of `proto_array`.
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
+//! 4. `Option<Mutex<FastConfirmationRule>>`: FCR state (None when disabled), only locked inside
+//!    `recompute_head_at_slot_internal` while the fork choice read lock (1) is held and
+//!    `recompute_head_lock` (3) serializes access.
 //!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
 //! developers working in this module should tread carefully and seek a detailed review.
@@ -31,8 +34,10 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
+use crate::chain_config::FastConfirmationMode;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
+use crate::state_advance_timer::MAX_ADVANCE_DISTANCE;
 use crate::{
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
     beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
@@ -41,7 +46,12 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
-use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
+use eth2::types::{
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseLateHead,
+};
+use fast_confirmation::{
+    Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
+};
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
     ProtoBlock, ResetPayloadStatuses,
@@ -52,6 +62,7 @@ use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
+use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -87,6 +98,14 @@ impl<T> CanonicalHeadRwLock<T> {
     fn write(&self) -> RwLockWriteGuard<'_, T> {
         self.0.write()
     }
+}
+
+struct FcrOutcome {
+    confirmed_root: Hash256,
+    confirmed_slot: Slot,
+    confirmed_block_hash: ExecutionBlockHash,
+    new_confirmed_root: bool,
+    new_update_slot: bool,
 }
 
 /// Provides a series of cached values from the last time `BeaconChain::recompute_head` was run.
@@ -163,22 +182,29 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the randao mix for the parent of the block at the head of the chain.
     ///
-    /// This is useful for re-orging the current head. The parent's RANDAO value is read from
-    /// the head's execution payload because it is unavailable in the beacon state's RANDAO mixes
-    /// array after being overwritten by the head block's RANDAO mix.
+    /// This is useful for re-orging the current head.
     ///
+    /// Pre-gloas: The parent's RANDAO value is read from the head's execution payload because
+    /// it is unavailable in the beacon state's RANDAO mixes array after being overwritten by the head
+    /// block's RANDAO mix.
+    ///
+    /// Post-gloas: The parent's RANDAO value is read from the beacon states latest execution payload bid.
     /// This will error if the head block is not execution-enabled (post Bellatrix).
     pub fn parent_random(&self) -> Result<Hash256, BeaconStateError> {
-        self.snapshot
-            .beacon_block
-            .message()
-            .execution_payload()
-            .map(|payload| payload.prev_randao())
+        let block = self.snapshot.beacon_block.message();
+        if block.fork_name_unchecked().gloas_enabled() {
+            self.snapshot
+                .beacon_state
+                .latest_execution_payload_bid()
+                .map(|bid| bid.prev_randao)
+        } else {
+            block.body().execution_payload().map(|p| p.prev_randao())
+        }
     }
 
     /// Returns the execution block number of the block at the head of the chain.
     ///
-    /// Returns an error if the chain is prior to Bellatrix.
+    /// Returns an error if the chain is prior to Bellatrix or post-Gloas
     pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
         self.snapshot
             .beacon_block
@@ -260,6 +286,12 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     ///
     /// This lock **should not be made public**, it should only be used inside this module.
     recompute_head_lock: Mutex<()>,
+    /// Fast Confirmation Rule state. `None` = FCR disabled.
+    ///
+    /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
+    /// the fork-choice read lock is still held. The Mutex is only locked briefly during
+    /// FCR computation, which is already serialized by `recompute_head_lock`.
+    pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -268,9 +300,27 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
         head_payload_status: proto_array::PayloadStatus,
-    ) -> Self {
+        fast_confirmation: FastConfirmationMode,
+        store: &BeaconStore<T>,
+        spec: &ChainSpec,
+    ) -> Result<Self, String> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+
+        let fcr = if fast_confirmation.is_enabled() {
+            Some(Mutex::new(
+                <BeaconChain<T>>::new_fast_confirmation_rule(
+                    fork_choice_view.finalized_checkpoint,
+                    &snapshot,
+                    store,
+                    spec,
+                )
+                .map_err(|e| format!("Unable to initialize fast confirmation rule: {e:?}"))?,
+            ))
+        } else {
+            None
+        };
+
         let cached_head = CachedHead {
             snapshot,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
@@ -281,11 +331,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        Self {
+        Ok(Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
-        }
+            fast_confirmation: fcr,
+        })
     }
 
     /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
@@ -350,6 +401,17 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // Avoid interleaving the fork choice and cached head locks.
         drop(fork_choice_write_lock);
         *self.cached_head.write() = cached_head;
+
+        // Reset FCR to the restored finalized checkpoint so it doesn't carry stale state.
+        if let Some(ref fcr_mutex) = self.fast_confirmation {
+            *fcr_mutex.lock() = <BeaconChain<T>>::new_fast_confirmation_rule(
+                fork_choice_view.finalized_checkpoint,
+                &self.cached_head.read().snapshot,
+                store,
+                spec,
+            )
+            .map_err(|e| Error::DBInconsistent(format!("fast confirmation rule reset: {e:?}")))?;
+        }
 
         Ok(())
     }
@@ -628,6 +690,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             finalized_checkpoint: old_cached_head.finalized_checkpoint(),
         };
         let old_payload_status = old_cached_head.head_payload_status();
+        let old_forkchoice_update_parameters = old_cached_head.forkchoice_update_parameters();
 
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
@@ -677,19 +740,100 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        // Exit early if the head, checkpoints, and payload status have not changed.
-        if new_view == old_view && new_payload_status == old_payload_status {
+        // Get the parameters to update the execution layer since either the head or some finality
+        // parameters have changed. Snapshot the pre-FCR value so the early-return below can detect
+        // an FCR-advanced `justified_hash` even when the head/checkpoints are unchanged.
+        let mut new_forkchoice_update_parameters =
+            fork_choice_read_lock.get_forkchoice_update_parameters();
+
+        // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
+        // FCR must run even when the head hasn't changed, because new attestations may advance
+        // the confirmed_root without changing the head/justified/finalized view.
+        // FCR is a read-only observer and errors must never affect consensus.
+        //
+        // Skip FCR while the head is more than `MAX_ADVANCE_DISTANCE` behind wall-clock (deep
+        // sync): the state-advance timer won't have cached the head state FCR needs, so running
+        // it would force an expensive load+advance under the fork-choice lock.
+        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation
+            && new_head_proto_block.slot.as_u64() + MAX_ADVANCE_DISTANCE >= current_slot.as_u64()
+        {
+            let mut fcr = fcr_mutex.lock();
+            match Self::run_fcr(
+                &mut fcr,
+                &fork_choice_read_lock,
+                &self.store,
+                current_slot,
+                new_view.head_block_root,
+                new_head_proto_block.state_root,
+            ) {
+                Ok(FcrOutcome {
+                    confirmed_root,
+                    confirmed_slot,
+                    confirmed_block_hash,
+                    new_confirmed_root,
+                    new_update_slot,
+                }) => {
+                    // FC update params are only updated after successful FCR runs. This is
+                    // conservative and will revert the `safe` tag to justified instead of using a
+                    // previously confirmed root that may be stale by now if FCR can't reconfirm it.
+                    new_forkchoice_update_parameters.justified_hash = Some(confirmed_block_hash);
+
+                    let delay = current_slot
+                        .as_u64()
+                        .saturating_sub(confirmed_slot.as_u64());
+                    metrics::set_gauge(&fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
+                    metrics::set_gauge(
+                        &fcr_metrics::FCR_CONFIRMED_ROOT_SLOT,
+                        confirmed_slot.as_u64() as i64,
+                    );
+                    // Sample the settled-delay histogram only on the first recompute that advanced
+                    // FCR's per-slot update, so intra-slot block-import recomputes don't bias it.
+                    if new_update_slot {
+                        metrics::observe(
+                            &fcr_metrics::FCR_SETTLED_CONFIRMATION_DELAY_SLOTS,
+                            delay as f64,
+                        );
+                    }
+                    if new_confirmed_root {
+                        metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                    }
+
+                    // Emit a `fast_confirmation` event on every FCR run, regardless of
+                    // whether the confirmed block changed (beacon-APIs#616). `block`/`slot`
+                    // identify the most recent confirmed block; `current_slot` is the
+                    // slot the algorithm ran at.
+                    if let Some(event_handler) = self.event_handler.as_ref()
+                        && event_handler.has_fast_confirmation_subscribers()
+                    {
+                        event_handler.register(EventKind::FastConfirmation(SseFastConfirmation {
+                            block: confirmed_root,
+                            slot: confirmed_slot,
+                            current_slot,
+                        }));
+                    }
+                }
+                Err(e) => {
+                    let label: &'static str = (&e).into();
+                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                    error!("Error running FCR: {e:?}");
+                }
+            }
+        }
+
+        // Exit early if nothing changed — unless FCR advanced `confirmed_root`, in which case we
+        // proceed so the new `safe_block_hash` reaches the EL now instead of at the next head
+        // change. The head-unchanged path below handles this (reuses the snapshot, skips
+        // `after_new_head`).
+        if new_view == old_view
+            && new_payload_status == old_payload_status
+            && new_forkchoice_update_parameters == old_forkchoice_update_parameters
+        {
             debug!(
                 head = ?new_view.head_block_root,
                 "No change in canonical head"
             );
             return Ok(None);
         }
-
-        // Get the parameters to update the execution layer since either the head or some finality
-        // parameters have changed.
-        let new_forkchoice_update_parameters =
-            fork_choice_read_lock.get_forkchoice_update_parameters();
 
         perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
@@ -726,6 +870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 } else {
                     None
                 };
+
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
@@ -838,6 +983,174 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(recompute_head_lock);
 
         Ok(Some(el_update_handle))
+    }
+
+    fn run_fcr(
+        fcr: &mut FastConfirmationRule,
+        fork_choice: &BeaconForkChoice<T>,
+        store: &BeaconStore<T>,
+        current_slot: Slot,
+        head_root: Hash256,
+        head_state_root: Hash256,
+    ) -> Result<FcrOutcome, FastConfirmationError> {
+        let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
+        let old_confirmed_root = fcr.confirmed_root;
+
+        let finalized_cp = fork_choice.finalized_checkpoint();
+        let unrealized_justified_cp = fork_choice.unrealized_justified_checkpoint();
+        let proto_array = fork_choice.proto_array().core_proto_array();
+        let votes = fork_choice.proto_array().votes();
+        let equivocating_indices = fork_choice.fc_store().equivocating_indices();
+
+        // The current head's pulled-up state (spec `get_pulled_up_head_state`). FCR errors
+        // must never affect consensus, so on failure we log and skip it this tick.
+        let (state_root, mut head_state) =
+            match store.get_advanced_hot_state(head_root, current_slot, head_state_root) {
+                Ok(Some(state)) => state,
+                Ok(None) => {
+                    return Err(FastConfirmationError::UnableToObtainHeadState(
+                        "not found".to_owned(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(FastConfirmationError::UnableToObtainHeadState(format!(
+                        "{e:?}"
+                    )));
+                }
+            };
+
+        // A previous-epoch head is pulled up to the current epoch boundary; a current-epoch
+        // head is already pulled up, so leave it as-is.
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        if head_state.current_epoch() < current_epoch {
+            let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            complete_state_advance(&mut head_state, Some(state_root), epoch_start, &store.spec)
+                .map_err(|e| {
+                    FastConfirmationError::UnableToObtainHeadState(format!(
+                        "Error advancing head state: {e:?}"
+                    ))
+                })?;
+        }
+        head_state.build_all_caches(&store.spec).map_err(|e| {
+            FastConfirmationError::UnableToObtainHeadState(format!(
+                "Error building head caches: {e:?}"
+            ))
+        })?;
+
+        // Load the checkpoint state if it will be required.
+        let checkpoint_state = fcr
+            .checkpoint_state_needed::<T::EthSpec>(current_slot)
+            .map(|checkpoint| Self::load_fcr_checkpoint_state(store, checkpoint))
+            .transpose()?;
+
+        let old_update_slot = fcr.last_update_slot();
+        fcr.on_fast_confirmation::<T::EthSpec>(
+            head_root,
+            &finalized_cp,
+            &unrealized_justified_cp,
+            current_slot,
+            proto_array,
+            votes,
+            equivocating_indices,
+            &head_state,
+            checkpoint_state.as_ref(),
+            &store.spec,
+        )?;
+
+        let confirmed_node = fork_choice
+            .get_block(&fcr.confirmed_root)
+            .ok_or(FastConfirmationError::NodeNotFound(fcr.confirmed_root))?;
+
+        // Resolve the confirmed block's execution payload hash for the EL `safe_block_hash`.
+        // This MUST be the parent block hash for Gloas, per the spec.
+        let confirmed_block_hash = confirmed_node
+            .execution_status
+            .block_hash()
+            .or(confirmed_node.execution_payload_parent_hash)
+            .ok_or(FastConfirmationError::NodeHasNoBlockHash(
+                fcr.confirmed_root,
+            ))?;
+
+        Ok(FcrOutcome {
+            confirmed_root: fcr.confirmed_root,
+            confirmed_slot: confirmed_node.slot,
+            confirmed_block_hash,
+            new_confirmed_root: fcr.confirmed_root != old_confirmed_root,
+            new_update_slot: fcr.last_update_slot() != old_update_slot,
+        })
+    }
+
+    /// Build a `FastConfirmationRule` seeded from `finalized_checkpoint`, sourcing its balance
+    /// snapshots from the finalized checkpoint's state (spec: `store.checkpoint_states[checkpoint]`)
+    /// and its head-derived caches from the `snapshot` state.
+    ///
+    /// When the head snapshot *is* the checkpoint state — same block root, state at the first slot
+    /// of the checkpoint's epoch, as at genesis or checkpoint-sync startup — it is reused directly;
+    /// otherwise the checkpoint state is loaded from the `store`.
+    fn new_fast_confirmation_rule(
+        finalized_checkpoint: Checkpoint,
+        snapshot: &BeaconSnapshot<T::EthSpec>,
+        store: &BeaconStore<T>,
+        spec: &ChainSpec,
+    ) -> Result<FastConfirmationRule, FastConfirmationError> {
+        let target_slot = finalized_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        let snapshot_is_checkpoint_state = snapshot.beacon_block_root == finalized_checkpoint.root
+            && snapshot.beacon_state.slot() == target_slot;
+        let loaded_checkpoint_state = if snapshot_is_checkpoint_state {
+            None
+        } else {
+            Some(Self::load_fcr_checkpoint_state(
+                store,
+                finalized_checkpoint,
+            )?)
+        };
+        FastConfirmationRule::new(
+            snapshot.beacon_block_root,
+            &snapshot.beacon_state,
+            finalized_checkpoint,
+            loaded_checkpoint_state
+                .as_ref()
+                .unwrap_or(&snapshot.beacon_state),
+            spec.confirmation_byzantine_threshold,
+            spec.proposer_score_boost,
+            spec,
+        )
+    }
+
+    /// Load the state for `checkpoint` (spec: `store.checkpoint_states[checkpoint]`) — the
+    /// checkpoint block's post-state advanced to the first slot of `checkpoint.epoch`.
+    ///
+    /// No caches are built: FCR only iterates the validator set and reads `block_roots`
+    /// from this state.
+    fn load_fcr_checkpoint_state(
+        store: &BeaconStore<T>,
+        checkpoint: Checkpoint,
+    ) -> Result<BeaconState<T::EthSpec>, FastConfirmationError> {
+        let block = store
+            .get_blinded_block(&checkpoint.root)
+            .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
+            .ok_or(FastConfirmationError::CheckpointBlockNotFound {
+                block: checkpoint.root,
+                epoch: checkpoint.epoch,
+            })?;
+        let target_slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let (state_root, mut state) = store
+            .get_advanced_hot_state(checkpoint.root, target_slot, block.state_root())
+            .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
+            .ok_or_else(|| {
+                FastConfirmationError::UnableToObtainCheckpointState("not found".to_owned())
+            })?;
+        if state.slot() < target_slot {
+            complete_state_advance(&mut state, Some(state_root), target_slot, &store.spec)
+                .map_err(|e| {
+                    FastConfirmationError::UnableToObtainCheckpointState(format!(
+                        "Error advancing checkpoint state: {e:?}"
+                    ))
+                })?;
+        }
+        Ok(state)
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
@@ -967,13 +1280,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.observed_blob_sidecars.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
-
         self.observed_column_sidecars.write().prune(
             new_view
                 .finalized_checkpoint
@@ -1072,7 +1378,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         // Prune blobs in the background.
-        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+        if let Some(data_availability_boundary) = self.custody_context.data_availability_boundary()
+        {
             self.store_migrator
                 .process_prune_blobs(data_availability_boundary);
         }

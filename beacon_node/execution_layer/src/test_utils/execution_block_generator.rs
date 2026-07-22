@@ -565,20 +565,16 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             self.insert_block(Block::PoS(payload))?;
         }
 
-        // Post-Gloas, the justified and finalized block hashes must be non-zero, since the
-        // CL always has a known parent_block_hash to reference.
-        if let Some(head_block) = self.blocks.get(&head_block_hash)
-            && self
-                .get_fork_at_timestamp(head_block.timestamp())
-                .gloas_enabled()
-        {
+        // If Gloas was enabled from genesis, the justified and finalized block hashes must be
+        // non-zero, since the CL always has a known parent_block_hash to reference.
+        if self.get_fork_at_timestamp(0).gloas_enabled() {
             assert!(
                 forkchoice_state.safe_block_hash != ExecutionBlockHash::zero(),
-                "post-Gloas safe_block_hash must not be zero"
+                "for Gloas genesis safe_block_hash must not be zero"
             );
             assert!(
                 forkchoice_state.finalized_block_hash != ExecutionBlockHash::zero(),
-                "post-Gloas finalized_block_hash must not be zero"
+                "for Gloas genesis finalized_block_hash must not be zero"
             );
         }
 

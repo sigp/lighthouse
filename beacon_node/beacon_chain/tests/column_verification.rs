@@ -274,5 +274,8 @@ async fn verify_header_signature_fork_block_bug() {
         .process_rpc_custody_columns(data_column_sidecars)
         .await
         .unwrap();
-    assert_eq!(status, AvailabilityProcessingStatus::Imported(block_root));
+    assert_eq!(
+        status,
+        AvailabilityProcessingStatus::Imported(signed_block.slot(), block_root)
+    );
 }

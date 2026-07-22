@@ -1,12 +1,12 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
-use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::RangeSyncBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
-use beacon_chain::fetch_blobs::{
-    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
+use beacon_chain::data_column_verification::{
+    GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
+use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -22,9 +22,13 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
     Client, GossipTopic, MessageId, NetworkConfig, NetworkGlobals, PeerId, PubsubMessage,
+    PubsubPartialMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
+use logging::crit;
 use rand::prelude::SliceRandom;
+use ssz_types::VariableList;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,14 +41,15 @@ use {
     slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
-pub use sync_methods::ChainSegmentProcessId;
-use types::data::FixedBlobSidecarList;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
+
+use gossip_methods::ReprocessAllowance;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
@@ -70,9 +75,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub executor: TaskExecutor,
 }
 
-// Publish blobs in batches of exponentially increasing size.
-const BLOB_PUBLICATION_EXP_FACTOR: usize = 2;
-
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
         self.beacon_processor_send.try_send(event)
@@ -97,15 +99,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.attestation,
                 package.subnet_id,
                 package.should_import,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |attestations| processor.process_gossip_attestation_batch(attestations, true);
+        let process_batch = move |attestations| {
+            processor
+                .process_gossip_attestation_batch(attestations, ReprocessAllowance::BlockAndPayload)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -139,15 +143,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.aggregate,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
+        let process_batch = move |aggregates| {
+            processor
+                .process_gossip_aggregate_batch(aggregates, ReprocessAllowance::BlockAndPayload)
+        };
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
@@ -189,42 +195,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     invalid_block_storage,
                     seen_timestamp,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipBlock(Box::pin(process_fn)),
-        })
-    }
-
-    /// Create a new `Work` event for some blob sidecar.
-    pub fn send_gossip_blob_sidecar(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        peer_client: Client,
-        blob_index: u64,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
-        let processor = self.clone();
-        let process_fn = async move {
-            processor
-                .process_gossip_blob(
-                    message_id,
-                    peer_id,
-                    peer_client,
-                    blob_index,
-                    blob_sidecar,
-                    seen_timestamp,
-                )
-                .await
-        };
-
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
-            work: Work::GossipBlobSidecar(Box::pin(process_fn)),
         })
     }
 
@@ -236,6 +212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -246,6 +223,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    allow_reprocess,
                 )
                 .await
         };
@@ -517,6 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 payload_attestation_message,
+                ReprocessAllowance::BlockOnly,
             )
         };
 
@@ -550,15 +529,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
-            block_root,
-            block,
-            seen_timestamp,
-            process_type,
-        );
+        let process_fn =
+            self.clone()
+                .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlock {
@@ -568,45 +543,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
-    /// sent to the other side of `result_tx`.
-    pub fn send_rpc_blobs(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
-        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
-        if blob_count == 0 {
-            return Ok(());
-        }
-        let process_fn = self.clone().generate_rpc_blobs_process_fn(
-            block_root,
-            blobs,
-            seen_timestamp,
-            process_type,
-        );
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
-            work: Work::RpcBlobs { process_fn },
-        })
-    }
-
     /// Create a new `Work` event for an RPC-fetched payload envelope. `process_lookup_envelope`
     /// reports the result back to sync.
     pub fn send_lookup_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcEnvelope(Box::pin(async move {
-                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                s.process_lookup_envelope(block_root, envelope, process_type)
                     .await;
             })),
         })
@@ -618,20 +567,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcCustodyColumn(Box::pin(async move {
-                s.process_rpc_custody_columns(
-                    block_root,
-                    custody_columns,
-                    seen_timestamp,
-                    process_type,
-                )
-                .await;
+                s.process_rpc_custody_columns(block_root, custody_columns, process_type)
+                    .await;
             })),
         })
     }
@@ -958,7 +901,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub async fn fetch_engine_blobs_and_publish(
+    pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
         header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
@@ -968,38 +911,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
-        let publish_fn = move |blobs_or_data_column| {
+        let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
-                match blobs_or_data_column {
-                    EngineGetBlobsOutput::Blobs(blobs) => {
-                        self_cloned.publish_blobs_gradually(
-                            blobs.into_iter().map(|b| b.to_blob()).collect(),
-                            block_root,
-                        );
-                    }
-                    EngineGetBlobsOutput::CustodyColumns(columns) => {
-                        self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_arc()).collect(),
-                            block_root,
-                        );
-                    }
-                };
+                self_cloned.publish_data_columns_gradually(
+                    columns.into_iter().map(|c| c.clone_arc()).collect(),
+                    block_root,
+                );
             }
         };
 
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header.clone(),
+            header,
             custody_columns,
             publish_fn,
         )
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(_) => {
+                AvailabilityProcessingStatus::Imported(..) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
@@ -1036,23 +969,108 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+    }
 
-        // Publish partial columns without eager send
-        // TODO(gloas): implement publish partial columns without eager send
-        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
-            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
-            if !columns.is_empty() {
-                debug!(block = %block_root, "Publishing all partials after getBlobs");
-                self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: columns
-                        .into_iter()
-                        .map(|partial| partial.into_inner())
-                        .collect(),
-                    header,
-                });
-            } else {
-                debug!(block = %block_root, "No partials to publish after getBlobs");
+    pub async fn publish_partial_data_columns(
+        self: &Arc<Self>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        block_root: Hash256,
+    ) {
+        if header.kzg_commitments.is_empty() {
+            return;
+        }
+
+        // TODO(gloas): implement publish partial columns
+        let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
+            // Partials are disabled.
+            return;
+        };
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
+        let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+
+        let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
+        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
+        for column in columns {
+            // Republish both complete and incomplete columns as partials
+            let partial_column = match column {
+                AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                AssemblyColumn::Complete(full) => {
+                    let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                        continue;
+                    };
+                    match fulu.to_partial() {
+                        Ok(partial) => Arc::new(partial),
+                        Err(err) => {
+                            error!(
+                                %block_root,
+                                column_index = %full.index(),
+                                ?err,
+                                "Failed to convert complete column to partial for re-seeding"
+                            );
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            present_indices.insert(partial_column.index);
+            let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
+            request_cells.not_inplace();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: partial_column,
+                request_cells,
+                header: header.clone(),
+            });
+        }
+
+        // For each custody column without any local partial, send an empty placeholder
+        // that requests all cells.
+        let num_cells = header.kzg_commitments.len();
+        for col_idx in custody_columns {
+            if present_indices.contains(col_idx) {
+                continue;
             }
+            // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
+            // bitmap constructor is infallible.
+            let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
+            else {
+                crit!(
+                    %block_root,
+                    num_cells,
+                    column_index = %col_idx,
+                    "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
+                );
+                continue;
+            };
+            let request_cells = cells_present_bitmap.not();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: Arc::new(PartialDataColumn {
+                    block_root,
+                    index: *col_idx,
+                    sidecar: PartialDataColumnSidecar {
+                        cells_present_bitmap,
+                        column: VariableList::empty(),
+                        kzg_proofs: VariableList::empty(),
+                        header: None.into(),
+                    },
+                }),
+                request_cells,
+                header: header.clone(),
+            });
+        }
+
+        if !messages.is_empty() {
+            debug!(
+                block = %block_root,
+                count = messages.len(),
+                "Publishing all partials"
+            );
+            self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
+        } else {
+            // This should not happen, as any custody columns will have at least an empty
+            // partial published.
+            warn!(block = %block_root, "No partials to publish");
         }
     }
 
@@ -1066,7 +1084,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(hash) => {
+                    AvailabilityProcessingStatus::Imported(_, hash) => {
                         debug!(
                             result = "imported block and custody columns",
                             block_hash = %hash,
@@ -1101,84 +1119,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
-    }
-
-    /// This function gradually publishes blobs to the network in randomised batches.
-    ///
-    /// This is an optimisation to reduce outbound bandwidth and ensures each blob is published
-    /// by some nodes on the network as soon as possible. Our hope is that some blobs arrive from
-    /// other nodes in the meantime, obviating the need for us to publish them. If no other
-    /// publisher exists for a blob, it will eventually get published here.
-    fn publish_blobs_gradually(
-        self: &Arc<Self>,
-        mut blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
-        block_root: Hash256,
-    ) {
-        let self_clone = self.clone();
-
-        self.executor.spawn(
-            async move {
-                let chain = self_clone.chain.clone();
-                let publish_fn = |blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>| {
-                    self_clone.send_network_message(NetworkMessage::Publish {
-                        messages: blobs
-                            .into_iter()
-                            .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
-                            .collect(),
-                    });
-                };
-
-                // Permute the blobs and split them into batches.
-                // The hope is that we won't need to publish some blobs because we will receive them
-                // on gossip from other nodes.
-                blobs.shuffle(&mut rand::rng());
-
-                let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
-                let mut publish_count = 0usize;
-                let blob_count = blobs.len();
-                let mut blobs_iter = blobs.into_iter().peekable();
-                let mut batch_size = 1usize;
-
-                while blobs_iter.peek().is_some() {
-                    let batch = blobs_iter.by_ref().take(batch_size);
-                    let publishable = batch
-                        .filter_map(|blob| match observe_gossip_blob(&blob, &chain) {
-                            Ok(()) => Some(blob),
-                            Err(GossipBlobError::RepeatBlob { .. }) => None,
-                            Err(e) => {
-                                warn!(
-                                    error = ?e,
-                                    "Previously verified blob is invalid"
-                                );
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
-                    if !publishable.is_empty() {
-                        debug!(
-                            publish_count = publishable.len(),
-                            ?block_root,
-                            "Publishing blob batch"
-                        );
-                        publish_count += publishable.len();
-                        publish_fn(publishable);
-                    }
-
-                    tokio::time::sleep(blob_publication_batch_interval).await;
-                    batch_size *= BLOB_PUBLICATION_EXP_FACTOR;
-                }
-
-                debug!(
-                    batch_interval = blob_publication_batch_interval.as_millis(),
-                    blob_count,
-                    publish_count,
-                    ?block_root,
-                    "Batch blob publication complete"
-                )
-            },
-            "gradual_blob_publication",
-        );
     }
 
     /// This function gradually publishes data columns to the network in randomised batches.
@@ -1278,12 +1218,28 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+        let (processor, beacon_processor_rx, _network_rx) =
+            Self::null_for_testing_with_network_receiver(network_globals, sync_tx, chain, executor);
+
+        (processor, beacon_processor_rx)
+    }
+
+    fn null_for_testing_with_network_receiver(
+        network_globals: Arc<NetworkGlobals<E>>,
+        sync_tx: UnboundedSender<SyncMessage<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+    ) -> (
+        Self,
+        mpsc::Receiver<BeaconWorkEvent<E>>,
+        mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    ) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
         } = <_>::default();
 
-        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
@@ -1296,24 +1252,34 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             executor,
         };
 
-        (network_beacon_processor, beacon_processor_rx)
+        (network_beacon_processor, beacon_processor_rx, network_rx)
     }
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
     /// suitable for directly calling gossip processing methods in tests.
     pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+        Self::null_from_harness_with_network_receiver(harness).0
+    }
+
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` and returns its network event
+    /// receiver so tests can observe messages sent to the network service.
+    pub fn null_from_harness_with_network_receiver(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage<E>>) {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),
             harness.spec.clone(),
         );
 
-        Self::null_for_testing(
-            Arc::new(network_globals),
-            mpsc::unbounded_channel().0,
-            harness.chain.clone(),
-            harness.runtime.task_executor.clone(),
-        )
-        .0
+        let (processor, _beacon_processor_rx, network_rx) =
+            Self::null_for_testing_with_network_receiver(
+                Arc::new(network_globals),
+                mpsc::unbounded_channel().0,
+                harness.chain.clone(),
+                harness.runtime.task_executor.clone(),
+            );
+
+        (processor, network_rx)
     }
 }

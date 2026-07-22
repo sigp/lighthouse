@@ -8,12 +8,11 @@ use eth2::types::Accept;
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::debug;
-use types::Slot;
-use warp::http::Response;
-use warp::{Filter, Rejection};
+use types::{Hash256, Slot};
+use warp::{Filter, Rejection, http::response::Builder, reply::Reply};
 
-// GET validator/execution_payload_envelope/{slot}
-pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
+// GET validator/execution_payload_envelopes/{slot}/{beacon_block_root}
+pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
     not_while_syncing_filter: NotWhileSyncingFilter,
@@ -21,10 +20,15 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("validator"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::param::<Hash256>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid beacon_block_root".to_string(),
             ))
         }))
         .and(warp::path::end())
@@ -34,35 +38,38 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
         .and(chain_filter)
         .then(
             |slot: Slot,
+             beacon_block_root: Hash256,
              accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    debug!(?slot, "Execution payload envelope request from HTTP API");
+                    debug!(?slot, ?beacon_block_root, "Execution payload envelope request from HTTP API");
 
                     not_synced_filter?;
 
-                    // Get the envelope from the pending cache (local building only)
+                    // Get the envelope from the pending cache (local building only).
                     let envelope = chain
                         .pending_payload_envelopes
                         .read()
                         .get(slot)
+                        .filter(|envelope| envelope.beacon_block_root == beacon_block_root)
                         .cloned()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(format!(
-                                "Execution payload envelope not available for slot {slot}"
+                                "Execution payload envelope not available for slot {slot} and root {beacon_block_root:?}"
                             ))
                         })?;
 
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
-                            .body(envelope.as_ssz_bytes().into())
+                            .body(envelope.as_ssz_bytes())
+                            .map(|res| res.into_response())
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "Failed to build SSZ response: {e}"
@@ -74,19 +81,16 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: envelope,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())
-                                .body(
-                                    serde_json::to_string(&json_response)
-                                        .map_err(|e| {
-                                            warp_utils::reject::custom_server_error(format!(
-                                                "Failed to serialize response: {e}"
-                                            ))
-                                        })?
-                                        .into(),
-                                )
+                                .body(serde_json::to_string(&json_response).map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to serialize response: {e}"
+                                    ))
+                                })?)
+                                .map(|res| res.into_response())
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "Failed to build JSON response: {e}"

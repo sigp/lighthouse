@@ -455,20 +455,18 @@ impl BlockId {
                 warp_utils::reject::custom_not_found(format!("no blobs stored for block {root}"))
             })?;
 
-        let blob_sidecar_list_filtered = match indices {
-            Some(vec) => {
-                let list: Vec<_> = vec
-                    .into_iter()
-                    .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
-                    .collect();
+        let blob_sidecar_list: Vec<_> = blob_sidecar_list.into_iter().collect();
 
-                BlobSidecarList::new(list, max_blobs_per_block)
-                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
-            }
+        let blob_sidecar_list = match indices {
+            Some(indices) => indices
+                .into_iter()
+                .filter_map(|i| blob_sidecar_list.get(i as usize).cloned())
+                .collect(),
             None => blob_sidecar_list,
         };
 
-        Ok(blob_sidecar_list_filtered)
+        BlobSidecarList::new(blob_sidecar_list, max_blobs_per_block)
+            .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
     }
 
     fn get_blobs_from_data_columns<T: BeaconChainTypes>(
@@ -535,7 +533,8 @@ mod tests {
     use super::*;
     use beacon_chain::{
         PayloadVerificationStatus,
-        block_verification_types::{AvailableBlockData, RangeSyncBlock},
+        block_verification_types::AvailableBlockData,
+        data_availability_checker::AvailableBlock,
         test_utils::{
             BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
             generate_data_column_sidecars_from_block,
@@ -603,7 +602,9 @@ mod tests {
             "precondition: test block must not be imported into fork choice yet"
         );
 
-        let sampling_columns = chain.sampling_columns_for_epoch(block.epoch());
+        let sampling_columns = chain
+            .custody_context
+            .sampling_columns_for_epoch(block.epoch());
         let data_columns = generate_data_column_sidecars_from_block(&block, &chain.spec)
             .into_iter()
             .filter(|column| sampling_columns.contains(column.index()))
@@ -613,20 +614,14 @@ mod tests {
             "precondition: {fork_name:?} test block must produce data columns"
         );
 
-        let available_block = RangeSyncBlock::new(
+        let available_block = AvailableBlock::new(
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
-            &chain.data_availability_checker,
-            chain.spec.clone(),
+            &chain.custody_context,
         )
-        .unwrap()
-        .into_available_block();
+        .unwrap();
 
         let current_slot = harness.get_current_slot();
-        let cached_head = chain.canonical_head.cached_head();
-        let canonical_head_proposer_index = chain
-            .canonical_head_proposer_index(current_slot, &cached_head)
-            .unwrap();
 
         chain
             .canonical_head
@@ -638,7 +633,6 @@ mod tests {
                 Duration::ZERO,
                 &post_state,
                 PayloadVerificationStatus::Verified,
-                canonical_head_proposer_index,
                 &chain.spec,
             )
             .unwrap();

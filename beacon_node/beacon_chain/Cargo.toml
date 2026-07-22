@@ -16,6 +16,7 @@ participation_metrics = []
 fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+ef_tests = ["fork_choice/test-utils"]
 arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
@@ -31,17 +32,18 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
+fast_confirmation = { workspace = true }
 fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
 genesis = { workspace = true }
+hashlink = { workspace = true }
 hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
 milhouse = { workspace = true }

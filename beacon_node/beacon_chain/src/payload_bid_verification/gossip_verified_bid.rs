@@ -14,7 +14,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot,
+    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 /// Verify that an execution payload bid is consistent with the current chain state
@@ -64,6 +64,14 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         return Err(PayloadBidError::InvalidBuilder { builder_index });
     }
 
+    let builder_version = head_state.get_builder(builder_index)?.version;
+    if builder_version != PAYLOAD_BUILDER_VERSION {
+        return Err(PayloadBidError::InvalidBuilderVersion {
+            builder_index,
+            version: builder_version,
+        });
+    }
+
     if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
@@ -76,7 +84,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
-    pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
@@ -85,19 +93,19 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Educe)]
-#[educe(
-    Debug(bound = "T: BeaconChainTypes"),
-    Clone(bound = "T: BeaconChainTypes")
-)]
-pub struct GossipVerifiedPayloadBid<T: BeaconChainTypes> {
-    pub signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+#[educe(Debug(bound = "E: EthSpec"), Clone(bound = "E: EthSpec"))]
+pub struct GossipVerifiedPayloadBid<E: EthSpec> {
+    pub signed_bid: Arc<SignedExecutionPayloadBid<E>>,
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
-    pub fn new(
+impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
+    pub fn new<T>(
         signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
         ctx: &GossipVerificationContext<'_, T>,
-    ) -> Result<Self, PayloadBidError> {
+    ) -> Result<Self, PayloadBidError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         let bid_slot = signed_bid.message.slot;
         let bid_parent_block_hash = signed_bid.message.parent_block_hash;
         let bid_parent_block_root = signed_bid.message.parent_block_root;
@@ -134,9 +142,18 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             .ok_or(PayloadBidError::UnableToReadSlot)?;
         let head_state = &cached_head.snapshot.beacon_state;
 
+        // Look up the preferences keyed by the dependent root that is canonical from our head's
+        // perspective, so we don't pick up preferences cached for a competing branch's proposer.
+        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
+        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+            proposal_epoch,
+            cached_head.head_block_root(),
+            ctx.spec,
+        )?;
+
         let Some(proposer_preferences) = ctx
             .gossip_verified_proposer_preferences_cache
-            .get_preferences(&bid_slot)
+            .get_preferences(&bid_slot, dependent_root)
         else {
             return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
         };
@@ -144,10 +161,26 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
         // TODO(gloas) reprocess bids whose parent_block_root becomes known & canonical after a reorg?
-        if !fork_choice.contains_block(&bid_parent_block_root) {
-            return Err(PayloadBidError::ParentBlockRootUnknown {
+        let parent_block = fork_choice.get_block(&bid_parent_block_root).ok_or(
+            PayloadBidError::ParentBlockRootUnknown {
                 parent_block_root: bid_parent_block_root,
+            },
+        )?;
+
+        // [REJECT] The bid is for a higher slot than its parent block.
+        if bid_slot <= parent_block.slot {
+            return Err(PayloadBidError::BidNotDescendantOfParent {
+                bid_slot,
+                parent_slot: parent_block.slot,
             });
+        }
+
+        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
+        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        if signed_bid.message.prev_randao
+            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+        {
+            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
         // TODO(gloas) reprocess bids whose parent_block_root becomes canonical after a reorg.
@@ -233,7 +266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_payload_bid_for_gossip(
         &self,
         bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-    ) -> Result<GossipVerifiedPayloadBid<T>, PayloadBidError> {
+    ) -> Result<GossipVerifiedPayloadBid<T::EthSpec>, PayloadBidError> {
         let slot = bid.message.slot;
         let parent_block_root = bid.message.parent_block_root;
         let parent_block_hash = bid.message.parent_block_hash;

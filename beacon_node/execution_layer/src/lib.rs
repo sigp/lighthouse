@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -43,7 +43,6 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
@@ -56,6 +55,7 @@ use types::{
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
     ProposerPreparationData, Slot,
 };
+use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;
@@ -118,14 +118,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -206,7 +206,7 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload_value: Uint256,
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
@@ -406,6 +406,10 @@ impl ProposerPreparationDataEntry {
     }
 }
 
+// NOTE: This key should arguably include the `suggested_fee_recipient`, as it is part of the
+// `Proposer::payload_attributes` value that is cached based on it. However, in some cases where
+// this key is constructed the fee recipient is not straight-forward to determine. Therefore we
+// accept the risk of loading a stale fee recipient within the timespan of a single slot.
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
@@ -1118,7 +1122,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
@@ -1719,23 +1723,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .transpose()
         } else {
             Err(Error::PayloadBodiesByRangeNotSupported)
-        }
-    }
-
-    pub async fn get_blobs_v1(
-        &self,
-        query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
-
-        if capabilities.get_blobs_v1 {
-            self.engine()
-                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
-                .await
-                .map_err(Box::new)
-                .map_err(Error::EngineError)
-        } else {
-            Err(Error::GetBlobsNotSupported)
         }
     }
 

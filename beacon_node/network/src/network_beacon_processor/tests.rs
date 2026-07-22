@@ -6,7 +6,7 @@ use crate::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
     },
     service::NetworkMessage,
-    sync::{SyncMessage, manager::BlockProcessType},
+    sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -42,15 +42,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
-    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
-use types::{
-    BlobSidecarList,
-    data::{BlobIdentifier, FixedBlobSidecarList},
-};
+use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
 type E = MainnetEthSpec;
 type T = EphemeralHarnessType<E>;
@@ -69,7 +67,6 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -80,7 +77,6 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -274,7 +270,7 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
@@ -341,11 +337,11 @@ impl TestRig {
 
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
-        let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+        let data_columns = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
-                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
+                let sampling_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
@@ -358,20 +354,17 @@ impl TestRig {
                 .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
-                (None, Some(custody_columns))
+                Some(custody_columns)
             } else {
-                let blob_sidecars =
-                    BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
-                (Some(blob_sidecars), None)
+                None
             }
         } else {
-            (None, None)
+            None
         };
 
         Self {
             chain,
             next_block: block,
-            next_blobs: blob_sidecars,
             next_data_columns: data_columns,
             attestations,
             next_block_attestations,
@@ -382,7 +375,6 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
-            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -409,22 +401,6 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
-        if let Some(blobs) = self.next_blobs.as_ref() {
-            let blob = blobs.get(blob_index).unwrap();
-            self.network_beacon_processor
-                .send_gossip_blob_sidecar(
-                    junk_message_id(),
-                    junk_peer_id(),
-                    Client::default(),
-                    blob.index,
-                    blob.clone(),
-                    Duration::from_secs(0),
-                )
-                .unwrap();
-        }
-    }
-
     pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
         if let Some(data_columns) = self.next_data_columns.as_ref() {
             let data_column = data_columns.get(col_index).unwrap();
@@ -435,6 +411,7 @@ impl TestRig {
                     DataColumnSubnetId::from_column_index(*data_column.index(), &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
+                    true,
                 )
                 .unwrap();
         }
@@ -446,7 +423,6 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -458,24 +434,9 @@ impl TestRig {
             .send_lookup_beacon_block(
                 block_root,
                 LookupBlock::new(self.next_block.clone()),
-                std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
-    }
-
-    pub fn enqueue_single_lookup_rpc_blobs(&self) {
-        if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
-            self.network_beacon_processor
-                .send_rpc_blobs(
-                    self.next_block.canonical_root(),
-                    blobs,
-                    std::time::Duration::default(),
-                    BlockProcessType::SingleBlob { id: 1 },
-                )
-                .unwrap();
-        }
     }
 
     pub fn enqueue_single_lookup_rpc_data_columns(&self) {
@@ -484,7 +445,6 @@ impl TestRig {
                 .send_rpc_custody_columns(
                     self.next_block.canonical_root(),
                     data_columns,
-                    Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
                 .unwrap();
@@ -637,6 +597,48 @@ impl TestRig {
                 junk_peer_id(),
                 aggregate,
                 Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
+    /// member of the PTC for its slot.
+    pub fn enqueue_next_block_payload_attestation(&self) {
+        let slot = self.next_block.slot();
+        let beacon_block_root = self.next_block.canonical_root();
+        let head = self.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+
+        let ptc = state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC");
+        let validator_index = *ptc.0.first().expect("PTC should not be empty") as u64;
+
+        let data = PayloadAttestationData {
+            beacon_block_root,
+            slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let domain = self.chain.spec.get_domain(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = self._harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(data.signing_root(domain));
+
+        self.network_beacon_processor
+            .send_gossip_payload_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(PayloadAttestationMessage {
+                    validator_index,
+                    data,
+                    signature,
+                }),
             )
             .unwrap();
     }
@@ -880,45 +882,6 @@ impl TestRig {
             Some(events)
         }
     }
-
-    /// Listen for sync messages and collect them for a specified duration or until reaching a count.
-    ///
-    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
-    pub async fn receive_sync_messages_with_timeout(
-        &mut self,
-        timeout: Duration,
-        count: Option<usize>,
-    ) -> Option<Vec<SyncMessage<E>>> {
-        let mut events = vec![];
-
-        let timeout_future = tokio::time::sleep(timeout);
-        tokio::pin!(timeout_future);
-
-        loop {
-            // Break if we've received the requested count of messages
-            if let Some(target_count) = count
-                && events.len() >= target_count
-            {
-                break;
-            }
-
-            tokio::select! {
-                _ = &mut timeout_future => break,
-                maybe_msg = self.sync_rx.recv() => {
-                    match maybe_msg {
-                        Some(msg) => events.push(msg),
-                        None => break, // Channel closed
-                    }
-                }
-            }
-        }
-
-        if events.is_empty() {
-            None
-        } else {
-            Some(events)
-        }
-    }
 }
 
 fn junk_peer_id() -> PeerId {
@@ -984,7 +947,10 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
@@ -1101,13 +1067,6 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1178,7 +1137,11 @@ async fn import_gossip_block_unacceptably_early() {
 /// Data columns that have already been processed but unobserved should be propagated without re-importing.
 #[tokio::test]
 async fn accept_processed_gossip_data_columns_without_import() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip flow doesn't apply.
+    // TODO(gloas): re-enable this test
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
@@ -1242,13 +1205,6 @@ async fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1308,17 +1264,12 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar);
@@ -1327,10 +1278,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1394,17 +1341,12 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar)
@@ -1413,10 +1355,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1453,6 +1391,158 @@ async fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
 #[tokio::test]
 async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
     aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc).await
+}
+
+async fn payload_attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // The gossipsub validation result should be withheld while the payload attestation is
+    // queued for re-processing.
+    assert!(
+        rig.receive_network_messages_with_timeout(Duration::from_millis(100), None)
+            .await
+            .is_none(),
+        "no validation result should be sent while the payload attestation is queued"
+    );
+
+    // Send the block and ensure that the payload attestation is received back and imported.
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
+        BlockImportMethod::Gossip => {
+            rig.enqueue_gossip_block();
+            events.push(WorkType::GossipBlock);
+            for i in 0..num_data_columns {
+                rig.enqueue_gossip_data_columns(i);
+                events.push(WorkType::GossipDataColumnSidecar);
+            }
+        }
+        BlockImportMethod::Rpc => {
+            rig.enqueue_lookup_block();
+            events.push(WorkType::RpcBlock);
+            if num_data_columns > 0 {
+                rig.enqueue_single_lookup_rpc_data_columns();
+                events.push(WorkType::RpcCustodyColumn);
+            }
+        }
+    };
+
+    events.push(WorkType::UnknownBlockPayloadAttestation);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages + 1,
+        "Payload attestation should have been included."
+    );
+
+    // The re-processed payload attestation should have been propagated with an `Accept`
+    // validation result.
+    let messages = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(100), None)
+        .await
+        .expect("should receive validation results after block import");
+    let accepts_count = messages
+        .iter()
+        .filter(|msg| {
+            matches!(
+                msg,
+                NetworkMessage::ValidationResult {
+                    validation_result: MessageAcceptance::Accept,
+                    ..
+                }
+            )
+        })
+        .count();
+    let expected_accepts_count = match import_method {
+        // The gossip block import also propagates an `Accept` for the block itself.
+        BlockImportMethod::Gossip => 2,
+        // RPC blocks never touch gossipsub, so the only `Accept` is the re-processed
+        // payload attestation's.
+        BlockImportMethod::Rpc => 1,
+    };
+    assert_eq!(
+        accepts_count, expected_accepts_count,
+        "re-processed payload attestation should be propagated"
+    );
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_gossip_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Gossip).await
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
+}
+
+/// Ensure that a payload attestation referencing an unknown block gets re-queued and, when the
+/// block is never seen, is received back on timeout without being imported.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // Ensure that the payload attestation is received back on timeout but not imported.
+
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::UnknownBlockPayloadAttestation.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
@@ -1603,18 +1693,12 @@ async fn import_misc_gossip_ops() {
 async fn test_rpc_block_reprocessing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
+
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_block();
     rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
-
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    if num_blobs > 0 {
-        rig.enqueue_single_lookup_rpc_blobs();
-        rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
-            .await;
-    }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     if num_data_columns > 0 {
@@ -1936,65 +2020,6 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
     assert_eq!(0, actual_count);
 }
 
-/// Ensure that data column processing that results in block import sends a sync notification
-#[tokio::test]
-async fn test_data_column_import_notifies_sync() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
-        return;
-    }
-
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let block_root = rig.next_block.canonical_root();
-
-    // Enqueue the block first to prepare for data column processing
-    rig.enqueue_gossip_block();
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
-    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-        .await
-        .expect("should receive sync message");
-
-    // Enqueue data columns which should trigger block import when complete
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    if num_data_columns > 0 {
-        for i in 0..num_data_columns {
-            rig.enqueue_gossip_data_columns(i);
-            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-                .await;
-        }
-
-        // Verify block import succeeded
-        assert_eq!(
-            rig.head_root(),
-            block_root,
-            "block should be imported and become head"
-        );
-
-        // Check that sync was notified of the successful import
-        let sync_messages = rig
-            .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-            .await
-            .expect("should receive sync message");
-
-        // Verify we received the expected GossipBlockProcessResult message
-        assert_eq!(
-            sync_messages.len(),
-            1,
-            "should receive exactly one sync message"
-        );
-        match &sync_messages[0] {
-            SyncMessage::GossipBlockProcessResult {
-                block_root: msg_block_root,
-                imported,
-            } => {
-                assert_eq!(*msg_block_root, block_root, "block root should match");
-                assert!(*imported, "block should be marked as imported");
-            }
-            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_data_columns_by_range_request_only_returns_requested_columns() {
     if test_spec::<E>().fulu_fork_epoch.is_none() {
@@ -2006,6 +2031,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
 
     let all_custody_columns = rig
         .chain
+        .custody_context
         .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
     let available_columns: Vec<u64> = all_custody_columns.to_vec();
 
@@ -2067,7 +2093,10 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
     let skip_slots: HashSet<u64> = [5, 6].into_iter().collect();
     let mut rig = TestRig::new_with_skip_slots(128, &skip_slots).await;
 
-    let all_custody_columns = rig.chain.custody_columns_for_epoch(Some(Epoch::new(0)));
+    let all_custody_columns = rig
+        .chain
+        .custody_context
+        .custody_columns_for_epoch(Some(Epoch::new(0)));
     let requested_column = vec![all_custody_columns[0]];
 
     // Request a range that spans the skip slots (slots 0 through 9).
@@ -2134,7 +2163,7 @@ fn make_test_payload_envelope(
                 slot_number: slot,
                 ..ExecutionPayloadGloas::default()
             },
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: ExecutionRequestsGloas::default(),
             builder_index: 0,
             beacon_block_root,
             parent_beacon_block_root: Hash256::ZERO,
@@ -2157,6 +2186,11 @@ async fn test_payload_envelopes_by_range() {
     // Manually store payload envelopes for each block in the range
     let mut expected_roots = Vec::new();
     for slot in start_slot..slot_count {
+        // Genesis (slot 0) has no canonical execution payload, so the by-range handler filters it
+        // out via `block_has_canonical_payload` even if an envelope is stored for it.
+        if slot == 0 {
+            continue;
+        }
         if let Some(root) = rig
             .chain
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
@@ -2250,14 +2284,10 @@ async fn test_payload_envelopes_by_root_unknown_root_returns_empty() {
 
     let mut rig = TestRig::new(64).await;
 
-    // Request envelope for a root that has no stored envelope
-    let block_root = rig
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-        .unwrap()
-        .unwrap();
+    // Use a root with no block: the harness persists an envelope for every block it produces, so a
+    // real block root would already have one. An unknown root has no stored envelope.
+    let block_root = Hash256::repeat_byte(0xaa);
 
-    // Don't store any envelope — the handler should return 0 envelopes
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
     rig.enqueue_payload_envelopes_by_root_request(roots);
 

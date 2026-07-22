@@ -1,4 +1,3 @@
-use crate::error::InvalidBestNodeInfo;
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
     Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
@@ -175,6 +174,10 @@ pub struct ProtoNode {
 }
 
 impl ProtoNode {
+    pub fn is_gloas(&self) -> bool {
+        self.as_v29().is_ok()
+    }
+
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
@@ -392,6 +395,10 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
+    /// Cached parent→children index. `children[i]` holds the node indices of all children of
+    /// node `i`. Maintained incrementally by `on_block` and `maybe_prune`.
+    #[serde(skip)]
+    pub children: Vec<Vec<usize>>,
 }
 
 impl ProtoArray {
@@ -673,6 +680,16 @@ impl ProtoArray {
 
         self.indices.insert(node.root(), node_index);
         self.nodes.push(node.clone());
+
+        // Maintain cached children index. `parent_index` is already bounds-checked above
+        // against `self.nodes`, and `self.children` is kept in lockstep with `self.nodes`.
+        self.children.push(Vec::new());
+        if let Some(parent_index) = node.parent() {
+            self.children
+                .get_mut(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?
+                .push(node_index);
+        }
 
         if let Some(parent_index) = node.parent()
             && matches!(block.execution_status, ExecutionStatus::Valid(_))
@@ -1093,29 +1110,23 @@ impl ProtoArray {
             spec,
         )?;
 
-        // Perform a sanity check that the node is indeed valid to be the head.
-        let best_node = self
-            .nodes
-            .get(best_fc_node.proto_node_index)
-            .ok_or(Error::InvalidNodeIndex(best_fc_node.proto_node_index))?;
-        if !self.node_is_viable_for_head::<E>(
-            best_node,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        ) {
-            return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
-                current_slot,
-                start_root: *justified_root,
-                justified_checkpoint: best_justified_checkpoint,
-                finalized_checkpoint: best_finalized_checkpoint,
-                head_root: best_node.root(),
-                head_justified_checkpoint: *best_node.justified_checkpoint(),
-                head_finalized_checkpoint: *best_node.finalized_checkpoint(),
-            })));
-        }
-
         Ok((best_fc_node.root, best_fc_node.payload_status))
+    }
+
+    /// Rebuild the cached `self.children` index from `self.nodes`. Called once after
+    /// deserialization to populate the transient field.
+    pub fn rebuild_children_index(&mut self) -> Result<(), Error> {
+        let mut children = vec![Vec::new(); self.nodes.len()];
+        for (i, node) in self.nodes.iter().enumerate() {
+            if let Some(parent_idx) = node.parent() {
+                children
+                    .get_mut(parent_idx)
+                    .ok_or(Error::InvalidNodeIndex(parent_idx))?
+                    .push(i);
+            }
+        }
+        self.children = children;
+        Ok(())
     }
 
     /// Spec: `get_filtered_block_tree`.
@@ -1128,7 +1139,7 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-    ) -> HashSet<usize> {
+    ) -> Result<HashSet<usize>, Error> {
         let mut viable = HashSet::new();
         self.filter_block_tree::<E>(
             start_index,
@@ -1136,71 +1147,88 @@ impl ProtoArray {
             best_justified_checkpoint,
             best_finalized_checkpoint,
             &mut viable,
-        );
-        viable
+        )?;
+        Ok(viable)
     }
 
     /// Spec: `filter_block_tree`.
+    ///
+    /// Proto_array stores nodes in insertion order — children always have higher
+    /// indices than their parents. A single reverse pass therefore processes every
+    /// child before its parent, matching the spec's recursive post-order semantics
+    /// without recursion (required to survive 500k+ blocks of non-finality).
+    ///
+    /// The spec removes execution-invalid blocks (and their entire subtrees) from
+    /// `store.blocks` before running. We replicate that here with a forward pass
+    /// propagating `excluded` from parent to child — V29 children of an invalidated
+    /// V17 ancestor are excluded transitively, since V29 nodes carry no
+    /// `execution_status` of their own.
     fn filter_block_tree<E: EthSpec>(
         &self,
-        node_index: usize,
+        start_index: usize,
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
         viable: &mut HashSet<usize>,
-    ) -> bool {
-        let Some(node) = self.nodes.get(node_index) else {
-            return false;
-        };
+    ) -> Result<(), Error> {
+        // Forward pass: a node is "excluded" if it (or any ancestor down to
+        // `start_index`) has an invalid execution status.
+        let mut excluded = vec![false; self.nodes.len()];
+        for i in (start_index + 1)..self.nodes.len() {
+            let node = self.nodes.get(i).ok_or(Error::InvalidNodeIndex(i))?;
+            let parent_excluded = match node.parent() {
+                Some(p) => *excluded.get(p).ok_or(Error::InvalidNodeIndex(p))?,
+                None => false,
+            };
+            let self_invalid = node.execution_status().is_ok_and(|s| s.is_invalid());
+            excluded[i] = parent_excluded || self_invalid;
+        }
 
-        // Skip invalid children — they aren't in store.blocks in the spec.
-        let children: Vec<usize> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, child)| {
-                child.parent() == Some(node_index)
-                    && !child
-                        .execution_status()
-                        .is_ok_and(|status| status.is_invalid())
-            })
-            .map(|(i, _)| i)
-            .collect();
-
-        if !children.is_empty() {
-            // Evaluate ALL children (no short-circuit) to mark all viable branches.
-            let any_viable = children
-                .iter()
-                .map(|&child_index| {
-                    self.filter_block_tree::<E>(
-                        child_index,
-                        current_slot,
-                        best_justified_checkpoint,
-                        best_finalized_checkpoint,
-                        viable,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .any(|v| v);
-            if any_viable {
-                viable.insert(node_index);
-                return true;
+        for node_index in (start_index..self.nodes.len()).rev() {
+            // Spec: invalid subtree removed from `store.blocks` — skip entirely.
+            if *excluded
+                .get(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?
+            {
+                continue;
             }
-            return false;
-        }
+            let node = self
+                .nodes
+                .get(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
 
-        // Leaf node: check viability.
-        if self.node_is_viable_for_head::<E>(
-            node,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        ) {
-            viable.insert(node_index);
-            return true;
+            // Spec: children = [root for root in blocks if blocks[root].parent_root == block_root]
+            let valid_children: Vec<usize> = self
+                .children
+                .get(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?
+                .iter()
+                .copied()
+                .filter_map(|i| match excluded.get(i) {
+                    Some(false) => Some(Ok(i)),
+                    Some(true) => None,
+                    None => Some(Err(Error::InvalidNodeIndex(i))),
+                })
+                .collect::<Result<_, _>>()?;
+
+            if !valid_children.is_empty() {
+                // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
+                if valid_children.iter().any(|c| viable.contains(c)) {
+                    viable.insert(node_index);
+                }
+            } else {
+                // Spec: leaf — check correct_justified and correct_finalized
+                if self.node_is_viable_for_head::<E>(
+                    node,
+                    current_slot,
+                    best_justified_checkpoint,
+                    best_finalized_checkpoint,
+                ) {
+                    viable.insert(node_index);
+                }
+            }
         }
-        false
+        Ok(())
     }
 
     /// Spec: `get_head`.
@@ -1227,7 +1255,7 @@ impl ProtoArray {
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-        );
+        )?;
 
         // Compute once rather than per-child per-level.
         let apply_proposer_boost =
@@ -1491,25 +1519,35 @@ impl ProtoArray {
             }
             Ok(children)
         } else {
-            Ok(self
-                .nodes
+            // Spec: [root for root in blocks.keys() if blocks[root].parent_root == node.root ...]
+            // (cached `self.children[i]` is the same set as the spec's filtered scan).
+            let indices = self
+                .children
+                .get(node.proto_node_index)
+                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
+            indices
                 .iter()
-                .enumerate()
-                .filter(|(_, child_node)| {
-                    child_node.parent() == Some(node.proto_node_index)
-                        && child_node.get_parent_payload_status() == node.payload_status
+                .copied()
+                .filter_map(|i| {
+                    self.nodes
+                        .get(i)
+                        .ok_or(Error::InvalidNodeIndex(i))
+                        .map(|child| {
+                            // Spec: node.payload_status == get_parent_payload_status(store, blocks[root])
+                            (child.get_parent_payload_status() == node.payload_status).then(|| {
+                                (
+                                    IndexedForkChoiceNode {
+                                        root: child.root(),
+                                        proto_node_index: i,
+                                        payload_status: PayloadStatus::Pending,
+                                    },
+                                    child.clone(),
+                                )
+                            })
+                        })
+                        .transpose()
                 })
-                .map(|(child_index, child_node)| {
-                    (
-                        IndexedForkChoiceNode {
-                            root: child_node.root(),
-                            proto_node_index: child_index,
-                            payload_status: PayloadStatus::Pending,
-                        },
-                        child_node.clone(),
-                    )
-                })
-                .collect())
+                .collect()
         }
     }
 
@@ -1526,7 +1564,12 @@ impl ProtoArray {
             Ok(fc_node.payload_status as u8)
         } else if fc_node.payload_status == PayloadStatus::Empty {
             Ok(1)
-        } else if self.should_extend_payload::<E>(fc_node, proto_node, proposer_boost_root)? {
+        } else if self.should_extend_payload::<E>(
+            fc_node,
+            proto_node,
+            current_slot,
+            proposer_boost_root,
+        )? {
             Ok(2)
         } else {
             Ok(0)
@@ -1535,10 +1578,13 @@ impl ProtoArray {
 
     /// Called by the proposer to decide whether to build on the full or empty
     /// parent pending node. Returns false if the PTC has voted the data as unavailable.
+    /// For a parent from an earlier slot the `Empty` or `Full` node has already been resolved
+    /// by attestation weight in `get_head`.
     pub fn should_build_on_full<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
     ) -> Result<bool, Error> {
         if fc_node.payload_status == PayloadStatus::Pending {
             return Err(Error::InvalidPayloadStatus {
@@ -1550,18 +1596,40 @@ impl ProtoArray {
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }
+
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Ok(true);
+        }
+
         // Check that false votes have not achieved an absolute majority. This allows the payload to be
         // considered available when either a majority have voted true or not enough votes have
         // been cast either way.
-        Ok(!proto_node.payload_data_availability::<E>(false)?)
+        if proto_node.payload_data_availability::<E>(false)? {
+            return Ok(false);
+        }
+
+        if proto_node.payload_timeliness::<E>(false)? {
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Err(Error::ShouldExtendPayloadInvalidSlot {
+                block_root: fc_node.root,
+                block_slot: proto_node.slot(),
+                current_slot,
+            });
+        }
+
         let Ok(node) = proto_node.as_v29() else {
             return Err(Error::InvalidNodeVariant {
                 block_root: fc_node.root,
@@ -1640,8 +1708,21 @@ impl ProtoArray {
         // Drop all the nodes prior to finalization.
         self.nodes = self.nodes.split_off(finalized_index);
 
+        // Drop pruned entries from children index and shift all remaining indices down.
+        // Invariant: child_index > parent_index, and all parents we kept have
+        // index >= finalized_index, so every remaining child_index is also
+        // >= finalized_index.
+        self.children = self.children.split_off(finalized_index);
+        for children in self.children.iter_mut() {
+            for child_index in children.iter_mut() {
+                *child_index = child_index
+                    .checked_sub(finalized_index)
+                    .ok_or(Error::IndexOverflow("children"))?;
+            }
+        }
+
         // Adjust the indices map.
-        for (_root, index) in self.indices.iter_mut() {
+        for index in self.indices.values_mut() {
             *index = index
                 .checked_sub(finalized_index)
                 .ok_or(Error::IndexOverflow("indices"))?;
@@ -1749,6 +1830,14 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {
+        self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
+    }
+
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of
@@ -1884,10 +1973,7 @@ fn get_proposer_score<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let Some(proposer_score_boost) = spec.proposer_score_boost else {
-        return Ok(0);
-    };
-    calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
+    calculate_committee_fraction::<E>(justified_balances, spec.proposer_score_boost)
         .ok_or(Error::ProposerBoostOverflow(0))
 }
 
