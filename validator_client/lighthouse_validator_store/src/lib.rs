@@ -940,12 +940,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                     }
                 })
             })
-            .and_then(|factor| {
-                // If builder boost factor is set to 100 it should be treated
-                // as None to prevent unnecessary calculations that could
-                // lead to loss of information.
-                if factor == 100 { None } else { Some(factor) }
-            })
+            // If builder boost factor is set to 100 it should be treated as None
+            // to prevent unnecessary calculations that could lead to loss of information.
+            .filter(|&factor| factor != 100)
     }
 
     async fn randao_reveal(

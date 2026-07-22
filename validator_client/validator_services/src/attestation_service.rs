@@ -211,7 +211,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         *last_slot = current_slot;
                     }
                     Err(e) => {
-                        crit!(error = e, "Failed to spawn attestation tasks")
+                        crit!(error = e, "Failed to spawn attestation tasks");
                     }
                 }
             }
@@ -480,7 +480,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     committee_index,
                     slot = slot.as_u64(),
                     "Error during aggregate attestation routine"
-                )
+                );
             })?;
 
         Ok(())

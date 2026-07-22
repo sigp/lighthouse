@@ -317,6 +317,13 @@ pub static BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: LazyLock<Resu
             "Total number of aggregated attestations that referenced an unknown block and were re-queued.",
         )
     });
+pub static BEACON_PROCESSOR_PAYLOAD_ATTESTATION_REQUEUED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_payload_attestation_requeued_total",
+            "Total number of payload attestations that referenced an unknown block and were re-queued.",
+        )
+    });
 // Sync committee messages.
 pub static BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
