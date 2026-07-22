@@ -1,13 +1,14 @@
 use super::Error;
+use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::execution_proof_verification::observed_execution_proofs::{
     ObservedExecutionProofs, ProofObservation,
 };
+use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
-use slot_clock::SlotClock;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::execution::SignedExecutionProof;
@@ -17,7 +18,8 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_proofs: &'a RwLock<ObservedExecutionProofs>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
-    pub slot_clock: &'a T::SlotClock,
+    pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
+    pub store: &'a BeaconStore<T>,
     pub proof_engine: &'a Option<Arc<ProofEngine>>,
     pub spec: &'a ChainSpec,
     pub genesis_validators_root: Hash256,
@@ -77,24 +79,27 @@ impl GossipVerifiedExecutionProof {
             ProofObservation::New => {}
         }
 
-        // [REJECT] The validator is active in the current epoch.
-        //
-        // The spec leaves `state` unbound for this check. The head state is used to avoid
-        // loading a state per proof; on a forked network this may mis-judge validators whose
-        // activation or exit differs on the proof's branch.
-        let current_epoch = ctx
-            .slot_clock
-            .now()
-            .ok_or(BeaconChainError::UnableToReadSlot)
-            .map_err(Error::from)?
-            .epoch(T::EthSpec::slots_per_epoch());
-        let head_snapshot = ctx.canonical_head.cached_head().snapshot;
-        let validator = head_snapshot
-            .beacon_state
-            .validators()
-            .get(validator_index as usize)
-            .ok_or(Error::UnknownValidatorIndex(validator_index))?;
-        if !validator.is_active_at(current_epoch) {
+        // [REJECT] The validator is active at the epoch of the referenced block. The committee
+        // cache is keyed by the block's shuffling id, so proofs for blocks on non-canonical
+        // forks are judged against their own fork's active set without loading a state.
+        let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
+        let is_active = with_cached_shuffling(
+            ctx.canonical_head,
+            ctx.shuffling_cache,
+            ctx.store,
+            ctx.spec,
+            block_root,
+            block_epoch,
+            |cached_shuffling, _| {
+                Ok::<_, Error>(
+                    cached_shuffling
+                        .committee_cache
+                        .shuffled_position(validator_index as usize)
+                        .is_some(),
+                )
+            },
+        )?;
+        if !is_active {
             return Err(Error::ValidatorNotActive { validator_index });
         }
 
@@ -162,7 +167,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: &self.canonical_head,
             observed_execution_proofs: &self.observed_execution_proofs,
             validator_pubkey_cache: &self.validator_pubkey_cache,
-            slot_clock: &self.slot_clock,
+            shuffling_cache: &self.shuffling_cache,
+            store: &self.store,
             proof_engine: &self.proof_engine,
             spec: &self.spec,
             genesis_validators_root: self.genesis_validators_root,

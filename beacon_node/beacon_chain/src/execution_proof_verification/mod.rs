@@ -37,7 +37,7 @@ pub enum Error {
     EmptyProofData,
     /// The validator index does not exist (REJECT).
     UnknownValidatorIndex(u64),
-    /// The validator is not active in the current epoch (REJECT).
+    /// The validator is not active at the referenced block's epoch (REJECT).
     ValidatorNotActive {
         validator_index: u64,
     },
