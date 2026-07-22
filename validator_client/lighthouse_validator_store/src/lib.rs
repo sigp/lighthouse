@@ -561,7 +561,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })
     }
 
-    /// Sign attestation `data` without performing any slashing protection checks.
+    /// Sign AttestationData without performing any slashing protection checks.
     ///
     /// THIS METHOD IS DANGEROUS AND SHOULD ONLY BE USED INTERNALLY IMMEDIATELY PRIOR TO A
     /// SLASHING PROTECTION CHECK. See `slashing_protect_attestations`.
