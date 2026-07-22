@@ -589,9 +589,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             )
             .await?;
 
-        let mut aggregate_signature = AggregateSignature::infinity();
-        aggregate_signature.add_assign(&signature);
-        Ok(aggregate_signature)
+        Ok(AggregateSignature::from(&signature))
     }
 
     /// Provide slashing protection for `attestations`, safely updating the slashing protection DB.
