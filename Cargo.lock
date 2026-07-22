@@ -6250,6 +6250,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "tree_hash",
  "typenum",
  "types",
 ]

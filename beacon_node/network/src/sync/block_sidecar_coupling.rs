@@ -545,9 +545,10 @@ mod tests {
     };
     use std::sync::Arc;
     use tracing::Span;
+    use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
-        MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
+        ForkName, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -638,13 +639,36 @@ mod tests {
         let mut u = types::test_utils::test_unstructured();
         (0..count)
             .map(|_| {
-                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                let (mut block, data_columns) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Gloas,
                     NumBlobs::Number(1),
                     &mut u,
                     spec,
                 )
                 .unwrap();
+                // Commit the (random) bid to the empty execution requests carried by
+                // `matching_envelope`, so the envelope passes `verify_envelope_consistency`.
+                if let Ok(bid) = block
+                    .message_mut()
+                    .body_mut()
+                    .signed_execution_payload_bid_mut()
+                {
+                    bid.message.execution_requests_root =
+                        ExecutionRequestsGloas::<E>::default().tree_hash_root();
+                }
+                // The bid mutation changed the block root; re-point the columns at the mutated
+                // block so column<->block pairing (by block root) still holds.
+                let new_root = block.canonical_root();
+                let data_columns = data_columns
+                    .into_iter()
+                    .map(|column| {
+                        let mut column = (*column).clone();
+                        if let types::DataColumnSidecar::Gloas(ref mut gloas_column) = column {
+                            gloas_column.beacon_block_root = new_root;
+                        }
+                        Arc::new(column)
+                    })
+                    .collect::<Vec<_>>();
                 let envelope = matching_envelope(&block);
                 (Arc::new(block), data_columns, envelope)
             })

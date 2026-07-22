@@ -726,7 +726,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they omit the envelope for a revealed payload.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalBlockError::InvalidEnvelope { block_root, reason } => {
+                        debug!(
+                            ?block_root,
+                            reason,
+                            error = "invalid_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer sent an envelope whose payload doesn't match the bid
+                        // committed in the block.
+                        Some(PeerAction::LowToleranceError)
+                    }
 
+                    HistoricalBlockError::MissingProposerPubkey {
+                        block_root,
+                        proposer_index,
+                    } => {
+                        warn!(
+                            ?block_root,
+                            proposer_index,
+                            error = "missing_proposer_pubkey",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",

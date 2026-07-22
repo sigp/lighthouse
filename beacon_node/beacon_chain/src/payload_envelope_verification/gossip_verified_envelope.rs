@@ -5,6 +5,7 @@ use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
 use tracing::debug;
+use tree_hash::TreeHash;
 use types::{
     ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
@@ -57,6 +58,17 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
+    // The envelope's parent beacon block root must match the block's parent root. This must
+    // hold before the payload block hash is recomputed (e.g. via
+    // `perform_optimistic_sync_verifications`), since `parent_beacon_block_root` is an
+    // envelope-supplied input to the execution block header.
+    if envelope.parent_beacon_block_root != block.message().parent_root() {
+        return Err(EnvelopeError::ParentBeaconBlockRootMismatch {
+            block: block.message().parent_root(),
+            envelope: envelope.parent_beacon_block_root,
+        });
+    }
+
     // Builder index matches committed bid.
     if envelope.builder_index != execution_bid.builder_index {
         return Err(EnvelopeError::BuilderIndexMismatch {
@@ -70,6 +82,16 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         return Err(EnvelopeError::BlockHashMismatch {
             committed_bid: execution_bid.block_hash,
             envelope: envelope.payload.block_hash,
+        });
+    }
+
+    // The SSZ root of the envelope's execution requests must match the committed bid, per
+    // `verify_execution_payload_envelope` in the spec.
+    let execution_requests_root = envelope.execution_requests.tree_hash_root();
+    if execution_requests_root != execution_bid.execution_requests_root {
+        return Err(EnvelopeError::ExecutionRequestsRootMismatch {
+            committed_bid: execution_bid.execution_requests_root,
+            envelope: execution_requests_root,
         });
     }
 
@@ -322,6 +344,7 @@ mod tests {
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
+    use tree_hash::TreeHash;
 
     type E = MinimalEthSpec;
 
@@ -377,6 +400,8 @@ mod tests {
         ExecutionPayloadBid {
             builder_index,
             block_hash,
+            // Commit to the (default) execution requests carried by `make_envelope`.
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             ..ExecutionPayloadBid::default()
         }
     }
@@ -439,6 +464,45 @@ mod tests {
         assert!(matches!(
             result,
             Err(EnvelopeError::BuilderIndexMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_execution_requests_root_mismatch() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xac);
+
+        let envelope = make_envelope(slot, builder_index, block_hash);
+        let block = make_block(slot);
+        let mut bid = make_bid(builder_index, block_hash);
+        // Commit to a different execution requests root than the envelope carries.
+        bid.execution_requests_root = Hash256::repeat_byte(0x22);
+
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::ExecutionRequestsRootMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_parent_beacon_block_root_mismatch() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xab);
+
+        let mut envelope = make_envelope(slot, builder_index, block_hash);
+        // The block's parent root is `Hash256::ZERO`; claim a different parent beacon
+        // block root in the envelope.
+        envelope.parent_beacon_block_root = Hash256::repeat_byte(0x11);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::ParentBeaconBlockRootMismatch { .. })
         ));
     }
 
