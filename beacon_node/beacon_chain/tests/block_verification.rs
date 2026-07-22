@@ -297,6 +297,7 @@ fn update_envelope_block_root(snapshot: &mut BeaconSnapshot<E>) {
     if let Some(envelope) = snapshot.execution_envelope.as_ref() {
         let mut envelope = envelope.as_ref().clone();
         envelope.message.beacon_block_root = snapshot.beacon_block.canonical_root();
+        envelope.message.parent_beacon_block_root = snapshot.beacon_block.parent_root();
         snapshot.execution_envelope = Some(Arc::new(envelope));
     }
 }
