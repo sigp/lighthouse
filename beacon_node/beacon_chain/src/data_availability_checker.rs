@@ -228,8 +228,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.
-                Some(AssemblyColumn::Complete(_)) => {
-                    return Ok(None);
+                Some(AssemblyColumn::Complete(cached)) => {
+                    return if data_column == cached.as_data_column() {
+                        Ok(None)
+                    } else {
+                        Err(MissingCellsError::MismatchesCachedColumn)
+                    };
                 }
                 None => {
                     // No cached data, all cells are "missing" (new data we want)
@@ -242,6 +246,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Filter out all cells that are already cached for the given `block_root`.
     /// Returns input for kzg verification, or None if all cells are already cached.
+    /// We do not need to check individual cells when returning `Ok(None)` in here, as we do not
+    /// do anything with the received column in that case.
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
         partial_data_column: &'a PartialDataColumn<T::EthSpec>,
@@ -263,9 +269,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler {
             match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    return Ok(partial_data_column.sidecar.filter(|idx| {
-                        cached_partial.as_data_column().sidecar.get(idx).is_none()
-                    })?);
+                    return partial_data_column.sidecar.try_filter(|idx, cell, proof| {
+                        match cached_partial.as_data_column().sidecar.get(idx) {
+                            None => Ok(true),
+                            Some((cached_cell, cached_proof)) => {
+                                if cell == cached_cell && proof == cached_proof {
+                                    Ok(false)
+                                } else {
+                                    Err(MissingCellsError::MismatchesCachedColumn)
+                                }
+                            }
+                        }
+                    });
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.
@@ -278,7 +293,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
         // No cached data, all cells are "missing" (new data we want)
-        Ok(partial_data_column.sidecar.filter(|_| true)?)
+        partial_data_column.sidecar.try_filter(|_, _, _| Ok(true))
     }
 
     /// Get a blob from the availability cache.
