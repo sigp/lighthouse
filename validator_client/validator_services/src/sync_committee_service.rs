@@ -693,7 +693,8 @@ mod tests {
         }
 
         async fn new_with_spec(head_monitoring: bool, spec: Arc<ChainSpec>) -> Self {
-            let mut harness = ValidatorClientHarness::new_with_spec(1, spec).await;
+            let mut harness =
+                ValidatorClientHarness::new_with_spec(1, spec, &Default::default()).await;
             harness
                 .mock_beacon_node_1
                 .mock_sync_committee_subscriptions();
