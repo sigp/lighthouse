@@ -391,6 +391,7 @@ struct ComplexTestStruct {
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 #[context_deserialize(ForkName)]
 struct ProgressiveTestStruct {
+    #[serde(deserialize_with = "progressive_byte_list_from_hex_str")]
     A: ProgressiveList<u8>,
     B: ProgressiveList<u64>,
     C: ProgressiveList<SmallTestStruct>,
@@ -538,4 +539,16 @@ where
             N::to_usize()
         ))
     })
+}
+
+/// Like `byte_list_from_hex_str`, but for progressive byte lists (which have no length limit).
+fn progressive_byte_list_from_hex_str<'de, D>(
+    deserializer: D,
+) -> Result<ProgressiveList<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = serde::de::Deserialize::deserialize(deserializer)?;
+    let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+    ProgressiveList::new(decoded).map_err(D::Error::custom)
 }
