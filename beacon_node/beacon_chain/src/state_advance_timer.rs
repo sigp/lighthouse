@@ -35,7 +35,7 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-const MAX_ADVANCE_DISTANCE: u64 = 256;
+pub(crate) const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
 ///

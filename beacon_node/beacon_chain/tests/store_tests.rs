@@ -1647,27 +1647,19 @@ async fn proposer_duties_from_head_fulu() {
     assert_eq!(fork, head_state.fork());
 }
 
-/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
-// TODO(EIP-7732): Extend to gloas
-// `state.latest_execution_payload_header()` not available in Gloas
-// called from `add_block_at_slot` -> `make_block` -> `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload` -> `Error`
-#[ignore]
+fn get_gloas_harness(db_path: &TempDir, gloas_fork_epoch: Epoch) -> TestHarness {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let store = get_store_generic(db_path, Default::default(), spec);
+    get_harness(store, LOW_VALIDATOR_COUNT)
+}
+
+/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead
 #[tokio::test]
 async fn proposer_lookahead_gloas_fork_epoch() {
     let gloas_fork_epoch = Epoch::new(4);
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
-
     let db_path = tempdir().unwrap();
-    let store = get_store_generic(&db_path, Default::default(), spec.clone());
-    let validators_keypairs =
-        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(E::default())
-        .spec(spec.into())
-        .keypairs(validators_keypairs)
-        .fresh_disk_store(store)
-        .mock_execution_layer()
-        .build();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
     let spec = &harness.chain.spec;
 
     let initial_blocks = (gloas_fork_epoch - 1)
@@ -1724,6 +1716,129 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     assert_eq!(no_lookahead_indices, indices);
     assert_eq!(no_lookahead_dependent_root, dependent_root);
     assert_eq!(no_lookahead_fork, fork);
+}
+
+/// Build a chain from genesis to the first slot of end_epoch, activating Gloas at gloas_fork_epoch
+///
+/// Validators in to_slash are slashed by the last block, before end_epoch
+async fn build_across_gloas_boundary(
+    gloas_fork_epoch: Epoch,
+    end_epoch: Epoch,
+    to_slash: &[u64],
+) -> BeaconState<E> {
+    let db_path = tempdir().unwrap();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
+    let all_validators = harness.get_all_validators();
+
+    // Build the chain up to the last slot before end_epoch
+    let last_slot = (end_epoch - 1).end_slot(E::slots_per_epoch());
+    let pre_slots: Vec<Slot> = (1..last_slot.as_u64()).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(state, &pre_slots, &all_validators)
+        .await;
+
+    for &index in to_slash {
+        harness.add_proposer_slashing(index).unwrap();
+    }
+
+    // The last block, before end_epoch applies the slashings
+    // The first block of end_epoch triggers the transition that computes the end_epoch + 1 proposers
+    let boundary_slots = [last_slot, last_slot + 1];
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(head_state, &boundary_slots, &all_validators)
+        .await;
+    assert_eq!(head_state.current_epoch(), end_epoch);
+    for &index in to_slash {
+        assert!(head_state.get_validator(index as usize).unwrap().slashed);
+    }
+    head_state
+}
+
+#[tokio::test]
+async fn proposer_lookahead_retains_slashed_proposer_across_gloas_boundary() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the proposers scheduled for the fork epoch
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (fork_epoch_proposers, _) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Slash a proposer scheduled for the fork epoch, avoiding its first-slot proposer
+    let boundary_proposer = fork_epoch_proposers[0];
+    let target = fork_epoch_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("fork epoch should have a proposer other than its first-slot proposer");
+
+    let slashed_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[target]).await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The fork epoch's proposers were computed pre-fork and only carried forward.
+    // The slashing must leave them unchanged, in particular retaining the slashed proposer
+    assert!(
+        lookahead[..slots_per_epoch].contains(&target),
+        "pre-Gloas-computed proposers for the fork epoch must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        fork_epoch_proposers,
+        "slashing must not alter the pre-Gloas-computed fork epoch proposers"
+    );
+}
+
+#[tokio::test]
+async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas_epochs() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the scheduled proposers on each side of the window
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch + 1, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (pre_fork_proposers, post_fork_proposers) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Pick one proposer to slash on each side of the window, avoiding the boundary proposer
+    let boundary_proposer = pre_fork_proposers[0];
+    let pre_fork_target = pre_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("pre-fork epoch should have a proposer other than the boundary proposer");
+    let post_fork_target = post_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer && index != pre_fork_target)
+        .expect("post-fork epoch should have a proposer distinct from the other targets");
+
+    let slashed_state = build_across_gloas_boundary(
+        gloas_fork_epoch,
+        gloas_fork_epoch + 1,
+        &[pre_fork_target, post_fork_target],
+    )
+    .await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The gloas_fork_epoch + 1 proposers were computed pre-fork and must be unchanged
+    assert!(
+        lookahead[..slots_per_epoch].contains(&pre_fork_target),
+        "pre-fork-computed proposers must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        pre_fork_proposers,
+        "slashing must not alter the pre-fork-computed proposers"
+    );
+
+    // The gloas_fork_epoch + 2 proposers were computed post-fork and must exclude their slashed one
+    assert!(
+        !lookahead[slots_per_epoch..].contains(&post_fork_target),
+        "post-fork-computed proposers must exclude the slashed proposer"
+    );
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB

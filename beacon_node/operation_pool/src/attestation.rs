@@ -107,7 +107,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
                     }
                 }
 
-                Some((index, proposer_reward_numerator)).filter(|_| proposer_reward_numerator != 0)
+                (proposer_reward_numerator != 0).then_some((index, proposer_reward_numerator))
             })
             .collect();
 

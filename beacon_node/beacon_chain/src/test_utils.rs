@@ -336,6 +336,28 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
+    /// Create an ephemeral store initialized from an existing block and its post-state.
+    #[cfg(any(test, feature = "ef_tests"))]
+    pub fn initial_state_ephemeral_store(
+        mut self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<Checkpoint>,
+    ) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
+                .expect("should build test initial state")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
     /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,
@@ -4052,16 +4074,19 @@ where
                 .collect()
         });
 
-        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+        let mut verified_columns = vec![];
+        for sidecar in generate_data_column_sidecars_from_block(block, &self.spec)
             .into_iter()
             .filter(|c| custody_columns.contains(c.index()))
-            .map(|sidecar| {
-                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+        {
+            let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+            verified_columns.push(
                 self.chain
                     .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+                    .await
+                    .unwrap(),
+            );
+        }
 
         if !verified_columns.is_empty() {
             self.chain
