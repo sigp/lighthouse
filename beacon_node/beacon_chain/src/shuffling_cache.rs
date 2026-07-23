@@ -311,7 +311,9 @@ where
     let head_block = canonical_head
         .fork_choice_read_lock()
         .get_block(&head_block_root)
-        .ok_or(BeaconChainError::MissingBeaconBlock(head_block_root))?;
+        .ok_or(BeaconChainError::AttestationHeadNotInForkChoice(
+            head_block_root,
+        ))?;
 
     let shuffling_id = BlockShufflingIds {
         current: head_block.current_epoch_shuffling_id.clone(),

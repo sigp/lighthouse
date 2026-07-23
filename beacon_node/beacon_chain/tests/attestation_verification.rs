@@ -1356,6 +1356,20 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .expect("should gossip verify attestation without checking withdrawals root");
 }
 
+#[test]
+fn missing_beacon_block_from_store_remains_internal() {
+    let block_root = Hash256::repeat_byte(42);
+    let error = AttnError::from(BeaconChainError::MissingBeaconBlock(block_root));
+
+    let AttnError::BeaconChainError(error) = error else {
+        panic!("store block miss should remain an internal beacon chain error");
+    };
+    assert!(matches!(
+        *error,
+        BeaconChainError::MissingBeaconBlock(error_root) if error_root == block_root
+    ));
+}
+
 #[tokio::test]
 async fn attestation_to_finalized_block() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -1424,6 +1438,32 @@ async fn attestation_to_finalized_block() {
         .cloned()
         .expect("should have at least one attestation in committee");
     assert_eq!(attestation.data.beacon_block_root, earlier_block_root);
+
+    // The pre-finalization block is retained in the archive store but pruned from fork choice.
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&earlier_block_root)
+    );
+
+    let shuffling_error = harness
+        .chain
+        .with_committee_cache(earlier_block_root, attestation.data.target.epoch, |_, _| {
+            Ok::<_, BeaconChainError>(())
+        })
+        .expect_err("pruned block should be missing from fork choice");
+    assert!(matches!(
+        &shuffling_error,
+        BeaconChainError::AttestationHeadNotInForkChoice(block_root)
+            if *block_root == earlier_block_root
+    ));
+    assert!(matches!(
+        AttnError::from(shuffling_error),
+        AttnError::HeadBlockFinalized { beacon_block_root }
+            if beacon_block_root == earlier_block_root
+    ));
 
     // Attestation should be rejected for attesting to a pre-finalization block.
     let res = harness
