@@ -12,6 +12,7 @@ mod beacon;
 mod block_id;
 mod build_block_contents;
 mod builder_states;
+mod builders;
 mod caches;
 mod custody;
 mod database;
@@ -625,6 +626,9 @@ pub async fn serve<T: BeaconChainTypes>(
     // POST beacon/states/{state_id}/validators
     let post_beacon_state_validators =
         states::post_beacon_state_validators(beacon_states_path.clone());
+
+    // POST beacon/states/{state_id}/builders
+    let post_beacon_state_builders = states::post_beacon_state_builders(beacon_states_path.clone());
 
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id =
@@ -3477,6 +3481,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_execution_payload_envelopes)
                     .uor(post_beacon_execution_payload_bids)
                     .uor(post_beacon_state_validators)
+                    .uor(post_beacon_state_builders)
                     .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_state_validator_identities)
                     .uor(post_beacon_rewards_attestations)
