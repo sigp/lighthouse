@@ -133,9 +133,8 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedAggregateAndPr
     where
         D: Deserializer<'de>,
     {
-        // [Modified in Gloas:EIP7688] the Gloas and Electra variants are structurally identical
-        // in JSON but merkleize differently, so untagged deserialization cannot distinguish them
-        // and the fork context must decide.
+        // [Modified in Gloas:EIP7688] Electra and Gloas serialize identically in JSON, so the
+        // fork context must pick the variant.
         if context.gloas_enabled() {
             SignedAggregateAndProofGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)

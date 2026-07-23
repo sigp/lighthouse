@@ -1005,8 +1005,8 @@ async fn invalid_signature_attester_slashing() {
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Gloas(blk) => {
-                // Re-type the Electra slashing as Gloas (EIP-7688): the serialized form is
-                // identical, only the merkleization differs.
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
                 let slashing = attester_slashing.as_electra().unwrap().clone();
                 blk.attester_slashings.push(AttesterSlashingGloas {
                     attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),

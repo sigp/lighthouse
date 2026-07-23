@@ -28,7 +28,7 @@ pub type ProgressiveTransactions = ProgressiveVariableList<ProgressiveVariableLi
 /// Progressive withdrawals list \[Modified in Gloas:EIP7688\].
 pub type ProgressiveWithdrawals = ProgressiveVariableList<Withdrawal>;
 
-/// RLP encoded block access list \[New in Gloas:EIP7928\].
+/// Opaque encoded block access list \[New in Gloas:EIP7928\].
 pub type BlockAccessList = ProgressiveVariableList<u8>;
 
 /// Unified read access to the `transactions` of any `ExecutionPayload` variant.

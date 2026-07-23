@@ -1602,7 +1602,7 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
         "Attestation should not have been included."
     );

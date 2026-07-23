@@ -200,9 +200,9 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                // [Modified in Gloas:EIP7688] the Gloas and Electra containers
-                                // serialize identically but merkleize differently, so decoding
-                                // into the wrong variant produces invalid signing roots.
+                                // [Modified in Gloas:EIP7688] Gloas and Electra produce the same
+                                // SSZ bytes but different hash tree roots, so the variant must be
+                                // chosen by fork.
                                 if fork_name.gloas_enabled() {
                                     SignedAggregateAndProof::Gloas(
                                         SignedAggregateAndProofGloas::from_ssz_bytes(data)

@@ -1,9 +1,5 @@
-//! A read-only view over a list field that is a fixed-capacity [`VariableList`] in some fork
-//! variants and an (unbounded) [`ProgressiveVariableList`] in others (EIP-7688).
-//!
-//! Both back onto a flat slice, so the view simply exposes the slice API the two share. Used by
-//! [`BeaconBlockBody`](crate::BeaconBlockBody), [`ExecutionPayload`](crate::ExecutionPayload) and
-//! [`DataColumnSidecar`](crate::DataColumnSidecar) accessors that span the Gloas fork boundary.
+//! Read-only view over a list that is a [`VariableList`] in some forks and a
+//! [`ProgressiveVariableList`] from Gloas onwards (EIP-7688).
 
 use ssz_types::typenum::Unsigned;
 use ssz_types::{ProgressiveVariableList, VariableList};

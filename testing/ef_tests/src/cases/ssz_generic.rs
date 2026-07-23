@@ -17,6 +17,9 @@ use typenum::*;
 use types::ForkName;
 
 /// Helper struct for deserializing compatible unions from `{selector, data}` YAML format.
+///
+/// The data field is captured as a `serde_json::Value` first because the target type is only
+/// known after reading the selector.
 #[derive(Deserialize)]
 struct CompatibleUnionYaml {
     selector: u8,
@@ -41,7 +44,9 @@ macro_rules! impl_compatible_union_deserialize {
                         }
                     )+
                     s => Err(D::Error::custom(format!(
-                        "unknown selector {s} for {}", stringify!($type)
+                        "unknown selector {} for {}",
+                        s,
+                        stringify!($type)
                     ))),
                 }
             }
@@ -264,29 +269,7 @@ impl Case for SszGeneric {
                     [type_name.as_str() => primitive_type]
                 )?;
             }
-            "containers" => {
-                let type_name = parts[0];
-
-                type_dispatch!(
-                    ssz_generic_test,
-                    (&self.path, fork_name),
-                    _,
-                    <>,
-                    [type_name => test_container]
-                )?;
-            }
-            "progressive_containers" => {
-                let type_name = parts[0];
-
-                type_dispatch!(
-                    ssz_generic_test,
-                    (&self.path, fork_name),
-                    _,
-                    <>,
-                    [type_name => test_container]
-                )?;
-            }
-            "compatible_unions" => {
+            "containers" | "progressive_containers" | "compatible_unions" => {
                 let type_name = parts[0];
 
                 type_dispatch!(

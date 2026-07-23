@@ -33,17 +33,15 @@ pub type BuilderExitRequests<E> =
 
 /// EIP-7685 execution requests.
 ///
-/// The `Electra` variant (bounded `VariableList`s) is used from Electra through Fulu. The `Gloas`
-/// variant \[Modified in Gloas:EIP7688\] uses unbounded `ProgressiveVariableList`s; its per-list
-/// `Max*RequestsPerPayload` limits are no longer enforced by the type and MUST be checked at
-/// runtime where the spec requires it. The `builder_deposits` and `builder_exits` lists are
-/// \[New in Gloas:EIP8282\].
+/// The `Electra` variant is used from Electra through Fulu. The `Gloas` variant uses unbounded
+/// progressive lists (EIP-7688), so the old per-list maximums must be enforced at runtime. The
+/// builder request lists are new in Gloas (EIP-8282).
 #[superstruct(
     variants(Electra, Gloas),
     variant_attributes(
         derive(
-            Debug,
             Default,
+            Debug,
             Clone,
             Serialize,
             Deserialize,
@@ -52,8 +50,8 @@ pub type BuilderExitRequests<E> =
             TreeHash,
             Educe,
         ),
-        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         context_deserialize(ForkName),
+        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec"),
         cfg_attr(
             feature = "arbitrary",
@@ -109,12 +107,6 @@ pub struct ExecutionRequests<E: EthSpec> {
     #[serde(skip)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub _phantom: PhantomData<E>,
-}
-
-impl<E: EthSpec> Default for ExecutionRequests<E> {
-    fn default() -> Self {
-        Self::Electra(ExecutionRequestsElectra::default())
-    }
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionRequests<E> {
@@ -229,11 +221,6 @@ impl<E: EthSpec> ExecutionRequestsElectra<E> {
             ),
         ])
     }
-
-    /// EIP-7685 `requests_hash`.
-    pub fn requests_hash(&self) -> Hash256 {
-        execution_requests_hash(&self.get_execution_requests_list())
-    }
 }
 
 impl<E: EthSpec> ExecutionRequestsGloas<E> {
@@ -268,11 +255,6 @@ impl<E: EthSpec> ExecutionRequestsGloas<E> {
                 self.builder_exits.as_ssz_bytes(),
             ),
         ])
-    }
-
-    /// EIP-7685 `requests_hash`.
-    pub fn requests_hash(&self) -> Hash256 {
-        execution_requests_hash(&self.get_execution_requests_list())
     }
 }
 

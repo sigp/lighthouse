@@ -10,8 +10,8 @@ use execution_layer::{
     PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
-use ssz::Encode;
-use ssz::ProgressiveBitList;
+use ssz::{Encode, ProgressiveBitList};
+use ssz_types::ProgressiveVariableList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
@@ -37,8 +37,6 @@ use types::{
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
-
-use ssz_types::ProgressiveVariableList;
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
@@ -474,8 +472,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 AttesterSlashing::Base(_) => None,
-                // Re-type fork-boundary Electra slashings as Gloas: the serialized form is
-                // identical, only the merkleization differs [Modified in Gloas:EIP7688].
+                // [Modified in Gloas:EIP7688] Convert Electra slashings left over from before the
+                // fork into the Gloas type. The SSZ bytes are the same, only the hash tree root
+                // differs.
                 AttesterSlashing::Electra(a) => Some(AttesterSlashingGloas {
                     attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
                     attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
@@ -488,11 +487,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 Attestation::Base(_) => None,
-                // Re-type fork-boundary Electra attestations as Gloas: the serialized form is
-                // identical, only the merkleization differs [Modified in Gloas:EIP7688].
+                // [Modified in Gloas:EIP7688] Convert Electra attestations left over from before
+                // the fork into the Gloas type. The SSZ bytes are the same, only the hash tree
+                // root differs.
                 Attestation::Electra(a) => Some(AttestationGloas {
                     aggregation_bits: ProgressiveBitList::from_bytes(
                         a.aggregation_bits.into_bytes(),
+                    )
+                    .inspect_err(
+                        |e| warn!(error = ?e, "Dropping attestation with invalid aggregation bits"),
                     )
                     .ok()?,
                     data: a.data,
@@ -819,9 +822,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
-        // [Modified in Gloas:EIP7688] convert the EL-derived blob commitments to their progressive
-        // representation. The bid's requests root commits to the progressive merkleization, and the
-        // execution requests are already carried as their progressive `Gloas` representation.
+        // [Modified in Gloas:EIP7688] Convert the EL blob commitments to the progressive list
+        // type. The execution requests already use the Gloas type.
         let blob_kzg_commitments =
             ProgressiveVariableList::from_iter(blob_kzg_commitments.iter().cloned());
 

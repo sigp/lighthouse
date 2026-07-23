@@ -599,12 +599,10 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_slot = parent_bid.slot;
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
-    // [New in Gloas:EIP7688] the request lists are progressive and unbounded at the type level,
-    // so the spec's per-payload limits must be enforced at runtime. As of v1.7.0-alpha.12 the
-    // spec asserts limits for withdrawals, consolidations, builder_deposits and builder_exits
-    // only; deposit requests are deliberately unbounded (see the spec test
-    // `deposit_requests_greater_than_electra_max`).
-    // [New in Gloas:EIP8282] the builder request lists must be checked as well.
+    // [New in Gloas:EIP7688] These request lists have no type-level bound, so enforce the spec's
+    // per-payload limits here. Deposit requests are deliberately unbounded (see the
+    // `deposit_requests_greater_than_electra_max` spec test).
+    // [New in Gloas:EIP8282] The builder request lists are checked as well.
     let request_checks: [(&str, usize, usize); 4] = [
         (
             "withdrawal_requests",

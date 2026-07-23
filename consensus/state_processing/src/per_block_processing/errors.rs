@@ -427,7 +427,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 pub enum IndexedAttestationInvalid {
     /// The number of indices is 0.
     IndicesEmpty,
-    /// The number of indices exceeds the runtime maximum \[New in Gloas:EIP7688\].
+    /// [New in Gloas:EIP7688] The number of indices exceeds the runtime maximum.
     IndicesExceedMaxLength { length: usize, max: usize },
     /// The validator indices were not in increasing order.
     ///

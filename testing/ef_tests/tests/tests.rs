@@ -851,7 +851,6 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionRequestsElectra<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
             .run();
-        // [Modified in Gloas:EIP7688]
         SszStaticHandler::<ExecutionRequestsGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
         SszStaticHandler::<ExecutionRequestsGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
@@ -954,10 +953,6 @@ fn ssz_generic() {
     SszGenericHandler::<Boolean>::default().run();
     SszGenericHandler::<Uints>::default().run();
     SszGenericHandler::<Containers>::default().run();
-}
-
-#[test]
-fn ssz_generic_progressive() {
     SszGenericHandler::<BasicProgressiveList>::default().run();
     SszGenericHandler::<ProgressiveBitlist>::default().run();
     SszGenericHandler::<ProgressiveContainers>::default().run();
@@ -1085,10 +1080,7 @@ fn epoch_processing_builder_pending_payments() {
     EpochProcessingHandler::<MainnetEthSpec, BuilderPendingPayments>::default().run();
 }
 
-// TODO(alpha.12): un-ignore once the gloas fork-upgrade builder-deposit handling is updated to
-// the v1.7.0-alpha.12 EIP-8282 behaviour, which is out of scope for the progressive SSZ PR.
 #[test]
-#[ignore]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();

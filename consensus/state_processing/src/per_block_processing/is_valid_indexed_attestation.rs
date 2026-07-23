@@ -23,10 +23,9 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
     // Verify that indices aren't empty
     verify!(!indices.is_empty(), Invalid::IndicesEmpty);
 
-    // [New in Gloas:EIP7688] the progressive `attesting_indices` list is unbounded at the type
-    // level, so the spec's `MAX_VALIDATORS_PER_COMMITTEE * MAX_COMMITTEES_PER_SLOT` limit must be
-    // enforced at runtime. This is a no-op for pre-Gloas attestations whose SSZ types enforce an
-    // equal or tighter bound.
+    // [New in Gloas:EIP7688] Gloas attesting indices have no type-level bound, so check the
+    // spec's maximum here. Pre-Gloas attestation types already enforce an equal or tighter bound
+    // in SSZ.
     verify!(
         indices.len() <= E::MaxValidatorsPerSlot::to_usize(),
         Invalid::IndicesExceedMaxLength {

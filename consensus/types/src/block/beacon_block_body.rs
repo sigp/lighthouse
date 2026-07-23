@@ -1429,11 +1429,8 @@ mod tests {
         use crate::block::BeaconBlock;
         use crate::core::{ChainSpec, MainnetEthSpec};
 
-        /// Verify the derived `progressive_container` root of the Gloas body against a manual
-        /// computation from its 13 field roots (EIP-7688).
-        ///
-        /// This guards against the `active_fields` attribute silently dropping trailing fields:
-        /// if the derive hashed fewer (or more) fields than listed here, the roots would differ.
+        /// Check the derived Gloas body root against a manual computation from its 13 field
+        /// roots, so an incorrect `active_fields` list would change the result (EIP-7688).
         #[test]
         fn gloas_body_progressive_container_root() {
             type E = MainnetEthSpec;

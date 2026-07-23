@@ -75,8 +75,8 @@ pub type Validators<E> =
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
-pub type ProgressiveValidators = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
-pub type ProgressiveBalances = ProgressiveList<u64>;
+pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
+pub type BalancesGloas = ProgressiveList<u64>;
 
 // Views over list fields that are (fixed-capacity) `List`s pre-Gloas and `ProgressiveList`s
 // from Gloas onwards (EIP-7688).
@@ -512,7 +512,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas), partial_getter(rename = "validators_progressive"))]
-    pub validators: ProgressiveValidators,
+    pub validators: ValidatorsGloas,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -525,7 +525,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas), partial_getter(rename = "balances_progressive"))]
-    pub balances: ProgressiveBalances,
+    pub balances: BalancesGloas,
 
     // Randomness
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
