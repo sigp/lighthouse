@@ -1866,7 +1866,7 @@ mod test {
     use execution_layer::test_utils::generate_blobs;
     use kzg::KzgProof;
     use ssz::BitList;
-    use ssz_types::VariableList;
+    use ssz_types::{ProgressiveVariableList, VariableList};
     use std::sync::Arc;
     use std::time::UNIX_EPOCH;
     use types::{
@@ -2363,16 +2363,10 @@ mod test {
         for i in 0..present_cells {
             bitmap.set(i, true).unwrap();
         }
-        let column: VariableList<_, _> = (0..present_cells)
-            .map(|_| Cell::<E>::default())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let kzg_proofs: VariableList<_, _> = (0..present_cells)
-            .map(|_| KzgProof::empty())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let column: ProgressiveVariableList<_> =
+            (0..present_cells).map(|_| Cell::<E>::default()).collect();
+        let kzg_proofs: ProgressiveVariableList<_> =
+            (0..present_cells).map(|_| KzgProof::empty()).collect();
         PartialDataColumnGloas {
             block_root,
             slot,
@@ -2541,7 +2535,7 @@ mod test {
         assert_eq!(merged.sidecar().column().len(), 3);
         // Cell at bitmap index 1 is the second cell in the merged column.
         // It should come from `a` (marker_base=0, so marker=0+1=1), not `b` (marker=100+1=101).
-        assert_eq!(merged.sidecar().column()[1][0], 1);
+        assert_eq!(merged.sidecar().column().as_slice()[1][0], 1);
     }
 
     #[test]

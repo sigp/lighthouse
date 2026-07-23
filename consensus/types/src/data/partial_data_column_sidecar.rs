@@ -1,6 +1,6 @@
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
-    core::{EthSpec, Hash256, Slot},
+    core::{EthSpec, Hash256, ListRef, Slot},
     data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas},
     execution::AbstractExecPayload,
     kzg_ext::KzgCommitments,
@@ -46,8 +46,16 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 #[ssz(enum_behaviour = "transparent")]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "column_fulu"))]
     pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
+    // [Modified in Gloas:EIP7688]
+    #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
+    pub column: ProgressiveVariableList<Cell<E>>,
+    #[superstruct(only(Fulu), partial_getter(rename = "kzg_proofs_fulu"))]
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
+    // [Modified in Gloas:EIP7688]
+    #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
+    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
     #[superstruct(only(Fulu))]
     pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
 }
@@ -80,6 +88,22 @@ pub enum PartialDataColumnSidecarError {
 }
 
 impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
+    /// Unified view over the `column` field across forks (EIP-7688).
+    pub fn column(&self) -> ListRef<'a, Cell<E>, E::MaxBlobCommitmentsPerBlock> {
+        match self {
+            Self::Fulu(sidecar) => ListRef::Basic(&sidecar.column),
+            Self::Gloas(sidecar) => ListRef::Progressive(&sidecar.column),
+        }
+    }
+
+    /// Unified view over the `kzg_proofs` field across forks (EIP-7688).
+    pub fn kzg_proofs(&self) -> ListRef<'a, KzgProof, E::MaxBlobCommitmentsPerBlock> {
+        match self {
+            Self::Fulu(sidecar) => ListRef::Basic(&sidecar.kzg_proofs),
+            Self::Gloas(sidecar) => ListRef::Progressive(&sidecar.kzg_proofs),
+        }
+    }
+
     pub fn is_complete(&self) -> bool {
         self.cells_present_bitmap().num_set_bits() == self.cells_present_bitmap().len()
     }
@@ -163,6 +187,16 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
+    /// Unified view over the `column` field across forks (EIP-7688).
+    pub fn column(&self) -> ListRef<'_, Cell<E>, E::MaxBlobCommitmentsPerBlock> {
+        self.to_ref().column()
+    }
+
+    /// Unified view over the `kzg_proofs` field across forks (EIP-7688).
+    pub fn kzg_proofs(&self) -> ListRef<'_, KzgProof, E::MaxBlobCommitmentsPerBlock> {
+        self.to_ref().kzg_proofs()
+    }
+
     pub fn is_complete(&self) -> bool {
         self.to_ref().is_complete()
     }

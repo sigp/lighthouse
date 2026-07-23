@@ -666,7 +666,7 @@ mod data_availability_checker_tests {
     use kzg::KzgProof;
     use logging::create_test_tracing_subscriber;
     use slot_clock::{SlotClock, TestingSlotClock};
-    use ssz_types::VariableList;
+    use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
     use types::{
         Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
@@ -957,18 +957,10 @@ mod data_availability_checker_tests {
         for &i in present {
             bitmap.set(i, true).unwrap();
         }
-        let column: VariableList<_, _> = present
-            .iter()
-            .map(|_| Cell::<E>::default())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let kzg_proofs: VariableList<_, _> = present
-            .iter()
-            .map(|_| KzgProof::empty())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let column: ProgressiveVariableList<_> =
+            present.iter().map(|_| Cell::<E>::default()).collect();
+        let kzg_proofs: ProgressiveVariableList<_> =
+            present.iter().map(|_| KzgProof::empty()).collect();
         let partial = PartialDataColumn::Gloas(PartialDataColumnGloas {
             block_root,
             slot,

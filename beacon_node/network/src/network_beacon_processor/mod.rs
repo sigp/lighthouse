@@ -29,7 +29,7 @@ use lighthouse_network::{
 };
 use logging::crit;
 use rand::prelude::SliceRandom;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1084,8 +1084,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         index: *col_idx,
                         sidecar: PartialDataColumnSidecarGloas {
                             cells_present_bitmap,
-                            column: VariableList::empty(),
-                            kzg_proofs: VariableList::empty(),
+                            column: ProgressiveVariableList::empty(),
+                            kzg_proofs: ProgressiveVariableList::empty(),
                         },
                     }),
                     request_cells,

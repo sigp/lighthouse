@@ -685,10 +685,8 @@ pub(crate) fn build_partial_data_columns_gloas<E: EthSpec>(
                 index: index as u64,
                 sidecar: types::data::PartialDataColumnSidecarGloas {
                     cells_present_bitmap: bitmap.clone(),
-                    column: VariableList::try_from(col)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_proofs: VariableList::try_from(proofs)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    column: ProgressiveVariableList::new(col),
+                    kzg_proofs: ProgressiveVariableList::new(proofs),
                 },
             }
             .into())
