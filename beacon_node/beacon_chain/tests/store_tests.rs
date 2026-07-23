@@ -4299,7 +4299,7 @@ async fn light_client_update_schema_v30_migration() {
     if spec.is_gloas_scheduled() {
         return;
     }
-    
+
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
 
     // Write entries directly under the OLD little-endian key encoding, bypassing

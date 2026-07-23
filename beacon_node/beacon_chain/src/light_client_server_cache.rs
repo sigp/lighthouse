@@ -264,15 +264,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(None)
     }
 
-    pub fn get_light_client_updates(
-        &self,
-        store: &BeaconStore<T>,
-        start_period: u64,
-        count: u64,
-    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
-        Ok(store.get_light_client_updates(start_period, count)?)
-    }
-
     /// Retrieves prev block cached data from cache. If not present re-computes by retrieving the
     /// parent state, and inserts an entry to the cache.
     ///
