@@ -1,10 +1,9 @@
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn,
 };
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::error;
 use types::core::{Epoch, EthSpec, Hash256};
@@ -14,6 +13,9 @@ use types::data::{ColumnIndex, PartialDataColumnHeader};
 pub struct PartialDataColumnAssembler<E: EthSpec> {
     /// Cache of assemblies keyed by block root
     assemblies: RwLock<LruCache<Hash256, PartialAssembly<E>>>,
+    /// Whether getBlobs is disabled. If so, always set `has_local_blobs` to true, as we will never
+    /// retrieve blobs from the EL and therefore should immediately request cells from the network.
+    disable_get_blobs: bool,
 }
 
 /// Tracks partial columns being assembled for a single block
@@ -44,9 +46,10 @@ pub struct PartialMergeResult<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
-    pub fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(capacity: usize, disable_get_blobs: bool) -> Self {
         Self {
             assemblies: RwLock::new(LruCache::new(capacity)),
+            disable_get_blobs,
         }
     }
 
@@ -55,17 +58,17 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn init(&self, block_root: Hash256, header: Arc<PartialDataColumnHeader<E>>) -> bool {
         let mut assemblies = self.assemblies.write();
 
-        if assemblies.contains(&block_root) {
+        if assemblies.contains_key(&block_root) {
             return false;
         }
 
         let assembly = PartialAssembly {
             header,
-            has_local_blobs: false,
+            has_local_blobs: self.disable_get_blobs,
             columns: HashMap::new(),
         };
 
-        assemblies.put(block_root, assembly);
+        assemblies.insert(block_root, assembly);
 
         true
     }
@@ -79,11 +82,13 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         header: Arc<PartialDataColumnHeader<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: header.clone(),
-            has_local_blobs: false,
-            columns: HashMap::new(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: header.clone(),
+                has_local_blobs: self.disable_get_blobs,
+                columns: HashMap::new(),
+            });
 
         let mut full_columns = Vec::new();
         let mut updated_partials = Vec::new();
@@ -106,7 +111,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 let merged = match existing.merge(&partial) {
                     Ok(merged) => merged,
                     Err(err) => {
-                        error!("Unexpected error merging partial data column: {:?}", err);
+                        error!(error = ?err, "Unexpected error merging partial data column");
                         continue;
                     }
                 };
@@ -165,15 +170,17 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         };
 
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: Arc::new(PartialDataColumnHeader {
-                kzg_commitments: fulu.kzg_commitments.clone(),
-                signed_block_header: fulu.signed_block_header.clone(),
-                kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
-            }),
-            has_local_blobs: false,
-            columns: Default::default(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: Arc::new(PartialDataColumnHeader {
+                    kzg_commitments: fulu.kzg_commitments.clone(),
+                    signed_block_header: fulu.signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
+                }),
+                has_local_blobs: self.disable_get_blobs,
+                columns: Default::default(),
+            });
         let prev = assembly
             .columns
             .insert(column.index(), AssemblyColumn::Complete(column.clone()));
@@ -204,34 +211,28 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
-    /// Get all current partials for a block for publishing after fetching local blobs.
-    /// To unlock future publishing, mark blobs as fetched locally.
-    /// We do this within one write lock to avoid useless double publishes.
-    pub fn get_partials_and_mark_as_local_fetched(
+    /// Get all current columns for a block (complete *and* incomplete) for publishing after
+    /// fetching local blobs.
+    ///
+    /// To unlock future publishing, mark blobs as fetched locally. We do this within one write
+    /// lock to avoid useless double publishes.
+    pub fn get_columns_and_mark_as_local_fetched(
         &self,
         block_root: Hash256,
         header: &Arc<PartialDataColumnHeader<E>>,
-    ) -> Vec<KzgVerifiedCustodyPartialDataColumn<E>> {
+    ) -> Vec<AssemblyColumn<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: header.clone(),
-            has_local_blobs: true,
-            columns: Default::default(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: header.clone(),
+                has_local_blobs: true,
+                columns: Default::default(),
+            });
 
         assembly.has_local_blobs = true;
 
-        assembly
-            .columns
-            .values()
-            .filter_map(|value| {
-                if let AssemblyColumn::Incomplete(partial) = value {
-                    Some(partial.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        assembly.columns.values().cloned().collect()
     }
 
     /// Get header for a block if we have an active assembly
@@ -261,7 +262,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
 
         for root in to_remove {
-            assemblies.pop(&root);
+            assemblies.remove(&root);
         }
     }
 }
@@ -370,7 +371,7 @@ mod tests {
     }
 
     fn make_assembler() -> PartialDataColumnAssembler<E> {
-        PartialDataColumnAssembler::new(NonZeroUsize::new(16).unwrap())
+        PartialDataColumnAssembler::new(16, false)
     }
 
     // -- init and get_header tests --
@@ -471,6 +472,37 @@ mod tests {
             .unwrap();
         assert_eq!(result.updated_partials.len(), 1);
         assert_eq!(result.updated_partials[0].index(), 0);
+    }
+
+    #[test]
+    fn get_columns_returns_complete_and_incomplete() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = Arc::new(make_header(4));
+
+        // One complete column (all cells present) and one still-incomplete column.
+        let complete = make_partial(root, 0, 4, &[0, 1, 2, 3]);
+        let incomplete = make_partial(root, 1, 4, &[0, 1]);
+        assembler.merge_partials(root, vec![complete, incomplete], header.clone());
+
+        // Both must be returned for seeding. Previously the complete column was dropped, so it was
+        // published as an empty placeholder and never served to peers.
+        let columns = assembler.get_columns_and_mark_as_local_fetched(root, &header);
+        assert_eq!(columns.len(), 2);
+        assert_eq!(
+            columns
+                .iter()
+                .filter(|c| matches!(c, AssemblyColumn::Complete(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            columns
+                .iter()
+                .filter(|c| matches!(c, AssemblyColumn::Incomplete(_)))
+                .count(),
+            1
+        );
     }
 
     // -- mark_as_complete tests --

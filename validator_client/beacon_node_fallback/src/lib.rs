@@ -992,7 +992,7 @@ mod tests {
         spec: &ChainSpec,
     ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
         let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
-        mock_beacon_node.mock_config_spec(spec);
+        mock_beacon_node.mock_get_config_spec(spec);
 
         let beacon_node =
             CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), index);
@@ -1103,8 +1103,8 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let received_blocks_from_bn_1 = mock_beacon_node_1.received_blocks.lock().unwrap();
-        let received_blocks_from_bn_2 = mock_beacon_node_2.received_blocks.lock().unwrap();
+        let received_blocks_from_bn_1 = mock_beacon_node_1.received_blinded_blocks.lock().unwrap();
+        let received_blocks_from_bn_2 = mock_beacon_node_2.received_blinded_blocks.lock().unwrap();
         assert_eq!(received_blocks_from_bn_1.len(), 1);
         assert_eq!(received_blocks_from_bn_2.len(), 1);
     }

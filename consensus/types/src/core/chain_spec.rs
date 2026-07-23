@@ -37,6 +37,7 @@ pub enum Domain {
     BeaconBuilder,
     PTCAttester,
     ProposerPreferences,
+    BuilderDeposit,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -108,6 +109,7 @@ pub struct ChainSpec {
     pub proposer_reorg_cutoff_bps: u64,
     pub attestation_due_bps: u64,
     pub attestation_due_bps_gloas: u64,
+    pub payload_due_bps: u64,
     pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
@@ -118,6 +120,7 @@ pub struct ChainSpec {
      */
     pub unaggregated_attestation_due: Duration,
     pub unaggregated_attestation_due_gloas: Duration,
+    pub payload_due: Duration,
     pub payload_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
     pub sync_message_due: Duration,
@@ -145,14 +148,21 @@ pub struct ChainSpec {
     pub(crate) domain_beacon_builder: u32,
     pub(crate) domain_ptc_attester: u32,
     pub(crate) domain_proposer_preferences: u32,
+    pub(crate) domain_builder_deposit: u32,
 
     /*
      * Fork choice
      */
-    pub proposer_score_boost: Option<u64>,
-    pub reorg_head_weight_threshold: Option<u64>,
-    pub reorg_parent_weight_threshold: Option<u64>,
-    pub reorg_max_epochs_since_finalization: Option<u64>,
+    pub proposer_score_boost: u64,
+    pub reorg_head_weight_threshold: u64,
+    pub reorg_parent_weight_threshold: u64,
+    pub reorg_max_epochs_since_finalization: u64,
+
+    /*
+     * Fast confirmation rule
+     */
+    /// Maximum assumed percentage of Byzantine validators (0-25).
+    pub confirmation_byzantine_threshold: u64,
 
     /*
      * Eth1
@@ -296,7 +306,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    pub(crate) blob_schedule: BlobSchedule,
+    pub blob_schedule: BlobSchedule,
     pub min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
@@ -523,6 +533,7 @@ impl ChainSpec {
             Domain::BeaconBuilder => self.domain_beacon_builder,
             Domain::PTCAttester => self.domain_ptc_attester,
             Domain::ProposerPreferences => self.domain_proposer_preferences,
+            Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -894,6 +905,11 @@ impl ChainSpec {
         }
     }
 
+    /// Spec: `get_payload_due_ms`.
+    pub fn get_payload_due(&self) -> Duration {
+        self.payload_due
+    }
+
     /// Spec: `get_payload_attestation_due_ms`.
     pub fn get_payload_attestation_due(&self) -> Duration {
         self.payload_attestation_due
@@ -918,7 +934,7 @@ impl ChainSpec {
     }
 
     /// Calculate the duration into a slot for a given slot component
-    fn compute_slot_component_duration(
+    pub fn compute_slot_component_duration(
         &self,
         component_basis_points: u64,
     ) -> Result<Duration, ArithError> {
@@ -974,6 +990,9 @@ impl ChainSpec {
         self.unaggregated_attestation_due_gloas = self
             .compute_slot_component_duration(self.attestation_due_bps_gloas)
             .expect("invalid chain spec: cannot compute unaggregated_attestation_due_gloas");
+        self.payload_due = self
+            .compute_slot_component_duration(self.payload_due_bps)
+            .expect("invalid chain spec: cannot compute payload_due");
         self.payload_attestation_due = self
             .compute_slot_component_duration(self.payload_attestation_due_bps)
             .expect("invalid chain spec: cannot compute payload_attestation_due");
@@ -1108,6 +1127,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
+            payload_due_bps: 7500,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
@@ -1118,6 +1138,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
             unaggregated_attestation_due_gloas: Duration::from_millis(3000),
+            payload_due: Duration::from_millis(9000),
             payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
@@ -1146,14 +1167,20 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
              */
-            proposer_score_boost: Some(40),
-            reorg_head_weight_threshold: Some(20),
-            reorg_parent_weight_threshold: Some(160),
-            reorg_max_epochs_since_finalization: Some(2),
+            proposer_score_boost: 40,
+            reorg_head_weight_threshold: 20,
+            reorg_parent_weight_threshold: 160,
+            reorg_max_epochs_since_finalization: 2,
+
+            /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
 
             /*
              * Eth1
@@ -1270,7 +1297,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(64),
+            min_builder_withdrawability_delay: Epoch::new(8192),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1440,6 +1467,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
             unaggregated_attestation_due_gloas: Duration::from_millis(1500),
+            payload_due: Duration::from_millis(4500),
             payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
@@ -1531,6 +1559,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
+            payload_due_bps: 7500,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
@@ -1540,6 +1569,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
             unaggregated_attestation_due_gloas: Duration::from_millis(1250),
+            payload_due: Duration::from_millis(3750),
             payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
@@ -1568,14 +1598,20 @@ impl ChainSpec {
             domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
+            domain_builder_deposit: 0x0E,
 
             /*
              * Fork choice
              */
-            proposer_score_boost: Some(40),
-            reorg_head_weight_threshold: Some(20),
-            reorg_parent_weight_threshold: Some(160),
-            reorg_max_epochs_since_finalization: Some(2),
+            proposer_score_boost: 40,
+            reorg_head_weight_threshold: 20,
+            reorg_parent_weight_threshold: 160,
+            reorg_max_epochs_since_finalization: 2,
+
+            /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
 
             /*
              * Eth1
@@ -1693,7 +1729,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(64),
+            min_builder_withdrawability_delay: Epoch::new(8192),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -2013,12 +2049,18 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reorg_head_weight_threshold: Option<MaybeQuoted<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reorg_parent_weight_threshold: Option<MaybeQuoted<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reorg_max_epochs_since_finalization: Option<MaybeQuoted<u64>>,
+    #[serde(default = "default_confirmation_byzantine_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    confirmation_byzantine_threshold: u64,
+    #[serde(default = "default_reorg_head_weight_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_head_weight_threshold: u64,
+    #[serde(default = "default_reorg_parent_weight_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_parent_weight_threshold: u64,
+    #[serde(default = "default_reorg_max_epochs_since_finalization")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_max_epochs_since_finalization: u64,
 
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
@@ -2136,6 +2178,9 @@ pub struct Config {
     #[serde(default = "default_attestation_due_bps_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_due_bps_gloas: u64,
+    #[serde(default = "default_payload_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    payload_due_bps: u64,
     #[serde(default = "default_payload_attestation_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     payload_attestation_due_bps: u64,
@@ -2251,6 +2296,10 @@ fn compute_attestation_subnet_prefix_bits(
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_confirmation_byzantine_threshold() -> u64 {
+    25
 }
 
 const fn default_gas_limit_adjustment_factor() -> u64 {
@@ -2379,6 +2428,10 @@ const fn default_attestation_due_bps_gloas() -> u64 {
     2500
 }
 
+const fn default_payload_due_bps() -> u64 {
+    7500
+}
+
 const fn default_payload_attestation_due_bps() -> u64 {
     7500
 }
@@ -2396,7 +2449,7 @@ const fn default_contribution_due_bps() -> u64 {
 }
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
-    64
+    8192
 }
 
 const fn default_churn_limit_quotient_gloas() -> u64 {
@@ -2409,6 +2462,18 @@ const fn default_consolidation_churn_limit_quotient() -> u64 {
 
 const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
     256_000_000_000
+}
+
+const fn default_reorg_head_weight_threshold() -> u64 {
+    20
+}
+
+const fn default_reorg_parent_weight_threshold() -> u64 {
+    160
+}
+
+const fn default_reorg_max_epochs_since_finalization() -> u64 {
+    2
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2603,16 +2668,14 @@ impl Config {
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
-            proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
-            reorg_head_weight_threshold: spec
-                .reorg_head_weight_threshold
-                .map(|value| MaybeQuoted { value }),
-            reorg_parent_weight_threshold: spec
-                .reorg_parent_weight_threshold
-                .map(|value| MaybeQuoted { value }),
-            reorg_max_epochs_since_finalization: spec
-                .reorg_max_epochs_since_finalization
-                .map(|value| MaybeQuoted { value }),
+            proposer_score_boost: Some(MaybeQuoted {
+                value: spec.proposer_score_boost,
+            }),
+            reorg_head_weight_threshold: spec.reorg_head_weight_threshold,
+            reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
+
+            confirmation_byzantine_threshold: spec.confirmation_byzantine_threshold,
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2656,6 +2719,7 @@ impl Config {
             proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
             attestation_due_bps: spec.attestation_due_bps,
             attestation_due_bps_gloas: spec.attestation_due_bps_gloas,
+            payload_due_bps: spec.payload_due_bps,
             payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
@@ -2759,10 +2823,12 @@ impl Config {
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
             attestation_due_bps_gloas,
+            payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            confirmation_byzantine_threshold,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
@@ -2821,11 +2887,13 @@ impl Config {
             min_per_epoch_churn_limit,
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
-            proposer_score_boost: proposer_score_boost.map(|q| q.value),
-            reorg_head_weight_threshold: reorg_head_weight_threshold.map(|q| q.value),
-            reorg_parent_weight_threshold: reorg_parent_weight_threshold.map(|q| q.value),
-            reorg_max_epochs_since_finalization: reorg_max_epochs_since_finalization
-                .map(|q| q.value),
+            proposer_score_boost: proposer_score_boost
+                .map(|q| q.value)
+                .unwrap_or(chain_spec.proposer_score_boost),
+            confirmation_byzantine_threshold,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2867,6 +2935,7 @@ impl Config {
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
             attestation_due_bps_gloas,
+            payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
@@ -2945,6 +3014,12 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(
+            Domain::ProposerPreferences,
+            spec.domain_proposer_preferences,
+            &spec,
+        );
+        test_domain(Domain::BuilderDeposit, spec.domain_builder_deposit, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
@@ -3694,6 +3769,30 @@ mod yaml_tests {
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
+
+        // Test payload due (7500 bps = 75% of 12s = 9s)
+        let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
+        let payload_due = spec.get_payload_due();
+        assert_eq!(payload_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+
+        // Test payload attestation due (7500 bps = 75% of 12s = 9s)
+        let payload_att_due = spec.get_payload_attestation_due();
+        assert_eq!(payload_att_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+
+        // Test gloas attestation due (2500 bps = 25% of 12s = 3s)
+        assert_eq!(
+            spec.unaggregated_attestation_due_gloas,
+            Duration::from_millis(3000)
+        ); // 12000 * 2500 / 10000
+
+        // Test gloas with custom bps
+        let mut custom_spec = spec;
+        custom_spec.attestation_due_bps_gloas = 5000;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        assert_eq!(
+            custom_spec.unaggregated_attestation_due_gloas,
+            Duration::from_millis(6000)
+        ); // 12000 * 5000 / 10000
     }
 
     #[test]
@@ -3715,6 +3814,19 @@ mod yaml_tests {
             Duration::from_millis(8000)
         );
 
+        // Mainnet payload due: 12000ms slots, 7500 bps = 9000ms
+        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(9000));
+        assert_eq!(
+            mainnet.get_payload_attestation_due(),
+            Duration::from_millis(9000)
+        );
+
+        // Mainnet gloas: 12000ms slots, 2500 bps = 3000ms
+        assert_eq!(
+            mainnet.unaggregated_attestation_due_gloas,
+            Duration::from_millis(3000)
+        );
+
         // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
         let minimal = ChainSpec::minimal();
         assert_eq!(
@@ -3729,6 +3841,18 @@ mod yaml_tests {
         assert_eq!(
             minimal.get_contribution_message_due(),
             Duration::from_millis(4000)
+        );
+        // Minimal payload due: 6000ms slots, 7500 bps = 4500ms
+        assert_eq!(minimal.get_payload_due(), Duration::from_millis(4500));
+        assert_eq!(
+            minimal.get_payload_attestation_due(),
+            Duration::from_millis(4500)
+        );
+
+        // Minimal gloas: 6000ms slots, 2500 bps = 1500ms
+        assert_eq!(
+            minimal.unaggregated_attestation_due_gloas,
+            Duration::from_millis(1500)
         );
 
         // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
@@ -3745,6 +3869,18 @@ mod yaml_tests {
         assert_eq!(
             gnosis.get_contribution_message_due(),
             Duration::from_millis(3333)
+        );
+        // Gnosis payload due: 5000ms slots, 7500 bps = 3750ms
+        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(3750));
+        assert_eq!(
+            gnosis.get_payload_attestation_due(),
+            Duration::from_millis(3750)
+        );
+
+        // Gnosis gloas: 5000ms slots, 2500 bps = 1250ms
+        assert_eq!(
+            gnosis.unaggregated_attestation_due_gloas,
+            Duration::from_millis(1250)
         );
     }
 

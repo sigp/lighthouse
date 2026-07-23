@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use proto_array::PayloadStatus;
+
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
+    BlockProposalContentsGloas, BuilderParams, DEFAULT_GAS_LIMIT, PayloadAttributes,
+    PayloadParameters,
 };
-use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
@@ -29,7 +31,7 @@ use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
     BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
     Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
@@ -72,7 +74,7 @@ pub struct PartialBeaconBlock<E: EthSpec> {
 /// The envelope requires the beacon_block_root which can only be computed after the block exists.
 pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
     pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
@@ -150,14 +152,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verification: ProduceBlockVerification,
         builder_boost_factor: Option<u64>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
-        // Extract the parent's execution requests from the envelope (if parent was full).
-        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
+        let parent_root = if state.slot() > 0 {
+            *state
+                .get_block_root(state.slot() - 1)
+                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
+        } else {
+            state.latest_block_header().canonical_root()
+        };
+
+        let should_build_on_full = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .should_build_on_full(&parent_root, parent_payload_status, produce_at_slot)
+            .map_err(|e| {
+                BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
+            })?;
+
+        // Extract the parent's execution requests from the envelope (if building on full).
+        let parent_execution_requests = if should_build_on_full {
             parent_envelope
                 .as_ref()
                 .map(|env| env.message.execution_requests.clone())
                 .ok_or(BlockProductionError::MissingParentExecutionPayload)?
         } else {
-            ExecutionRequests::default()
+            ExecutionRequestsGloas::default()
         };
 
         // Part 1/3 (blocking)
@@ -197,7 +215,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .produce_execution_payload_bid(
                 state,
-                parent_payload_status,
+                should_build_on_full,
                 parent_envelope,
                 produce_at_slot,
                 BID_VALUE_SELF_BUILD,
@@ -241,7 +259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
-        parent_execution_requests: &ExecutionRequests<T::EthSpec>,
+        parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -512,7 +530,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
-        parent_execution_requests: ExecutionRequests<T::EthSpec>,
+        parent_execution_requests: ExecutionRequestsGloas<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
@@ -700,12 +718,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// data needed to construct the `ExecutionPayloadEnvelope` after the beacon block is
     /// created, plus the EL block value and `should_override_builder` flag used by the
     /// caller to compare against any cached p2p builder bid.
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
         state: BeaconState<T::EthSpec>,
-        parent_payload_status: PayloadStatus,
+        should_build_on_full: bool,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         bid_value: u64,
@@ -751,20 +769,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_bid = state.latest_execution_payload_bid()?;
 
-        // TODO(gloas): need should_extend_payload check here as well
         let parent_block_slot = state.latest_block_header().slot;
         let parent_is_pre_gloas = !self
             .spec
             .fork_name_at_slot::<T::EthSpec>(parent_block_slot)
             .gloas_enabled();
-        let parent_block_hash =
-            if parent_payload_status == PayloadStatus::Full || parent_is_pre_gloas {
-                // Build on parent bid's payload.
-                parent_bid.block_hash
-            } else {
-                // Skip parent bid's payload. For genesis this is the EL genesis hash.
-                parent_bid.parent_block_hash
-            };
+        let parent_block_hash = if should_build_on_full || parent_is_pre_gloas {
+            // Build on parent bid's payload.
+            parent_bid.block_hash
+        } else {
+            // Skip parent bid's payload. For genesis this is the EL genesis hash.
+            parent_bid.parent_block_hash
+        };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
@@ -953,10 +969,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
 
-    // TODO(gloas): this gas limit calc is not necessarily right
     let parent_bid = state.latest_execution_payload_bid()?;
-    let latest_gas_limit = parent_bid.gas_limit;
-
     let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
 
     let withdrawals = if is_parent_block_full {
@@ -992,7 +1005,6 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     random,
                     proposer_index,
                     parent_block_hash,
-                    latest_gas_limit,
                     builder_params,
                     withdrawals,
                     parent_beacon_block_root,
@@ -1020,7 +1032,6 @@ async fn prepare_execution_payload<T>(
     random: Hash256,
     proposer_index: u64,
     parent_block_hash: ExecutionBlockHash,
-    parent_gas_limit: u64,
     builder_params: BuilderParams,
     withdrawals: Vec<Withdrawal>,
     parent_beacon_block_root: Hash256,
@@ -1058,6 +1069,10 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
     let slot_number = Some(builder_params.slot.as_u64());
+    let target_gas_limit = execution_layer
+        .get_proposer_gas_limit(proposer_index)
+        .await
+        .unwrap_or(DEFAULT_GAS_LIMIT);
 
     let payload_attributes = PayloadAttributes::new(
         timestamp,
@@ -1066,13 +1081,12 @@ where
         Some(withdrawals),
         Some(parent_beacon_block_root),
         slot_number,
+        Some(target_gas_limit),
     );
-
-    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash: parent_block_hash,
-        parent_gas_limit,
-        proposer_gas_limit: target_gas_limit,
+        parent_gas_limit: None,
+        proposer_gas_limit: Some(target_gas_limit),
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,
         current_fork: fork,
@@ -1095,7 +1109,7 @@ where
 /// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
 fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
     voluntary_exits: &mut Vec<SignedVoluntaryExit>,
-    parent_execution_requests: &ExecutionRequests<E>,
+    parent_execution_requests: &ExecutionRequestsGloas<E>,
     pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
     spec: &ChainSpec,
 ) {
@@ -1147,17 +1161,19 @@ mod tests {
     fn requests(
         withdrawals: Vec<WithdrawalRequest>,
         consolidations: Vec<ConsolidationRequest>,
-    ) -> ExecutionRequests<TestSpec> {
-        ExecutionRequests {
+    ) -> ExecutionRequestsGloas<TestSpec> {
+        ExecutionRequestsGloas {
             deposits: VariableList::empty(),
             withdrawals: VariableList::new(withdrawals).unwrap(),
             consolidations: VariableList::new(consolidations).unwrap(),
+            builder_deposits: VariableList::empty(),
+            builder_exits: VariableList::empty(),
         }
     }
 
     fn run_filter(
         exits: &mut Vec<SignedVoluntaryExit>,
-        requests: &ExecutionRequests<TestSpec>,
+        requests: &ExecutionRequestsGloas<TestSpec>,
         validator_pubkeys: &[PublicKeyBytes],
         spec: &ChainSpec,
     ) {
@@ -1293,7 +1309,7 @@ mod tests {
         LocalBuildResult {
             payload_data: ExecutionPayloadData {
                 payload: types::ExecutionPayloadGloas::default(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsGloas::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 slot: Slot::new(0),
                 blobs_and_proofs: (VariableList::empty(), VariableList::empty()),

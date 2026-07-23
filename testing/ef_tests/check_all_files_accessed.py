@@ -60,6 +60,8 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
+    # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
+    "tests/.*/gloas/fast_confirmation/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
     "tests/general/phase0/ssz_generic/basic_progressive_list",
@@ -75,10 +77,22 @@ excluded_paths = [
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
-    # TODO: gossip condition tests not implemented yet
-    "tests/.*/.*/networking/.*",
-    # TODO: fast confirmation rule not merged yet
-    "tests/.*/.*/fast_confirmation",
+    # These cases return SkippedKnownFailure before their fixture files are loaded. Keep these
+    # synchronized with IGNORED_BEACON_BLOCK_CASES in gossip_validation.rs, where the per-case
+    # rationale is documented.
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
+    # TODO: Remaining gossip validation topics not yet implemented
+    "tests/.*/.*/networking/gossip_beacon_attestation/.*",
+    "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/.*/networking/gossip_voluntary_exit/.*",
+    "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_message/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    "tests/.*/.*/networking/gossip_blob_sidecar/.*",
+    "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
+    "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
 ]
 
 

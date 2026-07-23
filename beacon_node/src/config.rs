@@ -1,20 +1,18 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use axum_utils::tls::TlsConfig;
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, FastConfirmationMode, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use http_api::TlsConfig;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
@@ -110,7 +108,14 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    if parse_flag(cli_args, "enable-partial-columns") {
+    let default_partial_columns_enabled = spec
+        .config_name
+        .as_ref()
+        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+    let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
+        .unwrap_or(default_partial_columns_enabled);
+
+    if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
         // Check this here to avoid weird issues on networks where this is not the case.
         if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
@@ -207,6 +212,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.disable_get_blobs = true;
     }
 
+    if cli_args.get_flag("enable-fast-confirmation") {
+        client_config.chain.fast_confirmation = FastConfirmationMode::Enabled;
+    }
+
     if let Some(sync_tolerance_epochs) =
         clap_utils::parse_optional(cli_args, "sync-tolerance-epochs")?
     {
@@ -215,6 +224,9 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+        // Mantain backwards compatibility with users customizing `shuffling_cache_size` to tweak
+        // the behaviour of the HTTP API route `beacon/states/committees`
+        client_config.http_api.historical_committee_cache_size = cache_size;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
@@ -741,41 +753,30 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_head_threshold = None;
-        client_config.chain.re_org_parent_threshold = None;
-    } else {
-        client_config.chain.re_org_head_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-        );
-        client_config.chain.re_org_max_epochs_since_finalization =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
-                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
-        client_config.chain.re_org_cutoff_millis =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+    client_config.chain.disable_proposer_reorg = cli_args.get_flag("disable-proposer-reorgs");
 
-        client_config.chain.re_org_parent_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-        );
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-threshold")?.is_some() {
+        warn!("The proposer-reorg-threshold flag is deprecated");
+    }
 
-        if let Some(disallowed_offsets_str) =
-            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
-        {
-            let disallowed_offsets = disallowed_offsets_str
-                .split(',')
-                .map(|s| {
-                    s.parse()
-                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
-                })
-                .collect::<Result<Vec<u64>, _>>()?;
-            client_config.chain.re_org_disallowed_offsets =
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
-                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
-        }
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-epochs-since-finalization")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-epochs-since-finalization flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-cutoff")?.is_some() {
+        warn!("The proposer-reorg-cutoff flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-parent-threshold")?.is_some() {
+        warn!("The proposer-reorg-parent-threshold flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-disallowed-offsets flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
@@ -1433,6 +1434,10 @@ pub fn set_network_config(
 
     if parse_flag(cli_args, "disable-quic") {
         config.disable_quic_support = true;
+    }
+
+    if let Some(enable_mplex) = parse_optional(cli_args, "enable-mplex")? {
+        config.enable_mplex = enable_mplex;
     }
 
     if parse_flag(cli_args, "disable-upnp") {

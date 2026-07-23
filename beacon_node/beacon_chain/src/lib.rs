@@ -48,6 +48,7 @@ pub mod payload_attestation_verification;
 pub mod payload_bid_verification;
 pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
+pub mod pending_payload_cache;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;
@@ -84,9 +85,9 @@ pub use beacon_fork_choice_store::{
 };
 pub use block_verification::{
     BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
-    PayloadVerificationOutcome, PayloadVerificationStatus, build_blob_data_column_sidecars,
-    get_block_root, signature_verify_chain_segment,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature, ParentImportStatus,
+    PayloadVerificationError, PayloadVerificationOutcome, PayloadVerificationStatus,
+    build_blob_data_column_sidecars, get_block_root, signature_verify_chain_segment,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

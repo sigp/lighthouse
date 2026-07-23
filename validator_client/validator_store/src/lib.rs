@@ -8,10 +8,10 @@ use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
     ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedExecutionPayloadEnvelope, SignedValidatorRegistrationData, Slot,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData,
+    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -213,6 +213,13 @@ pub trait ValidatorStore: Send + Sync {
         data: PayloadAttestationData,
     ) -> impl Future<Output = Result<PayloadAttestationMessage, Error<Self::Error>>> + Send;
 
+    /// Sign a `ProposerPreferences` message.
+    fn sign_proposer_preferences(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        preferences: ProposerPreferences,
+    ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
+
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
@@ -223,6 +230,20 @@ pub trait ValidatorStore: Send + Sync {
 pub enum UnsignedBlock<E: EthSpec> {
     Full(FullBlockContents<E>),
     Blinded(BlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> UnsignedBlock<E> {
+    /// The canonical root of this beacon block (identical for the full and blinded forms).
+    ///
+    /// This is the root of the block *this node produced*, which the local beacon node keys its
+    /// pending payload-envelope cache by. It is not necessarily the block ultimately signed or
+    /// published (e.g. under distributed validators).
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            UnsignedBlock::Full(block) => block.block().canonical_root(),
+            UnsignedBlock::Blinded(block) => block.canonical_root(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

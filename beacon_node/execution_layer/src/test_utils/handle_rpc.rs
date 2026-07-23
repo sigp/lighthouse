@@ -438,7 +438,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
                                     .clone()
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
@@ -461,7 +463,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
                                     .clone()
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
@@ -483,7 +487,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                     .into(),
                                 should_override_builder: false,
                                 execution_requests: maybe_execution_requests
-                                    .unwrap_or_default()
+                                    .unwrap_or_else(|| {
+                                        types::ExecutionRequests::Electra(Default::default())
+                                    })
                                     .into(),
                             })
                             .unwrap()
@@ -493,20 +499,6 @@ pub async fn handle_rpc<E: EthSpec>(
                 }
                 _ => unreachable!(),
             }
-        }
-        ENGINE_GET_BLOBS_V1 => {
-            let versioned_hashes =
-                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-            let generator = ctx.execution_block_generator.read();
-            // V1: per-element nullable array, positionally matching the request.
-            let response: Vec<Option<BlobAndProofV1<E>>> = versioned_hashes
-                .iter()
-                .map(|hash| match generator.get_blob_and_proof(hash) {
-                    Some(BlobAndProof::V1(v1)) => Some(v1),
-                    _ => None,
-                })
-                .collect();
-            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_GET_BLOBS_V2 => {
             let versioned_hashes =
@@ -705,6 +697,33 @@ pub async fn handle_rpc<E: EthSpec>(
         }
         ENGINE_GET_CLIENT_VERSION_V1 => {
             Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
+        }
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1 => {
+            let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+
+            let mut response = vec![];
+            for block_hash in block_hashes {
+                let maybe_payload = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_payload_by_hash(block_hash);
+
+                match maybe_payload {
+                    Some(payload) => {
+                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
+                            transactions: payload.transactions().clone(),
+                            withdrawals: payload.withdrawals().ok().cloned(),
+                        };
+                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
+                            payload_body.try_into().unwrap();
+                        response.push(Some(json_payload_body));
+                    }
+                    None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]

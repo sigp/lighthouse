@@ -12,6 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -29,7 +30,6 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -46,8 +46,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -59,8 +59,8 @@ pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
 impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
     for Witness<TSlotClock, E, THotStore, TColdStore>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -114,8 +114,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 impl<TSlotClock, E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -172,30 +172,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_head_threshold = threshold;
-        self
-    }
-
-    /// Sets the proposer re-org max epochs since finalization.
-    pub fn proposer_re_org_max_epochs_since_finalization(
-        mut self,
-        epochs_since_finalization: Epoch,
-    ) -> Self {
-        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
-        self
-    }
-
-    /// Sets the proposer re-org disallowed offsets list.
-    pub fn proposer_re_org_disallowed_offsets(
-        mut self,
-        disallowed_offsets: DisallowedReOrgOffsets,
-    ) -> Self {
-        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 
@@ -849,12 +825,13 @@ where
                     It is highly recommended to purge your db and checkpoint sync. For more information please \
                     read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
                 )
+            } else {
+                return Err(
+                    "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                    checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+                );
             }
-            return Err(
-                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
-                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
-                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
-            );
         }
 
         let validator_pubkey_cache = self
@@ -926,11 +903,19 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(head_snapshot),
+            head_payload_status,
+            self.chain_config.fast_confirmation,
+            &store,
+            &self.spec,
+        )
+        .map_err(|e| format!("Unable to initialize canonical head: {e}"))?;
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
         let enable_partial_columns = self.chain_config.enable_partial_columns;
+        let disable_get_blobs = self.chain_config.disable_get_blobs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -973,19 +958,24 @@ where
                 self.node_custody_type,
                 head_epoch,
                 ordered_custody_column_indices,
-                &self.spec,
+                slot_clock.clone(),
+                complete_blob_backfill,
+                self.spec.clone(),
             )
         } else {
             (
                 CustodyContext::new(
                     self.node_custody_type,
                     ordered_custody_column_indices,
-                    &self.spec,
+                    slot_clock.clone(),
+                    complete_blob_backfill,
+                    self.spec.clone(),
                 ),
                 None,
             )
         };
         debug!(?custody_context, "Loaded persisted custody context");
+        let custody_context = Arc::new(custody_context);
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1019,7 +1009,6 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
-            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
@@ -1058,16 +1047,20 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            custody_context: custody_context.clone(),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
-                    complete_blob_backfill,
-                    slot_clock,
                     self.kzg.clone(),
-                    Arc::new(custody_context),
-                    self.spec,
+                    custody_context.clone(),
+                    self.spec.clone(),
                     enable_partial_columns,
+                    disable_get_blobs,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+            ),
+            pending_payload_cache: Arc::new(
+                PendingPayloadCache::new(self.kzg.clone(), custody_context, self.spec.clone())
+                    .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
@@ -1138,7 +1131,9 @@ where
         }
 
         // Prune blobs older than the blob data availability boundary in the background.
-        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+        if let Some(data_availability_boundary) =
+            beacon_chain.custody_context.data_availability_boundary()
+        {
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
@@ -1151,8 +1146,8 @@ where
 impl<E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1170,6 +1165,241 @@ where
         );
 
         Ok(self.slot_clock(slot_clock))
+    }
+}
+
+#[cfg(any(test, feature = "ef_tests"))]
+impl<E> BeaconChainBuilder<crate::test_utils::EphemeralHarnessType<E>>
+where
+    E: EthSpec + 'static,
+{
+    /// Start an ephemeral test chain from an existing block and its post-state.
+    ///
+    /// EF networking tests provide `state.ssz_snappy` and setup blocks, not a full replayable chain
+    /// from genesis. Store the supplied initial block/state so later validation can load the
+    /// initial block's post-state as the parent state for child blocks.
+    ///
+    /// The supplied `initial_state` may be non-epoch-boundary. Fork choice still starts from an
+    /// epoch-aligned checkpoint view derived from it, so the production fork-choice alignment check
+    /// remains intact.
+    pub fn testing_initial_state(
+        mut self,
+        mut initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<types::Checkpoint>,
+    ) -> Result<Self, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or("testing_initial_state requires a store")?;
+
+        let genesis_time = initial_state.genesis_time();
+        initial_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on initial state: {e:?}"))?;
+        let initial_state_root = initial_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Error computing initial state root: {e:?}"))?;
+
+        let initial_block_root = initial_block.canonical_root();
+        if initial_block.state_root() != initial_state_root {
+            return Err(format!(
+                "Initial block state root does not match initial state, expected: {:?}, got: {:?}",
+                initial_block.state_root(),
+                initial_state_root,
+            ));
+        }
+
+        let state_latest_block_root = initial_state.get_latest_block_root(initial_state_root);
+        if initial_block_root != state_latest_block_root {
+            return Err(format!(
+                "Initial state's most recent block root does not match initial block, expected: {:?}, got: {:?}",
+                initial_block_root, state_latest_block_root
+            ));
+        }
+
+        if let Some(checkpoint) = finalized_checkpoint
+            && checkpoint.root != initial_block_root
+        {
+            return Err(format!(
+                "testing_initial_state can only finalize the initial block, checkpoint root: {:?}, initial root: {:?}",
+                checkpoint.root, initial_block_root,
+            ));
+        }
+
+        let fork_choice_epoch = finalized_checkpoint
+            .map(|checkpoint| checkpoint.epoch)
+            .unwrap_or_else(|| initial_block.slot().epoch(E::slots_per_epoch()));
+        let fork_choice_slot = fork_choice_epoch.start_slot(E::slots_per_epoch());
+
+        // Keep two state views: `initial_state` is the exact post-state from the vector and must
+        // remain loadable by `initial_block.state_root()` for child block validation. Fork choice
+        // needs an epoch-aligned state, so derive that view separately for `from_anchor`.
+        let mut fork_choice_state = initial_state.clone();
+        if fork_choice_state.slot() < fork_choice_slot {
+            while fork_choice_state.slot() < fork_choice_slot {
+                per_slot_processing(&mut fork_choice_state, None, &self.spec)
+                    .map_err(|e| format!("Error advancing fork choice state: {e:?}"))?;
+            }
+        } else {
+            // Some tests use a post-initial state that is already beyond the finalized checkpoint
+            // slot. There is no production transition that moves the state backwards, so the slot
+            // is adjusted only for the fork-choice checkpoint view. The original initial state is
+            // stored below for child pre-state lookup.
+            *fork_choice_state.slot_mut() = fork_choice_slot;
+        }
+
+        *fork_choice_state.latest_block_header_mut() =
+            initial_block.message().temporary_block_header();
+        fork_choice_state.latest_block_header_mut().state_root = initial_block.state_root();
+        fork_choice_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on fork choice state: {e:?}"))?;
+        let fork_choice_state_root = fork_choice_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Error computing fork choice state root: {e:?}"))?;
+        let fork_choice_slot = fork_choice_state.slot();
+        let (split_slot, split_state_root) = if initial_state.slot() <= fork_choice_slot {
+            (initial_state.slot(), initial_state_root)
+        } else {
+            (fork_choice_slot, fork_choice_state_root)
+        };
+
+        debug!(
+            slot = %split_slot,
+            state_root = ?split_state_root,
+            block_root = ?initial_block_root,
+            "Storing split from test initial state"
+        );
+
+        // Set the store's split point before storing initial states so hdiff storage can place them
+        // correctly in the ephemeral test DB.
+        store.set_split(split_slot, split_state_root, initial_block_root);
+
+        // Ensure the store's anchor is initialised prior to storing the state, as the anchor is
+        // required for working out hdiff storage strategies.
+        let retain_historic_states = self.chain_config.archive;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    initial_block.parent_root(),
+                    initial_block.slot(),
+                    split_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+
+        // EF networking vectors do not include a replayable genesis chain. Use initial-state-derived roots
+        // as builder metadata for this ephemeral test chain; they are not real genesis roots.
+        self.genesis_time = Some(genesis_time);
+        self.genesis_block_root = Some(initial_block_root);
+        self.genesis_state_root = Some(initial_state_root);
+
+        // Fill in the linear block roots between the checkpoint block's slot and the aligned
+        // state's slot. All slots less than the block's slot will be handled by block backfill,
+        // while states greater or equal to the checkpoint state will be handled by `migrate_db`.
+        let block_root_batch = store
+            .store_frozen_block_root_at_skip_slots(
+                initial_block.slot(),
+                initial_state.slot(),
+                initial_block_root,
+            )
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        store::KeyValueStore::do_atomically(&store.cold_db, block_root_batch)
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        debug!(
+            from = %initial_block.slot(),
+            to_excl = %initial_state.slot(),
+            block_root = ?initial_block_root,
+            "Stored frozen block roots at skipped slots"
+        );
+
+        // Write the state and block non-atomically, it doesn't matter if they're forgotten about on
+        // a crash restart.
+        if initial_state.slot() % E::slots_per_epoch() == 0 {
+            store
+                .update_finalized_state(
+                    initial_state_root,
+                    initial_block_root,
+                    initial_state.clone(),
+                )
+                .map_err(|e| format!("Failed to set initial state as finalized state: {:?}", e))?;
+        }
+        store
+            .put_state(&fork_choice_state_root, &fork_choice_state)
+            .map_err(|e| format!("Failed to store fork choice state: {e:?}"))?;
+        store
+            .put_block(&initial_block_root, initial_block.clone())
+            .map_err(|e| format!("Failed to store initial block: {e:?}"))?;
+        store
+            .put_state(&initial_state_root, &initial_state)
+            .map_err(|e| format!("Failed to store initial state: {e:?}"))?;
+
+        // Stage the database's metadata fields for atomic storage when `build` is called.
+        // This prevents the database from restarting in an inconsistent state if the anchor
+        // info or split point is written before the `PersistedBeaconChain`.
+        self.pending_io_batch.push(store.store_split_in_batch());
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(initial_block.slot())
+                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(initial_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+        );
+
+        {
+            let mut state_cache = store.state_cache.lock();
+            state_cache.delete_state(&initial_state_root);
+            state_cache
+                .put_state(initial_state_root, initial_block_root, &initial_state)
+                .map_err(|e| format!("Failed to cache initial state: {e:?}"))?;
+        }
+
+        let snapshot = BeaconSnapshot {
+            beacon_block_root: initial_block_root,
+            execution_envelope: None,
+            beacon_block: Arc::new(initial_block),
+            beacon_state: fork_choice_state,
+        };
+
+        let mut fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
+            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
+        if let Some(checkpoint) = finalized_checkpoint {
+            fork_choice::ForkChoiceStore::set_justified_checkpoint(
+                &mut fc_store,
+                checkpoint,
+                fork_choice_state_root,
+            )
+            .map_err(|e| format!("Unable to set justified checkpoint: {e:?}"))?;
+            fork_choice::ForkChoiceStore::set_finalized_checkpoint(&mut fc_store, checkpoint);
+            fork_choice::ForkChoiceStore::set_unrealized_justified_checkpoint(
+                &mut fc_store,
+                checkpoint,
+                fork_choice_state_root,
+            );
+            fork_choice::ForkChoiceStore::set_unrealized_finalized_checkpoint(
+                &mut fc_store,
+                checkpoint,
+            );
+        }
+
+        let fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            snapshot.beacon_block_root,
+            &snapshot.beacon_block,
+            &snapshot.beacon_state,
+            Some(fork_choice_slot),
+            &self.spec,
+        )
+        .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
+
+        self.fork_choice = Some(fork_choice);
+
+        Ok(self.empty_op_pool())
     }
 }
 
@@ -1290,11 +1520,8 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<
-            MinimalEthSpec,
-            MemoryStore<MinimalEthSpec>,
-            MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(
