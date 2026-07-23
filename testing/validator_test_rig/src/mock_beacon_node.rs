@@ -422,4 +422,38 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_body(r#"{"message":"Internal server error"}"#)
             .create()
     }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences`
+    pub fn mock_post_validator_proposer_preferences_json(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
+    pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ) returning error
+    pub fn mock_post_validator_proposer_preferences_ssz_error(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
 }
