@@ -744,19 +744,6 @@ impl BeaconNodeHttpClient {
         self.post_with_opt_response(path, &request).await
     }
 
-    pub fn post_beacon_states_builders_path(&self, state_id: StateId) -> Result<Url, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string())
-            .push("builders");
-
-        Ok(path)
-    }
-
     /// `POST beacon/states/{state_id}/builders`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -766,7 +753,15 @@ impl BeaconNodeHttpClient {
         ids: Option<Vec<BuilderId>>,
         statuses: Option<Vec<BuilderStatus>>,
     ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<BuilderData>>>, Error> {
-        let path = self.post_beacon_states_builders_path(state_id)?;
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builders");
+
         let request = BuildersRequestBody { ids, statuses };
 
         self.post_with_opt_response(path, &request).await

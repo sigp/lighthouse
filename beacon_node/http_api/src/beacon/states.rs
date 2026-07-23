@@ -633,12 +633,7 @@ pub fn post_beacon_state_builders<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: BuildersRequestBody| {
-                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
-                    Priority::P0
-                } else {
-                    Priority::P1
-                };
-                task_spawner.blocking_json_task(priority, move || {
+                task_spawner.blocking_json_task(Priority::P1, move || {
                     crate::builders::get_beacon_state_builders(
                         state_id,
                         chain,

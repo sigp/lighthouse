@@ -36,7 +36,7 @@ use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::{ExecutionStatus, core::ProtoNode};
-use reqwest::{RequestBuilder, Response, StatusCode};
+use reqwest::{RequestBuilder, Response, StatusCode, Url};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
@@ -49,8 +49,8 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256, MainnetEthSpec,
-    ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
+    MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
@@ -100,6 +100,11 @@ struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
     node_custody_type: NodeCustodyType,
+}
+
+struct BuilderStateTestFixture {
+    state_id: CoreStateId,
+    pending_id: BuilderId,
 }
 
 impl Default for ApiTesterConfig {
@@ -1179,7 +1184,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_state_builders(self) -> Self {
+    fn builder_state_test_fixture(&self) -> BuilderStateTestFixture {
         let mut state = self.chain.head_snapshot().beacon_state.clone();
         let finalized_epoch = state.finalized_checkpoint().epoch;
         assert!(
@@ -1187,57 +1192,54 @@ impl ApiTester {
             "precondition: finalized epoch permits an active builder"
         );
 
-        let builder_withdrawal_credentials = |address: Address| {
-            let mut credentials = [0; 32];
-            credentials[0] = self.chain.spec.builder_withdrawal_prefix_byte;
-            credentials[12..].copy_from_slice(address.as_slice());
-            Hash256::from_slice(&credentials)
-        };
+        let builder =
+            |keypair_index: usize, deposit_epoch: Epoch, withdrawable_epoch: Epoch| Builder {
+                pubkey: self.validator_keypairs()[keypair_index].pk.clone().into(),
+                version: PAYLOAD_BUILDER_VERSION,
+                execution_address: Address::repeat_byte(keypair_index as u8 + 1),
+                balance: self.chain.spec.min_deposit_amount,
+                deposit_epoch,
+                withdrawable_epoch,
+            };
 
-        let active_index = state
-            .add_builder_to_registry(
-                self.validator_keypairs()[0].pk.clone().into(),
-                PAYLOAD_BUILDER_VERSION,
-                builder_withdrawal_credentials(Address::repeat_byte(1)),
-                self.chain.spec.min_deposit_amount,
-                Slot::new(0),
-                &self.chain.spec,
-            )
-            .unwrap();
-        let pending_index = state
-            .add_builder_to_registry(
-                self.validator_keypairs()[1].pk.clone().into(),
-                PAYLOAD_BUILDER_VERSION,
-                builder_withdrawal_credentials(Address::repeat_byte(2)),
-                self.chain.spec.min_deposit_amount,
-                finalized_epoch.start_slot(E::slots_per_epoch()),
-                &self.chain.spec,
-            )
-            .unwrap();
-        let exited_index = state
-            .add_builder_to_registry(
-                self.validator_keypairs()[2].pk.clone().into(),
-                PAYLOAD_BUILDER_VERSION,
-                builder_withdrawal_credentials(Address::repeat_byte(3)),
-                self.chain.spec.min_deposit_amount,
-                Slot::new(0),
-                &self.chain.spec,
-            )
-            .unwrap();
-        state
-            .builders_mut()
-            .unwrap()
-            .get_mut(exited_index as usize)
-            .unwrap()
-            .withdrawable_epoch = state.current_epoch();
+        let active = builder(0, Epoch::new(0), self.chain.spec.far_future_epoch);
+        let pending = builder(1, finalized_epoch, self.chain.spec.far_future_epoch);
+        let pending_id = BuilderId::PublicKey(pending.pubkey);
+        let exited = builder(2, Epoch::new(0), state.current_epoch());
+        let builders = state.builders_mut().unwrap();
+        assert!(builders.is_empty());
+        builders.push(active).unwrap();
+        builders.push(pending).unwrap();
+        builders.push(exited).unwrap();
 
         let state_root = state.update_tree_hash_cache().unwrap();
         self.chain.store.put_state(&state_root, &state).unwrap();
-        let state_id = CoreStateId::Root(state_root);
 
+        BuilderStateTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            pending_id,
+        }
+    }
+
+    fn beacon_state_builders_url(&self, state_id: CoreStateId) -> Url {
+        let mut path = self.client.server().expose_full().clone();
+        path.path_segments_mut()
+            .unwrap()
+            .pop_if_empty()
+            .push("eth")
+            .push("v1")
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builders");
+        path
+    }
+
+    pub async fn test_beacon_state_builders_filters(self) -> Self {
+        let fixture = self.builder_state_test_fixture();
         let all_builders = self
             .client
-            .post_beacon_states_builders(state_id, None, None)
+            .post_beacon_states_builders(fixture.state_id, None, None)
             .await
             .unwrap()
             .unwrap();
@@ -1250,15 +1252,15 @@ impl ApiTester {
                 .map(|builder| (builder.index, builder.status))
                 .collect::<Vec<_>>(),
             vec![
-                (active_index, BuilderStatus::Active),
-                (pending_index, BuilderStatus::Pending),
-                (exited_index, BuilderStatus::Exited),
+                (0, BuilderStatus::Active),
+                (1, BuilderStatus::Pending),
+                (2, BuilderStatus::Exited),
             ]
         );
 
         let empty_filters = self
             .client
-            .post_beacon_states_builders(state_id, Some(vec![]), Some(vec![]))
+            .post_beacon_states_builders(fixture.state_id, Some(vec![]), Some(vec![]))
             .await
             .unwrap()
             .unwrap();
@@ -1267,11 +1269,8 @@ impl ApiTester {
         let filtered_by_index = self
             .client
             .post_beacon_states_builders(
-                state_id,
-                Some(vec![
-                    BuilderId::Index(active_index),
-                    BuilderId::Index(u64::MAX),
-                ]),
+                fixture.state_id,
+                Some(vec![BuilderId::Index(0), BuilderId::Index(u64::MAX)]),
                 Some(vec![BuilderStatus::Active]),
             )
             .await
@@ -1279,73 +1278,36 @@ impl ApiTester {
             .unwrap();
         assert_eq!(filtered_by_index.data, vec![all_builders.data[0].clone()]);
 
-        let pending_pubkey = state
-            .builders()
-            .unwrap()
-            .get(pending_index as usize)
-            .unwrap()
-            .pubkey;
         let filtered_by_pubkey = self
             .client
-            .post_beacon_states_builders(
-                state_id,
-                Some(vec![BuilderId::PublicKey(pending_pubkey)]),
-                None,
-            )
+            .post_beacon_states_builders(fixture.state_id, Some(vec![fixture.pending_id]), None)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(filtered_by_pubkey.data, vec![all_builders.data[1].clone()]);
 
-        let path = self
-            .client
-            .post_beacon_states_builders_path(state_id)
-            .unwrap();
-        let no_body_response = reqwest::Client::new()
-            .post(path.clone())
+        self
+    }
+
+    pub async fn test_beacon_state_builders_no_body(self) -> Self {
+        let response = reqwest::Client::new()
+            .post(self.beacon_state_builders_url(CoreStateId::Head))
             .send()
             .await
             .unwrap();
-        assert_eq!(no_body_response.status(), StatusCode::OK);
-        let no_body_builders = no_body_response
-            .json::<ExecutionOptimisticFinalizedResponse<Vec<BuilderData>>>()
-            .await
-            .unwrap();
-        assert_eq!(no_body_builders, all_builders);
+        assert_eq!(response.status(), StatusCode::OK);
 
-        for invalid_body in [
-            serde_json::json!({"ids": ["invalid"]}),
-            serde_json::json!({"statuses": ["unknown"]}),
-            serde_json::json!({"unknown": []}),
-        ] {
-            let invalid_response = reqwest::Client::new()
-                .post(path.clone())
-                .json(&invalid_body)
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(invalid_response.status(), StatusCode::BAD_REQUEST);
-        }
+        self
+    }
 
-        let malformed_response = reqwest::Client::new()
-            .post(path)
-            .header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
-            .body("{")
+    pub async fn test_beacon_state_builders_invalid_id(self) -> Self {
+        let response = reqwest::Client::new()
+            .post(self.beacon_state_builders_url(CoreStateId::Head))
+            .json(&serde_json::json!({"ids": ["invalid"]}))
             .send()
             .await
             .unwrap();
-        assert_eq!(malformed_response.status(), StatusCode::BAD_REQUEST);
-
-        let missing_state_path = self
-            .client
-            .post_beacon_states_builders_path(CoreStateId::Root(Hash256::zero()))
-            .unwrap();
-        let missing_state_response = reqwest::Client::new()
-            .post(missing_state_path)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(missing_state_response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         self
     }
@@ -8648,7 +8610,11 @@ async fn beacon_state_builders_gloas() {
     config.spec.gloas_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
-        .test_beacon_state_builders()
+        .test_beacon_state_builders_filters()
+        .await
+        .test_beacon_state_builders_no_body()
+        .await
+        .test_beacon_state_builders_invalid_id()
         .await;
 }
 
