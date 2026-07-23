@@ -1,5 +1,5 @@
+use std::assert_matches;
 use std::sync::Arc;
-
 use std::time::Duration;
 
 use bls::{Keypair, PublicKeyBytes, Signature};
@@ -16,6 +16,7 @@ use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
@@ -25,6 +26,7 @@ use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
+    chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
@@ -49,7 +51,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
-    bid_cache: GossipVerifiedPayloadBidCache<T>,
+    bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
@@ -86,6 +88,7 @@ impl TestContext {
             state
                 .add_builder_to_registry(
                     PublicKeyBytes::from(keypair.pk.clone()),
+                    PAYLOAD_BUILDER_VERSION,
                     creds,
                     BUILDER_BALANCE,
                     Slot::new(0),
@@ -117,6 +120,7 @@ impl TestContext {
         let inactive_builder_index = state
             .add_builder_to_registry(
                 PublicKeyBytes::from(inactive_keypair.pk.clone()),
+                PAYLOAD_BUILDER_VERSION,
                 inactive_creds,
                 BUILDER_BALANCE,
                 Slot::new(E::slots_per_epoch()),
@@ -144,8 +148,15 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            PayloadStatus::Pending,
+            FastConfirmationMode::Disabled,
+            &store,
+            &spec,
+        )
+        .unwrap();
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -192,6 +203,40 @@ impl TestContext {
         }
     }
 
+    fn expected_prev_randao(&self) -> Hash256 {
+        let current_slot = self.slot_clock.now().expect("should read slot clock");
+        let head = self.canonical_head.cached_head();
+        *head
+            .snapshot
+            .beacon_state
+            .get_randao_mix(current_slot.epoch(E::slots_per_epoch()))
+            .expect("should read current epoch randao mix")
+    }
+
+    fn make_signed_bid(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+        fee_recipient: Address,
+        gas_limit: u64,
+        value: u64,
+        parent_block_root: Hash256,
+    ) -> Arc<SignedExecutionPayloadBid<E>> {
+        Arc::new(SignedExecutionPayloadBid {
+            message: ExecutionPayloadBid {
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+                prev_randao: self.expected_prev_randao(),
+                ..ExecutionPayloadBid::default()
+            },
+            signature: Signature::empty(),
+        })
+    }
+
     fn insert_non_canonical_block(&self) -> Hash256 {
         let shuffling_id = AttestationShufflingId {
             shuffling_epoch: Epoch::new(0),
@@ -234,37 +279,16 @@ impl TestContext {
     }
 }
 
-fn make_signed_bid(
-    slot: Slot,
-    builder_index: u64,
-    fee_recipient: Address,
-    gas_limit: u64,
-    value: u64,
-    parent_block_root: Hash256,
-) -> Arc<SignedExecutionPayloadBid<E>> {
-    Arc::new(SignedExecutionPayloadBid {
-        message: ExecutionPayloadBid {
-            slot,
-            builder_index,
-            fee_recipient,
-            gas_limit,
-            value,
-            parent_block_root,
-            ..ExecutionPayloadBid::default()
-        },
-        signature: Signature::empty(),
-    })
-}
-
 fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
     fee_recipient: Address,
     target_gas_limit: u64,
+    dependent_root: Hash256,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index,
             fee_recipient,
@@ -275,8 +299,25 @@ fn make_signed_preferences(
 }
 
 fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_limit: u64) {
+    // Key the preferences by the same dependent root that gossip verification will compute from
+    // the head state, otherwise the lookup misses and verification returns `NoProposerPreferences`.
+    let cached_head = ctx.canonical_head.cached_head();
+    let head_state = &cached_head.snapshot.beacon_state;
+    let dependent_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            slot.epoch(E::slots_per_epoch()),
+            cached_head.head_block_root(),
+            &ctx.spec,
+        )
+        .expect("should compute proposer shuffling decision root");
     let prefs = GossipVerifiedProposerPreferences {
-        signed_preferences: make_signed_preferences(slot, 0, fee_recipient, gas_limit),
+        signed_preferences: make_signed_preferences(
+            slot,
+            0,
+            fee_recipient,
+            gas_limit,
+            dependent_root,
+        ),
     };
     ctx.preferences_cache.insert_preferences(prefs);
 }
@@ -288,7 +329,7 @@ fn no_proposer_preferences_for_slot() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         Slot::new(0),
         0,
         Address::ZERO,
@@ -314,7 +355,7 @@ fn builder_already_seen_for_slot() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = make_signed_bid(slot, 42, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
+    let bid = ctx.make_signed_bid(slot, 42, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
     let verified = GossipVerifiedPayloadBid {
         signed_bid: bid.clone(),
     };
@@ -341,11 +382,11 @@ fn bid_value_below_cached() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let high_bid = GossipVerifiedPayloadBid {
-        signed_bid: make_signed_bid(slot, 99, Address::ZERO, 30_000_000, 500, Hash256::ZERO),
+        signed_bid: ctx.make_signed_bid(slot, 99, Address::ZERO, 30_000_000, 500, Hash256::ZERO),
     };
     ctx.bid_cache.insert_highest_bid(high_bid);
 
-    let low_bid = make_signed_bid(slot, 1, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
+    let low_bid = ctx.make_signed_bid(slot, 1, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
     let result = GossipVerifiedPayloadBid::new(low_bid, &gossip);
     assert!(matches!(
         result,
@@ -363,7 +404,7 @@ fn invalid_bid_slot() {
     let slot = Slot::new(5);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -372,10 +413,7 @@ fn invalid_bid_slot() {
         ctx.genesis_block_root,
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
-    assert!(matches!(
-        result,
-        Err(PayloadBidError::InvalidBidSlot { .. })
-    ));
+    assert_matches!(result, Err(PayloadBidError::InvalidBidSlot { .. }));
 }
 
 #[test]
@@ -388,7 +426,7 @@ fn fee_recipient_mismatch() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::repeat_byte(0xaa), 30_000_000);
 
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -410,7 +448,7 @@ fn gas_limit_mismatch() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -438,6 +476,7 @@ fn execution_payment_nonzero() {
             gas_limit: 30_000_000,
             execution_payment: 42,
             parent_block_root: ctx.genesis_block_root,
+            prev_randao: ctx.expected_prev_randao(),
             ..ExecutionPayloadBid::default()
         },
         signature: Signature::empty(),
@@ -460,7 +499,7 @@ fn unknown_builder_index() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Use a builder_index that doesn't exist in the registry.
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         9999,
         Address::ZERO,
@@ -487,7 +526,7 @@ fn inactive_builder() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         ctx.inactive_builder_index,
         Address::ZERO,
@@ -513,7 +552,7 @@ fn builder_cant_cover_bid() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Builder index 0 exists but bid value far exceeds their balance.
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -540,7 +579,7 @@ fn parent_block_root_unknown() {
 
     // Parent block root not in fork choice.
     let unknown_root = Hash256::repeat_byte(0xff);
-    let bid = make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, unknown_root);
+    let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, unknown_root);
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(result.is_err(), "expected error, got Ok");
     let err = result.unwrap_err();
@@ -563,7 +602,7 @@ fn parent_block_root_not_canonical() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let fork_root = ctx.insert_non_canonical_block();
-    let bid = make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, fork_root);
+    let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, fork_root);
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(result.is_err(), "expected error, got Ok");
     let err = result.unwrap_err();
@@ -585,7 +624,7 @@ fn bid_slot_not_after_parent() {
     let slot = Slot::new(0);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -628,6 +667,7 @@ fn invalid_blob_kzg_commitments() {
             gas_limit: 30_000_000,
             value: 0,
             parent_block_root: ctx.genesis_block_root,
+            prev_randao: ctx.expected_prev_randao(),
             blob_kzg_commitments: VariableList::new(commitments).unwrap(),
             ..ExecutionPayloadBid::default()
         },
@@ -651,7 +691,7 @@ fn bad_signature() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // All checks pass but signature is empty/invalid.
-    let bid = make_signed_bid(
+    let bid = ctx.make_signed_bid(
         slot,
         0,
         Address::ZERO,
@@ -686,6 +726,7 @@ fn valid_bid() {
         gas_limit: 30_000_000,
         value: 0,
         parent_block_root: ctx.genesis_block_root,
+        prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
@@ -713,6 +754,7 @@ fn two_builders_coexist_in_cache() {
         gas_limit: 30_000_000,
         value: 0,
         parent_block_root: ctx.genesis_block_root,
+        prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
     let result_0 = GossipVerifiedPayloadBid::new(bid_0, &gossip);
@@ -730,6 +772,7 @@ fn two_builders_coexist_in_cache() {
         gas_limit: 30_000_000,
         value: 1,
         parent_block_root: ctx.genesis_block_root,
+        prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
     let result_1 = GossipVerifiedPayloadBid::new(bid_1, &gossip);
@@ -763,7 +806,7 @@ fn bid_equal_to_cached_value_rejected() {
 
     // Seed a cached bid with value 100.
     let high_bid = GossipVerifiedPayloadBid {
-        signed_bid: make_signed_bid(
+        signed_bid: ctx.make_signed_bid(
             slot,
             99,
             Address::ZERO,
@@ -775,7 +818,7 @@ fn bid_equal_to_cached_value_rejected() {
     ctx.bid_cache.insert_highest_bid(high_bid);
 
     // Submit a bid with exactly the same value — should be rejected.
-    let equal_bid = make_signed_bid(
+    let equal_bid = ctx.make_signed_bid(
         slot,
         1,
         Address::ZERO,

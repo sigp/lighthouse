@@ -1,6 +1,7 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use axum_utils::tls::TlsConfig;
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, INVALID_HOLESKY_BLOCK_ROOT,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, FastConfirmationMode, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -12,7 +13,6 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use http_api::TlsConfig;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
@@ -210,6 +210,10 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("disable-get-blobs") {
         client_config.chain.disable_get_blobs = true;
+    }
+
+    if cli_args.get_flag("enable-fast-confirmation") {
+        client_config.chain.fast_confirmation = FastConfirmationMode::Enabled;
     }
 
     if let Some(sync_tolerance_epochs) =

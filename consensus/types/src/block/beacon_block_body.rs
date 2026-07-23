@@ -24,9 +24,10 @@ use crate::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
         BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
-        FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb,
-        FullPayloadElectra, FullPayloadFulu, SignedBlsToExecutionChange,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix,
+        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
+        SignedBlsToExecutionChange,
     },
     exit::SignedVoluntaryExit,
     fork::{ForkName, map_fork_name},
@@ -163,13 +164,13 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsElectra<E>,
     #[superstruct(only(Gloas))]
     pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
     #[superstruct(only(Gloas))]
-    pub parent_execution_requests: ExecutionRequests<E>,
+    pub parent_execution_requests: ExecutionRequestsGloas<E>,
     #[superstruct(only(Base, Altair, Gloas))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]

@@ -25,8 +25,8 @@ use crate::{
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
-        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
-        FullPayload,
+        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
+        ExecutionRequestsGloas, FullPayload,
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
@@ -650,7 +650,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -684,7 +684,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
                 execution_payload: Payload::Fulu::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -713,7 +713,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
-                parent_execution_requests: ExecutionRequests::default(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,

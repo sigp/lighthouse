@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     invalid_block_storage,
                     seen_timestamp,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
@@ -495,6 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 payload_attestation_message,
+                ReprocessAllowance::BlockOnly,
             )
         };
 
@@ -528,15 +529,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
-            block_root,
-            block,
-            seen_timestamp,
-            process_type,
-        );
+        let process_fn =
+            self.clone()
+                .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlock {
@@ -552,14 +549,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcEnvelope(Box::pin(async move {
-                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                s.process_lookup_envelope(block_root, envelope, process_type)
                     .await;
             })),
         })
@@ -571,20 +567,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcCustodyColumn(Box::pin(async move {
-                s.process_rpc_custody_columns(
-                    block_root,
-                    custody_columns,
-                    seen_timestamp,
-                    process_type,
-                )
-                .await;
+                s.process_rpc_custody_columns(block_root, custody_columns, process_type)
+                    .await;
             })),
         })
     }
@@ -921,7 +911,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
@@ -996,7 +986,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
-        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
         let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
@@ -1228,12 +1218,28 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+        let (processor, beacon_processor_rx, _network_rx) =
+            Self::null_for_testing_with_network_receiver(network_globals, sync_tx, chain, executor);
+
+        (processor, beacon_processor_rx)
+    }
+
+    fn null_for_testing_with_network_receiver(
+        network_globals: Arc<NetworkGlobals<E>>,
+        sync_tx: UnboundedSender<SyncMessage<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+    ) -> (
+        Self,
+        mpsc::Receiver<BeaconWorkEvent<E>>,
+        mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    ) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
         } = <_>::default();
 
-        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
@@ -1246,24 +1252,34 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             executor,
         };
 
-        (network_beacon_processor, beacon_processor_rx)
+        (network_beacon_processor, beacon_processor_rx, network_rx)
     }
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
     /// suitable for directly calling gossip processing methods in tests.
     pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+        Self::null_from_harness_with_network_receiver(harness).0
+    }
+
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` and returns its network event
+    /// receiver so tests can observe messages sent to the network service.
+    pub fn null_from_harness_with_network_receiver(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage<E>>) {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),
             harness.spec.clone(),
         );
 
-        Self::null_for_testing(
-            Arc::new(network_globals),
-            mpsc::unbounded_channel().0,
-            harness.chain.clone(),
-            harness.runtime.task_executor.clone(),
-        )
-        .0
+        let (processor, _beacon_processor_rx, network_rx) =
+            Self::null_for_testing_with_network_receiver(
+                Arc::new(network_globals),
+                mpsc::unbounded_channel().0,
+                harness.chain.clone(),
+                harness.runtime.task_executor.clone(),
+            );
+
+        (processor, network_rx)
     }
 }

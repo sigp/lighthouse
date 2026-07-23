@@ -4,9 +4,10 @@ use std::time::Duration;
 use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use parking_lot::{Mutex, RwLock};
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
-use store::{HotColdDB, StoreConfig};
+use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
     ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
@@ -14,8 +15,10 @@ use types::{
 
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
+    beacon_proposer_cache::BeaconProposerCache,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
+    chain_config::FastConfirmationMode,
     proposer_preferences_verification::{
         ProposerPreferencesError,
         gossip_verified_proposer_preferences::{
@@ -24,6 +27,7 @@ use crate::{
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
     test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
+    validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
 type E = MinimalEthSpec;
@@ -36,6 +40,11 @@ struct TestContext {
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     spec: ChainSpec,
+    store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
+    head_block_root: Hash256,
+    beacon_proposer_cache: Mutex<BeaconProposerCache>,
+    validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
+    genesis_validators_root: Hash256,
 }
 
 impl TestContext {
@@ -57,12 +66,23 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
-        let mut genesis_block = BeaconBlock::empty(&spec);
-        *genesis_block.state_root_mut() = state
+        let genesis_state_root = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
+
+        let block_root = state.get_latest_block_root(genesis_state_root);
+
+        // Build a signed block with the correct state root for the snapshot.
+        let mut genesis_block = BeaconBlock::empty(&spec);
+        *genesis_block.state_root_mut() = genesis_state_root;
         let signed_block = SignedBeaconBlock::from_block(genesis_block, Signature::empty());
-        let block_root = signed_block.canonical_root();
+
+        let _ = store
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
+            .expect("should init anchor info");
+        store
+            .put_state(&genesis_state_root, &state)
+            .expect("should persist genesis state");
 
         let snapshot = BeaconSnapshot::new(
             Arc::new(signed_block.clone()),
@@ -77,8 +97,15 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            PayloadStatus::Pending,
+            FastConfirmationMode::Disabled,
+            &store,
+            &spec,
+        )
+        .unwrap();
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -86,11 +113,22 @@ impl TestContext {
             spec.get_slot_duration(),
         );
 
+        let genesis_validators_root = state.genesis_validators_root();
+        let validator_pubkey_cache = RwLock::new(
+            ValidatorPubkeyCache::new(&state, store.clone())
+                .expect("should build validator pubkey cache"),
+        );
+
         Self {
             canonical_head,
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
             spec,
+            store,
+            head_block_root: block_root,
+            beacon_proposer_cache: Mutex::new(BeaconProposerCache::default()),
+            validator_pubkey_cache,
+            genesis_validators_root,
         }
     }
 
@@ -100,6 +138,10 @@ impl TestContext {
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            store: &self.store,
+            beacon_proposer_cache: &self.beacon_proposer_cache,
+            validator_pubkey_cache: &self.validator_pubkey_cache,
+            genesis_validators_root: self.genesis_validators_root,
         }
     }
 
@@ -124,10 +166,11 @@ impl TestContext {
 fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
+    dependent_root: Hash256,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
@@ -147,11 +190,11 @@ fn already_seen_validator() {
     let slot = Slot::new(1);
 
     let verified = GossipVerifiedProposerPreferences {
-        signed_preferences: make_signed_preferences(slot, 42),
+        signed_preferences: make_signed_preferences(slot, 42, Hash256::ZERO),
     };
     ctx.preferences_cache.insert_seen_validator(&verified);
 
-    let prefs = make_signed_preferences(slot, 42);
+    let prefs = make_signed_preferences(slot, 42, Hash256::ZERO);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -171,7 +214,7 @@ fn invalid_epoch_too_far_ahead() {
     let gossip = ctx.gossip_ctx();
 
     let far_slot = Slot::new(3 * E::slots_per_epoch());
-    let prefs = make_signed_preferences(far_slot, 0);
+    let prefs = make_signed_preferences(far_slot, 0, Hash256::ZERO);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -187,7 +230,7 @@ fn proposal_slot_already_passed() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
-    let prefs = make_signed_preferences(Slot::new(0), 0);
+    let prefs = make_signed_preferences(Slot::new(0), 0, Hash256::ZERO);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -207,7 +250,7 @@ fn wrong_proposer_for_slot() {
     let actual_proposer = ctx.proposer_at_slot(slot);
     let wrong_validator = if actual_proposer == 0 { 1 } else { 0 };
 
-    let prefs = make_signed_preferences(slot, wrong_validator);
+    let prefs = make_signed_preferences(slot, wrong_validator, ctx.head_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -225,7 +268,7 @@ fn correct_proposer_bad_signature() {
     let slot = Slot::new(1);
 
     let actual_proposer = ctx.proposer_at_slot(slot);
-    let prefs = make_signed_preferences(slot, actual_proposer);
+    let prefs = make_signed_preferences(slot, actual_proposer, ctx.head_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -233,9 +276,13 @@ fn correct_proposer_bad_signature() {
     ));
     assert!(
         !ctx.preferences_cache
-            .get_seen_validator(&slot, Hash256::ZERO, actual_proposer)
+            .get_seen_validator(&slot, ctx.head_block_root, actual_proposer)
     );
-    assert!(ctx.preferences_cache.get_preferences(&slot).is_none());
+    assert!(
+        ctx.preferences_cache
+            .get_preferences(&slot, ctx.head_block_root)
+            .is_none()
+    );
 }
 
 #[test]
@@ -247,7 +294,7 @@ fn validator_index_out_of_bounds() {
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
 
-    let prefs = make_signed_preferences(slot, u64::MAX);
+    let prefs = make_signed_preferences(slot, u64::MAX, ctx.head_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -290,6 +337,43 @@ fn same_validator_different_dependent_root_not_deduplicated() {
     );
 }
 
+#[test]
+fn dependent_root_unknown() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+
+    let unknown_root = Hash256::repeat_byte(0xff);
+    let prefs = make_signed_preferences(slot, 0, unknown_root);
+    let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
+    assert!(matches!(
+        result,
+        Err(ProposerPreferencesError::DependentRootUnknown { .. })
+    ));
+}
+
+#[test]
+fn invalid_epoch_too_old() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    // Advance the clock so that epoch 0 slots are too old.
+    ctx.slot_clock.set_slot(3 * E::slots_per_epoch());
+    let gossip = ctx.gossip_ctx();
+
+    let old_slot = Slot::new(1);
+    let prefs = make_signed_preferences(old_slot, 0, Hash256::ZERO);
+    let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
+    assert!(matches!(
+        result,
+        Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
+    ));
+}
+
 // TODO(gloas) add successful proposer preferences check once we have proposer preferences signing logic
 
 #[test]
@@ -304,7 +388,7 @@ fn preferences_for_next_epoch_slot() {
     let next_epoch_slot = Slot::new(E::slots_per_epoch() + 1);
     let actual_proposer = ctx.proposer_at_slot(next_epoch_slot);
 
-    let prefs = make_signed_preferences(next_epoch_slot, actual_proposer);
+    let prefs = make_signed_preferences(next_epoch_slot, actual_proposer, ctx.head_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     // Should pass consistency checks but fail on signature (empty sig).
     assert!(
