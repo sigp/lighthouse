@@ -67,6 +67,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
+    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -206,8 +207,8 @@ impl TestRig {
             .server
             .execution_block_generator()
             .set_min_blob_count(1);
-        let (next_block_tuple, next_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+        let (next_block_tuple, next_block_envelope, next_state) = harness
+            .make_block_with_envelope(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
         let head_state_root = head.beacon_state_root();
@@ -365,6 +366,7 @@ impl TestRig {
         Self {
             chain,
             next_block: block,
+            next_block_envelope: next_block_envelope.map(Arc::new),
             next_data_columns: data_columns,
             attestations,
             next_block_attestations,
@@ -396,6 +398,21 @@ impl TestRig {
                 junk_peer_id(),
                 Client::default(),
                 self.next_block.clone(),
+                Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_gossip_envelope(&self) {
+        let envelope = self
+            .next_block_envelope
+            .as_ref()
+            .expect("the next block should have an envelope post-Gloas");
+        self.network_beacon_processor
+            .send_gossip_execution_payload(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(envelope.as_ref().clone()),
                 Duration::from_secs(0),
             )
             .unwrap();
@@ -1542,6 +1559,83 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
         rig.chain.op_pool.num_payload_attestation_messages(),
         initial_messages,
         "Payload attestation should not have been included."
+    );
+}
+
+/// Ensure that a payload envelope arriving before its slot (e.g. due to clock drift) is re-queued
+/// and re-processed once the slot arrives.
+#[tokio::test]
+async fn requeue_early_gossip_payload_envelope() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Import the block for the next slot.
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    // Wind the clock back to just before the block's slot, so the envelope arrives "early".
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // The envelope passes gossip verification but is queued until its slot instead of imported.
+    rig.enqueue_gossip_envelope();
+    rig.assert_event_journal_completes(&[WorkType::GossipExecutionPayload])
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "The early envelope should not have been imported."
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_none(),
+        "The early envelope should be queued, not in the data availability checker."
+    );
+
+    // Restore the clock and ensure the envelope is released and re-processed when its slot
+    // arrives.
+    rig.chain.slot_clock.set_current_time(slot_start);
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::DelayedImportEnvelope.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(2),
+        false,
+        false,
+    )
+    .await;
+
+    // The released envelope has been re-processed into the data availability checker, where its
+    // import remains pending on data column availability, which is not exercised here.
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "The envelope should have been re-processed into the data availability checker."
     );
 }
 
