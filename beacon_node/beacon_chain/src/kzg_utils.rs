@@ -1,3 +1,4 @@
+use crate::fetch_blobs::PartialHeaderOrBid;
 use kzg::{
     Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError, Kzg, KzgBlobRef,
 };
@@ -8,7 +9,7 @@ use tracing::instrument;
 use tree_hash::TreeHash;
 use types::data::{
     Cell, CellBitmap, ColumnIndex, DataColumn, DataColumnSidecarError, PartialDataColumn,
-    PartialDataColumnHeader, PartialDataColumnSidecarRef,
+    PartialDataColumnHeader, PartialDataColumnView,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{
@@ -167,7 +168,7 @@ pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
 pub fn validate_partial_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: impl Iterator<Item = (ColumnIndex, PartialDataColumnSidecarRef<'a, E>)>,
+    data_column_iter: impl Iterator<Item = (ColumnIndex, PartialDataColumnView<'a, E>)>,
     kzg_commitments: &[KzgCommitment],
 ) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
@@ -176,14 +177,14 @@ pub fn validate_partial_data_columns<'a, E: EthSpec>(
     let mut commitments = Vec::new();
 
     for (col_index, sidecar) in data_column_iter {
-        if sidecar.column.is_empty() {
+        if sidecar.column().is_empty() {
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
         }
 
         // Partial columns have a bitmap indicating present cells
         // We iterate over the bitmap and only process present cells
-        let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
-        for (present, commitment) in sidecar.cells_present_bitmap.iter().zip(kzg_commitments) {
+        let mut present_iterator = sidecar.column().iter().zip(sidecar.kzg_proofs().iter());
+        for (present, commitment) in sidecar.cells_present_bitmap().iter().zip(kzg_commitments) {
             if present {
                 let (cell, proof) = present_iterator.next().ok_or((
                     Some(col_index),
@@ -412,8 +413,9 @@ fn compute_cells_with_provided_proofs<E: EthSpec>(
 /// Build data column sidecars from a signed beacon block and its blobs.
 #[instrument(skip_all, level = "debug", fields(blob_count = blobs_and_proofs.len()))]
 pub fn blobs_to_partial_data_columns<E: EthSpec>(
+    block_root: Hash256,
     blobs_and_proofs: Vec<Option<(&Blob<E>, &[KzgProof])>>,
-    header: &PartialDataColumnHeader<E>,
+    header_or_bid: &PartialHeaderOrBid<E>,
     kzg: &Kzg,
     spec: &ChainSpec,
 ) -> Result<Vec<PartialDataColumn<E>>, DataColumnSidecarError> {
@@ -445,8 +447,19 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
         })
         .collect::<Result<Vec<_>, KzgError>>()?;
 
-    build_partial_data_columns(header, blob_cells_and_proofs_vec, spec)
-        .map_err(DataColumnSidecarError::BuildSidecarFailed)
+    match header_or_bid {
+        PartialHeaderOrBid::PartialHeader(header) => {
+            build_partial_data_columns_fulu(header, blob_cells_and_proofs_vec, spec)
+                .map_err(DataColumnSidecarError::BuildSidecarFailed)
+        }
+        PartialHeaderOrBid::Bid(bid) => build_partial_data_columns_gloas(
+            block_root,
+            bid.message.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .map_err(DataColumnSidecarError::BuildSidecarFailed),
+    }
 }
 
 pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<KzgCell>, KzgError> {
@@ -601,14 +614,94 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
     sidecars
 }
 
-pub(crate) fn build_partial_data_columns<E: EthSpec>(
+pub(crate) fn build_partial_data_columns_fulu<E: EthSpec>(
     header: &PartialDataColumnHeader<E>,
     blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
     spec: &ChainSpec,
 ) -> Result<Vec<PartialDataColumn<E>>, String> {
+    if spec.fork_name_at_slot::<E>(header.slot()).gloas_enabled() {
+        return Err("Attempting to construct Fulu partial data columns post-Gloas".to_owned());
+    }
+
     let number_of_columns = E::number_of_columns();
     let max_blobs_per_block =
         spec.max_blobs_per_block(header.slot().epoch(E::slots_per_epoch())) as usize;
+    let (bitmap, columns, column_kzg_proofs) = build_partial_column_cells::<E>(
+        blob_cells_and_proofs_vec,
+        number_of_columns,
+        max_blobs_per_block,
+    )?;
+
+    let block_root = header.signed_block_header.message.canonical_root();
+
+    columns
+        .into_iter()
+        .zip(column_kzg_proofs)
+        .enumerate()
+        .map(|(index, (col, proofs))| {
+            Ok(types::data::PartialDataColumnFulu {
+                block_root,
+                index: index as u64,
+                sidecar: types::data::PartialDataColumnSidecarFulu {
+                    cells_present_bitmap: bitmap.clone(),
+                    column: VariableList::try_from(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: VariableList::try_from(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    header: None.into(),
+                },
+            }
+            .into())
+        })
+        .collect()
+}
+
+pub(crate) fn build_partial_data_columns_gloas<E: EthSpec>(
+    beacon_block_root: Hash256,
+    slot: Slot,
+    blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
+    spec: &ChainSpec,
+) -> Result<Vec<PartialDataColumn<E>>, String> {
+    if !spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+        return Err("Attempting to construct Gloas partial data columns pre-Gloas".to_owned());
+    }
+
+    let number_of_columns = E::number_of_columns();
+    let max_blobs_per_block = spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
+    let (bitmap, columns, column_kzg_proofs) = build_partial_column_cells::<E>(
+        blob_cells_and_proofs_vec,
+        number_of_columns,
+        max_blobs_per_block,
+    )?;
+
+    columns
+        .into_iter()
+        .zip(column_kzg_proofs)
+        .enumerate()
+        .map(|(index, (col, proofs))| {
+            Ok(types::data::PartialDataColumnGloas {
+                block_root: beacon_block_root,
+                slot,
+                index: index as u64,
+                sidecar: types::data::PartialDataColumnSidecarGloas {
+                    cells_present_bitmap: bitmap.clone(),
+                    column: VariableList::try_from(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: VariableList::try_from(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                },
+            }
+            .into())
+        })
+        .collect()
+}
+
+#[allow(clippy::type_complexity)]
+fn build_partial_column_cells<E: EthSpec>(
+    blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
+    number_of_columns: usize,
+    max_blobs_per_block: usize,
+) -> Result<(CellBitmap<E>, Vec<Vec<Cell<E>>>, Vec<Vec<KzgProof>>), String> {
     let mut bitmap =
         CellBitmap::<E>::with_capacity(blob_cells_and_proofs_vec.len()).map_err(|_| {
             format!(
@@ -656,30 +749,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
         }
     }
 
-    let block_root = header.signed_block_header.message.canonical_root();
-
-    let sidecars: Result<Vec<PartialDataColumn<E>>, String> = columns
-        .into_iter()
-        .zip(column_kzg_proofs)
-        .enumerate()
-        .map(|(index, (col, proofs))| {
-            let column = PartialDataColumn {
-                block_root,
-                index: index as u64,
-                sidecar: types::data::PartialDataColumnSidecar {
-                    cells_present_bitmap: bitmap.clone(),
-                    column: VariableList::try_from(col)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_proofs: VariableList::try_from(proofs)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    header: None.into(),
-                },
-            };
-            Ok(column)
-        })
-        .collect();
-
-    sidecars
+    Ok((bitmap, columns, column_kzg_proofs))
 }
 
 // TODO(gloas) blob reconstruction will fail post gloas. We should just return `Blob`s

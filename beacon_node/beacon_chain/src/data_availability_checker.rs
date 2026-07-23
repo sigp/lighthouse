@@ -18,8 +18,8 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError,
-    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot,
+    DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError, PartialDataColumnView,
+    SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn missing_cells_for_column_sidecar<'a>(
         &'_ self,
         data_column: &'a DataColumnSidecar<T::EthSpec>,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+    ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
         let block_root = data_column.block_root();
         let column_index = *data_column.index();
 
@@ -211,8 +211,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler {
             match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    return data_column.try_filter_to_partial_ref(|idx, cell, proof| {
-                        match cached_partial.as_data_column().sidecar.get(idx) {
+                    return data_column.try_filter_to_partial_view(|idx, cell, proof| {
+                        match cached_partial.sidecar().get(idx) {
                             None => Ok(true),
                             Some((cached_cell, cached_proof)) => {
                                 if cell == cached_cell && proof == cached_proof {
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
         // No cached data, all cells are "missing" (new data we want)
-        data_column.try_filter_to_partial_ref(|_, _, _| Ok(true))
+        data_column.try_filter_to_partial_view(|_, _, _| Ok(true))
     }
 
     /// Filter out all cells that are already cached for the given `block_root`.
@@ -243,9 +243,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
         partial_data_column: &'a PartialDataColumn<T::EthSpec>,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
-        let column_index = partial_data_column.index;
-        let block_root = partial_data_column.block_root;
+    ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
+        let column_index = *partial_data_column.index();
+        let block_root = *partial_data_column.block_root();
 
         // Check DA checker cache first - if we have a full column cached, nothing is missing.
         if self
@@ -261,9 +261,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler {
             match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    return Ok(partial_data_column.sidecar.filter(|idx| {
-                        cached_partial.as_data_column().sidecar.get(idx).is_none()
-                    })?);
+                    return Ok(partial_data_column
+                        .sidecar()
+                        .filter(|idx| cached_partial.sidecar().get(idx).is_none())?);
                 }
                 // This can happen if the column has been marked as completed already but has not
                 // reached the availability cache yet.
@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
         // No cached data, all cells are "missing" (new data we want)
-        Ok(partial_data_column.sidecar.filter(|_| true)?)
+        Ok(partial_data_column.sidecar().filter(|_| true)?)
     }
 
     /// Get a blob from the availability cache.

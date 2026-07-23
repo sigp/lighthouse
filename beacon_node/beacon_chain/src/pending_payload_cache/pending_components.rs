@@ -1,7 +1,9 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::data_column_verification::{
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas,
+};
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::AvailableExecutedEnvelope;
@@ -11,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
+use types::data::PartialDataColumnGloas;
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
@@ -25,6 +28,9 @@ pub struct PendingComponents<E: EthSpec> {
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
+    /// Set once we have fetched the blobs locally (via `getBlobs` from the EL). Suppresses
+    /// requesting partials that would race with the local fetch.
+    pub has_local_blobs: bool,
     pub(crate) span: Span,
 }
 
@@ -63,6 +69,17 @@ impl<E: EthSpec> PendingComponents<E> {
             .collect()
     }
 
+    /// Returns all partial (complete and incomplete) columns currently in the cache, suitable for
+    /// re-publishing.
+    pub(crate) fn get_cached_partial_data_columns(&self) -> Vec<PartialDataColumnGloas<E>> {
+        let block_root = self.block_root;
+        let slot = self.bid.message.slot;
+        self.verified_data_columns
+            .iter()
+            .filter_map(|(idx, col)| col.to_partial(*idx, slot, block_root))
+            .collect()
+    }
+
     /// Merges a given set of data columns into the cache.
     pub(crate) fn merge_data_columns(
         &mut self,
@@ -89,7 +106,57 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    // TODO(gloas): merge partial columns
+    /// Merges a given set of partial data columns into the cache.
+    pub(crate) fn merge_partial_data_columns(
+        &mut self,
+        kzg_verified_partial_data_columns: &[KzgVerifiedCustodyPartialDataColumnGloas<E>],
+    ) -> PartialColumnsMergeOutcome {
+        let num_blobs_expected = self.bid.num_blobs_expected();
+        let mut outcome = PartialColumnsMergeOutcome::default();
+        for partial in kzg_verified_partial_data_columns {
+            let col_index = partial.index();
+            let sidecar = partial.sidecar();
+            let bitmap = sidecar.cells_present_bitmap();
+            let column = sidecar.column();
+            let proofs = sidecar.kzg_proofs();
+
+            let col = self
+                .verified_data_columns
+                .entry(col_index)
+                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
+
+            if col.is_complete() {
+                // Nothing to do.
+                continue;
+            }
+
+            let mut storage_idx = 0;
+            let mut inserted_cells = 0;
+            for (blob_idx, present) in bitmap.iter().enumerate() {
+                if !present {
+                    continue;
+                }
+                let (Some(cell), Some(proof)) = (column.get(storage_idx), proofs.get(storage_idx))
+                else {
+                    break;
+                };
+                if col.insert(blob_idx, cell, proof) {
+                    inserted_cells += 1;
+                }
+                storage_idx += 1;
+            }
+
+            if inserted_cells > 0 {
+                outcome.added_cells += inserted_cells;
+                outcome.updated.push(col_index);
+            }
+
+            if col.is_complete() {
+                outcome.newly_complete.push(col_index);
+            }
+        }
+        outcome
+    }
 
     /// Inserts an executed payload envelope into the cache.
     pub fn insert_executed_payload_envelope(
@@ -176,6 +243,7 @@ impl<E: EthSpec> PendingComponents<E> {
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
+            has_local_blobs: false,
             span,
         }
     }
@@ -192,6 +260,17 @@ impl<E: EthSpec> PendingComponents<E> {
             num_columns_required
         )
     }
+}
+
+/// Outcome of merging partial data columns into the cache.
+#[derive(Default)]
+pub(crate) struct PartialColumnsMergeOutcome {
+    /// Number of cells newly inserted by the merge (cells already present don't count).
+    pub added_cells: usize,
+    /// Indices of columns that gained at least one new cell.
+    pub updated: Vec<ColumnIndex>,
+    /// Indices of columns that became fully populated as a result of the merge.
+    pub newly_complete: Vec<ColumnIndex>,
 }
 
 // This enum is only used internally within the crate in the reconstruction function to improve
