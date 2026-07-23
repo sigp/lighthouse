@@ -1030,9 +1030,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return None;
             }
         };
-        let mut slot_assignments = self.canonical_head.slot_assignments.lock();
-        match SlotAssignments::new(&head_state, &self.spec, Some(&slot_assignments)) {
-            Ok(rebuilt) => *slot_assignments = rebuilt,
+
+        // `SlotAssignments::new` might recompute a shuffling, so we avoid
+        // holding the lock during this calculation.
+        let prev_assignments = self.canonical_head.slot_assignments.lock().clone();
+        let rebuilt = match SlotAssignments::new(&head_state, &self.spec, Some(&prev_assignments)) {
+            Ok(rebuilt) => rebuilt,
             Err(e) => {
                 metrics::inc_counter_vec(
                     &metrics::SLOT_ASSIGNMENTS_ERRORS,
@@ -1041,8 +1044,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!("Error rebuilding slot assignments: {e:?}");
                 return None;
             }
-        }
-        Some((head_state, slot_assignments.clone()))
+        };
+        *self.canonical_head.slot_assignments.lock() = rebuilt.clone();
+        Some((head_state, rebuilt))
     }
 
     /// The current head state advanced to the current wall-clock epoch boundary with caches built.
