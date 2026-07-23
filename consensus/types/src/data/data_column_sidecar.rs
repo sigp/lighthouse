@@ -253,10 +253,8 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 index: gloas.index,
                 sidecar: PartialDataColumnSidecarGloas {
                     cells_present_bitmap: bitmap,
-                    column: VariableList::new(gloas.column.clone().into_vec())
-                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
-                    kzg_proofs: VariableList::new(gloas.kzg_proofs.clone().into_vec())
-                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+                    column: gloas.column.clone(),
+                    kzg_proofs: gloas.kzg_proofs.clone(),
                 },
             }),
         })

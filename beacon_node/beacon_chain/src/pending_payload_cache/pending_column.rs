@@ -1,5 +1,5 @@
 use kzg::KzgProof;
-use ssz_types::{ProgressiveVariableList, VariableList};
+use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
 use types::data::{CellBitmap, PartialDataColumnGloas, PartialDataColumnSidecarGloas};
 use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, EthSpec, Hash256, Slot};
@@ -80,8 +80,8 @@ impl<E: EthSpec> PendingColumn<E> {
             index,
             sidecar: PartialDataColumnSidecarGloas {
                 cells_present_bitmap: bitmap,
-                column: VariableList::try_from(column).ok()?,
-                kzg_proofs: VariableList::try_from(kzg_proofs).ok()?,
+                column: ProgressiveVariableList::new(column),
+                kzg_proofs: ProgressiveVariableList::new(kzg_proofs),
             },
         })
     }
