@@ -892,6 +892,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
         let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
+        let end_period = start_period.safe_add(count)?;
         for res in self
             .hot_db
             .iter_column_from::<Vec<u8>>(column, &start_period.to_be_bytes())
@@ -903,8 +904,6 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     .try_into()
                     .map_err(|e: TryFromSliceError| Error::InvalidKey(e.to_string()))?,
             );
-
-            let end_period = start_period.safe_add(count)?;
 
             if sync_committee_period >= end_period {
                 break;
