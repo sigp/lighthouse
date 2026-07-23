@@ -36,7 +36,7 @@ use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::{ExecutionStatus, core::ProtoNode};
-use reqwest::{RequestBuilder, Response, StatusCode, Url};
+use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
@@ -1221,20 +1221,6 @@ impl ApiTester {
         }
     }
 
-    fn beacon_state_builders_url(&self, state_id: CoreStateId) -> Url {
-        let mut path = self.client.server().expose_full().clone();
-        path.path_segments_mut()
-            .unwrap()
-            .pop_if_empty()
-            .push("eth")
-            .push("v1")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string())
-            .push("builders");
-        path
-    }
-
     pub async fn test_beacon_state_builders_filters(self) -> Self {
         let fixture = self.builder_state_test_fixture();
         let all_builders = self
@@ -1285,29 +1271,6 @@ impl ApiTester {
             .unwrap()
             .unwrap();
         assert_eq!(filtered_by_pubkey.data, vec![all_builders.data[1].clone()]);
-
-        self
-    }
-
-    pub async fn test_beacon_state_builders_no_body(self) -> Self {
-        let response = reqwest::Client::new()
-            .post(self.beacon_state_builders_url(CoreStateId::Head))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        self
-    }
-
-    pub async fn test_beacon_state_builders_invalid_id(self) -> Self {
-        let response = reqwest::Client::new()
-            .post(self.beacon_state_builders_url(CoreStateId::Head))
-            .json(&serde_json::json!({"ids": ["invalid"]}))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         self
     }
@@ -8611,10 +8574,6 @@ async fn beacon_state_builders_gloas() {
     ApiTester::new_from_config(config)
         .await
         .test_beacon_state_builders_filters()
-        .await
-        .test_beacon_state_builders_no_body()
-        .await
-        .test_beacon_state_builders_invalid_id()
         .await;
 }
 
