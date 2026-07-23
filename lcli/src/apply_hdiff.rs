@@ -51,11 +51,15 @@ fn run_inner<E: EthSpec>(
         .in_scope(|| hdiff.apply(&mut buffer, &config))
         .map_err(|e| format!("Failed to apply HDiff: {:?}", e))?;
 
-    let _result_state: BeaconState<E> = debug_span!("hdiff_buffer_to_state").in_scope(|| {
+    let mut result_state: BeaconState<E> = debug_span!("hdiff_buffer_to_state").in_scope(|| {
         buffer
             .as_state(spec)
             .map_err(|e| format!("Failed to convert HDiffBuffer to BeaconState: {:?}", e))
     })?;
+
+    debug_span!("state_apply_pending_mutations")
+        .in_scope(|| result_state.apply_pending_mutations())
+        .map_err(|e| format!("Failed to apply pending mutations: {:?}", e))?;
 
     log_hdiff_sizes(&hdiff);
 

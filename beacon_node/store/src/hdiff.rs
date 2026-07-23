@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
@@ -232,6 +231,22 @@ impl<E: EthSpec> HDiffBuffer<E> {
         Ok(state)
     }
 
+    /// Apply pending Milhouse updates staged by diff application to the backing trees.
+    pub fn apply_pending_updates(&mut self) -> Result<(), Error> {
+        self.balances.apply_updates().map_err(Error::Milhouse)?;
+        self.inactivity_scores
+            .apply_updates()
+            .map_err(Error::Milhouse)?;
+        self.validators.apply_updates().map_err(Error::Milhouse)?;
+        self.historical_roots
+            .apply_updates()
+            .map_err(Error::Milhouse)?;
+        self.historical_summaries
+            .apply_updates()
+            .map_err(Error::Milhouse)?;
+        Ok(())
+    }
+
     /// Byte size of this instance
     pub fn size(&self) -> usize {
         self.state.len()
@@ -310,6 +325,11 @@ impl HDiff {
             self.historical_summaries()
                 .apply(&mut source.historical_summaries)
         })?;
+
+        // Flush updates staged in the Milhouse lists into their backing trees, so that the
+        // resulting buffer can be cheaply cloned (structural sharing via `Arc`) and converted
+        // to a state without any pending mutations.
+        debug_span!("apply_pending_updates").in_scope(|| source.apply_pending_updates())?;
 
         Ok(())
     }
@@ -606,28 +626,17 @@ impl ValidatorsDiff {
             .decompress_bytes(&self.bytes)
             .map_err(Error::Compression)?;
 
-        // Parse all diff entries from SSZ bytes.
         let entry_size = <ValidatorDiffEntry as Decode>::ssz_fixed_len();
-        let entries: Vec<ValidatorDiffEntry> = validator_diff_bytes
-            .chunks(entry_size)
-            .map(|diff_bytes| {
-                ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
-                    .map_err(|_| Error::BalancesIncompleteChunk)
-            })
-            .collect::<Result<_, _>>()?;
 
-        // Build a BTreeMap of updates for bulk application.
-        let mut updates = BTreeMap::new();
-
-        for ValidatorDiffEntry {
-            index,
-            validator_diff: diff,
-        } in entries
-        {
+        for diff_bytes in validator_diff_bytes.chunks(entry_size) {
+            let ValidatorDiffEntry {
+                index,
+                validator_diff: diff,
+            } = ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
+                .map_err(|_| Error::BalancesIncompleteChunk)?;
             let idx = index as usize;
 
-            if let Some(x) = xs.get(idx) {
-                let mut x = x.clone();
+            if let Some(x) = xs.get_mut(idx) {
                 // Note: a pubkey change implies index re-use. In that case over-write
                 // withdrawal_credentials and slashed inconditionally as their default values
                 // are valid values.
@@ -656,14 +665,10 @@ impl ValidatorsDiff {
                 if diff.withdrawable_epoch != Epoch::new(0) {
                     x.withdrawable_epoch = diff.withdrawable_epoch;
                 }
-                updates.insert(idx, x);
             } else {
-                updates.insert(idx, diff);
+                xs.push(diff).map_err(Error::Milhouse)?;
             }
         }
-
-        xs.apply_updates().map_err(Error::Milhouse)?;
-        xs.bulk_update(updates).map_err(Error::Milhouse)?;
 
         Ok(())
     }
