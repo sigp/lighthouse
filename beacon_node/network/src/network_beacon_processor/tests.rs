@@ -42,10 +42,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MainnetEthSpec,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
 use types::{ExecutionRequestsGloas, data::BlobIdentifier};
 
@@ -613,6 +614,48 @@ impl TestRig {
                 junk_peer_id(),
                 aggregate,
                 Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
+    /// member of the PTC for its slot.
+    pub fn enqueue_next_block_payload_attestation(&self) {
+        let slot = self.next_block.slot();
+        let beacon_block_root = self.next_block.canonical_root();
+        let head = self.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+
+        let ptc = state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC");
+        let validator_index = *ptc.0.first().expect("PTC should not be empty") as u64;
+
+        let data = PayloadAttestationData {
+            beacon_block_root,
+            slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let domain = self.chain.spec.get_domain(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = self._harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(data.signing_root(domain));
+
+        self.network_beacon_processor
+            .send_gossip_payload_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(PayloadAttestationMessage {
+                    validator_index,
+                    data,
+                    signature,
+                }),
             )
             .unwrap();
     }
@@ -1393,6 +1436,158 @@ async fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
 #[tokio::test]
 async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
     aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc).await
+}
+
+async fn payload_attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // The gossipsub validation result should be withheld while the payload attestation is
+    // queued for re-processing.
+    assert!(
+        rig.receive_network_messages_with_timeout(Duration::from_millis(100), None)
+            .await
+            .is_none(),
+        "no validation result should be sent while the payload attestation is queued"
+    );
+
+    // Send the block and ensure that the payload attestation is received back and imported.
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
+        BlockImportMethod::Gossip => {
+            rig.enqueue_gossip_block();
+            events.push(WorkType::GossipBlock);
+            for i in 0..num_data_columns {
+                rig.enqueue_gossip_data_columns(i);
+                events.push(WorkType::GossipDataColumnSidecar);
+            }
+        }
+        BlockImportMethod::Rpc => {
+            rig.enqueue_lookup_block();
+            events.push(WorkType::RpcBlock);
+            if num_data_columns > 0 {
+                rig.enqueue_single_lookup_rpc_data_columns();
+                events.push(WorkType::RpcCustodyColumn);
+            }
+        }
+    };
+
+    events.push(WorkType::UnknownBlockPayloadAttestation);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages + 1,
+        "Payload attestation should have been included."
+    );
+
+    // The re-processed payload attestation should have been propagated with an `Accept`
+    // validation result.
+    let messages = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(100), None)
+        .await
+        .expect("should receive validation results after block import");
+    let accepts_count = messages
+        .iter()
+        .filter(|msg| {
+            matches!(
+                msg,
+                NetworkMessage::ValidationResult {
+                    validation_result: MessageAcceptance::Accept,
+                    ..
+                }
+            )
+        })
+        .count();
+    let expected_accepts_count = match import_method {
+        // The gossip block import also propagates an `Accept` for the block itself.
+        BlockImportMethod::Gossip => 2,
+        // RPC blocks never touch gossipsub, so the only `Accept` is the re-processed
+        // payload attestation's.
+        BlockImportMethod::Rpc => 1,
+    };
+    assert_eq!(
+        accepts_count, expected_accepts_count,
+        "re-processed payload attestation should be propagated"
+    );
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_gossip_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Gossip).await
+}
+
+#[tokio::test]
+async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
+    payload_attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
+}
+
+/// Ensure that a payload attestation referencing an unknown block gets re-queued and, when the
+/// block is never seen, is received back on timeout without being imported.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // Send the payload attestation but not the block, and check that it was not imported.
+
+    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+
+    rig.enqueue_next_block_payload_attestation();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
+        .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
+
+    // Ensure that the payload attestation is received back on timeout but not imported.
+
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::UnknownBlockPayloadAttestation.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
+    )
+    .await;
+
+    assert_eq!(
+        rig.chain.op_pool.num_payload_attestation_messages(),
+        initial_messages,
+        "Payload attestation should not have been included."
+    );
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed

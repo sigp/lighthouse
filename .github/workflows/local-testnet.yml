@@ -220,7 +220,7 @@ jobs:
     needs: dockerfile-ubuntu
     strategy:
       matrix:
-        fork: [electra, fulu]
+        fork: [fulu, gloas]
         offline_secs: [120, 300]
     steps:
       - uses: actions/checkout@v5
