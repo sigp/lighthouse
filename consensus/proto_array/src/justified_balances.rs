@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use safe_arith::{ArithError, SafeArith};
 use types::{BeaconState, EthSpec};
 
@@ -12,6 +14,9 @@ pub struct JustifiedBalances {
     pub total_effective_balance: u64,
     /// The number of active validators included in `self.effective_balances`.
     pub num_active_validators: u64,
+    /// A mapping from a slashed validator index to its effective balance active at the current
+    /// epoch.
+    pub slashed_balances: BTreeMap<u64, u64>,
 }
 
 impl JustifiedBalances {
@@ -19,17 +24,22 @@ impl JustifiedBalances {
         let current_epoch = state.current_epoch();
         let mut total_effective_balance = 0u64;
         let mut num_active_validators = 0u64;
+        let mut slashed_balances = BTreeMap::new();
 
         let effective_balances = state
             .validators()
             .iter()
-            .map(|validator| {
+            .enumerate()
+            .map(|(i, validator)| {
                 if !validator.slashed && validator.is_active_at(current_epoch) {
                     total_effective_balance.safe_add_assign(validator.effective_balance)?;
                     num_active_validators.safe_add_assign(1)?;
 
                     Ok(validator.effective_balance)
                 } else {
+                    if validator.slashed && validator.is_active_at(current_epoch) {
+                        slashed_balances.insert(i as u64, validator.effective_balance);
+                    }
                     Ok(0)
                 }
             })
@@ -39,6 +49,7 @@ impl JustifiedBalances {
             effective_balances,
             total_effective_balance,
             num_active_validators,
+            slashed_balances,
         })
     }
 
