@@ -969,53 +969,20 @@ async fn invalid_signature_attester_slashing() {
             .as_ref()
             .clone()
             .deconstruct();
-        match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_base().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Altair(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_base().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Bellatrix(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_base().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Capella(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_base().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Deneb(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_base().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Electra(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Fulu(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Gloas(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
-            BeaconBlockBodyRefMut::Heze(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
+        if fork_name.electra_enabled() {
+            block
+                .body_mut()
+                .attester_slashings_electra_mut()
+                .unwrap()
+                .push(attester_slashing.as_electra().unwrap().clone())
+        } else {
+            block
+                .body_mut()
+                .attester_slashings_base_mut()
+                .unwrap()
+                .push(attester_slashing.as_base().unwrap().clone())
         }
+        .expect("should update attester slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_envelope_block_root(&mut snapshots[block_index]);
@@ -1047,44 +1014,9 @@ async fn invalid_signature_attestation() {
             .as_ref()
             .clone()
             .deconstruct();
-        match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Altair(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Bellatrix(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Capella(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Deneb(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Electra(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Fulu(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Gloas(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Heze(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-        };
+        if let Some(mut att) = block.body_mut().attestations_mut().next() {
+            *att.signature_mut() = junk_aggregate_signature();
+        }
 
         if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =
