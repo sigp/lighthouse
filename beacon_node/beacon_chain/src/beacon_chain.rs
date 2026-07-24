@@ -115,6 +115,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
+use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -483,7 +484,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
-    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -1449,12 +1450,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         sync_committee_period: u64,
         count: u64,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
-        self.light_client_server_cache.get_light_client_updates(
-            &self.store,
-            sync_committee_period,
-            count,
-            &self.spec,
-        )
+        Ok(self
+            .store
+            .get_light_client_updates(sync_committee_period, count)?)
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -2382,16 +2380,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_data_column_sidecar_for_gossip(
+    pub async fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
-        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        let chain = self.clone();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                    let _timer = metrics::start_timer(
+                        &metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                    );
+                    GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, &chain).inspect(
+                        |_| {
+                            metrics::inc_counter(
+                                &metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                            );
+                        },
+                    )
+                },
+                "gossip_data_column_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 
     pub fn verify_partial_data_column_header_for_gossip(
@@ -3730,7 +3745,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)
@@ -5057,16 +5072,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (
@@ -6543,14 +6561,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
-            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
                     proposer_index: proposer,
                     parent_block_root: head_root,
-                    parent_block_number,
+                    parent_block_number: pre_payload_attributes
+                        .parent_block_number
+                        .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                     payload_attributes: payload_attributes.into(),
                 },

@@ -26,6 +26,7 @@ use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
+    chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
@@ -50,7 +51,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
-    bid_cache: GossipVerifiedPayloadBidCache<T>,
+    bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
@@ -147,8 +148,15 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
+        let canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            PayloadStatus::Pending,
+            FastConfirmationMode::Disabled,
+            &store,
+            &spec,
+        )
+        .unwrap();
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -276,10 +284,11 @@ fn make_signed_preferences(
     validator_index: u64,
     fee_recipient: Address,
     target_gas_limit: u64,
+    dependent_root: Hash256,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index,
             fee_recipient,
@@ -290,8 +299,25 @@ fn make_signed_preferences(
 }
 
 fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_limit: u64) {
+    // Key the preferences by the same dependent root that gossip verification will compute from
+    // the head state, otherwise the lookup misses and verification returns `NoProposerPreferences`.
+    let cached_head = ctx.canonical_head.cached_head();
+    let head_state = &cached_head.snapshot.beacon_state;
+    let dependent_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            slot.epoch(E::slots_per_epoch()),
+            cached_head.head_block_root(),
+            &ctx.spec,
+        )
+        .expect("should compute proposer shuffling decision root");
     let prefs = GossipVerifiedProposerPreferences {
-        signed_preferences: make_signed_preferences(slot, 0, fee_recipient, gas_limit),
+        signed_preferences: make_signed_preferences(
+            slot,
+            0,
+            fee_recipient,
+            gas_limit,
+            dependent_root,
+        ),
     };
     ctx.preferences_cache.insert_preferences(prefs);
 }

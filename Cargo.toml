@@ -47,6 +47,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
+    "consensus/fast_confirmation",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",
@@ -91,7 +92,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.2.0"
+version = "8.2.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -146,6 +147,7 @@ ethereum_serde_utils = "0.8.0"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }
+fast_confirmation = { path = "consensus/fast_confirmation" }
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
 fnv = "1"
@@ -281,6 +283,6 @@ debug = true
 warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
 
 [patch."https://github.com/libp2p/rust-libp2p.git"]
-libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "3563de5ed20e509885592b391aa816992eef55d4" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "3563de5ed20e509885592b391aa816992eef55d4" }
-libp2p-quic = { git = "https://github.com/sigp/rust-libp2p.git", rev = "3563de5ed20e509885592b391aa816992eef55d4" }
+libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
+libp2p-quic = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }

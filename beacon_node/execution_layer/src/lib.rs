@@ -406,6 +406,10 @@ impl ProposerPreparationDataEntry {
     }
 }
 
+// NOTE: This key should arguably include the `suggested_fee_recipient`, as it is part of the
+// `Proposer::payload_attributes` value that is cached based on it. However, in some cases where
+// this key is constructed the fee recipient is not straight-forward to determine. Therefore we
+// accept the risk of loading a stale fee recipient within the timespan of a single slot.
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
@@ -1118,7 +1122,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
