@@ -91,17 +91,26 @@ impl Drop for TestRig {
     }
 }
 
+pub struct TestRigParams {
+    chain_length: u64,
+    beacon_processor_config: BeaconProcessorConfig,
+    node_custody_type: NodeCustodyType,
+    generate_blobs: bool,
+    spec: ChainSpec,
+}
+
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(
+        Self::new_parametric(TestRigParams {
             chain_length,
-            BeaconProcessorConfig::default(),
-            NodeCustodyType::Fullnode,
+            beacon_processor_config: BeaconProcessorConfig::default(),
+            node_custody_type: NodeCustodyType::Fullnode,
+            generate_blobs: true,
             spec,
-        )
+        })
         .await
     }
 
@@ -109,12 +118,13 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(
+        Self::new_parametric(TestRigParams {
             chain_length,
-            BeaconProcessorConfig::default(),
-            NodeCustodyType::Supernode,
+            beacon_processor_config: BeaconProcessorConfig::default(),
+            node_custody_type: NodeCustodyType::Supernode,
+            generate_blobs: true,
             spec,
-        )
+        })
         .await
     }
 
@@ -151,12 +161,15 @@ impl TestRig {
         Self::from_harness(harness, beacon_processor_config, spec).await
     }
 
-    pub async fn new_parametric(
-        chain_length: u64,
-        beacon_processor_config: BeaconProcessorConfig,
-        node_custody_type: NodeCustodyType,
-        spec: ChainSpec,
-    ) -> Self {
+    pub async fn new_parametric(params: TestRigParams) -> Self {
+        let TestRigParams {
+            chain_length,
+            beacon_processor_config,
+            node_custody_type,
+            generate_blobs,
+            spec,
+        } = params;
+
         let spec = Arc::new(spec);
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -166,6 +179,10 @@ impl TestRig {
             .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
+
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(generate_blobs);
 
         harness.advance_slot();
 
@@ -1043,7 +1060,7 @@ async fn data_column_reconstruction_at_next_slot() {
 /// Blocks that arrive early should be queued for later processing.
 #[tokio::test]
 async fn import_gossip_block_acceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = new_rig_disable_blobs_pre_fulu().await;
 
     let slot_start = rig
         .chain
@@ -1191,7 +1208,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
 /// Blocks that arrive on-time should be processed normally.
 #[tokio::test]
 async fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = new_rig_disable_blobs_pre_fulu().await;
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -1216,6 +1233,26 @@ async fn import_gossip_block_at_current_slot() {
         rig.next_block.canonical_root(),
         "block should be imported and become head"
     );
+}
+
+fn fork_from_env_starts_at_fulu_or_later(spec: &ChainSpec) -> bool {
+    spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+}
+
+/// Initialise a test rig with blobs disabled when the fork-from-env spec starts pre-Fulu.
+/// This is used for pre-Fulu tests, where importing gossip & rpc lookup blobs is no longer supported.
+async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
+    let spec = test_spec::<E>();
+    let enable_blobs = fork_from_env_starts_at_fulu_or_later(&spec);
+
+    TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config: Default::default(),
+        node_custody_type: Default::default(),
+        generate_blobs: enable_blobs,
+        spec,
+    })
+    .await
 }
 
 /// Ensure a valid attestation can be imported.
@@ -1245,7 +1282,11 @@ enum BlockImportMethod {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = if matches!(import_method, BlockImportMethod::Gossip) {
+        new_rig_disable_blobs_pre_fulu().await
+    } else {
+        TestRig::new(SMALL_CHAIN).await
+    };
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -1318,7 +1359,11 @@ async fn attestation_to_unknown_block_processed_after_rpc_block() {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = if matches!(import_method, BlockImportMethod::Gossip) {
+        new_rig_disable_blobs_pre_fulu().await
+    } else {
+        TestRig::new(SMALL_CHAIN).await
+    };
 
     // Empty the op pool.
     rig.chain.op_pool.prune_attestations(u64::MAX.into());
@@ -1772,12 +1817,13 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         enable_backfill_rate_limiting: false,
         ..Default::default()
     };
-    let mut rig = TestRig::new_parametric(
-        SMALL_CHAIN,
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
         beacon_processor_config,
-        NodeCustodyType::Fullnode,
-        test_spec::<E>(),
-    )
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec: test_spec::<E>(),
+    })
     .await;
 
     for i in 0..3 {
@@ -1858,12 +1904,13 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
     // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
-    let mut rig = TestRig::new_parametric(
-        62,
-        BeaconProcessorConfig::default(),
-        NodeCustodyType::Fullnode,
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: 62,
+        beacon_processor_config: BeaconProcessorConfig::default(),
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
         spec,
-    )
+    })
     .await;
 
     let start_slot = 16;
