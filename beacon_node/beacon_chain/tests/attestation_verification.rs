@@ -2180,13 +2180,17 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     let (mut valid_aggregate, _, _) =
         get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
 
-    valid_aggregate
-        .as_electra_mut()
-        .unwrap()
-        .message
-        .aggregate
-        .data
-        .index = 1;
+    match valid_aggregate.to_mut() {
+        SignedAggregateAndProofRefMut::Base(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Electra(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Gloas(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+    }
 
     let result = harness
         .chain
