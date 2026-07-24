@@ -98,7 +98,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use builder_client::Builders;
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
+    EventKind, InclusionListDuty, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
     SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
@@ -1786,6 +1786,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }))
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((duties, dependent_root))
+    }
+
+    /// Get inclusion list committee duties for validators at a given epoch ([New in Heze:EIP7805]).
+    pub fn compute_inclusion_list_duties(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        dependent_block_root: Hash256,
+    ) -> Result<(Vec<Option<InclusionListDuty>>, Hash256), Error> {
+        // The committee cache only covers previous, current, and next epochs.
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
+            .map_err(Error::IncorrectStateForAttestation)?;
+
+        // The inclusion list committee is derived purely from the beacon committees, so its
+        // duties become stable at the attester shuffling decision block.
+        let dependent_root =
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+
+        // Walk the epoch's slots once, deriving each slot's committee and its root. A validator
+        // belongs to exactly one beacon committee per epoch, so it has at most one duty slot;
+        // duplicates from committee wrap-around always point at the same slot.
+        let mut assignments: HashMap<u64, (Slot, Hash256)> = HashMap::new();
+        for slot in epoch.slot_iter(T::EthSpec::slots_per_epoch()) {
+            let committee = state.get_inclusion_list_committee(slot)?;
+            let committee_root = committee.tree_hash_root();
+            for validator_index in &committee {
+                assignments
+                    .entry(*validator_index)
+                    .or_insert((slot, committee_root));
+            }
+        }
+
+        let pubkey_cache = self.validator_pubkey_cache.read();
+
+        let duties = validator_indices
+            .iter()
+            .map(|&validator_index| {
+                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                    return None;
+                };
+                assignments
+                    .get(&validator_index)
+                    .map(|&(slot, inclusion_list_committee_root)| InclusionListDuty {
+                        pubkey,
+                        validator_index,
+                        slot,
+                        inclusion_list_committee_root,
+                    })
+            })
+            .collect::<Vec<_>>();
 
         Ok((duties, dependent_root))
     }
