@@ -1517,7 +1517,7 @@ impl HttpJsonRpc {
                 }
             }
         } else if engine_capabilities.forkchoice_updated_v4 {
-            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes, custody_columns)
                 .await
         } else if engine_capabilities.forkchoice_updated_v3 {
             self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
