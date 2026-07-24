@@ -51,9 +51,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
-#[cfg(feature = "arbitrary")]
-use ssz_types::ProgressiveVariableList;
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
@@ -2535,7 +2533,14 @@ where
                 epoch: source1.unwrap_or(Epoch::new(0)),
             },
         };
-        let mut attestation_1 = if fork_name.electra_enabled() {
+        let mut attestation_1 = if fork_name.gloas_enabled() {
+            IndexedAttestation::Gloas(IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices),
+                data,
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            })
+        } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
                 data,
@@ -2610,7 +2615,12 @@ where
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -2644,7 +2654,26 @@ where
             },
         };
 
-        let (mut attestation_1, mut attestation_2) = if fork_name.electra_enabled() {
+        let (mut attestation_1, mut attestation_2) = if fork_name.gloas_enabled() {
+            let attestation_1 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_1),
+                data: data.clone(),
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            };
+
+            let attestation_2 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_2),
+                data,
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            };
+
+            (
+                IndexedAttestation::Gloas(attestation_1),
+                IndexedAttestation::Gloas(attestation_2),
+            )
+        } else if fork_name.electra_enabled() {
             let attestation_1 = IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
@@ -2739,7 +2768,12 @@ where
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),

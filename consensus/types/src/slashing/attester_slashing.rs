@@ -191,35 +191,23 @@ impl<E: EthSpec> AttesterSlashing<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<AttesterSlashing<E>> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for AttesterSlashing<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         if context.gloas_enabled() {
-            <Vec<AttesterSlashingGloas<E>>>::deserialize(deserializer)
+            AttesterSlashingGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
-                .map(|vec| {
-                    vec.into_iter()
-                        .map(AttesterSlashing::Gloas)
-                        .collect::<Vec<_>>()
-                })
+                .map(AttesterSlashing::Gloas)
         } else if context.electra_enabled() {
-            <Vec<AttesterSlashingElectra<E>>>::deserialize(deserializer)
+            AttesterSlashingElectra::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
-                .map(|vec| {
-                    vec.into_iter()
-                        .map(AttesterSlashing::Electra)
-                        .collect::<Vec<_>>()
-                })
+                .map(AttesterSlashing::Electra)
         } else {
-            <Vec<AttesterSlashingBase<E>>>::deserialize(deserializer)
+            AttesterSlashingBase::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
-                .map(|vec| {
-                    vec.into_iter()
-                        .map(AttesterSlashing::Base)
-                        .collect::<Vec<_>>()
-                })
+                .map(AttesterSlashing::Base)
         }
     }
 }
