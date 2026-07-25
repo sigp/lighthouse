@@ -275,6 +275,7 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
 
         client_config.monitoring_api = Some(monitoring_api::Config {
+            data_dir: Some(client_config.get_data_dir()),
             db_path: None,
             freezer_db_path: None,
             update_period_secs,
