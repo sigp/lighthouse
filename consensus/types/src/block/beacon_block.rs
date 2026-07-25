@@ -1303,22 +1303,12 @@ mod tests {
                 slot: heze_slot,
                 ..<_>::arbitrary(&mut u).unwrap()
             });
-            let _bad_block = {
-                let mut bad = good_block.clone();
-                *bad.slot_mut() = gloas_slot;
-                bad
-            };
 
             assert_eq!(
                 BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
                     .expect("good heze block can be decoded"),
                 good_block
             );
-
-            // TODO(heze): Uncomment once Heze has features since without features
-            // and with a Gloas slot it decodes successfully to Gloas.
-            //BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
-            //    .expect_err("bad heze block cannot be decoded");
         }
     }
 }
