@@ -14,6 +14,7 @@ use fork_choice::{
     InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -390,27 +391,41 @@ impl ForkChoiceTest {
             .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
+        let current_epoch = state.current_epoch();
+        let mut num_active_validators = 0u64;
+        let mut slashed_balances = BTreeMap::new();
         let balances = state
             .validators()
             .into_iter()
-            .map(|v| {
-                if v.is_active_at(state.current_epoch()) {
+            .enumerate()
+            .map(|(i, v)| {
+                if !v.slashed && v.is_active_at(current_epoch) {
+                    num_active_validators += 1;
                     v.effective_balance
                 } else {
+                    if v.slashed && v.is_active_at(current_epoch) {
+                        slashed_balances.insert(i as u64, v.effective_balance);
+                    }
                     0
                 }
             })
             .collect::<Vec<_>>();
 
+        let justified_balances = fc.fc_store().justified_balances();
         assert_eq!(
             &balances[..],
-            &fc.fc_store().justified_balances().effective_balances,
+            &justified_balances.effective_balances,
             "balances should match"
         );
         assert_eq!(
             balances.iter().sum::<u64>(),
-            fc.fc_store().justified_balances().total_effective_balance
+            justified_balances.total_effective_balance
         );
+        assert_eq!(
+            num_active_validators,
+            justified_balances.num_active_validators
+        );
+        assert_eq!(slashed_balances, justified_balances.slashed_balances);
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -622,6 +637,32 @@ async fn justified_balances() {
         .await
         .assert_justified_epoch(2)
         .check_justified_balances()
+}
+
+/// Check that the balances are obtained correctly when the justified state contains a slashed
+/// validator.
+///
+/// The slashing must be included well before the justified epoch's boundary: the balances cache
+/// builds its entry from the first state processed in an epoch, so a slashing included intra-epoch
+/// (e.g. just after a skipped boundary slot) produces cached balances that differ from the
+/// checkpoint state itself.
+#[tokio::test]
+async fn justified_balances_with_attester_slashing() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(2 * E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert_eq!(slashed_balances.len(), 1, "one attester was slashed");
+    test.check_justified_balances();
 }
 
 macro_rules! assert_invalid_block {
