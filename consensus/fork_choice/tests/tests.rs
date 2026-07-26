@@ -646,10 +646,8 @@ async fn justified_balances() {
 /// Check that the balances are obtained correctly when the justified state contains a slashed
 /// validator.
 ///
-/// TODO(9691) The slashing must be included well before the justified epoch's boundary: the balances cache
-/// builds its entry from the first state processed in an epoch, so a slashing included intra-epoch
-/// (e.g. just after a skipped boundary slot) produces cached balances that differ from the
-/// checkpoint state itself.
+/// The slashing is included two epochs before the head so that it is present in the justified
+/// checkpoint state.
 #[tokio::test]
 async fn justified_balances_with_attester_slashing() {
     let test = ForkChoiceTest::new()
@@ -666,6 +664,32 @@ async fn justified_balances_with_attester_slashing() {
     let slashed_balances =
         test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
     assert_eq!(slashed_balances.len(), 1, "one attester was slashed");
+    test.check_justified_balances();
+}
+
+/// Regression test for a slashing included just after a skipped epoch boundary slot (#9691).
+///
+/// The slashing postdates the justified checkpoint state, so it must not appear in the justified
+/// balances even though it is present in the state that populates the balances cache entry.
+#[tokio::test]
+async fn justified_balances_with_slashing_after_skipped_boundary() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert!(
+        slashed_balances.is_empty(),
+        "the slashing postdates the justified checkpoint state"
+    );
     test.check_justified_balances();
 }
 
