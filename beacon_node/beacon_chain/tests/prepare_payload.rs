@@ -217,12 +217,7 @@ async fn prepare_payload_generic(
     // TODO(gloas): try a case where head is empty even though envelope is processed
     if parent_payload_status == PayloadStatus::Full {
         harness
-            .process_envelope(
-                block_root.into(),
-                envelope.clone(),
-                &parent_block_state,
-                block_contents.0.state_root(),
-            )
+            .process_envelope(block_root.into(), envelope.clone())
             .await;
     }
 

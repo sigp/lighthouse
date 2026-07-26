@@ -1112,7 +1112,7 @@ impl TestRig {
         let child_slot = external_harness.get_current_slot();
 
         // C: EMPTY child of A. Built before A's envelope is imported, so its bid points at G.
-        let (c_contents, c_envelope, c_state) = external_harness
+        let (c_contents, c_envelope, _c_state) = external_harness
             .make_block_with_envelope(a_state.clone(), child_slot)
             .await;
         let c_block = c_contents.0.clone();
@@ -1120,12 +1120,10 @@ impl TestRig {
 
         // Import A's envelope so the next child sees A as full.
         let a_envelope = a_envelope.expect("A should have envelope");
-        external_harness
-            .process_envelope(a_root, a_envelope, &a_state, a_block.state_root())
-            .await;
+        external_harness.process_envelope(a_root, a_envelope).await;
 
         // B: FULL child of A. Built after A's envelope is imported, so its bid points at A.
-        let (b_contents, b_envelope, b_state) = external_harness
+        let (b_contents, b_envelope, _b_state) = external_harness
             .make_block_with_envelope(a_state.clone(), child_slot)
             .await;
         let b_block = b_contents.0.clone();
@@ -1149,18 +1147,14 @@ impl TestRig {
             .await
             .unwrap();
         if let Some(c_envelope) = c_envelope {
-            external_harness
-                .process_envelope(c_root, c_envelope, &c_state, c_block.state_root())
-                .await;
+            external_harness.process_envelope(c_root, c_envelope).await;
         }
         external_harness
             .process_block(child_slot, b_root, b_contents)
             .await
             .unwrap();
         if let Some(b_envelope) = b_envelope {
-            external_harness
-                .process_envelope(b_root, b_envelope, &b_state, b_block.state_root())
-                .await;
+            external_harness.process_envelope(b_root, b_envelope).await;
         }
 
         // Cache every block through the single `get_full_block` + `insert_external_block2` path.
@@ -1359,7 +1353,6 @@ impl TestRig {
                 .unwrap_or_else(|| panic!("No block at slot {slot}"))
                 .clone();
             let block_root = rpc_block.canonical_root();
-            let block_state_root = rpc_block.as_block().state_root();
             let envelope = envelope_of(&rpc_block);
             self.harness
                 .chain
@@ -1374,14 +1367,8 @@ impl TestRig {
                 .unwrap();
             // Gloas: import the payload envelope so the block counts as full for its children.
             if let Some(envelope) = envelope {
-                let state = self
-                    .harness
-                    .chain
-                    .get_state(&block_state_root, Some(Slot::new(slot)), false)
-                    .expect("should load state")
-                    .expect("state should exist");
                 self.harness
-                    .process_envelope(block_root, (*envelope).clone(), &state, block_state_root)
+                    .process_envelope(block_root, (*envelope).clone())
                     .await;
             }
         }
