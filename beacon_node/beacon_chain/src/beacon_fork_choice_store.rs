@@ -60,28 +60,16 @@ pub struct BalancesCache {
 }
 
 impl BalancesCache {
-    /// Inspect the given `state` and determine the root of the block at the first slot of
-    /// `state.current_epoch`. If there is not already some entry for the given block root, then
-    /// add the effective balances from the `state` to the cache.
-    pub fn process_state<E: EthSpec>(
+    /// Add an entry for the given epoch boundary block root, built from `state`.
+    ///
+    /// The caller must pass a `state` at the epoch boundary slot, so that the cached balances
+    /// match the checkpoint state exactly (see `on_verified_block`).
+    pub fn insert<E: EthSpec>(
         &mut self,
-        block_root: Hash256,
+        epoch_boundary_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
         let epoch = state.current_epoch();
-        let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
-        let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
-            block_root
-        } else {
-            // This call remains sensible as long as `state.block_roots` is larger than a single
-            // epoch.
-            *state.get_block_root(epoch_boundary_slot)?
-        };
-
-        // Check if there already exists a cache entry for the epoch boundary block of the current
-        // epoch. We rely on the invariant that effective balances do not change for the duration
-        // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
-        // still update its cache entry from any subsequent state in that epoch.
         if self.position(epoch_boundary_root, epoch).is_none() {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
@@ -274,7 +262,37 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Self::Error> {
-        self.balances_cache.process_state(block_root, state)
+        let epoch = state.current_epoch();
+        let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
+
+        if state.slot() == epoch_boundary_slot {
+            return self.balances_cache.insert(block_root, state);
+        }
+
+        // The epoch boundary slot was skipped. We need to make sure to use the boundary state. If
+        // not, a slashing included in first post boundary block would cause us to cache incorrect
+        // balances.
+        let epoch_boundary_root = *state.get_block_root(epoch_boundary_slot)?;
+        if self
+            .balances_cache
+            .position(epoch_boundary_root, epoch)
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        let epoch_boundary_state_root = *state.get_state_root(epoch_boundary_slot)?;
+        let update_cache = true;
+        if let Some(epoch_boundary_state) = self
+            .store
+            .get_hot_state(&epoch_boundary_state_root, update_cache)
+            .map_err(Error::FailedToReadState)?
+        {
+            self.balances_cache
+                .insert(epoch_boundary_root, &epoch_boundary_state)?;
+        }
+
+        Ok(())
     }
 
     fn justified_checkpoint(&self) -> &Checkpoint {
@@ -409,7 +427,7 @@ mod tests {
 
         let block_root = Hash256::repeat_byte(1);
         let mut cache = BalancesCache::default();
-        cache.process_state(block_root, &state).unwrap();
+        cache.insert(block_root, &state).unwrap();
 
         let cached = cache.get(block_root, state.current_epoch()).unwrap();
         let expected = JustifiedBalances::from_justified_state(&state).unwrap();
