@@ -642,7 +642,7 @@ async fn justified_balances() {
 /// Check that the balances are obtained correctly when the justified state contains a slashed
 /// validator.
 ///
-/// The slashing must be included well before the justified epoch's boundary: the balances cache
+/// TODO(9691) The slashing must be included well before the justified epoch's boundary: the balances cache
 /// builds its entry from the first state processed in an epoch, so a slashing included intra-epoch
 /// (e.g. just after a skipped boundary slot) produces cached balances that differ from the
 /// checkpoint state itself.
