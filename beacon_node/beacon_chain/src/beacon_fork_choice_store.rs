@@ -47,29 +47,17 @@ impl From<ArithError> for Error {
 /// The number of validator balance sets that are cached within `BalancesCache`.
 const MAX_BALANCE_CACHE_SIZE: usize = 4;
 
-#[superstruct(
-    variants(V8),
-    variant_attributes(derive(PartialEq, Clone, Debug, Encode, Decode)),
-    no_enum
-)]
+#[derive(PartialEq, Clone, Debug)]
 pub(crate) struct CacheItem {
     pub(crate) block_root: Hash256,
     pub(crate) epoch: Epoch,
-    pub(crate) balances: Vec<u64>,
+    pub(crate) justified_balances: JustifiedBalances,
 }
 
-pub(crate) type CacheItem = CacheItemV8;
-
-#[superstruct(
-    variants(V8),
-    variant_attributes(derive(PartialEq, Clone, Default, Debug, Encode, Decode)),
-    no_enum
-)]
+#[derive(PartialEq, Clone, Default, Debug)]
 pub struct BalancesCache {
-    pub(crate) items: Vec<CacheItemV8>,
+    pub(crate) items: Vec<CacheItem>,
 }
-
-pub type BalancesCache = BalancesCacheV8;
 
 impl BalancesCache {
     /// Inspect the given `state` and determine the root of the block at the first slot of
@@ -98,7 +86,7 @@ impl BalancesCache {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
                 epoch,
-                balances: JustifiedBalances::from_justified_state(state)?.effective_balances,
+                justified_balances: JustifiedBalances::from_justified_state(state)?,
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -120,9 +108,9 @@ impl BalancesCache {
     /// Get the balances for the given `block_root`, if any.
     ///
     /// If some balances are found, they are cloned from the cache.
-    pub fn get(&mut self, block_root: Hash256, epoch: Epoch) -> Option<Vec<u64>> {
+    pub fn get(&mut self, block_root: Hash256, epoch: Epoch) -> Option<JustifiedBalances> {
         let i = self.position(block_root, epoch)?;
-        Some(self.items[i].balances.clone())
+        Some(self.items[i].justified_balances.clone())
     }
 }
 
@@ -333,13 +321,12 @@ where
         self.justified_checkpoint = checkpoint;
         self.justified_state_root = justified_state_root;
 
-        if let Some(balances) = self.balances_cache.get(
+        if let Some(justified_balances) = self.balances_cache.get(
             self.justified_checkpoint.root,
             self.justified_checkpoint.epoch,
         ) {
-            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
             metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
-            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
+            self.justified_balances = justified_balances;
         } else {
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
 
@@ -393,4 +380,41 @@ pub struct PersistedForkChoiceStore {
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{MinimalEthSpec, Validator};
+
+    type E = MinimalEthSpec;
+
+    #[test]
+    fn balances_cache_hit_matches_justified_state() {
+        let spec = E::default_spec();
+        let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
+        for i in 0..4u64 {
+            state
+                .validators_mut()
+                .push(Validator {
+                    effective_balance: 32_000_000_000,
+                    slashed: i == 1,
+                    activation_epoch: Epoch::new(0),
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+
+        let block_root = Hash256::repeat_byte(1);
+        let mut cache = BalancesCache::default();
+        cache.process_state(block_root, &state).unwrap();
+
+        let cached = cache.get(block_root, state.current_epoch()).unwrap();
+        let expected = JustifiedBalances::from_justified_state(&state).unwrap();
+        assert_eq!(cached, expected);
+        assert!(!cached.slashed_balances.is_empty());
+        assert!(cache.get(block_root, state.current_epoch() + 1).is_none());
+    }
 }
