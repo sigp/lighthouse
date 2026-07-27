@@ -344,6 +344,10 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "builder-header-timeout")?
                 .map(Duration::from_millis);
 
+        el_config.builder_tls_certs = cli_args
+            .get_one::<String>("builder-tls-certs")
+            .map(|paths| paths.split(',').map(PathBuf::from).collect());
+
         el_config.disable_builder_ssz_requests = cli_args.get_flag("builder-disable-ssz");
     }
 

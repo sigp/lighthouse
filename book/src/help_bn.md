@@ -51,6 +51,12 @@ Options:
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
+      --builder-tls-certs <CERTIFICATE-FILES>
+          Comma-separated paths to custom TLS certificates (PEM format) to trust
+          when connecting to the builder (--builder) endpoint. These are used in
+          addition to the certificates Lighthouse already trusts. Commas must
+          only be used as a delimiter, and must not be part of the certificate
+          path.
       --builder-user-agent <STRING>
           The HTTP user agent to send alongside requests to the builder URL. The
           default is Lighthouse's version string.

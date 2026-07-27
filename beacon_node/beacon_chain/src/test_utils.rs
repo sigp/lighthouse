@@ -890,6 +890,7 @@ where
                 SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
                 None,
                 None,
+                None,
                 false,
             )
             .unwrap();

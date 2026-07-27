@@ -13,7 +13,7 @@ use eth2::{
     SSZ_CONTENT_TYPE_HEADER, ok_or_error, success_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
-use reqwest::{IntoUrl, Response, StatusCode};
+use reqwest::{Certificate, IntoUrl, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -77,10 +77,20 @@ impl BuilderHttpClient {
         server: SensitiveUrl,
         user_agent: Option<String>,
         builder_header_timeout: Option<Duration>,
+        builder_tls_certs: Option<Vec<Certificate>>,
         disable_ssz: bool,
     ) -> Result<Self, Error> {
         let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
-        let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
+        let mut client_builder = reqwest::Client::builder().user_agent(&user_agent);
+        // Add any custom root certificates so the builder endpoint can be fronted
+        // by a private/internal CA. These are trusted in addition to the roots
+        // reqwest already bundles (rustls webpki roots).
+        if let Some(certs) = builder_tls_certs {
+            for cert in certs {
+                client_builder = client_builder.add_root_certificate(cert);
+            }
+        }
+        let client = client_builder.build()?;
         Ok(Self {
             client,
             server,
@@ -574,6 +584,7 @@ mod tests {
             SensitiveUrl::from_str(&server.url()).unwrap(),
             None,
             None,
+            None,
             false,
         )
         .unwrap();
@@ -607,6 +618,7 @@ mod tests {
             SensitiveUrl::from_str(&server.url()).unwrap(),
             None,
             None,
+            None,
             false,
         )
         .unwrap();
@@ -638,6 +650,7 @@ mod tests {
 
         let builder_client = BuilderHttpClient::new(
             SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
             None,
             None,
             false,

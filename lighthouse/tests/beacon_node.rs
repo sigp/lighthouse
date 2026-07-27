@@ -723,6 +723,39 @@ fn builder_user_agent() {
 }
 
 #[test]
+fn builder_tls_certs_flag() {
+    // No flag → no certs.
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config.execution_layer.as_ref().unwrap().builder_tls_certs,
+                None
+            );
+        },
+    );
+    // Comma-separated paths → each becomes its own PathBuf (not one joined path).
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-tls-certs"),
+        Some("/tmp/cert1.pem,/tmp/cert2.pem"),
+        |config| {
+            assert_eq!(
+                config.execution_layer.as_ref().unwrap().builder_tls_certs,
+                Some(vec![
+                    PathBuf::from("/tmp/cert1.pem"),
+                    PathBuf::from("/tmp/cert2.pem"),
+                ])
+            );
+        },
+    );
+}
+
+#[test]
 fn test_builder_disable_ssz_flag() {
     run_payload_builder_flag_test_with_config(
         "builder",

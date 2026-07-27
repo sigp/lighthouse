@@ -30,7 +30,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -479,6 +479,9 @@ pub struct Config {
     pub builder_header_timeout: Option<Duration>,
     /// User agent to send with requests to the builder API.
     pub builder_user_agent: Option<String>,
+    /// A list of custom TLS certificates (PEM) to trust when connecting to the
+    /// builder API, in addition to the certificates reqwest already bundles.
+    pub builder_tls_certs: Option<Vec<PathBuf>>,
     /// Disable ssz requests on builder. Only use json.
     pub disable_builder_ssz_requests: bool,
     /// JWT secret for the above endpoint running the engine api.
@@ -495,6 +498,51 @@ pub struct Config {
     pub execution_timeout_multiplier: Option<u32>,
 }
 
+/// Load custom TLS root certificates for the builder client from the given PEM paths.
+///
+/// Each file may contain one or more PEM-encoded certificates; every certificate found is
+/// returned. Returns `Ok(None)` when no paths are configured. File-read and parse failures
+/// are surfaced as `Error::Unexpected` at startup (no runtime panic).
+fn load_builder_tls_certificates(
+    paths: Option<Vec<PathBuf>>,
+) -> Result<Option<Vec<reqwest::Certificate>>, Error> {
+    let Some(paths) = paths else {
+        return Ok(None);
+    };
+    let mut certificates = Vec::new();
+    for path in paths {
+        let mut buf = Vec::new();
+        std::fs::File::open(&path)
+            .and_then(|mut file| file.read_to_end(&mut buf))
+            .map_err(|e| {
+                Error::Unexpected(format!(
+                    "Unable to read builder TLS certificate {:?}: {}",
+                    path, e
+                ))
+            })?;
+        let file_certs = reqwest::Certificate::from_pem_bundle(&buf).map_err(|e| {
+            Error::Unexpected(format!(
+                "Unable to parse builder TLS certificate {:?}: {}",
+                path, e
+            ))
+        })?;
+        // `from_pem_bundle` returns `Ok(empty)` for input containing no PEM
+        // certificate blocks (e.g. a DER-encoded `.cer` file, or the wrong file
+        // entirely). Treat that as an error so the flag never silently no-ops and
+        // leaves the builder connection untrusted.
+        if file_certs.is_empty() {
+            return Err(Error::Unexpected(format!(
+                "No PEM certificates found in builder TLS certificate {:?}. \
+                 The file must contain one or more PEM-encoded certificates \
+                 (is it DER-encoded?).",
+                path
+            )));
+        }
+        certificates.extend(file_certs);
+    }
+    Ok(Some(certificates))
+}
+
 /// Provides access to one execution engine and provides a neat interface for consumption by the
 /// `BeaconChain`.
 #[derive(Clone)]
@@ -509,6 +557,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             execution_endpoint: url,
             builder_url,
             builder_user_agent,
+            builder_tls_certs,
             builder_header_timeout,
             disable_builder_ssz_requests,
             secret_file,
@@ -582,6 +631,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 builder_url,
                 builder_user_agent,
                 builder_header_timeout,
+                builder_tls_certs,
                 disable_builder_ssz_requests,
             )?;
         }
@@ -606,12 +656,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder_url: SensitiveUrl,
         builder_user_agent: Option<String>,
         builder_header_timeout: Option<Duration>,
+        builder_tls_certs: Option<Vec<PathBuf>>,
         disable_ssz: bool,
     ) -> Result<(), Error> {
+        let builder_tls_certs = load_builder_tls_certificates(builder_tls_certs)?;
         let builder_client = BuilderHttpClient::new(
             builder_url.clone(),
             builder_user_agent,
             builder_header_timeout,
+            builder_tls_certs,
             disable_ssz,
         )
         .map_err(Error::Builder)?;
@@ -2180,5 +2233,35 @@ mod test {
             expected_gas_limit(30_058_619, 30_000_000, &spec),
             Some(30_029_266)
         );
+    }
+
+    #[test]
+    fn builder_tls_certs_none_is_ok_none() {
+        assert!(
+            load_builder_tls_certificates(None)
+                .expect("None should be Ok")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn builder_tls_certs_missing_file_errors() {
+        let missing = std::env::temp_dir().join("lighthouse_no_such_builder_cert.pem");
+        let err = load_builder_tls_certificates(Some(vec![missing]))
+            .expect_err("a missing certificate path should error");
+        assert!(matches!(err, Error::Unexpected(_)));
+    }
+
+    #[test]
+    fn builder_tls_certs_invalid_pem_errors() {
+        let path = std::env::temp_dir().join(format!(
+            "lighthouse_bad_builder_cert_{}.pem",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"this is not a valid PEM certificate").unwrap();
+        let err = load_builder_tls_certificates(Some(vec![path.clone()]))
+            .expect_err("an invalid PEM should error");
+        assert!(matches!(err, Error::Unexpected(_)));
+        let _ = std::fs::remove_file(&path);
     }
 }

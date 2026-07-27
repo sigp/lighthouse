@@ -1496,6 +1496,19 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-tls-certs")
+                .long("builder-tls-certs")
+                .value_name("CERTIFICATE-FILES")
+                .help("Comma-separated paths to custom TLS certificates (PEM format) to \
+                       trust when connecting to the builder (--builder) endpoint. These \
+                       are used in addition to the certificates Lighthouse already trusts. \
+                       Commas must only be used as a delimiter, and must not be part of the \
+                       certificate path.")
+                .requires("builder")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-disable-ssz")
                 .long("builder-disable-ssz")
                 .value_name("BOOLEAN")
