@@ -31,6 +31,7 @@ pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
 pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-proposals";
 pub const BEACON_NODE_FLAG: &str = "beacon-node";
 pub const FORCE_BLS_WITHDRAWAL_CREDENTIALS: &str = "force-bls-withdrawal-credentials";
+pub const COMPOUNDING_FLAG: &str = "compounding";
 
 pub const VALIDATORS_FILENAME: &str = "validators.json";
 pub const DEPOSITS_FILENAME: &str = "deposits.json";
@@ -225,6 +226,15 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0),
         )
+        .arg(
+            Arg::new(COMPOUNDING_FLAG)
+                .action(ArgAction::SetTrue)
+                .help_heading(COMPOUNDING_FLAG)
+                .long(COMPOUNDING_FLAG)
+                .help("If present, use the 0x02 withdrawal credentials prefix.")
+                .conflicts_with(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
+                .display_order(0),
+        )
 }
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
@@ -247,6 +257,7 @@ pub struct CreateConfig {
     pub gas_limit: Option<u64>,
     pub bn_url: Option<SensitiveUrl>,
     pub force_bls_withdrawal_credentials: bool,
+    pub compounding: bool,
 }
 
 impl CreateConfig {
@@ -276,6 +287,7 @@ impl CreateConfig {
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
             force_bls_withdrawal_credentials: matches.get_flag(FORCE_BLS_WITHDRAWAL_CREDENTIALS),
+            compounding: matches.get_flag(COMPOUNDING_FLAG),
         })
     }
 }
@@ -305,6 +317,7 @@ impl ValidatorsAndDeposits {
             force_bls_withdrawal_credentials,
             builder_boost_factor,
             prefer_builder_proposals,
+            compounding,
         } = config;
 
         // Since Capella, it really doesn't make much sense to use BLS
@@ -471,8 +484,20 @@ impl ValidatorsAndDeposits {
 
                 let withdrawal_credentials =
                     if let Some(eth1_withdrawal_address) = eth1_withdrawal_address {
-                        WithdrawalCredentials::type_0x01(eth1_withdrawal_address, spec)
+                        if compounding {
+                            WithdrawalCredentials::type_0x02(eth1_withdrawal_address, spec)
+                        } else {
+                            WithdrawalCredentials::type_0x01(eth1_withdrawal_address, spec)
+                        }
                     } else {
+                        if compounding {
+                            return Err(format!(
+                                "Compounding validators are not supported \
+                                for BLS withdrawal credentials. Use \
+                                --eth1-withdrawal-address",
+                            ));
+                        }
+
                         // Decrypt the withdrawal keystore so withdrawal credentials can be created. It's
                         // not strictly necessary to decrypt the keystore since we can read the pubkey
                         // directly from the keystore. However we decrypt the keystore to be more certain
