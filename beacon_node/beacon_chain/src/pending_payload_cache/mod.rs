@@ -133,6 +133,19 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
+    /// Returns `true` if all required custody data columns for `block_root` have been received and
+    /// kzg-verified, independent of whether the execution payload envelope has been received or
+    /// executed. Returns `false` if there is no cached entry for `block_root`.
+    ///
+    /// This backs the PTC `blob_data_available` vote (spec `is_data_available`), which must not be
+    /// coupled to payload import into fork choice.
+    #[instrument(skip_all, level = "trace")]
+    pub fn is_data_available(&self, block_root: &Hash256) -> bool {
+        self.peek_pending_components(block_root, |components| {
+            components.is_some_and(|components| components.is_data_available(&self.custody_context))
+        })
+    }
+
     /// Return the cached Gloas payload bid for `block_root`, if present.
     pub fn get_bid(
         &self,
@@ -785,5 +798,58 @@ mod data_availability_checker_tests {
 
         s.put_columns(vec![last]);
         assert_lengths_match(&s);
+    }
+
+    // --- Tier 4: `is_data_available` (PTC `blob_data_available` vote, #9679) ---
+    //
+    // The PTC data-availability vote must be true as soon as all required custody columns are
+    // held, independent of whether the execution payload envelope has been received/executed.
+
+    /// All required columns present and NO envelope: data is available. This is the exact #9679
+    /// scenario (payload_present would be false, blob_data_available must be true).
+    #[tokio::test]
+    async fn is_data_available_true_with_all_columns_and_no_envelope() {
+        let s = setup(NodeCustodyType::Fullnode);
+        s.put_columns(s.custody.clone());
+        assert!(
+            s.cache.is_data_available(&s.block_root),
+            "data must be available once all custody columns are held, even without an envelope"
+        );
+    }
+
+    /// Missing even one required column: data is not available, regardless of envelope state.
+    #[tokio::test]
+    async fn is_data_available_false_with_partial_columns() {
+        let mut s = setup(NodeCustodyType::Fullnode);
+        assert!(s.custody.len() >= 2, "needs at least 2 sampling columns");
+        let last = s.custody.pop().expect("non-empty custody");
+
+        s.put_columns(s.custody.clone());
+        assert!(
+            !s.cache.is_data_available(&s.block_root),
+            "data must not be available while a required column is missing"
+        );
+
+        // The final column flips it to available.
+        s.put_columns(vec![last]);
+        assert!(s.cache.is_data_available(&s.block_root));
+    }
+
+    /// A zero-blob block requires no columns, so data is available immediately, with no envelope
+    /// and no columns.
+    #[tokio::test]
+    async fn is_data_available_true_for_zero_blob_block() {
+        let s = setup_zero_blob(NodeCustodyType::Fullnode);
+        assert!(
+            s.cache.is_data_available(&s.block_root),
+            "a block with no blobs is trivially data-available"
+        );
+    }
+
+    /// An unknown block root (no cached entry) is not data-available.
+    #[tokio::test]
+    async fn is_data_available_false_for_unknown_block_root() {
+        let s = setup(NodeCustodyType::Fullnode);
+        assert!(!s.cache.is_data_available(&Hash256::random()));
     }
 }

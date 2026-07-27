@@ -5182,12 +5182,19 @@ impl ApiTester {
         self
     }
 
-    /// When a payload hasn't been seen, the payload attestation data
-    /// must report `payload_present = false` and `blob_data_available = false`.
+    /// When a payload hasn't been seen and the block's data columns have not been received, the
+    /// payload attestation data must report `payload_present = false` and
+    /// `blob_data_available = false`. The block is forced to carry a blob so that
+    /// `blob_data_available` reflects real column custody rather than the trivial zero-blob path.
     pub async fn test_payload_attestation_unavailable_without_envelope(self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
         }
+
+        // Force blocks to carry a blob so data availability is not trivially satisfied.
+        self.harness
+            .execution_block_generator()
+            .set_min_blob_count(1);
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
@@ -5238,7 +5245,8 @@ impl ApiTester {
             );
             assert!(
                 !pa_data.blob_data_available,
-                "blob_data_available should be false when the envelope is not imported (slot {slot})"
+                "blob_data_available should be false when the block's data columns are not \
+                 received (slot {slot})"
             );
 
             return self;

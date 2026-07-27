@@ -103,6 +103,22 @@ impl<E: EthSpec> PendingComponents<E> {
         self.get_cached_data_columns().len()
     }
 
+    /// Returns `true` if all required custody data columns have been received and kzg-verified,
+    /// independent of whether the execution payload envelope has been received or executed.
+    ///
+    /// This is the data-availability half of `make_available` without the envelope gate: it is the
+    /// signal a PTC member uses to vote `blob_data_available` (spec `is_data_available`). A block
+    /// that requires no columns (no blobs, or not sampling this epoch) is trivially available.
+    pub fn is_data_available<T>(&self, custody_context: &CustodyContext<T>) -> bool
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        // `>=`, not `==`: incoming columns are pre-filtered to the node's sampling subset before
+        // being cached, so the completed count cannot exceed the requirement in practice. Using
+        // `>=` keeps this an honest "custody satisfied" check that never yields a false negative.
+        self.num_completed_columns() >= self.num_columns_required(custody_context)
+    }
+
     /// Returns `Some` if the envelope and all required data columns have been received.
     pub fn make_available<T>(
         &self,

@@ -4,6 +4,7 @@ use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, fork_name_from_env,
+    generate_data_column_sidecars_from_block,
 };
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
@@ -452,11 +453,15 @@ async fn gloas_attestation_index_payload_absent() {
 }
 
 /// Verify that `produce_payload_attestation_data` reports `payload_present = true` but
-/// `blob_data_available = false` when the envelope was observed on but not imported
-/// because its data was unavailable.
+/// `blob_data_available = false` when the envelope was observed on time but the block's blob
+/// data columns have not been received (genuine data unavailability).
 ///
-/// Setup: build a chain through slot 2, then at slot 3 import only the beacon block (no
-/// envelope) and mark the envelope as observed on time.
+/// The block is forced to carry a blob so the vote is exercised against real column-custody
+/// requirements rather than the trivial zero-blob path. `blob_data_available` must NOT be coupled
+/// to envelope import: here it is false purely because the required columns are missing.
+///
+/// Setup: build a chain through slot 2, then at slot 3 import only the beacon block (no envelope,
+/// no columns) and mark the envelope as observed on time.
 #[tokio::test]
 async fn gloas_payload_attestation_seen_but_data_unavailable() {
     if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
@@ -471,6 +476,8 @@ async fn gloas_payload_attestation_seen_but_data_unavailable() {
         .build();
 
     let chain = &harness.chain;
+    // Force the block to carry a blob so `blob_data_available` reflects real column custody.
+    harness.execution_block_generator().set_min_blob_count(1);
 
     harness.advance_slot();
     harness
@@ -481,12 +488,24 @@ async fn gloas_payload_attestation_seen_but_data_unavailable() {
         )
         .await;
 
-    // Slot 3: import the beacon block but withhold its envelope.
+    // Slot 3: import the beacon block but withhold its envelope and its data columns.
     harness.advance_slot();
     let state = harness.get_current_state();
     let (block_contents, _envelope, _new_state) =
         harness.make_block_with_envelope(state, Slot::new(3)).await;
     let block_root = block_contents.0.canonical_root();
+    assert!(
+        !block_contents
+            .0
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("gloas block has a bid")
+            .message
+            .blob_kzg_commitments
+            .is_empty(),
+        "test requires a block with at least one blob commitment"
+    );
     harness
         .process_block(Slot::new(3), block_root, block_contents)
         .await
@@ -513,6 +532,95 @@ async fn gloas_payload_attestation_seen_but_data_unavailable() {
     );
     assert!(
         !pa_data.blob_data_available,
-        "unimported envelope data should vote blob_data_available=false"
+        "missing data columns should vote blob_data_available=false"
+    );
+}
+
+/// Regression test for https://github.com/sigp/lighthouse/issues/9679.
+///
+/// When all required blob data columns have been received but the execution payload envelope has
+/// NOT been imported into fork choice, a PTC member must still vote `blob_data_available = true`.
+/// Previously this was derived from `fork_choice.is_payload_received`, which is only true after the
+/// payload is executed and imported, so this scenario (payload not present, data available) wrongly
+/// voted `blob_data_available = false`.
+#[tokio::test]
+async fn gloas_payload_attestation_data_available_without_envelope_import() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+    // Force the block to carry a blob so there are real data columns to make available.
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slot 3: import the beacon block, withhold its envelope (never imported into fork choice).
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+    let signed_block = block_contents.0.clone();
+    assert!(
+        !signed_block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("gloas block has a bid")
+            .message
+            .blob_kzg_commitments
+            .is_empty(),
+        "test requires a block with at least one blob commitment"
+    );
+    let block_root = signed_block.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // The payload envelope is deliberately never imported, so fork choice reports the payload as
+    // not received.
+    assert!(
+        !chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&block_root),
+        "envelope must not be imported for this test"
+    );
+
+    // Deliver all of the block's data columns to the availability cache.
+    let data_columns = generate_data_column_sidecars_from_block(&signed_block, &chain.spec);
+    chain
+        .process_rpc_custody_columns(data_columns)
+        .await
+        .expect("custody columns should be accepted");
+
+    let pa_data = chain
+        .produce_payload_attestation_data(Slot::new(3))
+        .expect("should produce payload attestation data");
+
+    assert!(
+        !pa_data.payload_present,
+        "no envelope was observed, so payload_present must be false"
+    );
+    assert!(
+        pa_data.blob_data_available,
+        "all custody columns are held, so blob_data_available must be true even though the \
+         envelope has not been imported"
     );
 }
