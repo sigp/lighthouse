@@ -204,8 +204,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
 /// Create an unsigned genesis `BeaconBlock`.
 ///
-/// Per spec, the genesis block body is empty (all default fields) except for Gloas,
-/// where `body.signed_execution_payload_bid.message` is initialised from
+/// Per spec, the genesis block body is empty (all default fields) except from Gloas
+/// onwards, where `body.signed_execution_payload_bid.message` is initialised from
 /// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
 /// build on the correct execution layer head.
 ///
@@ -216,9 +216,8 @@ pub fn genesis_block<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
-    if let BeaconBlock::Gloas(ref mut gloas_block) = block {
-        let bid = state.latest_execution_payload_bid()?.clone();
-        gloas_block.body.signed_execution_payload_bid.message = bid;
+    if let Ok(signed_bid) = block.body_mut().signed_execution_payload_bid_mut() {
+        signed_bid.message = state.latest_execution_payload_bid()?.clone();
     }
     Ok(block)
 }

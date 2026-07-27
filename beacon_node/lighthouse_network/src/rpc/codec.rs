@@ -1023,17 +1023,7 @@ mod tests {
     }
 
     fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
-        let current_epoch = match fork_name {
-            ForkName::Base => Some(Epoch::new(0)),
-            ForkName::Altair => spec.altair_fork_epoch,
-            ForkName::Bellatrix => spec.bellatrix_fork_epoch,
-            ForkName::Capella => spec.capella_fork_epoch,
-            ForkName::Deneb => spec.deneb_fork_epoch,
-            ForkName::Electra => spec.electra_fork_epoch,
-            ForkName::Fulu => spec.fulu_fork_epoch,
-            ForkName::Gloas => spec.gloas_fork_epoch,
-            ForkName::Heze => spec.heze_fork_epoch,
-        };
+        let current_epoch = spec.fork_epoch(fork_name);
         let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
     }

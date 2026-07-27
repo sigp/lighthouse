@@ -255,8 +255,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let spec = E::default_spec();
-        let result = if spec.is_heze_scheduled() {
+        let result = if self.spec.is_heze_scheduled() {
             self.client
                 .get_lighthouse_spec::<ConfigAndPresetHeze>()
                 .await
@@ -268,7 +267,7 @@ impl ApiTester {
                 .map(|res| ConfigAndPreset::Gloas(res.data))
         }
         .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&spec);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 
