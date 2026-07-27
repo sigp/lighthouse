@@ -2306,6 +2306,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         indexed_payload_attestation: &IndexedPayloadAttestation<T::EthSpec>,
         ptc: &PTC<T::EthSpec>,
     ) -> Result<(), Error> {
+        let _fork_choice_span = debug_span!("payload_attestation_fork_choice_update").entered();
         self.canonical_head
             .fork_choice_write_lock()
             .on_payload_attestation(
@@ -2489,6 +2490,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified: &impl VerifiedAttestation<T>,
     ) -> Result<(), Error> {
+        let _fork_choice_span = debug_span!("attestation_fork_choice_update").entered();
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
@@ -2834,6 +2836,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>, T::EthSpec>,
     ) {
         // Add to fork choice.
+        let _fork_choice_span = info_span!("attester_slashing_fork_choice_update").entered();
         self.canonical_head
             .fork_choice_write_lock()
             .on_attester_slashing(attester_slashing.as_inner().to_ref());
@@ -4325,6 +4328,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
+        let fork_choice_span = info_span!("block_import_fork_choice_update", ?block_root).entered();
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if fork_choice_reader.contains_block(&block_root) {
             return Err(BlockError::DuplicateFullyImported(block_root));
@@ -4521,6 +4525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+        drop(fork_choice_span);
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
@@ -6292,6 +6297,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice_result = self
             .spawn_blocking_handle(
                 move || {
+                    let _fork_choice_span =
+                        info_span!("invalid_payload_fork_choice_update").entered();
                     chain
                         .canonical_head
                         .fork_choice_write_lock()
@@ -6697,6 +6704,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let fork_choice_update_result = self
                         .spawn_blocking_handle(
                             move || {
+                                let _fork_choice_span =
+                                    info_span!("valid_payload_fork_choice_update").entered();
                                 chain
                                     .canonical_head
                                     .fork_choice_write_lock()

@@ -1677,6 +1677,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * free real estate.
          */
         let current_slot = chain.slot()?;
+        let _fork_choice_span =
+            info_span!("block_attestations_fork_choice_update", ?block_root).entered();
         let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
 
         // Register each attester slashing in the block with fork choice.
