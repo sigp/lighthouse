@@ -2190,11 +2190,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
             });
 
-        // A payload is only imported into fork choice if its data was available.
+        // `blob_data_available` reflects whether our custody requirement for this block's data
+        // columns has been satisfied, independent of whether the payload envelope itself has
+        // been received or imported into fork choice.
         let blob_data_available = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .is_payload_received(&beacon_block_root);
+            .pending_payload_cache
+            .is_blob_data_available(&beacon_block_root);
 
         Ok(PayloadAttestationData {
             beacon_block_root,
