@@ -133,6 +133,14 @@ impl TestRig {
     pub async fn new_with_skip_slots(chain_length: u64, skip_slots: &HashSet<u64>) -> Self {
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
+        Self::new_parametric_with_skip_slots(chain_length, skip_slots, spec).await
+    }
+
+    pub async fn new_parametric_with_skip_slots(
+        chain_length: u64,
+        skip_slots: &HashSet<u64>,
+        spec: ChainSpec,
+    ) -> Self {
         let spec = Arc::new(spec);
         let beacon_processor_config = BeaconProcessorConfig::default();
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -143,6 +151,15 @@ impl TestRig {
             .node_custody_type(NodeCustodyType::Fullnode)
             .chain_config(<_>::default())
             .build();
+
+        // Ensure every block has at least one blob so blocks reliably have data columns.
+        harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .set_min_blob_count(1);
 
         harness.advance_slot();
 
@@ -2290,6 +2307,121 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         "Response contained duplicate block roots: got {} columns but only {} unique roots",
         block_roots.len(),
         unique_roots.len(),
+    );
+}
+
+/// Test that DataColumnsByRange succeeds when the requested range starts at a skip slot
+/// that is also the Gloas fork slot.
+///
+/// The forwards block roots iterator pairs a leading skip slot with the root of the closest
+/// prior block. Before the fix, the handler derived the SSZ fork from the skip slot (Gloas)
+/// and failed to decode the pre-fork block's stored Fulu sidecar, aborting the whole stream
+/// with a server error (https://github.com/sigp/lighthouse/issues/9638).
+#[tokio::test]
+async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut spec = test_spec::<E>();
+    spec.shard_committee_period = 2;
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
+
+    let gloas_fork_slot = Epoch::new(2).start_slot(E::slots_per_epoch());
+
+    // Skip the Gloas fork slot so the last block before the requested range is a Fulu block.
+    // Build 160 slots (5 epochs) so finalized_epoch=3 (finalized_slot=96) and a request for
+    // slots 64..72 satisfies req_start_slot + req_count <= finalized_slot, routing through
+    // `get_block_roots_from_store` — the code path with the bug.
+    let skip_slots: HashSet<u64> = [gloas_fork_slot.as_u64()].into_iter().collect();
+    let mut rig = TestRig::new_parametric_with_skip_slots(160, &skip_slots, spec).await;
+
+    // Precondition: the last pre-fork block exists and has data columns in the store.
+    let pre_fork_root = rig
+        .chain
+        .block_root_at_slot(gloas_fork_slot - 1, WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let stored_columns = rig.chain.store.get_data_column_keys(pre_fork_root).unwrap();
+    assert!(
+        !stored_columns.is_empty(),
+        "precondition: pre-fork block should have data columns in the store"
+    );
+
+    let custody_columns = rig
+        .chain
+        .custody_context
+        .custody_columns_for_epoch(Some(Epoch::new(2)));
+    let requested_columns: Vec<u64> = custody_columns
+        .iter()
+        .copied()
+        .filter(|c| stored_columns.contains(c))
+        .take(1)
+        .collect();
+    assert!(
+        !requested_columns.is_empty(),
+        "precondition: a stored column of the pre-fork block should be requested"
+    );
+
+    let slot_count = 8;
+
+    // Count the columns stored for blocks within the requested range.
+    let mut expected_count = 0;
+    for slot in gloas_fork_slot.as_u64()..gloas_fork_slot.as_u64() + slot_count {
+        if let Some(root) = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+        {
+            let stored = rig.chain.store.get_data_column_keys(root).unwrap();
+            expected_count += stored
+                .iter()
+                .filter(|c| requested_columns.contains(c))
+                .count();
+        }
+    }
+
+    rig.network_beacon_processor
+        .send_data_columns_by_range_request(
+            PeerId::random(),
+            InboundRequestId::new_unchecked(42, 24),
+            DataColumnsByRangeRequest {
+                start_slot: gloas_fork_slot.as_u64(),
+                count: slot_count,
+                columns: requested_columns,
+            },
+        )
+        .unwrap();
+
+    // The stream must terminate without a server error, and no returned sidecar may belong
+    // to a block before the requested range.
+    let mut received_count = 0;
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::DataColumnsByRange(data_column),
+            inbound_request_id: _,
+        } = next
+        {
+            if let Some(column) = data_column {
+                assert!(
+                    column.slot() >= gloas_fork_slot,
+                    "received column for pre-range slot {}",
+                    column.slot()
+                );
+                received_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+
+    assert_eq!(received_count, expected_count);
+    assert!(
+        expected_count > 0,
+        "in-range blocks should have data columns"
     );
 }
 
