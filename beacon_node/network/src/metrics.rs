@@ -135,6 +135,20 @@ pub static BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS: LazyLock<Result<Histogra
         )
     },
 );
+pub static BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_REQUEUED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_gossip_payload_envelope_requeued_total",
+            "Total number of gossip payload envelopes that arrived early and were re-queued for later processing.",
+        )
+    });
+pub static BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_EARLY_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_processor_gossip_payload_envelope_early_seconds",
+            "Whenever a gossip payload envelope is received early this metric is set to how early that envelope was.",
+        )
+    });
 pub static BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: LazyLock<
     Result<IntCounter>,
 > = LazyLock::new(|| {

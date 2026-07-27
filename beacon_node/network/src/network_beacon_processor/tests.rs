@@ -67,6 +67,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
+    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -92,17 +93,26 @@ impl Drop for TestRig {
     }
 }
 
+pub struct TestRigParams {
+    chain_length: u64,
+    beacon_processor_config: BeaconProcessorConfig,
+    node_custody_type: NodeCustodyType,
+    generate_blobs: bool,
+    spec: ChainSpec,
+}
+
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(
+        Self::new_parametric(TestRigParams {
             chain_length,
-            BeaconProcessorConfig::default(),
-            NodeCustodyType::Fullnode,
+            beacon_processor_config: BeaconProcessorConfig::default(),
+            node_custody_type: NodeCustodyType::Fullnode,
+            generate_blobs: true,
             spec,
-        )
+        })
         .await
     }
 
@@ -110,12 +120,13 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(
+        Self::new_parametric(TestRigParams {
             chain_length,
-            BeaconProcessorConfig::default(),
-            NodeCustodyType::Supernode,
+            beacon_processor_config: BeaconProcessorConfig::default(),
+            node_custody_type: NodeCustodyType::Supernode,
+            generate_blobs: true,
             spec,
-        )
+        })
         .await
     }
 
@@ -169,12 +180,15 @@ impl TestRig {
         Self::from_harness(harness, beacon_processor_config, spec).await
     }
 
-    pub async fn new_parametric(
-        chain_length: u64,
-        beacon_processor_config: BeaconProcessorConfig,
-        node_custody_type: NodeCustodyType,
-        spec: ChainSpec,
-    ) -> Self {
+    pub async fn new_parametric(params: TestRigParams) -> Self {
+        let TestRigParams {
+            chain_length,
+            beacon_processor_config,
+            node_custody_type,
+            generate_blobs,
+            spec,
+        } = params;
+
         let spec = Arc::new(spec);
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -184,6 +198,10 @@ impl TestRig {
             .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
+
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(generate_blobs);
 
         harness.advance_slot();
 
@@ -223,8 +241,8 @@ impl TestRig {
             .server
             .execution_block_generator()
             .set_min_blob_count(1);
-        let (next_block_tuple, next_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+        let (next_block_tuple, next_block_envelope, next_state) = harness
+            .make_block_with_envelope(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
         let head_state_root = head.beacon_state_root();
@@ -382,6 +400,7 @@ impl TestRig {
         Self {
             chain,
             next_block: block,
+            next_block_envelope: next_block_envelope.map(Arc::new),
             next_data_columns: data_columns,
             attestations,
             next_block_attestations,
@@ -413,6 +432,21 @@ impl TestRig {
                 junk_peer_id(),
                 Client::default(),
                 self.next_block.clone(),
+                Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_gossip_envelope(&self) {
+        let envelope = self
+            .next_block_envelope
+            .as_ref()
+            .expect("the next block should have an envelope post-Gloas");
+        self.network_beacon_processor
+            .send_gossip_execution_payload(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(envelope.as_ref().clone()),
                 Duration::from_secs(0),
             )
             .unwrap();
@@ -1061,7 +1095,7 @@ async fn data_column_reconstruction_at_next_slot() {
 /// Blocks that arrive early should be queued for later processing.
 #[tokio::test]
 async fn import_gossip_block_acceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = new_rig_disable_blobs_pre_fulu().await;
 
     let slot_start = rig
         .chain
@@ -1209,7 +1243,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
 /// Blocks that arrive on-time should be processed normally.
 #[tokio::test]
 async fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = new_rig_disable_blobs_pre_fulu().await;
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -1234,6 +1268,26 @@ async fn import_gossip_block_at_current_slot() {
         rig.next_block.canonical_root(),
         "block should be imported and become head"
     );
+}
+
+fn fork_from_env_starts_at_fulu_or_later(spec: &ChainSpec) -> bool {
+    spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+}
+
+/// Initialise a test rig with blobs disabled when the fork-from-env spec starts pre-Fulu.
+/// This is used for pre-Fulu tests, where importing gossip & rpc lookup blobs is no longer supported.
+async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
+    let spec = test_spec::<E>();
+    let enable_blobs = fork_from_env_starts_at_fulu_or_later(&spec);
+
+    TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config: Default::default(),
+        node_custody_type: Default::default(),
+        generate_blobs: enable_blobs,
+        spec,
+    })
+    .await
 }
 
 /// Ensure a valid attestation can be imported.
@@ -1263,7 +1317,11 @@ enum BlockImportMethod {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = if matches!(import_method, BlockImportMethod::Gossip) {
+        new_rig_disable_blobs_pre_fulu().await
+    } else {
+        TestRig::new(SMALL_CHAIN).await
+    };
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -1336,7 +1394,11 @@ async fn attestation_to_unknown_block_processed_after_rpc_block() {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = if matches!(import_method, BlockImportMethod::Gossip) {
+        new_rig_disable_blobs_pre_fulu().await
+    } else {
+        TestRig::new(SMALL_CHAIN).await
+    };
 
     // Empty the op pool.
     rig.chain.op_pool.prune_attestations(u64::MAX.into());
@@ -1559,6 +1621,83 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
         rig.chain.op_pool.num_payload_attestation_messages(),
         initial_messages,
         "Payload attestation should not have been included."
+    );
+}
+
+/// Ensure that a payload envelope arriving before its slot (e.g. due to clock drift) is re-queued
+/// and re-processed once the slot arrives.
+#[tokio::test]
+async fn requeue_early_gossip_payload_envelope() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Import the block for the next slot.
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    // Wind the clock back to just before the block's slot, so the envelope arrives "early".
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // The envelope passes gossip verification but is queued until its slot instead of imported.
+    rig.enqueue_gossip_envelope();
+    rig.assert_event_journal_completes(&[WorkType::GossipExecutionPayload])
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "The early envelope should not have been imported."
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_none(),
+        "The early envelope should be queued, not in the data availability checker."
+    );
+
+    // Restore the clock and ensure the envelope is released and re-processed when its slot
+    // arrives.
+    rig.chain.slot_clock.set_current_time(slot_start);
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::DelayedImportEnvelope.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        Duration::from_secs(2),
+        false,
+        false,
+    )
+    .await;
+
+    // The released envelope has been re-processed into the data availability checker, where its
+    // import remains pending on data column availability, which is not exercised here.
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "The envelope should have been re-processed into the data availability checker."
     );
 }
 
@@ -1790,12 +1929,13 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         enable_backfill_rate_limiting: false,
         ..Default::default()
     };
-    let mut rig = TestRig::new_parametric(
-        SMALL_CHAIN,
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
         beacon_processor_config,
-        NodeCustodyType::Fullnode,
-        test_spec::<E>(),
-    )
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec: test_spec::<E>(),
+    })
     .await;
 
     for i in 0..3 {
@@ -1876,12 +2016,13 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
     // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
-    let mut rig = TestRig::new_parametric(
-        62,
-        BeaconProcessorConfig::default(),
-        NodeCustodyType::Fullnode,
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: 62,
+        beacon_processor_config: BeaconProcessorConfig::default(),
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
         spec,
-    )
+    })
     .await;
 
     let start_slot = 16;

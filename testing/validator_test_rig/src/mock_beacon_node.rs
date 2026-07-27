@@ -1,5 +1,5 @@
 use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
-use eth2::{BeaconNodeHttpClient, Timeouts};
+use eth2::{BLOB_DATA_INCLUDED_HEADER, BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
 use reqwest::StatusCode;
@@ -121,6 +121,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded(
+                "include_payload".into(),
+                "false".into(),
+            ))
             .match_header("accept", "application/json")
             .with_status(200)
             .with_header("Eth-Consensus-Version", &fork_name.to_string())
@@ -144,6 +148,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded(
+                "include_payload".into(),
+                "false".into(),
+            ))
             .match_header("accept", "application/octet-stream")
             .with_status(200)
             // These headers are required for v4 get validator block endpoint: https://github.com/ethereum/beacon-APIs/pull/580
@@ -161,6 +169,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded(
+                "include_payload".into(),
+                "false".into(),
+            ))
             .match_header("accept", "application/octet-stream")
             .with_status(500)
             .with_body(r#"{"message":"Internal server error"}"#)
@@ -384,6 +396,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_header("content-type", "application/octet-stream")
+            .match_header(CONSENSUS_VERSION_HEADER, "gloas")
+            .match_header(BLOB_DATA_INCLUDED_HEADER, "false")
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
@@ -398,6 +412,42 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) returning error.
     pub fn mock_post_beacon_execution_payload_envelope_ssz_error(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .match_header(CONSENSUS_VERSION_HEADER, "gloas")
+            .match_header(BLOB_DATA_INCLUDED_HEADER, "false")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences`
+    pub fn mock_post_validator_proposer_preferences_json(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
+    pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ) returning error
+    pub fn mock_post_validator_proposer_preferences_ssz_error(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
