@@ -1798,18 +1798,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_indices: &[u64],
         dependent_block_root: Hash256,
     ) -> Result<(Vec<Option<InclusionListDuty>>, Hash256), Error> {
-        // The committee cache only covers previous, current, and next epochs.
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
             .map_err(Error::IncorrectStateForAttestation)?;
 
-        // The inclusion list committee is derived purely from the beacon committees, so its
-        // duties become stable at the attester shuffling decision block.
         let dependent_root =
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
 
-        // Walk the epoch's slots once, deriving each slot's committee and its root. A validator
-        // belongs to exactly one beacon committee per epoch, so it has at most one duty slot;
-        // duplicates from committee wrap-around always point at the same slot.
         let mut assignments: HashMap<u64, (Slot, Hash256)> = HashMap::new();
         for slot in epoch.slot_iter(T::EthSpec::slots_per_epoch()) {
             let committee = state.get_inclusion_list_committee(slot)?;
