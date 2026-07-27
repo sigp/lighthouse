@@ -193,6 +193,16 @@ impl HttpRestSsz {
             }
             Err(e) => return Err(e.into()),
         };
+        // 401/403 are auth failures, outside the RFC 7807 model — reuse the JSON-RPC `From` mapping.
+        if let Err(e) = response.error_for_status_ref() {
+            if matches!(
+                e.status(),
+                Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
+            ) {
+                return Err(e.into());
+            }
+        }
+
         match response.status() {
             StatusCode::OK => Ok(Some(response.bytes().await?)),
             StatusCode::NO_CONTENT => Ok(None),
@@ -348,7 +358,7 @@ impl HttpRestSsz {
             SszForkchoiceUpdateAmsterdam::<E>::new(forkchoice_state, payload_attributes, None)?
                 .as_ssz_bytes()
         } else {
-            SszForkchoiceUpdate::new(forkchoice_state, payload_attributes)?.as_ssz_bytes()
+            SszForkchoiceUpdate::new(fork, forkchoice_state, payload_attributes)?.as_ssz_bytes()
         };
 
         let response = self
@@ -495,6 +505,16 @@ fn fork_to_header(fork: ForkName) -> Result<&'static str, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::JwtKey;
+    use crate::engine_api::{NewPayloadRequestDeneb, NewPayloadRequestGloas};
+    use crate::test_utils::{Config, DEFAULT_JWT_SECRET, MockExecutionConfig, MockServer};
+    use std::future::Future;
+    use std::sync::Arc;
+    use tokio::runtime;
+    use types::{
+        Address, ExecutionPayloadDeneb, ExecutionPayloadGloas, ExecutionRequestsGloas,
+        MainnetEthSpec,
+    };
 
     #[test]
     fn fork_to_header_maps_every_fork() {
@@ -583,5 +603,398 @@ mod tests {
         let canned = r#"{"type":"/engine-api/errors/ssz-decode-error"}"#;
         let problem: JsonProblem = serde_json::from_str(canned).unwrap();
         assert_eq!(problem.detail, None);
+    }
+
+    struct ExpectedRest {
+        method: &'static str,
+        path: String,
+        fork_header: Option<String>,
+        body: Bytes,
+    }
+
+    struct RestTester {
+        server: MockServer<MainnetEthSpec>,
+        client: Arc<HttpRestSsz>,
+    }
+
+    impl RestTester {
+        fn new(with_auth: bool) -> Self {
+            let config = MockExecutionConfig {
+                server_config: Config::default(),
+                jwt_key: JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
+                shanghai_time: None,
+                cancun_time: None,
+                prague_time: None,
+                osaka_time: None,
+                amsterdam_time: None,
+                serve_rest_ssz: true,
+            };
+            let server = MockServer::new_with_config(&runtime::Handle::current(), config, None);
+            let url = SensitiveUrl::parse(&server.url()).unwrap();
+            let client = if with_auth {
+                let auth = Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
+                Arc::new(HttpRestSsz::new_with_auth(url, auth, None).unwrap())
+            } else {
+                Arc::new(HttpRestSsz::new(url, None).unwrap())
+            };
+            Self { server, client }
+        }
+
+        /// Asserts the request the client put on the wire: fork header + path/query + exact SSZ bytes.
+        async fn assert_ssz_request_equals<R, F>(self, request_func: R, expected: ExpectedRest) -> Self
+        where
+            R: Fn(Arc<HttpRestSsz>) -> F,
+            F: Future<Output = ()>,
+        {
+            request_func(self.client.clone()).await;
+            let capture = self.server.last_rest_request();
+            assert_eq!(capture.method, expected.method);
+            assert_eq!(capture.path, expected.path);
+            assert_eq!(capture.eth_execution_version, expected.fork_header);
+            assert_eq!(capture.body, expected.body);
+            assert!(capture.client_version.is_some());
+            self
+        }
+
+        async fn assert_auth_failure<R, F, T>(self, request_func: R) -> Self
+        where
+            R: Fn(Arc<HttpRestSsz>) -> F,
+            F: Future<Output = Result<T, Error>>,
+            T: std::fmt::Debug,
+        {
+            let result = request_func(self.client.clone()).await;
+            assert!(
+                matches!(result, Err(Error::Auth(_))),
+                "expected an auth failure, got {result:?}"
+            );
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn identity_request_conformance() {
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                |client| async move {
+                    let _ = client.get_client_version_v1().await;
+                },
+                ExpectedRest {
+                    method: "GET",
+                    path: "/engine/v1/identity".to_string(),
+                    fork_header: None,
+                    body: Bytes::new(),
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rest_request_without_auth_fails() {
+        RestTester::new(false)
+            .assert_auth_failure(|client| async move { client.get_client_version_v1().await })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_request_conformance() {
+        let payload_id: PayloadId = [1, 2, 3, 4, 5, 6, 7, 8];
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| async move {
+                    let _ = client
+                        .get_payload::<MainnetEthSpec>(ForkName::Deneb, payload_id)
+                        .await;
+                },
+                ExpectedRest {
+                    method: "GET",
+                    path: "/engine/v1/payloads/0x0102030405060708".to_string(),
+                    fork_header: Some("cancun".to_string()),
+                    body: Bytes::new(),
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_blobs_v2_request_conformance() {
+        let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
+        let expected_body = Bytes::from(
+            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v1(versioned_hashes.clone())
+                .unwrap()
+                .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let versioned_hashes = versioned_hashes.clone();
+                    async move {
+                        let _ = client.get_blobs_v2::<MainnetEthSpec>(versioned_hashes).await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/blobs/v2".to_string(),
+                    fork_header: None,
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_blobs_v3_request_conformance() {
+        let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
+        let expected_body = Bytes::from(
+            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v1(versioned_hashes.clone())
+                .unwrap()
+                .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let versioned_hashes = versioned_hashes.clone();
+                    async move {
+                        let _ = client.get_blobs_v3::<MainnetEthSpec>(versioned_hashes).await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/blobs/v3".to_string(),
+                    fork_header: None,
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_bodies_by_range_request_conformance() {
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_payload_bodies_by_range::<MainnetEthSpec>(ForkName::Electra, 10, 5)
+                        .await;
+                },
+                ExpectedRest {
+                    method: "GET",
+                    path: "/engine/v1/bodies?from=10&count=5".to_string(),
+                    fork_header: Some("prague".to_string()),
+                    body: Bytes::new(),
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_bodies_by_hash_request_conformance() {
+        let block_hashes = vec![
+            ExecutionBlockHash::repeat_byte(3),
+            ExecutionBlockHash::repeat_byte(4),
+        ];
+        let roots = block_hashes
+            .clone()
+            .into_iter()
+            .map(|hash| hash.into_root())
+            .collect::<Vec<_>>();
+        let expected_body =
+            Bytes::from(SszBodiesByHashRequest::new(roots).unwrap().as_ssz_bytes());
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let block_hashes = block_hashes.clone();
+                    async move {
+                        let _ = client
+                            .get_payload_bodies_by_hash::<MainnetEthSpec>(ForkName::Fulu, block_hashes)
+                            .await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/bodies/hash".to_string(),
+                    fork_header: Some("osaka".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    fn forkchoice_state() -> ForkchoiceState {
+        ForkchoiceState {
+            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+            safe_block_hash: ExecutionBlockHash::repeat_byte(2),
+            finalized_block_hash: ExecutionBlockHash::repeat_byte(3),
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_no_attrs_request_conformance() {
+        let state = forkchoice_state();
+        let expected_body = Bytes::from(
+            SszForkchoiceUpdate::new(ForkName::Deneb, state, None)
+                .unwrap()
+                .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| async move {
+                    let _ = client
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Deneb, state, None)
+                        .await;
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/forkchoice".to_string(),
+                    fork_header: Some("cancun".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_with_attrs_request_conformance() {
+        let state = forkchoice_state();
+        let attributes = PayloadAttributes::new(
+            1_000,
+            Hash256::repeat_byte(4),
+            Address::repeat_byte(9),
+            Some(vec![]),
+            Some(Hash256::repeat_byte(5)),
+            None,
+            None,
+        );
+        let expected_body = Bytes::from(
+            SszForkchoiceUpdate::new(ForkName::Deneb, state, Some(attributes.clone()))
+                .unwrap()
+                .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let attributes = attributes.clone();
+                    async move {
+                        let _ = client
+                            .forkchoice_updated::<MainnetEthSpec>(
+                                ForkName::Deneb,
+                                state,
+                                Some(attributes),
+                            )
+                            .await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/forkchoice".to_string(),
+                    fork_header: Some("cancun".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_amsterdam_request_conformance() {
+        let state = forkchoice_state();
+        let expected_body = Bytes::from(
+            SszForkchoiceUpdateAmsterdam::<MainnetEthSpec>::new(state, None, None)
+                .unwrap()
+                .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| async move {
+                    let _ = client
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Gloas, state, None)
+                        .await;
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/forkchoice".to_string(),
+                    fork_header: Some("amsterdam".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_deneb_request_conformance() {
+        let payload = ExecutionPayloadDeneb::<MainnetEthSpec>::default();
+        let versioned_hashes = vec![Hash256::repeat_byte(7)];
+        let parent_beacon_block_root = Hash256::repeat_byte(8);
+        // The envelope drops `versioned_hashes`; the byte-compare confirms they are not sent.
+        let expected_body = Bytes::from(
+            SszExecutionPayloadEnvelopeDeneb::from(NewPayloadRequestDeneb {
+                execution_payload: &payload,
+                versioned_hashes: versioned_hashes.clone(),
+                parent_beacon_block_root,
+            })
+            .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let payload = payload.clone();
+                    let versioned_hashes = versioned_hashes.clone();
+                    async move {
+                        let request = NewPayloadRequest::Deneb(NewPayloadRequestDeneb {
+                            execution_payload: &payload,
+                            versioned_hashes,
+                            parent_beacon_block_root,
+                        });
+                        let _ = client.new_payload::<MainnetEthSpec>(request).await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/payloads".to_string(),
+                    fork_header: Some("cancun".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_gloas_request_conformance() {
+        let payload = ExecutionPayloadGloas::<MainnetEthSpec>::default();
+        let versioned_hashes = vec![Hash256::repeat_byte(7)];
+        let parent_beacon_block_root = Hash256::repeat_byte(8);
+        let execution_requests = ExecutionRequestsGloas::<MainnetEthSpec>::default();
+        let expected_body = Bytes::from(
+            SszExecutionPayloadEnvelopeGloas::try_from(NewPayloadRequestGloas {
+                execution_payload: &payload,
+                versioned_hashes: versioned_hashes.clone(),
+                parent_beacon_block_root,
+                execution_requests: &execution_requests,
+            })
+            .unwrap()
+            .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let payload = payload.clone();
+                    let versioned_hashes = versioned_hashes.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                            execution_payload: &payload,
+                            versioned_hashes,
+                            parent_beacon_block_root,
+                            execution_requests: &execution_requests,
+                        });
+                        let _ = client.new_payload::<MainnetEthSpec>(request).await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/payloads".to_string(),
+                    fork_header: Some("amsterdam".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
     }
 }

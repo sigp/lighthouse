@@ -88,6 +88,7 @@ pub struct MockExecutionConfig {
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
     pub amsterdam_time: Option<u64>,
+    pub serve_rest_ssz: bool,
 }
 
 impl Default for MockExecutionConfig {
@@ -100,6 +101,7 @@ impl Default for MockExecutionConfig {
             prague_time: None,
             osaka_time: None,
             amsterdam_time: None,
+            serve_rest_ssz: false,
         }
     }
 }
@@ -139,6 +141,7 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            serve_rest_ssz,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -155,6 +158,8 @@ impl<E: EthSpec> MockServer<E> {
             config: server_config,
             jwt_key,
             last_echo_request: last_echo_request.clone(),
+            last_rest_request: <_>::default(),
+            serve_rest_ssz,
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
             preloaded_responses,
@@ -221,6 +226,7 @@ impl<E: EthSpec> MockServer<E> {
                 prague_time,
                 osaka_time,
                 amsterdam_time,
+                serve_rest_ssz: false,
             },
             kzg,
         )
@@ -243,6 +249,14 @@ impl<E: EthSpec> MockServer<E> {
             .write()
             .take()
             .expect("last echo request is none")
+    }
+
+    pub fn last_rest_request(&self) -> RestCapture {
+        self.ctx
+            .last_rest_request
+            .write()
+            .take()
+            .expect("last rest request is none")
     }
 
     pub fn push_preloaded_response(&self, response: serde_json::Value) {
@@ -514,6 +528,17 @@ pub struct StaticNewPayloadResponse {
     status: PayloadStatusV1,
     should_import: bool,
 }
+
+/// A captured REST-SSZ request (header + path/query + body) recorded by the `/engine/v1/...` routes.
+#[derive(Debug, Clone)]
+pub struct RestCapture {
+    pub method: String,
+    pub path: String,
+    pub eth_execution_version: Option<String>,
+    pub client_version: Option<String>,
+    pub content_type: Option<String>,
+    pub body: Bytes,
+}
 #[derive(Debug)]
 struct AuthError(String);
 
@@ -527,6 +552,8 @@ pub struct Context<E: EthSpec> {
     pub jwt_key: JwtKey,
 
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
+    pub last_rest_request: Arc<RwLock<Option<RestCapture>>>,
+    pub serve_rest_ssz: bool,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
@@ -643,6 +670,60 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     Ok(warp::reply::with_status(json, code))
 }
 
+const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam"],"fork_scoped_endpoints":["payloads","forkchoice","bodies"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
+
+/// Step T1: record the REST request, return a stub response (no semantics yet).
+#[allow(clippy::too_many_arguments)]
+async fn handle_rest_capture<E: EthSpec>(
+    method: &'static str,
+    full: warp::path::FullPath,
+    query: Option<String>,
+    eth_execution_version: Option<String>,
+    client_version: Option<String>,
+    content_type: Option<String>,
+    body: Bytes,
+    ctx: Arc<Context<E>>,
+) -> Result<warp::http::Response<Bytes>, warp::Rejection> {
+    let full_path = full.as_str();
+
+    if !ctx.serve_rest_ssz {
+        return Ok(warp::http::Response::builder()
+            .status(404)
+            .body(Bytes::new())
+            .unwrap());
+    }
+
+    let path = match &query {
+        Some(query) => format!("{full_path}?{query}"),
+        None => full_path.to_string(),
+    };
+    *ctx.last_rest_request.write() = Some(RestCapture {
+        method: method.to_string(),
+        path,
+        eth_execution_version,
+        client_version,
+        content_type,
+        body,
+    });
+
+    let (content_type, payload): (&str, Bytes) = if full_path.ends_with("/capabilities") {
+        ("application/json", Bytes::from_static(STUB_CAPABILITIES_JSON.as_bytes()))
+    } else if full_path.ends_with("/identity") {
+        (
+            "application/json",
+            Bytes::from(serde_json::to_vec(&[DEFAULT_CLIENT_VERSION.clone()]).unwrap()),
+        )
+    } else {
+        ("application/octet-stream", Bytes::new())
+    };
+
+    Ok(warp::http::Response::builder()
+        .status(200)
+        .header("Content-Type", content_type)
+        .body(payload)
+        .unwrap())
+}
+
 /// Creates a server that will serve requests using information from `ctx`.
 ///
 /// The server will shut down gracefully when the `shutdown` future resolves.
@@ -719,7 +800,7 @@ pub fn serve<E: EthSpec>(
     // Sends the body of the request to `ctx.last_echo_request` so we can inspect requests.
     let echo = warp::path("echo")
         .and(warp::body::bytes())
-        .and(ctx_filter)
+        .and(ctx_filter.clone())
         .and_then(|bytes: Bytes, ctx: Arc<Context<E>>| async move {
             *ctx.last_echo_request.write() = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
@@ -727,9 +808,63 @@ pub fn serve<E: EthSpec>(
             )
         });
 
-    let routes = warp::post()
-        .and(auth_header_filter(ctx.jwt_key.clone()))
-        .and(root.or(echo))
+    // `/engine/v1/...` REST-SSZ routes.
+    let opt_query = || {
+        warp::query::raw()
+            .map(Some)
+            .or(warp::any().map(|| None))
+            .unify()
+    };
+    let rest_post = warp::post()
+        .and(warp::path("engine"))
+        .and(warp::path("v1"))
+        .and(warp::path::full())
+        .and(opt_query())
+        .and(warp::header::optional::<String>("Eth-Execution-Version"))
+        .and(warp::header::optional::<String>("X-Engine-Client-Version"))
+        .and(warp::header::optional::<String>("Content-Type"))
+        .and(warp::body::bytes())
+        .and(ctx_filter.clone())
+        .and_then(
+            |full, query, eth_version, client_version, content_type, body, ctx| {
+                handle_rest_capture(
+                    "POST",
+                    full,
+                    query,
+                    eth_version,
+                    client_version,
+                    content_type,
+                    body,
+                    ctx,
+                )
+            },
+        );
+    let rest_get = warp::get()
+        .and(warp::path("engine"))
+        .and(warp::path("v1"))
+        .and(warp::path::full())
+        .and(opt_query())
+        .and(warp::header::optional::<String>("Eth-Execution-Version"))
+        .and(warp::header::optional::<String>("X-Engine-Client-Version"))
+        .and(warp::header::optional::<String>("Content-Type"))
+        .and(ctx_filter)
+        .and_then(
+            |full, query, eth_version, client_version, content_type, ctx| {
+                handle_rest_capture(
+                    "GET",
+                    full,
+                    query,
+                    eth_version,
+                    client_version,
+                    content_type,
+                    Bytes::new(),
+                    ctx,
+                )
+            },
+        );
+
+    let routes = auth_header_filter(ctx.jwt_key.clone())
+        .and(warp::post().and(root.or(echo)).or(rest_post).or(rest_get))
         .recover(handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));

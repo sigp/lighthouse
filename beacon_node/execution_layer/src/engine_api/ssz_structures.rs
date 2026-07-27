@@ -14,7 +14,7 @@ use types::execution::{
     ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
 };
 use types::{
-    BeaconStateError, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
     ForkName,
 };
@@ -101,12 +101,12 @@ type SszExecutionRequests<E> = VariableList<
     variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
     map_into(ExecutionPayload),
     cast_error(
-        ty = "BeaconStateError",
-        expr = "BeaconStateError::IncorrectStateVariant"
+        ty = "Error",
+        expr = "Error::IncorrectStateVariant"
     ),
     partial_getter_error(
-        ty = "BeaconStateError",
-        expr = "BeaconStateError::IncorrectStateVariant"
+        ty = "Error",
+        expr = "Error::IncorrectStateVariant"
     )
 )]
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
@@ -548,30 +548,95 @@ impl<E: EthSpec> TryFrom<SszGetPayloadResponse<E>> for GetPayloadResponse<E> {
     }
 }
 
-/// Pre-Amsterdam SSZ `engine_forkchoiceUpdated` request body.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+/// Pre-Amsterdam SSZ `engine_forkchoiceUpdated` request body. Per-fork so the SSZ list element is
+/// the concrete `PayloadAttributesV{N}` rather than the mixed-size transparent `PayloadAttributes`.
+#[superstruct(
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SszForkchoiceUpdate {
     pub forkchoice_state: ForkchoiceState,
-    pub payload_attributes: VariableList<PayloadAttributes, U1>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "payload_attributes_bellatrix"))]
+    pub payload_attributes: VariableList<PayloadAttributesV1, U1>,
+    #[superstruct(only(Capella), partial_getter(rename = "payload_attributes_capella"))]
+    pub payload_attributes: VariableList<PayloadAttributesV2, U1>,
+    #[superstruct(only(Deneb), partial_getter(rename = "payload_attributes_deneb"))]
+    pub payload_attributes: VariableList<PayloadAttributesV3, U1>,
+    #[superstruct(only(Electra), partial_getter(rename = "payload_attributes_electra"))]
+    pub payload_attributes: VariableList<PayloadAttributesV3, U1>,
+    #[superstruct(only(Fulu), partial_getter(rename = "payload_attributes_fulu"))]
+    pub payload_attributes: VariableList<PayloadAttributesV3, U1>,
 }
 
 /// Amsterdam SSZ `engine_forkchoiceUpdated` request body (adds `custody_columns`).
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct SszForkchoiceUpdateAmsterdam<E: EthSpec> {
     pub forkchoice_state: ForkchoiceState,
-    pub payload_attributes: VariableList<PayloadAttributes, U1>,
+    pub payload_attributes: VariableList<PayloadAttributesV4, U1>,
     pub custody_columns: VariableList<BitVector<E::CellsPerExtBlob>, U1>,
 }
 
 impl SszForkchoiceUpdate {
     pub fn new(
+        fork: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<Self, ssz_types::Error> {
-        Ok(Self {
-            forkchoice_state,
-            payload_attributes: VariableList::new(payload_attributes.into_iter().collect())?,
-        })
+    ) -> Result<Self, Error> {
+        let update = match fork {
+            ForkName::Bellatrix => Self::Bellatrix(SszForkchoiceUpdateBellatrix {
+                forkchoice_state,
+                payload_attributes: VariableList::new(
+                    payload_attributes
+                        .map(|attributes| attributes.as_v1().cloned())
+                        .transpose()?
+                        .into_iter()
+                        .collect(),
+                )?,
+            }),
+            ForkName::Capella => Self::Capella(SszForkchoiceUpdateCapella {
+                forkchoice_state,
+                payload_attributes: VariableList::new(
+                    payload_attributes
+                        .map(|attributes| attributes.as_v2().cloned())
+                        .transpose()?
+                        .into_iter()
+                        .collect(),
+                )?,
+            }),
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+                let payload_attributes = VariableList::new(
+                    payload_attributes
+                        .map(|attributes| attributes.as_v3().cloned())
+                        .transpose()?
+                        .into_iter()
+                        .collect(),
+                )?;
+                match fork {
+                    ForkName::Deneb => Self::Deneb(SszForkchoiceUpdateDeneb {
+                        forkchoice_state,
+                        payload_attributes,
+                    }),
+                    ForkName::Electra => Self::Electra(SszForkchoiceUpdateElectra {
+                        forkchoice_state,
+                        payload_attributes,
+                    }),
+                    _ => Self::Fulu(SszForkchoiceUpdateFulu {
+                        forkchoice_state,
+                        payload_attributes,
+                    }),
+                }
+            }
+            other => {
+                return Err(Error::UnsupportedForkVariant(format!(
+                    "no pre-Amsterdam forkchoice update for {other}"
+                )));
+            }
+        };
+        Ok(update)
     }
 }
 
@@ -580,10 +645,16 @@ impl<E: EthSpec> SszForkchoiceUpdateAmsterdam<E> {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         custody_columns: Option<BitVector<E::CellsPerExtBlob>>,
-    ) -> Result<Self, ssz_types::Error> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             forkchoice_state,
-            payload_attributes: VariableList::new(payload_attributes.into_iter().collect())?,
+            payload_attributes: VariableList::new(
+                payload_attributes
+                    .map(|attributes| attributes.as_v4().cloned())
+                    .transpose()?
+                    .into_iter()
+                    .collect(),
+            )?,
             custody_columns: VariableList::new(custody_columns.into_iter().collect())?,
         })
     }

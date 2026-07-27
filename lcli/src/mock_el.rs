@@ -51,6 +51,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         prague_time,
         osaka_time,
         amsterdam_time,
+        serve_rest_ssz: false,
     };
     let kzg = None;
     let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
