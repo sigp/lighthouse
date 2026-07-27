@@ -4420,6 +4420,95 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_duties_inclusion_list(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap().as_u64();
+
+        let half = current_epoch / 2;
+        let first = current_epoch - half;
+        let last = current_epoch + half;
+
+        for epoch in first..=last {
+            for indices in self.interesting_validator_indices() {
+                let epoch = Epoch::from(epoch);
+
+                // The endpoint does not allow getting duties past the next epoch.
+                if epoch > current_epoch + 1 {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
+                let results = self
+                    .client
+                    .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                    .await
+                    .unwrap();
+
+                let dependent_root = self
+                    .chain
+                    .block_root_at_slot(
+                        (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                        WhenSlotSkipped::Prev,
+                    )
+                    .unwrap()
+                    .unwrap_or(self.chain.head_beacon_block_root());
+
+                assert_eq!(results.dependent_root, dependent_root);
+
+                let result_duties = results.data;
+
+                let mut state = self
+                    .chain
+                    .state_at_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                        StateSkipConfig::WithStateRoots,
+                    )
+                    .unwrap();
+                state
+                    .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                    .unwrap();
+
+                let slot_committees: Vec<(Slot, Hash256, Vec<u64>)> = epoch
+                    .slot_iter(E::slots_per_epoch())
+                    .map(|slot| {
+                        let committee = state.get_inclusion_list_committee(slot).unwrap();
+                        (slot, committee.tree_hash_root(), committee.to_vec())
+                    })
+                    .collect();
+
+                let expected_duties: Vec<InclusionListDuty> = indices
+                    .iter()
+                    .filter_map(|&validator_index| {
+                        let validator = state.validators().get(validator_index as usize)?;
+                        let (slot, inclusion_list_committee_root, _) = slot_committees
+                            .iter()
+                            .find(|(_, _, committee)| committee.contains(&validator_index))?;
+                        Some(InclusionListDuty {
+                            pubkey: validator.pubkey,
+                            validator_index,
+                            slot: *slot,
+                            inclusion_list_committee_root: *inclusion_list_committee_root,
+                        })
+                    })
+                    .collect();
+
+                assert_eq!(
+                    result_duties, expected_duties,
+                    "inclusion list duties should exactly match state-derived committees"
+                );
+            }
+        }
+
+        self
+    }
+
     pub async fn test_block_production(self) -> Self {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -10179,6 +10268,29 @@ async fn get_validator_duties_ptc_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_ptc()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_validator_duties_inclusion_list()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list_with_skip_slots() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_duties_inclusion_list()
         .await;
 }
 
