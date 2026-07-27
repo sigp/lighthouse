@@ -2920,3 +2920,126 @@ async fn rpc_block_allows_construction_past_da_boundary() {
 
     panic!("No block with blob commitments found");
 }
+
+/// Tests that a chain segment with a valid gloas block but an envelope with an invalid signature is rejected.
+#[tokio::test]
+async fn process_chain_segment_rejects_gloas_envelope_with_invalid_signature() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+
+    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
+    let mut envelope = envelope.unwrap();
+
+    // Manually modify the envelope signature
+    envelope.signature = junk_signature();
+
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+
+    let available_envelope = AvailableEnvelope::new(
+        Arc::new(envelope),
+        columns,
+        bid,
+        &harness.chain.custody_context,
+    )
+    .unwrap();
+
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let result = harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    // result should fail with EnvelopeError(BadSignature)
+    match result {
+        ChainSegmentResult::Failed { error, .. } => {
+            assert!(
+                error.to_string().contains("BadSignature"),
+                "expected BadSignature error, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail with invalid envelope signature"),
+    }
+}
+
+/// Tests that a chain segment with a valid gloas block but an envelope with invalid `beacon_block_root`is rejected.
+#[tokio::test]
+async fn process_chain_segment_rejects_gloas_envelope_with_invalid_block_root() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
+    let mut envelope = envelope.expect("gloas block should have envelope");
+
+    // Manually modify the beacon_block_root to make it invalid
+    envelope.message.beacon_block_root = Hash256::zero();
+
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope = AvailableEnvelope::new(
+        Arc::new(envelope),
+        columns,
+        bid,
+        &harness.chain.custody_context,
+    )
+    .unwrap();
+
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let result = harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    // Even though we modify the beacon_block_root, the test will fail with BadSignature
+    // This is because process_chain_segment() calls process_range_sync_envelope(), which then calls verify_execution_payload_envelope()
+    // The first thing the function does is to verify the signature and it should fail with: Err(EnvelopeProcessingError::BadSignature)
+    match result {
+        ChainSegmentResult::Failed { error, .. } => {
+            assert!(
+                error.to_string().contains("BadSignature"),
+                "expected BadSignature error, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail with invalid envelope signature"),
+    }
+}
