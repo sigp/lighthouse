@@ -570,6 +570,15 @@ fn main() {
                                 until Osaka is triggered on mainnet.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("amsterdam-time")
+                        .long("amsterdam-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Amsterdam. No default is provided \
+                                until Amsterdam is triggered on mainnet.")
+                        .display_order(0)
+                )
         )
         .subcommand(
             Command::new("http-sync")
