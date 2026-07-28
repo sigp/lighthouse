@@ -600,6 +600,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
+            // TODO(heze): construct a `BeaconBlockHeze` here once Heze block production is
+            // wired up end-to-end (get_payload, envelope handling, etc).
+            BeaconState::Heze(_) => {
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Block production disabled for Heze".to_owned(),
+                ));
+            }
         };
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
