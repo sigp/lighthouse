@@ -12,8 +12,15 @@ pub static FCR_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
 });
 pub static FCR_CONFIRMED_ROOT_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
-        "beacon_fcr_confirmed_root_slot",
+        "beacon_fast_confirmation_slot",
         "Slot of the current FCR confirmed root",
+    )
+});
+pub static FCR_UNCONFIRMATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_fast_confirmation_reorgs_total",
+        "Count of FCR unconfirmations: a previously confirmed block that is no longer confirmed \
+         because it was reorged off the confirmed chain",
     )
 });
 pub static FCR_CONFIRMED_ROOT_CHANGES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -46,25 +53,25 @@ pub static FCR_SETTLED_CONFIRMATION_DELAY_SLOTS: LazyLock<Result<Histogram>> = L
         )
     },
 );
-pub(crate) static FCR_REVERT_TO_FINALIZED: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_fcr_revert_to_finalized_total",
-        "Count of FCR reverts of the confirmed root to the finalized block, by reason",
-        &["reason"],
-    )
-});
-pub(crate) static FCR_UNCONFIRMED_SUPPORT_RATIO: LazyLock<Result<Histogram>> =
+pub(crate) static FCR_FALLBACK_TO_FINALIZED: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "beacon_fcr_unconfirmed_support_ratio",
-            "support / safety_threshold of the block that triggered an unconfirmed_block revert; \
-         values near 1.0 are marginal, lower values indicate real support loss",
-            Ok(vec![0.5, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 1.0]),
+        try_create_int_counter_vec(
+            "beacon_fast_confirmation_fallbacks_total",
+            "Count of FCR fallbacks of the confirmed root to the finalized block, by reason",
+            &["reason"],
         )
     });
+pub(crate) static FCR_FALLBACK_SUPPORT_RATIO: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fcr_fallback_support_ratio",
+        "support / safety_threshold of the block that triggered a fallback to finalized; \
+         values near 1.0 are marginal, lower values indicate real support loss",
+        Ok(vec![0.5, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 1.0]),
+    )
+});
 pub(crate) static FCR_RESTART_FROM_JUSTIFIED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_fcr_restart_from_justified_total",
+        "beacon_fast_confirmation_restarts_total",
         "Count of FCR restarts of the confirmed root from the observed justified checkpoint",
     )
 });

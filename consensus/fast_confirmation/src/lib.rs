@@ -399,16 +399,16 @@ impl FastConfirmationRule {
 
         let confirmed_block_epoch_result = get_block_epoch::<E>(confirmed_root, proto_array);
 
-        // Revert to finalized block if either of the following is true:
-        let should_revert_to_finalized_reason = if confirmed_block_epoch_result
+        // Fall back to finalized block if either of the following is true:
+        let should_fall_back_to_finalized_reason = if confirmed_block_epoch_result
             .as_ref()
             .map_or(true, |block_epoch| {
                 block_epoch.saturating_add(1u64) < current_epoch
             }) {
             if confirmed_block_epoch_result.is_err() {
-                // We have an additional revert case not present in the spec: the `confirmed_root`
+                // We have an additional fallback case not present in the spec: the `confirmed_root`
                 // could have been pruned from fork choice. This needs to be a recoverable failure
-                // (a revert) rather than a hard error.
+                // (a fallback) rather than a hard error.
                 Some("confirmed_block_pruned")
             } else {
                 // 1) the latest confirmed block's epoch is older than the previous epoch,
@@ -432,16 +432,16 @@ impl FastConfirmationRule {
         } else {
             None
         };
-        if let Some(reason) = should_revert_to_finalized_reason {
+        if let Some(reason) = should_fall_back_to_finalized_reason {
             debug!(
                 prev_confirmed = %confirmed_root,
                 finalized = %finalized_checkpoint.root,
                 slot = %current_slot,
                 reason = reason,
-                "FCR reverted to finalized"
+                "FCR fell back to finalized"
             );
             confirmed_root = finalized_checkpoint.root;
-            metrics::inc_counter_vec(&metrics::FCR_REVERT_TO_FINALIZED, &[reason]);
+            metrics::inc_counter_vec(&metrics::FCR_FALLBACK_TO_FINALIZED, &[reason]);
         }
 
         // Restart the confirmation chain if each of the following conditions are true:
@@ -670,7 +670,7 @@ impl FastConfirmationRule {
     /// precomputes scores once and uses `is_one_confirmed_with_score`.
     ///
     /// `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
-    /// isn't, with `reason` naming which check failed (surfaced as the revert metric label).
+    /// isn't, with `reason` naming which check failed (surfaced as the fallback metric label).
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
@@ -738,7 +738,7 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                // `root` is not confirmed; surface why for the revert metric.
+                // `root` is not confirmed; surface why for the fallback metric.
                 match unconfirmed {
                     Unconfirmed::BelowThreshold {
                         support,
@@ -746,14 +746,14 @@ impl FastConfirmationRule {
                     } => {
                         if safety_threshold > 0 {
                             metrics::observe(
-                                &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                                &metrics::FCR_FALLBACK_SUPPORT_RATIO,
                                 support as f64 / safety_threshold as f64,
                             );
                         }
-                        return Ok(Some("unconfirmed_below_threshold"));
+                        return Ok(Some("below_safety_threshold"));
                     }
                     Unconfirmed::Optimistic => {
-                        return Ok(Some("unconfirmed_optimistic"));
+                        return Ok(Some("optimistic_or_invalid"));
                     }
                 }
             }

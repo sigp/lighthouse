@@ -266,6 +266,7 @@ struct FcrOutcome {
     confirmed_slot: Slot,
     confirmed_block_hash: ExecutionBlockHash,
     new_confirmed_root: bool,
+    unconfirmed_root: bool,
     new_update_slot: bool,
 }
 
@@ -942,6 +943,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     confirmed_slot,
                     confirmed_block_hash,
                     new_confirmed_root,
+                    unconfirmed_root,
                     new_update_slot,
                 }) => {
                     // FC update params are only updated after successful FCR runs. This is
@@ -967,6 +969,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                     if new_confirmed_root {
                         metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                    }
+                    if unconfirmed_root {
+                        metrics::inc_counter(&fcr_metrics::FCR_UNCONFIRMATIONS);
+                        warn!(
+                            confirmed_root = ?confirmed_root,
+                            confirmed_slot = %confirmed_slot,
+                            current_slot = %current_slot,
+                            "FCR unconfirmed a previously confirmed block"
+                        );
                     }
 
                     // Emit a `fast_confirmation` event on every FCR run, regardless of
@@ -1228,6 +1239,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &store.spec,
         )?;
 
+        // An unconfirmation is a previously confirmed block that is no longer confirmed because it
+        // fell off the confirmed chain. This is the event downstream users track. Advancing to a
+        // descendant is normal and must not count. A missing old root means it was finalized and
+        // pruned (the healthy case), so it is not treated as an unconfirmation either.
+        let unconfirmed_root = fcr.confirmed_root != old_confirmed_root
+            && proto_array.get_block(old_confirmed_root).is_some()
+            && !proto_array.is_descendant(old_confirmed_root, fcr.confirmed_root);
+
         let confirmed_node = fork_choice
             .get_block(&fcr.confirmed_root)
             .ok_or(FastConfirmationError::NodeNotFound(fcr.confirmed_root))?;
@@ -1247,6 +1266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_slot: confirmed_node.slot,
             confirmed_block_hash,
             new_confirmed_root: fcr.confirmed_root != old_confirmed_root,
+            unconfirmed_root,
             new_update_slot: fcr.last_update_slot() != old_update_slot,
         })
     }
