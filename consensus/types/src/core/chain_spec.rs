@@ -159,6 +159,12 @@ pub struct ChainSpec {
     pub reorg_max_epochs_since_finalization: u64,
 
     /*
+     * Fast confirmation rule
+     */
+    /// Maximum assumed percentage of Byzantine validators (0-25).
+    pub confirmation_byzantine_threshold: u64,
+
+    /*
      * Eth1
      */
     pub eth1_follow_distance: u64,
@@ -260,6 +266,13 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_churn_limit_gloas: u64,
 
     /*
+     * Heze hard fork params
+     */
+    pub heze_fork_version: [u8; 4],
+    /// The Heze fork epoch is optional, with `None` representing "Heze never happens".
+    pub heze_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -300,7 +313,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    pub(crate) blob_schedule: BlobSchedule,
+    pub blob_schedule: BlobSchedule,
     pub min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
@@ -381,6 +394,7 @@ impl ChainSpec {
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         let forks = [
+            (self.heze_fork_epoch, ForkName::Heze),
             (self.gloas_fork_epoch, ForkName::Gloas),
             (self.fulu_fork_epoch, ForkName::Fulu),
             (self.electra_fork_epoch, ForkName::Electra),
@@ -413,6 +427,7 @@ impl ChainSpec {
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
             ForkName::Gloas => self.gloas_fork_version,
+            ForkName::Heze => self.heze_fork_version,
         }
     }
 
@@ -432,6 +447,7 @@ impl ChainSpec {
             ForkName::Electra => self.electra_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
             ForkName::Gloas => self.gloas_fork_epoch,
+            ForkName::Heze => self.heze_fork_epoch,
         }
     }
 
@@ -474,6 +490,12 @@ impl ChainSpec {
     pub fn is_gloas_scheduled(&self) -> bool {
         self.gloas_fork_epoch
             .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `HEZE_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_heze_scheduled(&self) -> bool {
+        self.heze_fork_epoch
+            .is_some_and(|heze_fork_epoch| heze_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -1172,6 +1194,11 @@ impl ChainSpec {
             reorg_max_epochs_since_finalization: 2,
 
             /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
+
+            /*
              * Eth1
              */
             eth1_follow_distance: 2048,
@@ -1296,6 +1323,12 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+
+            /*
+             * Heze hard fork params
+             */
+            heze_fork_version: [0x08, 0x00, 0x00, 0x00],
+            heze_fork_epoch: None,
 
             /*
              * Network specific
@@ -1449,6 +1482,9 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            // Heze
+            heze_fork_version: [0x08, 0x00, 0x00, 0x01],
+            heze_fork_epoch: None,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1598,6 +1634,11 @@ impl ChainSpec {
             reorg_max_epochs_since_finalization: 2,
 
             /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
+
+            /*
              * Eth1
              */
             eth1_follow_distance: 1024,
@@ -1723,6 +1764,12 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+
+            /*
+             * Heze hard fork params
+             */
+            heze_fork_version: [0x08, 0x00, 0x00, 0x64],
+            heze_fork_epoch: None,
 
             /*
              * Network specific
@@ -1998,6 +2045,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_heze_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    heze_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub heze_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     seconds_per_slot: Option<MaybeQuoted<u64>>,
@@ -2033,6 +2088,9 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(default = "default_confirmation_byzantine_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    confirmation_byzantine_threshold: u64,
     #[serde(default = "default_reorg_head_weight_threshold")]
     #[serde(with = "serde_utils::quoted_u64")]
     reorg_head_weight_threshold: u64,
@@ -2219,6 +2277,11 @@ fn default_gloas_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
+fn default_heze_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
@@ -2277,6 +2340,10 @@ fn compute_attestation_subnet_prefix_bits(
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_confirmation_byzantine_threshold() -> u64 {
+    25
 }
 
 const fn default_gas_limit_adjustment_factor() -> u64 {
@@ -2623,6 +2690,11 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            heze_fork_version: spec.heze_fork_version,
+            heze_fork_epoch: spec
+                .heze_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: Some(MaybeQuoted {
                 value: spec.seconds_per_slot,
             }),
@@ -2651,6 +2723,8 @@ impl Config {
             reorg_head_weight_threshold: spec.reorg_head_weight_threshold,
             reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
+
+            confirmation_byzantine_threshold: spec.confirmation_byzantine_threshold,
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2742,6 +2816,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
+            heze_fork_version,
+            heze_fork_epoch,
             seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
@@ -2803,6 +2879,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            confirmation_byzantine_threshold,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
@@ -2841,6 +2918,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
+            heze_fork_version,
+            heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
             seconds_per_slot: seconds_per_slot
                 .map(|q| q.value)
                 .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,
@@ -2864,6 +2943,7 @@ impl Config {
             proposer_score_boost: proposer_score_boost
                 .map(|q| q.value)
                 .unwrap_or(chain_spec.proposer_score_boost),
+            confirmation_byzantine_threshold,
             reorg_head_weight_threshold,
             reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization,
@@ -3879,8 +3959,6 @@ mod yaml_tests {
     /// list as new forks are added.
     const UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE: &[&str] = &[
         // Forks not yet implemented
-        "HEZE_FORK_VERSION",
-        "HEZE_FORK_EPOCH",
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
         // Gloas params not yet in Config

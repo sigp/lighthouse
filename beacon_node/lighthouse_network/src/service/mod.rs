@@ -2150,10 +2150,10 @@ impl<E: EthSpec> Network<E> {
             } => {
                 match reason {
                     Ok(_) => {
-                        debug!(?addresses, "Listener gracefully closed")
+                        debug!(?addresses, "Listener gracefully closed");
                     }
                     Err(reason) => {
-                        crit!(?addresses, ?reason, "Listener abruptly closed")
+                        crit!(?addresses, ?reason, "Listener abruptly closed");
                     }
                 };
                 if Swarm::listeners(&self.swarm).count() == 0 {

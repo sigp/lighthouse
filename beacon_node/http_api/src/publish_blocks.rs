@@ -422,7 +422,9 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
                     }
                     partial_columns.push(Arc::new(partial));
                 }
-                Err(err) => crit!(?err, "Could not convert from full to partial"),
+                Err(err) => {
+                    crit!(?err, "Could not convert from full to partial");
+                }
             }
         }
 
@@ -463,7 +465,7 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
             })?;
         } else {
-            crit!("Unable to extract header from full columns")
+            crit!("Unable to extract header from full columns");
         }
     }
 
@@ -726,7 +728,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
 }
 
 /// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
-fn check_slashable<T: BeaconChainTypes>(
+pub(crate) fn check_slashable<T: BeaconChainTypes>(
     chain_clone: &BeaconChain<T>,
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,

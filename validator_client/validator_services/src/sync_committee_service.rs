@@ -123,9 +123,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
-                        )
+                        );
                     } else {
-                        trace!("Spawned sync contribution tasks")
+                        trace!("Spawned sync contribution tasks");
                     }
 
                     // Do subscriptions for future slots/epochs.
@@ -361,7 +361,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     ?beacon_block_root,
                     error = %e,
                     "Failed to produce sync contribution"
-                )
+                );
             })?
             .ok_or_else(|| {
                 crit!(%slot, ?beacon_block_root, "No aggregate contribution found");
