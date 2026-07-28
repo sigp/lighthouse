@@ -2,6 +2,8 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::error::Error;
 use crate::cases::{LoadCase, Case};
 use serde::Deserialize;
+use beacon_chain::test_utils::BeaconChainHarness;
+use std::sync::Arc;
 use std::path::Path;
 use types::*;
 
@@ -57,7 +59,40 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
 }
 
 impl<E: EthSpec> Case for LightClientDataCollection<E> {
-    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-	Err(Error::SkippedKnownFailure)
+	fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+    	let spec = _fork_name.make_genesis_spec(E::default_spec());
+    
+    	let harness = BeaconChainHarness::builder(E::default())
+        	.spec(spec.clone().into())
+        	.genesis_state_ephemeral_store(self.initial_state.clone())
+        	.mock_execution_layer()
+        	.build();
+
+    	for step in &self.steps {
+        	match step {
+            	Step::NewBlock { block } => {
+                	let block_root = block.canonical_root();
+                	let block_contents = (Arc::new(block.clone()), None);
+                	harness.chain.task_executor.clone()
+                    	.block_on_dangerous(
+                        	harness.process_block_result(block_contents),
+                        	"ef_tests_block_on"
+                    )
+                    .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
+                    .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+                harness.update_light_client_server_cache(
+                    &harness.get_current_state(),
+                    block.slot(),
+                    block_root,
+                );
+            }
+            Step::NewHead { block_id: _, checks: _ } => {
+                // TODO: handle NewHead steps
+                return Err(Error::SkippedKnownFailure);
+            }
+        }
     }
+
+    Ok(())
+}
 }
