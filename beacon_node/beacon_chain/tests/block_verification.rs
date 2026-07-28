@@ -2921,9 +2921,46 @@ async fn rpc_block_allows_construction_past_da_boundary() {
     panic!("No block with blob commitments found");
 }
 
+/// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
+/// is rejected with `InvalidVariant`, because gloas blocks need to use `new_gloas`.
+#[tokio::test]
+async fn range_sync_block_new_rejects_gloas_block() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
+    assert!(envelope.is_some(), "gloas block should produce an envelope");
+
+    // Attempting to use the pre-gloas constructor with a gloas block, it should error
+    let result = RangeSyncBlock::new(
+        block,
+        AvailableBlockData::NoData,
+        &harness.chain.custody_context,
+    );
+
+    assert!(
+        result.is_err(),
+        "RangeSyncBlock::new should reject a gloas block"
+    );
+}
+
 /// Tests that a chain segment with a valid gloas block but an envelope with an invalid signature is rejected.
 #[tokio::test]
-async fn process_chain_segment_rejects_gloas_envelope_with_invalid_signature() {
+async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
@@ -2984,7 +3021,7 @@ async fn process_chain_segment_rejects_gloas_envelope_with_invalid_signature() {
 
 /// Tests that a chain segment with a valid gloas block but an envelope with invalid `beacon_block_root`is rejected.
 #[tokio::test]
-async fn process_chain_segment_rejects_gloas_envelope_with_invalid_block_root() {
+async fn process_chain_segment_rejects_envelope_with_invalid_block_root() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
@@ -3042,4 +3079,131 @@ async fn process_chain_segment_rejects_gloas_envelope_with_invalid_block_root() 
         }
         _ => panic!("chain segment should fail with invalid envelope signature"),
     }
+}
+
+/// Tests that when a chain segment has 2 gloas blocks with one block has invalid signature
+/// both blocks imported into fork choice but only the block with valid envelope has payload received
+#[tokio::test]
+async fn process_chain_segment_partial_import_with_invalid_envelope() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    // Block 1 with a valid envelope.
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope1 = chain_dump[0].execution_envelope.clone().unwrap();
+    let columns1 = generate_data_column_sidecars_from_block(&block1, &harness.chain.spec);
+    let bid1 = block1
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope1 = AvailableEnvelope::new(
+        envelope1,
+        columns1,
+        bid1,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+
+    // Block 2 with an invalid envelope
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let mut envelope2 =
+        SignedExecutionPayloadEnvelope::clone(chain_dump[1].execution_envelope.as_ref().unwrap());
+    // modify the envelope signature to make the envelope invalid
+    envelope2.signature = junk_signature();
+    let columns2 = generate_data_column_sidecars_from_block(&block2, &harness.chain.spec);
+    let bid2 = block2
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope2 = AvailableEnvelope::new(
+        Arc::new(envelope2),
+        columns2,
+        bid2,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
+
+    let block_root1 = range_sync_blocks[0].block_root();
+    let block_root2 = range_sync_blocks[1].block_root();
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed {
+            imported_blocks,
+            error,
+        } => {
+            // should import 2 blocks, even though the second block envelope is invalid
+            assert_eq!(imported_blocks.len(), 2, "both blocks should be imported");
+            assert!(
+                error.to_string().contains("BadSignature"),
+                "expected BadSignature error for second block's envelope, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail on second block's bad envelope"),
+    }
+
+    // Both blocks land in fork choice
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(
+        fork_choice.contains_block(&block_root1),
+        "block1 should be in fork choice"
+    );
+    assert!(
+        fork_choice.contains_block(&block_root2),
+        "block2 should be in fork choice"
+    );
+
+    // Only the first block payload is received
+    assert!(
+        fork_choice.is_payload_received(&block_root1),
+        "block1 payload should be received"
+    );
+    // the second block payload is false, because the envelope is invalid
+    assert!(
+        !fork_choice.is_payload_received(&block_root2),
+        "block2 payload should be rejected"
+    );
 }
