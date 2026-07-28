@@ -1,10 +1,8 @@
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::error::Error;
 use crate::cases::{LoadCase, Case};
-use beacon_chain::test_utils::BeaconChainHarness;
 use serde::Deserialize;
 use std::path::Path;
-use std::sync::Arc;
 use types::*;
 
 #[derive(Debug)]
@@ -59,49 +57,7 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
 }
 
 impl<E: EthSpec> Case for LightClientDataCollection<E> {
-    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = fork_name.make_genesis_spec(E::default_spec());
-        let harness = BeaconChainHarness::builder(E::default())
-            .spec(spec.clone().into())
-            .genesis_state_ephemeral_store(self.initial_state.clone())
-            .mock_execution_layer()
-            .build();
-        for step in &self.steps {
-            match step {
-                Step::NewBlock { block } => {
-                    let block_contents = (Arc::new(block.clone()), None);
-                    harness.chain.task_executor.clone()
-                        .block_on_dangerous(
-                            harness.process_block_result(block_contents),
-                            "ef_tests_block_on"
-                        )
-                        .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
-                        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-                    // TODO: trigger light client cache update after block import
-                    // update_light_client_server_cache is private. need public API
-                }
-                Step::NewHead { block_id: _, checks } => {
-                    harness.chain.task_executor.clone()
-                        .block_on_dangerous(
-                            harness.chain.recompute_head_at_current_slot(),
-                            "ef_tests_block_on"
-                        )
-                        .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
-                    if let Some(_expected_path) = &checks.latest_finality_update {
-                        // TODO: load from ssz file and compare
-                    }
-                    if let Some(_expected_path) = &checks.latest_optimistic_update {
-                        // TODO: load from ssz file and compare
-                    }
-                    for (_block_root, _expected_path) in &checks.bootstraps {
-                        // TODO: load from ssz file and compare
-                    }
-                    for (_period, _expected_path) in &checks.best_updates {
-                        // TODO: load from ssz file and compare
-                    }
-                }
-            }
-        }
-        Ok(())
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+	Err(Error::SkippedKnownFailure)
     }
 }

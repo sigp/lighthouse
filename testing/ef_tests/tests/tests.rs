@@ -1247,6 +1247,11 @@ fn light_client_update() {
 }
 
 #[test]
+fn light_client_data_collection() {
+    LightClientDataCollectionHandler::<MinimalEthSpec>::default().run();
+}
+
+#[test]
 #[cfg(feature = "fake_crypto")]
 fn kzg_inclusion_merkle_proof_validity() {
     KzgInclusionMerkleProofValidityHandler::<MainnetEthSpec>::default().run();

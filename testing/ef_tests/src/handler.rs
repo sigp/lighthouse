@@ -1265,6 +1265,34 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
 #[derive(Educe)]
 #[educe(Default)]
+pub struct LightClientDataCollectionHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for LightClientDataCollectionHandler<E> {
+    type Case = cases::LightClientDataCollection<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "data_collection".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name.altair_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Gloas]
+    }
+}
+
+#[derive(Educe)]
+#[educe(Default)]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
