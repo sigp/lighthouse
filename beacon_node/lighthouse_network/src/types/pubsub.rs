@@ -14,10 +14,11 @@ use types::{
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProof,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    execution::SignedExecutionProof,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,6 +269,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                             ),
                             Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                                SignedBeaconBlockHeze::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
                             None => {
