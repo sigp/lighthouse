@@ -491,11 +491,10 @@ impl ValidatorsAndDeposits {
                         }
                     } else {
                         if compounding {
-                            return Err(format!(
-                                "Compounding validators are not supported \
+                            return Err("Compounding validators are not supported \
                                 for BLS withdrawal credentials. Use \
-                                --eth1-withdrawal-address",
-                            ));
+                                --eth1-withdrawal-address"
+                                .to_string());
                         }
 
                         // Decrypt the withdrawal keystore so withdrawal credentials can be created. It's
@@ -669,6 +668,7 @@ pub mod tests {
                 gas_limit: None,
                 bn_url: None,
                 force_bls_withdrawal_credentials: false,
+                compounding: false,
             };
 
             Self {
