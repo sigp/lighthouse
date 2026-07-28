@@ -621,7 +621,7 @@ pub mod tests {
 
     type E = MainnetEthSpec;
 
-    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "1.2.2"; // Update to ethstaker-deposit-cli version
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "1.3.0"; // Update to ethstaker-deposit-cli version
 
     fn junk_execution_address() -> Option<Address> {
         Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
@@ -733,10 +733,12 @@ pub mod tests {
                         let validator_pubkey = validator.voting_keystore.0.public_key().unwrap();
                         assert_eq!(deposit.pubkey, validator_pubkey.clone().into());
                         if let Some(address) = config.eth1_withdrawal_address {
-                            assert_eq!(
-                                deposit.withdrawal_credentials.as_slice()[0],
+                            let prefix_byte = if config.compounding {
+                                spec.compounding_withdrawal_prefix_byte
+                            } else {
                                 spec.eth1_address_withdrawal_prefix_byte
-                            );
+                            };
+                            assert_eq!(deposit.withdrawal_credentials.as_slice()[0], prefix_byte);
                             assert_eq!(
                                 &deposit.withdrawal_credentials.as_slice()[12..],
                                 address.as_slice()
@@ -927,12 +929,13 @@ pub mod tests {
         /*
          * Parse the test vector name into a set of test parameters.
          */
-        let re = Regex::new(r"(.*)_(.*)_(.*)_(.*)_(.*)_(.*)_(.*)").unwrap();
+        let re = Regex::new(r"(.*)_first_(.*)_count_(.*)_prefix_(.*)_eth1_(.*)").unwrap();
         let capture = re.captures_iter(name).next().unwrap();
         let network = capture.get(1).unwrap().as_str();
-        let first = u32::from_str(capture.get(3).unwrap().as_str()).unwrap();
-        let count = u32::from_str(capture.get(5).unwrap().as_str()).unwrap();
-        let uses_eth1 = bool::from_str(capture.get(7).unwrap().as_str()).unwrap();
+        let first = u32::from_str(capture.get(2).unwrap().as_str()).unwrap();
+        let count = u32::from_str(capture.get(3).unwrap().as_str()).unwrap();
+        let prefix = String::from_str(capture.get(4).unwrap().as_str()).unwrap();
+        let uses_eth1 = bool::from_str(capture.get(5).unwrap().as_str()).unwrap();
 
         /*
          * Use the test parameters to generate equivalent files "locally" (i.e., with our code).
@@ -952,7 +955,14 @@ pub mod tests {
                     config.eth1_withdrawal_address = Some(
                         Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap(),
                     );
+
+                    match prefix.as_ref() {
+                        "0x01" => config.compounding = false,
+                        "0x02" => config.compounding = true,
+                        _ => panic!("Invalid withdrawal credentials prefix: {}", prefix),
+                    }
                 } else {
+                    assert_eq!(&prefix, "0x00", "BLS withdrawals must use 0x00 prefix");
                     config.eth1_withdrawal_address = None;
                     config.force_bls_withdrawal_credentials = true;
                 }
