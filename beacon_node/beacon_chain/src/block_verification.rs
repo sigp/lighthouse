@@ -1911,7 +1911,7 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
 /// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
-    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
+    fork_choice_read_lock: &BeaconForkChoice<T>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
     match fork_choice_read_lock.get_parent_import_status(&block) {
