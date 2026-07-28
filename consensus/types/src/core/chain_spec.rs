@@ -329,6 +329,7 @@ pub struct ChainSpec {
      */
     pub max_bytes_per_inclusion_list: u64,
     pub max_request_inclusion_list: u64,
+    pub min_slots_for_inclusion_lists_requests: u64,
 
     /*
      * Networking Derived
@@ -1348,6 +1349,7 @@ impl ChainSpec {
             heze_fork_epoch: None,
             max_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
+            min_slots_for_inclusion_lists_requests: 1,
 
             /*
              * Network specific
@@ -1793,6 +1795,7 @@ impl ChainSpec {
             heze_fork_epoch: None,
             max_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
+            min_slots_for_inclusion_lists_requests: 1,
 
             /*
              * Network specific
@@ -4007,6 +4010,7 @@ mod yaml_tests {
         // Heze networking
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
+        "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
