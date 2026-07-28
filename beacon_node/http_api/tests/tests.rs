@@ -4431,6 +4431,20 @@ impl ApiTester {
             for indices in self.interesting_validator_indices() {
                 let epoch = Epoch::from(epoch);
 
+                // The endpoint requires at least one validator index.
+                if indices.is_empty() {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
                 // The endpoint does not allow getting duties past the next epoch.
                 if epoch > current_epoch + 1 {
                     assert_eq!(
