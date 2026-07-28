@@ -456,6 +456,11 @@ impl<E: EthSpec> PeerManager<E> {
     /// A peer is being dialed.
     /// Returns true, if this peer will be dialed.
     pub fn dial_peer(&mut self, peer: Enr) -> bool {
+        if self.dialable_multiaddrs(&peer).is_empty() {
+            debug!(peer_id = %peer.peer_id(), "Not dialing peer with no dialable address");
+            return false;
+        }
+
         if self
             .network_globals
             .peers
@@ -467,6 +472,18 @@ impl<E: EthSpec> PeerManager<E> {
         } else {
             false
         }
+    }
+
+    /// The addresses we can dial `enr` on, given the transports we have enabled.
+    fn dialable_multiaddrs(&self, enr: &Enr) -> Vec<Multiaddr> {
+        let multiaddr_quic = if self.quic_enabled {
+            enr.dialable_multiaddrs_quic()
+        } else {
+            vec![]
+        };
+
+        // Prioritize Quic connections over Tcp ones.
+        [multiaddr_quic, enr.dialable_multiaddrs_tcp()].concat()
     }
 
     /// Reports if a peer is banned or not.
@@ -1757,6 +1774,26 @@ mod tests {
             finalized_root: Default::default(),
             earliest_available_slot: None,
         }
+    }
+
+    fn enr_with_tcp4_port(port: u16) -> Enr {
+        let key = discv5::enr::CombinedKey::generate_secp256k1();
+        Enr::builder()
+            .ip4(std::net::Ipv4Addr::LOCALHOST)
+            .tcp4(port)
+            .build(&key)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_dial_peer_skips_zero_port() {
+        let mut peer_manager = build_peer_manager(3).await;
+
+        assert!(!peer_manager.dial_peer(enr_with_tcp4_port(0)));
+        assert!(peer_manager.peers_to_dial.is_empty());
+
+        assert!(peer_manager.dial_peer(enr_with_tcp4_port(9000)));
+        assert_eq!(peer_manager.peers_to_dial.len(), 1);
     }
 
     #[tokio::test]

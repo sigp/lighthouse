@@ -622,13 +622,7 @@ impl<E: EthSpec> Network<E> {
                 }
             }
 
-            for multiaddr in &bootnode_enr.multiaddr() {
-                // ignore udp multiaddr if it exists
-                let components = multiaddr.iter().collect::<Vec<_>>();
-                if let MProtocol::Udp(_) = components[1] {
-                    continue;
-                }
-
+            for multiaddr in &bootnode_enr.dialable_multiaddrs_tcp() {
                 if !self
                     .network_globals
                     .peers
