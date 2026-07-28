@@ -36,6 +36,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -113,6 +114,7 @@ use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
 use parking_lot::{Mutex, RwLock};
+use proof_engine::ProofEngine;
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
@@ -437,6 +439,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
+    /// Maintains a record of execution proofs seen over the gossip network.
+    pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
@@ -452,6 +456,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
+    /// Client for the EIP-8025 proof engine, if one is configured.
+    pub proof_engine: Option<Arc<ProofEngine>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,

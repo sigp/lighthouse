@@ -32,6 +32,7 @@ use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use proof_engine::ProofEngine;
 use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
@@ -187,6 +188,16 @@ where
             None
         };
 
+        let proof_engine = config
+            .proof_engine_endpoint
+            .clone()
+            .map(|url| {
+                ProofEngine::new(url)
+                    .map(Arc::new)
+                    .map_err(|e| format!("unable to start proof engine client: {:?}", e))
+            })
+            .transpose()?;
+
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
         let kzg = if spec.is_peer_das_scheduled() {
             Kzg::new_from_trusted_setup(&config.trusted_setup).map_err(kzg_err_msg)?
@@ -210,6 +221,7 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
+            .proof_engine(proof_engine)
             .node_custody_type(config.chain.node_custody_type)
             .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())

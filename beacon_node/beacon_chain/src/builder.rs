@@ -30,6 +30,7 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use proof_engine::ProofEngine;
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -91,6 +92,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
+    proof_engine: Option<Arc<ProofEngine>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -133,6 +135,7 @@ where
             fork_choice: None,
             op_pool: None,
             execution_layer: None,
+            proof_engine: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
@@ -626,6 +629,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` proof engine.
+    pub fn proof_engine(mut self, proof_engine: Option<Arc<ProofEngine>>) -> Self {
+        self.proof_engine = proof_engine;
+        self
+    }
+
     /// Sets the node custody type for data column import.
     pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
         self.node_custody_type = node_custody_type;
@@ -1010,12 +1019,14 @@ where
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
+            observed_execution_proofs: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
+            proof_engine: self.proof_engine,
             genesis_validators_root,
             genesis_time,
             canonical_head,
