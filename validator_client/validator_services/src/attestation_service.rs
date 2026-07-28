@@ -126,8 +126,8 @@ pub struct Inner<S, T> {
     latest_attested_slot: Mutex<Slot>,
 }
 
-/// Attempts to produce attestations for all known validators 1/3rd of the way through each slot
-/// or when a head event is received from the BNs.
+/// Attempts to produce attestations for all known validators at the fork-aware attestation
+/// deadline or when a head event is received from the BNs.
 ///
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
@@ -173,24 +173,39 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let executor = self.executor.clone();
 
-        let unaggregated_attestation_due = self.chain_spec.get_unaggregated_attestation_due();
-
         let interval_fut = async move {
             loop {
-                let Some(duration) = self.slot_clock.duration_to_next_slot() else {
+                let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
+                    sleep(slot_duration).await;
+                    continue;
+                };
+                let attestation_slot = self
+                    .slot_clock
+                    .slot_of(now)
+                    .map_or_else(|| self.slot_clock.genesis_slot(), |slot| slot + 1);
+                let attestation_due = self
+                    .chain_spec
+                    .get_attestation_due::<S::E>(attestation_slot);
+                let Some(duration_to_attestation_deadline) = self
+                    .slot_clock
+                    .start_of(attestation_slot)
+                    .and_then(|slot_start| slot_start.checked_add(attestation_due))
+                    .and_then(|deadline| deadline.checked_sub(now))
+                else {
+                    error!(%attestation_slot, "Failed to determine attestation deadline");
                     sleep(slot_duration).await;
                     continue;
                 };
 
                 let beacon_node_data = if self.head_monitor_rx.is_some() {
                     tokio::select! {
-                        _ = sleep(duration + unaggregated_attestation_due) => None,
+                        _ = sleep(duration_to_attestation_deadline) => None,
                         event = self.poll_for_head_events() =>
                             event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
                     }
                 } else {
-                    sleep(duration + unaggregated_attestation_due).await;
+                    sleep(duration_to_attestation_deadline).await;
                     None
                 };
 
@@ -314,7 +329,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 .duration_to_slot(slot + 1)
                 .and_then(|duration_to_next_slot| {
                     duration_to_next_slot
-                        .checked_add(self.chain_spec.get_unaggregated_attestation_due())
+                        .checked_add(self.chain_spec.get_attestation_due::<S::E>(slot))
                 })
                 .map(|next_slot_deadline| {
                     next_slot_deadline.saturating_sub(self.chain_spec.get_slot_duration())
