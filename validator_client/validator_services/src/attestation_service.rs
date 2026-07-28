@@ -152,6 +152,23 @@ impl<S, T> Deref for AttestationService<S, T> {
     }
 }
 
+fn attestation_deadline<E: EthSpec>(
+    slot_clock: &impl SlotClock,
+    chain_spec: &ChainSpec,
+    now: Duration,
+) -> (Slot, Option<Duration>) {
+    let attestation_slot = slot_clock
+        .slot_of(now)
+        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
+    let duration_to_attestation_deadline = slot_clock
+        .start_of(attestation_slot)
+        .and_then(|slot_start| {
+            slot_start.checked_add(chain_spec.get_attestation_due::<E>(attestation_slot))
+        })
+        .and_then(|deadline| deadline.checked_sub(now));
+    (attestation_slot, duration_to_attestation_deadline)
+}
+
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
@@ -180,18 +197,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     sleep(slot_duration).await;
                     continue;
                 };
-                let attestation_slot = self
-                    .slot_clock
-                    .slot_of(now)
-                    .map_or_else(|| self.slot_clock.genesis_slot(), |slot| slot + 1);
-                let attestation_due = self
-                    .chain_spec
-                    .get_attestation_due::<S::E>(attestation_slot);
-                let Some(duration_to_attestation_deadline) = self
-                    .slot_clock
-                    .start_of(attestation_slot)
-                    .and_then(|slot_start| slot_start.checked_add(attestation_due))
-                    .and_then(|deadline| deadline.checked_sub(now))
+                let (attestation_slot, duration_to_attestation_deadline) =
+                    attestation_deadline::<S::E>(&self.slot_clock, &self.chain_spec, now);
+                let Some(duration_to_attestation_deadline) = duration_to_attestation_deadline
                 else {
                     error!(%attestation_slot, "Failed to determine attestation deadline");
                     sleep(slot_duration).await;
@@ -844,6 +852,52 @@ mod tests {
     use super::*;
     use futures::future::FutureExt;
     use parking_lot::RwLock;
+    use slot_clock::ManualSlotClock;
+    use types::{Epoch, MainnetEthSpec};
+
+    #[test]
+    fn duration_to_attestation_deadline_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let mut spec = E::default_spec();
+        let gloas_fork_epoch = Epoch::new(1);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let last_pre_gloas_slot = first_gloas_slot - 1;
+
+        let test_cases = [
+            (
+                "pre-genesis",
+                genesis_time - Duration::from_secs(1),
+                slot_clock.genesis_slot(),
+                Duration::from_millis(4999),
+            ),
+            (
+                "pre-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                last_pre_gloas_slot,
+                Duration::from_millis(15999),
+            ),
+            (
+                "post-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                first_gloas_slot,
+                Duration::from_millis(15000),
+            ),
+        ];
+
+        for (case, now, expected_slot, expected_duration) in test_cases {
+            assert_eq!(
+                attestation_deadline::<E>(&slot_clock, &spec, now),
+                (expected_slot, Some(expected_duration)),
+                "{case}"
+            );
+        }
+    }
 
     /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
     /// trigger.
