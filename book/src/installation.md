@@ -34,4 +34,6 @@ After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> Sep
 
 > *Note: 16 GB RAM is becoming rather limited due to the increased resources required. 16 GB RAM would likely result in out of memory errors in the case of a spike in computing demand (e.g., caused by a bug) or during periods of non-finality of the beacon chain. Users with 16 GB RAM also have a limited choice when it comes to selecting an execution client, which does not help with the [client diversity](https://clientdiversity.org/). We therefore recommend users to have at least 32 GB RAM for long term health of the node, while also giving users the flexibility to change client should the thought arise.
 
-Last update: April 2023
+### Blob storage
+
+The storage recommendation above assumes blob pruning, which is the default setting. To retain blobs history, it is recommended to run with a fast CPU and to have significantly more disk space available, see [Blobs](./advanced_blobs.md) for more information.
