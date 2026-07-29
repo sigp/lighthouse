@@ -15,6 +15,7 @@ use beacon_chain::{
     },
 };
 use bls::{AggregateSignature, Keypair, SecretKey};
+use eth2::types::EventKind;
 use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
@@ -971,6 +972,47 @@ async fn aggregated_gossip_verification() {
                 ))
             },
         );
+}
+
+/// Ensures the batch verification paths emit SSE events for each valid attestation, just like
+/// the individual verification paths.
+#[tokio::test]
+async fn batch_verification_emits_events() {
+    let tester = GossipTester::new().await;
+    let chain = &tester.harness.chain;
+
+    let event_handler = chain.event_handler.as_ref().unwrap();
+    let mut single_attestation_receiver = event_handler.subscribe_single_attestation();
+    let mut attestation_receiver = event_handler.subscribe_attestation();
+
+    let results = chain
+        .batch_verify_unaggregated_attestations_for_gossip(
+            vec![(
+                &tester.valid_attestation,
+                Some(tester.attestation_subnet_id),
+            )]
+            .into_iter(),
+        )
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    match single_attestation_receiver.try_recv() {
+        Ok(EventKind::SingleAttestation(single_attestation)) => {
+            assert_eq!(*single_attestation, tester.valid_attestation)
+        }
+        other => panic!("expected single_attestation event, got {other:?}"),
+    }
+    assert!(attestation_receiver.try_recv().is_err());
+
+    let results = chain
+        .batch_verify_aggregated_attestations_for_gossip(vec![&tester.valid_aggregate].into_iter())
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    assert!(matches!(
+        attestation_receiver.try_recv(),
+        Ok(EventKind::Attestation(_))
+    ));
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
