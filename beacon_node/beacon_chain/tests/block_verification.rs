@@ -2933,7 +2933,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
 }
 
 /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
-/// is rejected with `InvalidVariant`, because gloas blocks need to use `new_gloas`.
+/// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
 #[tokio::test]
 async fn range_sync_block_new_rejects_gloas_block() {
     let spec = test_spec::<E>();
@@ -2956,7 +2956,7 @@ async fn range_sync_block_new_rejects_gloas_block() {
     let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
     assert!(envelope.is_some(), "gloas block should produce an envelope");
 
-    // Attempting to use the pre-gloas constructor with a gloas block, it should error
+    // Attempt to use the pre-gloas constructor with a gloas block, it should error
     let result = RangeSyncBlock::new(
         block,
         AvailableBlockData::NoData,
@@ -3030,7 +3030,7 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     }
 }
 
-/// Tests that a chain segment with a valid gloas block but an envelope with invalid `beacon_block_root`is rejected.
+/// Tests that a chain segment with a valid gloas block but an envelope with invalid beacon_block_root is rejected.
 #[tokio::test]
 async fn process_chain_segment_rejects_envelope_with_invalid_block_root() {
     let spec = test_spec::<E>();
