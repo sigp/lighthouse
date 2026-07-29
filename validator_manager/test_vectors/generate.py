@@ -99,7 +99,7 @@ def sdc_generate(network, first_index, count, prefix, eth1_withdrawal_address=No
             "32"
         ]
     else:
-        raise(Exception, "Unsupported prefix {}".format(prefix))
+        raise Exception("Unsupported prefix {}".format(prefix))
 
     test_name = "{}_first_{}_count_{}_prefix_{}_eth1_{}".format(network, first_index, count,
                                                       prefix, str(uses_eth1).lower())

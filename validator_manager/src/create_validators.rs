@@ -232,7 +232,9 @@ pub fn cli_app() -> Command {
                 .help_heading(COMPOUNDING_FLAG)
                 .long(COMPOUNDING_FLAG)
                 .help("If present, use the 0x02 withdrawal credentials prefix.")
+                .requires(ETH1_WITHDRAWAL_ADDRESS_FLAG)
                 .conflicts_with(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
+                .conflicts_with(DISABLE_DEPOSITS_FLAG)
                 .display_order(0),
         )
 }
