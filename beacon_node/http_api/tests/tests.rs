@@ -7585,7 +7585,7 @@ impl ApiTester {
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
-            EventTopic::Attestation,
+            EventTopic::SingleAttestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
             EventTopic::BlockGossip,
@@ -7643,7 +7643,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
 
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
             .await
             .unwrap();
 
@@ -7655,10 +7655,11 @@ impl ApiTester {
         .await;
         assert_eq!(
             attestation_events.as_slice(),
-            self.attestations
-                .clone()
+            attestations
                 .into_iter()
-                .map(|attestation| EventKind::Attestation(Box::new(attestation)))
+                .map(|single_attestation| EventKind::SingleAttestation(Box::new(
+                    single_attestation
+                )))
                 .collect::<Vec<_>>()
                 .as_slice()
         );
