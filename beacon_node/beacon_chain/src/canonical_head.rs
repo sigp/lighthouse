@@ -1155,7 +1155,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match (current_epoch_dependent_root, next_epoch_dependent_root) {
                 (Ok(current_epoch_dependent_root), Ok(next_epoch_dependent_root)) => {
                     let head_v2 = SseHeadV2 {
-                        slot: state.slot(),
+                        slot: new_snapshot.beacon_block.slot(),
                         block: new_snapshot.beacon_block_root,
                         state: new_snapshot.beacon_state_root(),
                         payload_status: new_payload_status,
