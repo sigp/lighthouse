@@ -71,7 +71,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
-    let (block, _block_state, consensus_block_value) = chain
+    let (block, _block_state, consensus_block_value, execution_payload_value) = chain
         .produce_block_with_verification_gloas(
             randao_reveal,
             slot,
@@ -90,6 +90,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     build_response_v4::<T>(
         block,
         consensus_block_value,
+        execution_payload_value,
         execution_payload_included,
         accept_header,
         &chain.spec,
@@ -143,6 +144,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
 pub fn build_response_v4<T: BeaconChainTypes>(
     block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     consensus_block_value: u64,
+    execution_payload_value: Uint256,
     execution_payload_included: bool,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
@@ -157,6 +159,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     let metadata = ProduceBlockV4Metadata {
         consensus_version: fork_name,
         consensus_block_value: consensus_block_value_wei,
+        execution_payload_value,
         execution_payload_included,
     };
 
@@ -167,6 +170,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
             .map(add_ssz_content_type_header)
             .map(|res| add_consensus_version_header(res, fork_name))
             .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
+            .map(|res| add_execution_payload_value_header(res, execution_payload_value))
             .map(|res| add_execution_payload_included_header(res, execution_payload_included))
             .map_err(|e| -> warp::Rejection {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
@@ -179,6 +183,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         .into_response())
         .map(|res| add_consensus_version_header(res, fork_name))
         .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
+        .map(|res| add_execution_payload_value_header(res, execution_payload_value))
         .map(|res| add_execution_payload_included_header(res, execution_payload_included)),
     }
 }

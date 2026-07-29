@@ -34,7 +34,7 @@ use types::{
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
     Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
+    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -48,7 +48,15 @@ pub const BID_VALUE_SELF_BUILD: u64 = 0;
 pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
-type BlockProductionResult<E> = (BeaconBlock<E>, BeaconState<E>, ConsensusBlockValue);
+/// Execution payload value in wei: the local payload's EL value when self-building, or the
+/// bid value when committing to a builder bid.
+type ExecutionPayloadValue = Uint256;
+type BlockProductionResult<E> = (
+    BeaconBlock<E>,
+    BeaconState<E>,
+    ConsensusBlockValue,
+    ExecutionPayloadValue,
+);
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
@@ -223,7 +231,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await?;
 
-        let (execution_payload_bid, payload_data) =
+        let (execution_payload_bid, payload_data, execution_payload_value) =
             self.select_payload_bid(local_signed_bid, local_build, builder_boost_factor);
 
         // Part 3/3 (blocking)
@@ -238,6 +246,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         execution_payload_bid,
                         parent_execution_requests,
                         payload_data,
+                        execution_payload_value,
                         state,
                         verification,
                     )
@@ -520,10 +529,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Complete a block by computing its state root, and
     ///
-    /// Return `(block, post_block_state, block_value)` where:
+    /// Return `(block, post_block_state, consensus_block_value, execution_payload_value)` where:
     ///
     /// - `post_block_state` is the state post block application
-    /// - `block_value` is the consensus-layer rewards for `block`
+    /// - `consensus_block_value` is the consensus-layer rewards for `block`
+    /// - `execution_payload_value` is the wei value of the winning payload bid
     #[allow(clippy::type_complexity)]
     #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block_gloas(
@@ -532,6 +542,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
         parent_execution_requests: ExecutionRequestsGloas<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
+        execution_payload_value: ExecutionPayloadValue,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
@@ -715,7 +726,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, state, consensus_block_value))
+        Ok((block, state, consensus_block_value, execution_payload_value))
     }
 
     /// Produce a self-build `ExecutionPayloadBid` for some `slot` upon the given `state`.
@@ -866,6 +877,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> (
         SignedExecutionPayloadBid<T::EthSpec>,
         Option<ExecutionPayloadData<T::EthSpec>>,
+        ExecutionPayloadValue,
     ) {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
             local_signed_bid.message.slot,
@@ -881,7 +893,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 }
 
-/// Pure local-vs-cached selection logic, factored out for unit testing.
+/// Local-vs-cached selection logic, factored out for unit testing.
 ///
 /// Selection rule (mirrors the pre-Gloas builder/local race in `execution_layer`):
 ///   - `boosted_bid = (cached_bid.value / 100) * builder_boost_factor`  (raw value when `None`)
@@ -899,6 +911,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
 ) -> (
     SignedExecutionPayloadBid<E>,
     Option<ExecutionPayloadData<E>>,
+    ExecutionPayloadValue,
 ) {
     let LocalBuildResult {
         payload_data,
@@ -907,7 +920,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
     } = local_build;
 
     let Some(cached_bid) = cached_bid else {
-        return (local_signed_bid, Some(payload_data));
+        return (local_signed_bid, Some(payload_data), payload_value);
     };
 
     let slot = local_signed_bid.message.slot;
@@ -918,7 +931,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             cached_bid_value = cached_bid.message.value,
             "Using local payload because EL signaled shouldOverrideBuilder"
         );
-        return (local_signed_bid, Some(payload_data));
+        return (local_signed_bid, Some(payload_data), payload_value);
     }
 
     // Convert bid value (gwei) to wei for comparison with `payload_value` (wei).
@@ -939,7 +952,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             ?builder_boost_factor,
             "Local payload is more profitable than cached builder bid"
         );
-        (local_signed_bid, Some(payload_data))
+        (local_signed_bid, Some(payload_data), payload_value)
     } else {
         debug!(
             %slot,
@@ -949,7 +962,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             ?builder_boost_factor,
             "Including cached builder bid"
         );
-        ((*cached_bid).clone(), None)
+        ((*cached_bid).clone(), None, bid_value_wei)
     }
 }
 
@@ -1329,7 +1342,8 @@ mod tests {
     const LOCAL: BuilderIndex = BUILDER_INDEX_SELF_BUILD;
     const REMOTE: BuilderIndex = REMOTE_BUILDER;
 
-    /// Run `select_payload_bid_pure` and return `(winning_builder_index, has_payload_data)`.
+    /// Run `select_payload_bid_pure` and return
+    /// `(winning_builder_index, has_payload_data, execution_payload_value_wei)`.
     ///
     /// Args (positional, mirror `select_payload_bid_pure`):
     ///   - `local_payload_gwei`: local payload value, in gwei.
@@ -1341,52 +1355,59 @@ mod tests {
         should_override: bool,
         cached_gwei: Option<u64>,
         boost: Option<u64>,
-    ) -> (BuilderIndex, bool) {
+    ) -> (BuilderIndex, bool, ExecutionPayloadValue) {
         let build = local_build(local_payload_gwei, should_override);
         let cache = cached_gwei.map(cached_bid);
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
-        (out.message.builder_index, data.is_some())
+        let (out, data, value) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
+        (out.message.builder_index, data.is_some(), value)
     }
 
     #[test]
     fn select_empty_cache_keeps_local() {
-        assert_eq!(pick(0, false, None, Some(u64::MAX)), (LOCAL, true));
+        assert_eq!(pick(7, false, None, Some(u64::MAX)), (LOCAL, true, gwei(7)));
     }
 
     #[test]
     fn select_el_override_beats_any_cached_bid() {
         // `shouldOverrideBuilder` short-circuits regardless of cache or boost.
-        assert_eq!(pick(0, true, Some(u64::MAX), Some(u64::MAX)), (LOCAL, true));
+        assert_eq!(
+            pick(7, true, Some(u64::MAX), Some(u64::MAX)),
+            (LOCAL, true, gwei(7))
+        );
     }
 
     #[test]
     fn select_boost_zero_always_keeps_local() {
         // boost=0 deflates the bid to 0 ⇒ local always wins.
-        assert_eq!(pick(0, false, Some(u64::MAX), Some(0)), (LOCAL, true));
+        assert_eq!(
+            pick(0, false, Some(u64::MAX), Some(0)),
+            (LOCAL, true, gwei(0))
+        );
     }
 
     #[test]
     fn select_neutral_boost_picks_higher_bid() {
-        // 5 gwei bid > 1 gwei local, neutral compare ⇒ bid.
-        assert_eq!(pick(1, false, Some(5), None), (REMOTE, false));
+        // 5 gwei bid > 1 gwei local, neutral compare ⇒ bid, valued at the bid's worth.
+        assert_eq!(pick(1, false, Some(5), None), (REMOTE, false, gwei(5)));
     }
 
     #[test]
     fn select_local_strictly_higher_keeps_local() {
-        assert_eq!(pick(10, false, Some(5), None), (LOCAL, true));
+        assert_eq!(pick(10, false, Some(5), None), (LOCAL, true, gwei(10)));
     }
 
     #[test]
     fn select_tie_goes_to_local() {
         // `>=` ⇒ local wins ties.
-        assert_eq!(pick(5, false, Some(5), None), (LOCAL, true));
+        assert_eq!(pick(5, false, Some(5), None), (LOCAL, true, gwei(5)));
     }
 
     #[test]
     fn select_boost_factor_amplifies_bid() {
         // 5 gwei local vs 3 gwei bid: raw ⇒ local.
-        assert_eq!(pick(5, false, Some(3), None), (LOCAL, true));
-        // boost=200 ⇒ bid scaled to 6 gwei ⇒ bid wins.
-        assert_eq!(pick(5, false, Some(3), Some(200)), (REMOTE, false));
+        assert_eq!(pick(5, false, Some(3), None), (LOCAL, true, gwei(5)));
+        // boost=200 ⇒ bid scaled to 6 gwei ⇒ bid wins, but the reported value
+        // is the raw bid value, not the boosted one.
+        assert_eq!(pick(5, false, Some(3), Some(200)), (REMOTE, false, gwei(3)));
     }
 }

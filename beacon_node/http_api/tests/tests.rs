@@ -4360,6 +4360,10 @@ impl ApiTester {
         );
         // TODO(gloas): check why consensus block value is 0
         // assert!(!metadata.consensus_block_value.is_zero());
+        assert_eq!(
+            metadata.execution_payload_value,
+            Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI)
+        );
         assert!(!metadata.execution_payload_included);
 
         let block_root = block.tree_hash_root();
