@@ -39,7 +39,7 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
-use types::SignedExecutionPayloadBid;
+use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
 /// The execution payload bid stores the kzg commitments which we use to verify against incoming column data.
@@ -140,6 +140,22 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     ) -> Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>> {
         self.peek_pending_components(block_root, |components| {
             components.map(|components| components.bid.clone())
+        })
+    }
+
+    /// Return the executed payload envelope cached for `block_root` awaiting data availability,
+    /// if present.
+    pub fn get_executed_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>> {
+        self.peek_pending_components(block_root, |components| {
+            components.and_then(|components| {
+                components
+                    .envelope
+                    .as_ref()
+                    .map(|envelope| envelope.envelope.clone())
+            })
         })
     }
 

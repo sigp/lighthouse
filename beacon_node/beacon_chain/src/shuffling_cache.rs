@@ -189,6 +189,22 @@ impl<E: EthSpec> ShufflingCache<E> {
         }
     }
 
+    /// Returns a shuffling only if it has already been fully computed and cached.
+    /// Promises and misses return `None` (doesn't count as a cache miss).
+    /// Does not mutate the cache, so it is safe to call under a read lock.
+    pub fn get_shuffling_if_cached(
+        &self,
+        key: &AttestationShufflingId,
+    ) -> Option<CachedShuffling<E>> {
+        match self.cache.get(key) {
+            Some(CacheItem::Committee(cached_shuffling)) => {
+                metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
+                Some(cached_shuffling.clone())
+            }
+            Some(CacheItem::Promise(_)) | None => None,
+        }
+    }
+
     pub fn contains(&self, key: &AttestationShufflingId) -> bool {
         self.cache.contains_key(key)
     }
@@ -325,8 +341,18 @@ where
         head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
     })?;
 
+    // Use a read lock for cache hits.
+    // Promises and misses use the write lock below.
+    let cached_shuffling_opt = shuffling_cache_lock
+        .read()
+        .get_shuffling_if_cached(&shuffling_id);
+    if let Some(cached_shuffling) = cached_shuffling_opt {
+        return map_fn(&cached_shuffling, shuffling_id.shuffling_decision_block);
+    }
+
     let mut shuffling_cache = {
-        let _ = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+        let _timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
         shuffling_cache_lock.write()
     };
 
@@ -861,5 +887,42 @@ mod test {
                 assert!(result.is_none(), "epoch {}: expected None", epoch);
             }
         }
+    }
+
+    #[test]
+    fn get_shuffling_if_cached_ignores_promises_and_misses() {
+        let id = shuffling_id(1);
+        let committee_cache = Arc::new(CommitteeCache::default());
+        let mut cache = new_shuffling_cache();
+
+        // Miss.
+        assert!(
+            cache.get_shuffling_if_cached(&id).is_none(),
+            "an absent key should return None"
+        );
+
+        // Pending promise.
+        let sender = cache.create_promise(id.clone()).unwrap();
+        assert!(
+            cache.get_shuffling_if_cached(&id).is_none(),
+            "a pending promise should return None"
+        );
+
+        // Resolved promise: only `get` upgrades the entry to a committee.
+        sender.send(cached_shuffling(committee_cache.clone()));
+        assert!(
+            cache.get_shuffling_if_cached(&id).is_none(),
+            "a resolved promise should return None"
+        );
+
+        // Committee.
+        cache.insert_committee_cache(id.clone(), cached_shuffling(committee_cache.clone()));
+        let served = cache
+            .get_shuffling_if_cached(&id)
+            .expect("a committee entry should be served");
+        assert!(
+            served.committee_cache == committee_cache,
+            "should serve the cached committee"
+        );
     }
 }
