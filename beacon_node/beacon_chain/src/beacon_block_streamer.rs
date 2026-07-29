@@ -11,7 +11,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze,
 };
 
 #[derive(PartialEq)]
@@ -82,6 +82,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
         ForkName::Gloas => ExecutionPayloadGloas::default().into(),
+        ForkName::Heze => ExecutionPayloadHeze::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -464,6 +465,7 @@ mod tests {
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
         spec.gloas_fork_epoch = None;
+        spec.heze_fork_epoch = None;
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());

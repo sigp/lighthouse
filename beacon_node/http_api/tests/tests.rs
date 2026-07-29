@@ -2423,13 +2423,8 @@ impl ApiTester {
 
         let expected = self
             .chain
-            .light_client_server_cache
-            .get_light_client_updates(
-                &self.chain.store,
-                current_sync_committee_period,
-                1,
-                &self.chain.spec,
-            )
+            .store
+            .get_light_client_updates(current_sync_committee_period, 1)
             .unwrap();
 
         assert_eq!(1, expected.len());
@@ -3141,7 +3136,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = if self.chain.spec.is_gloas_scheduled() {
+        let result = if self.chain.spec.is_heze_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetHeze>()
+                .await
+                .map(|res| ConfigAndPreset::Heze(res.data))
+        } else if self.chain.spec.is_gloas_scheduled() {
             self.client
                 .get_config_spec::<ConfigAndPresetGloas>()
                 .await
@@ -7585,7 +7585,7 @@ impl ApiTester {
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
-            EventTopic::Attestation,
+            EventTopic::SingleAttestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
             EventTopic::BlockGossip,
@@ -7643,7 +7643,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
 
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
             .await
             .unwrap();
 
@@ -7655,10 +7655,11 @@ impl ApiTester {
         .await;
         assert_eq!(
             attestation_events.as_slice(),
-            self.attestations
-                .clone()
+            attestations
                 .into_iter()
-                .map(|attestation| EventKind::Attestation(Box::new(attestation)))
+                .map(|single_attestation| EventKind::SingleAttestation(Box::new(
+                    single_attestation
+                )))
                 .collect::<Vec<_>>()
                 .as_slice()
         );
