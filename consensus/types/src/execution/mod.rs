@@ -19,8 +19,8 @@ pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHe
 pub use execution_payload::{
     BlockAccessList, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-    ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals, Transaction,
-    Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
+    ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
+    Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
 pub use execution_payload_bid::ExecutionPayloadBid;
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;

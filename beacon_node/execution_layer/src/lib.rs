@@ -222,6 +222,8 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
     }
 }
 
+// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
+
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
         payload: Payload,
@@ -946,6 +948,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         Ok(payload_response.into())
     }
+
+    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
@@ -1705,6 +1709,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     return Err(Error::InvalidForkForPayload);
                 }
                 ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::Heze => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };

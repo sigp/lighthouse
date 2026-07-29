@@ -68,7 +68,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -107,7 +107,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "transactions_progressive"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "transactions_progressive"))]
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
     #[superstruct(
@@ -115,18 +115,18 @@ pub struct JsonExecutionPayload<E: EthSpec> {
         partial_getter(rename = "withdrawals_bounded")
     )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(Gloas), partial_getter(rename = "withdrawals_progressive"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
     pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
     pub block_access_list: BlockAccessList,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
 }
@@ -280,6 +280,34 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
     }
 }
 
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     type Error = ssz_types::Error;
 
@@ -301,6 +329,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Gloas(payload) => {
                 Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
             }
+            ExecutionPayload::Heze(payload) => Ok(JsonExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -455,6 +484,34 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
     }
 }
 
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
 impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     type Error = ssz_types::Error;
 
@@ -476,6 +533,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Gloas(payload) => {
                 Ok(ExecutionPayload::Gloas(payload.try_into()?))
             }
+            JsonExecutionPayload::Heze(payload) => Ok(ExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -651,7 +709,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
@@ -677,13 +735,15 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub execution_payload: JsonExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: JsonExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: JsonExecutionPayloadHeze<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: JsonExecutionRequests,
 }
 
@@ -743,6 +803,19 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
+                    should_override_builder: response.should_override_builder,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests: {:?}", e)
+                    })?,
+                }))
+            }
+            JsonGetPayloadResponse::Heze(response) => {
+                Ok(GetPayloadResponse::Heze(GetPayloadResponseHeze {
                     execution_payload: response.execution_payload.try_into().map_err(|e| {
                         format!("Failed to convert json to execution payload: {:?}", e)
                     })?,

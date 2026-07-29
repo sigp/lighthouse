@@ -1893,8 +1893,8 @@ mod test {
         if !spec.is_fulu_scheduled() {
             return;
         }
-        // Gloas is not supported yet.
-        if spec.is_gloas_scheduled() {
+        // Gloas and Heze are not supported yet.
+        if spec.is_gloas_scheduled() || spec.is_heze_scheduled() {
             return;
         }
 

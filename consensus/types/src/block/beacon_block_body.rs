@@ -56,7 +56,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(
             Debug,
@@ -95,6 +95,13 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
                 active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
             )
         ),
+        Heze(
+            metastruct(mappings(beacon_block_body_heze_fields(groups(fields)))),
+            tree_hash(
+                struct_behaviour = "progressive_container",
+                active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+            )
+        ),
     ),
     cast_error(
         ty = "BeaconStateError",
@@ -124,7 +131,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         partial_getter(rename = "proposer_slashings_basic")
     )]
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
-    #[superstruct(only(Gloas), partial_getter(rename = "proposer_slashings_progressive"))]
+    #[superstruct(
+        only(Gloas, Heze),
+        partial_getter(rename = "proposer_slashings_progressive")
+    )]
     pub proposer_slashings: ProgressiveVariableList<ProposerSlashing>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb),
@@ -137,7 +147,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub attester_slashings:
         VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
-    #[superstruct(only(Gloas), partial_getter(rename = "attester_slashings_gloas"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "attester_slashings_gloas"))]
     pub attester_slashings: ProgressiveVariableList<AttesterSlashingGloas<E>>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb),
@@ -146,23 +156,26 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
     #[superstruct(only(Electra, Fulu), partial_getter(rename = "attestations_electra"))]
     pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
-    #[superstruct(only(Gloas), partial_getter(rename = "attestations_gloas"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "attestations_gloas"))]
     pub attestations: ProgressiveVariableList<AttestationGloas<E>>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "deposits_basic")
     )]
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
-    #[superstruct(only(Gloas), partial_getter(rename = "deposits_progressive"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "deposits_progressive"))]
     pub deposits: ProgressiveVariableList<Deposit>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "voluntary_exits_basic")
     )]
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
-    #[superstruct(only(Gloas), partial_getter(rename = "voluntary_exits_progressive"))]
+    #[superstruct(
+        only(Gloas, Heze),
+        partial_getter(rename = "voluntary_exits_progressive")
+    )]
     pub voluntary_exits: ProgressiveVariableList<SignedVoluntaryExit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -192,7 +205,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(
-        only(Gloas),
+        only(Gloas, Heze),
         partial_getter(rename = "bls_to_execution_changes_progressive")
     )]
     pub bls_to_execution_changes: ProgressiveVariableList<SignedBlsToExecutionChange>,
@@ -200,13 +213,13 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequestsElectra<E>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     pub payload_attestations: ProgressiveVariableList<PayloadAttestation<E>>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     pub parent_execution_requests: ExecutionRequestsGloas<E>,
-    #[superstruct(only(Base, Altair, Gloas))]
+    #[superstruct(only(Base, Altair, Gloas, Heze))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -257,6 +270,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Fulu(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
+            Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -295,6 +309,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 beacon_block_body_gloas_fields!(body, |_, field| leaves
                     .push(field.tree_hash_root()));
             }
+            Self::Heze(body) => {
+                beacon_block_body_heze_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
         }
         leaves
     }
@@ -325,7 +343,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             | Self::Altair(_)
             | Self::Bellatrix(_)
             | Self::Capella(_)
-            | Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
+            | Self::Gloas(_)
+            | Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Deneb(_) | Self::Electra(_) | Self::Fulu(_) => {
                 complete_kzg_commitment_merkle_proof::<E>(
                     self.blob_kzg_commitments()?,
@@ -410,6 +429,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => ListRef::Basic(&body.proposer_slashings),
             Self::Fulu(body) => ListRef::Basic(&body.proposer_slashings),
             Self::Gloas(body) => ListRef::Progressive(&body.proposer_slashings),
+            Self::Heze(body) => ListRef::Progressive(&body.proposer_slashings),
         }
     }
 
@@ -423,6 +443,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => ListRef::Basic(&body.deposits),
             Self::Fulu(body) => ListRef::Basic(&body.deposits),
             Self::Gloas(body) => ListRef::Progressive(&body.deposits),
+            Self::Heze(body) => ListRef::Progressive(&body.deposits),
         }
     }
 
@@ -436,6 +457,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => ListRef::Basic(&body.voluntary_exits),
             Self::Fulu(body) => ListRef::Basic(&body.voluntary_exits),
             Self::Gloas(body) => ListRef::Progressive(&body.voluntary_exits),
+            Self::Heze(body) => ListRef::Progressive(&body.voluntary_exits),
         }
     }
 
@@ -454,6 +476,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => Ok(ListRef::Basic(&body.bls_to_execution_changes)),
             Self::Fulu(body) => Ok(ListRef::Basic(&body.bls_to_execution_changes)),
             Self::Gloas(body) => Ok(ListRef::Progressive(&body.bls_to_execution_changes)),
+            Self::Heze(body) => Ok(ListRef::Progressive(&body.bls_to_execution_changes)),
         }
     }
 
@@ -467,6 +490,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Fulu(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Gloas(body) => Box::new(body.attestations.iter().map(AttestationRef::Gloas)),
+            Self::Heze(body) => Box::new(body.attestations.iter().map(AttestationRef::Gloas)),
         }
     }
 
@@ -512,6 +536,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                     .iter()
                     .map(AttesterSlashingRef::Gloas),
             ),
+            Self::Heze(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Gloas),
+            ),
         }
     }
 }
@@ -541,6 +570,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
             }
             Self::Gloas(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Gloas))
+            }
+            Self::Heze(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Gloas))
             }
         }
@@ -581,6 +613,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .push(exit)
                 .map_err(BeaconStateError::SszTypesError),
             Self::Gloas(body) => {
+                body.voluntary_exits.push(exit);
+                Ok(())
+            }
+            Self::Heze(body) => {
                 body.voluntary_exits.push(exit);
                 Ok(())
             }
@@ -625,6 +661,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 body.proposer_slashings.push(slashing);
                 Ok(())
             }
+            Self::Heze(body) => {
+                body.proposer_slashings.push(slashing);
+                Ok(())
+            }
         }
     }
 
@@ -660,6 +700,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .push(deposit)
                 .map_err(BeaconStateError::SszTypesError),
             Self::Gloas(body) => {
+                body.deposits.push(deposit);
+                Ok(())
+            }
+            Self::Heze(body) => {
                 body.deposits.push(deposit);
                 Ok(())
             }
@@ -703,6 +747,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
             Self::Gloas(body) => {
                 body.deposits = deposits.into_iter().collect();
             }
+            Self::Heze(body) => {
+                body.deposits = deposits.into_iter().collect();
+            }
         }
         Ok(())
     }
@@ -718,6 +765,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
             Self::Electra(body) => &mut body.voluntary_exits,
             Self::Fulu(body) => &mut body.voluntary_exits,
             Self::Gloas(body) => &mut body.voluntary_exits,
+            Self::Heze(body) => &mut body.voluntary_exits,
         }
     }
 }
@@ -734,6 +782,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'_, E, Payl
             BeaconBlockBodyRef::Electra { .. } => ForkName::Electra,
             BeaconBlockBodyRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockBodyRef::Gloas { .. } => ForkName::Gloas,
+            BeaconBlockBodyRef::Heze { .. } => ForkName::Heze,
         }
     }
 }
@@ -825,6 +874,48 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
         } = body;
 
         BeaconBlockBodyGloas {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// Post-Fulu block bodies without payloads can be converted into block bodies with payloads
+// TODO(heze) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<BeaconBlockBodyHeze<E, BlindedPayload<E>>>
+    for BeaconBlockBodyHeze<E, FullPayload<E>>
+{
+    fn from(body: BeaconBlockBodyHeze<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockBodyHeze {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
+            _phantom,
+        } = body;
+
+        BeaconBlockBodyHeze {
             randao_reveal,
             eth1_data,
             graffiti,
@@ -1182,6 +1273,52 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, FullPayload<E>>>
     }
 }
 
+impl<E: EthSpec> From<BeaconBlockBodyHeze<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyHeze<E, BlindedPayload<E>>,
+        Option<ExecutionPayloadGloas<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyHeze<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyHeze {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
+            _phantom,
+        } = body;
+
+        (
+            BeaconBlockBodyHeze {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                bls_to_execution_changes,
+                parent_execution_requests,
+                signed_execution_payload_bid,
+                payload_attestations,
+                _phantom: PhantomData,
+            },
+            None,
+        )
+    }
+}
+
 // We can clone a full block into a blinded block, without cloning the payload.
 impl<E: EthSpec> BeaconBlockBodyBase<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyBase<E, BlindedPayload<E>> {
@@ -1377,6 +1514,13 @@ impl<E: EthSpec> BeaconBlockBodyFulu<E, FullPayload<E>> {
 
 impl<E: EthSpec> BeaconBlockBodyGloas<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyGloas<E, BlindedPayload<E>> {
+        let (block_body, _payload) = self.clone().into();
+        block_body
+    }
+}
+
+impl<E: EthSpec> BeaconBlockBodyHeze<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyHeze<E, BlindedPayload<E>> {
         let (block_body, _payload) = self.clone().into();
         block_body
     }

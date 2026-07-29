@@ -158,7 +158,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             ForkName::Fulu => Ok(DataColumnSidecar::Fulu(
                 DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
             )),
-            ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
+            ForkName::Gloas | ForkName::Heze => Ok(DataColumnSidecar::Gloas(
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
             )),
         }

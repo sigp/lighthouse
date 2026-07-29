@@ -1040,6 +1040,15 @@ async fn invalid_signature_attester_slashing() {
                     attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
                 });
             }
+            BeaconBlockBodyRefMut::Heze(blk) => {
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings.push(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                });
+            }
         }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -1072,40 +1081,9 @@ async fn invalid_signature_attestation() {
             .as_ref()
             .clone()
             .deconstruct();
-        match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Altair(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Bellatrix(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Capella(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Deneb(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Electra(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Fulu(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Gloas(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-        };
+        if let Some(mut att) = block.body_mut().attestations_mut().next() {
+            *att.signature_mut() = junk_aggregate_signature();
+        }
 
         if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =

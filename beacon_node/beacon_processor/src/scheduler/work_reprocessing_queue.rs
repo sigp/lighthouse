@@ -37,6 +37,7 @@ use types::{EthSpec, Hash256, Slot};
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const GOSSIP_ENVELOPES: &str = "gossip_envelopes";
+const EARLY_ENVELOPES: &str = "early_envelopes";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
@@ -112,6 +113,9 @@ pub enum ReprocessQueueMessage {
     EarlyBlock(QueuedGossipBlock),
     /// An execution payload envelope that references a block not yet in fork choice.
     UnknownBlockForEnvelope(QueuedGossipEnvelope),
+    /// A verified execution payload envelope that arrived before its slot and should be queued
+    /// until the slot arrives.
+    EarlyEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
@@ -263,6 +267,8 @@ enum InboundEvent {
     ReadyGossipBlock(QueuedGossipBlock),
     /// An envelope whose block has been imported and is now ready for processing.
     ReadyEnvelope(Hash256),
+    /// An early envelope that was queued until its slot and is now ready for processing.
+    ReadyEarlyEnvelope(QueuedGossipEnvelope),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
     ReadyRpcBlock(QueuedRpcBlock),
@@ -292,6 +298,8 @@ struct ReprocessQueue<S> {
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
     /// Queue to manage envelope timeouts (keyed by block root).
     envelope_delay_queue: DelayQueue<Hash256>,
+    /// Queue to manage scheduled early envelopes.
+    early_envelope_delay_queue: DelayQueue<QueuedGossipEnvelope>,
     /// Queue to manage scheduled early blocks.
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock>,
     /// Queue to manage scheduled attestations.
@@ -308,6 +316,8 @@ struct ReprocessQueue<S> {
     queued_gossip_block_roots: HashSet<Hash256>,
     /// Queued envelopes awaiting their block, keyed by block root.
     awaiting_envelopes_per_root: HashMap<Hash256, (QueuedGossipEnvelope, DelayKey)>,
+    /// Block roots of queued early envelopes.
+    queued_early_envelope_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
@@ -338,6 +348,7 @@ struct ReprocessQueue<S> {
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
+    early_envelope_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
@@ -414,6 +425,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         match self.envelope_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(block_root)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyEnvelope(block_root.into_inner())));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.early_envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(queued_envelope)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyEarlyEnvelope(
+                    queued_envelope.into_inner(),
+                )));
             }
             Poll::Ready(None) | Poll::Pending => (),
         }
@@ -529,6 +549,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
             envelope_delay_queue: DelayQueue::new(),
+            early_envelope_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
@@ -536,6 +557,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             data_columns_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             awaiting_envelopes_per_root: HashMap::new(),
+            queued_early_envelope_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
@@ -551,6 +573,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
+            early_envelope_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
@@ -681,6 +704,56 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             .is_err()
                     {
                         error!("Failed to send block");
+                    }
+                }
+            }
+            // A verified envelope that has been indicated as early (envelope slot > chain slot)
+            // and should be processed when the appropriate slot arrives.
+            InboundEvent::Msg(EarlyEnvelope(early_envelope)) => {
+                let envelope_slot = early_envelope.beacon_block_slot;
+                let block_root = early_envelope.beacon_block_root;
+
+                // Don't add the same envelope to the queue twice. This prevents DoS attacks.
+                if self.queued_early_envelope_block_roots.contains(&block_root) {
+                    return;
+                }
+
+                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(envelope_slot) {
+                    // Check to ensure this won't over-fill the queue.
+                    if self.queued_early_envelope_block_roots.len() >= MAXIMUM_QUEUED_ENVELOPES {
+                        if self.early_envelope_debounce.elapsed() {
+                            warn!(
+                                queue_size = MAXIMUM_QUEUED_ENVELOPES,
+                                msg = "system resources may be saturated",
+                                "Early envelopes queue is full"
+                            );
+                        }
+                        // Drop the envelope.
+                        return;
+                    }
+
+                    self.queued_early_envelope_block_roots.insert(block_root);
+                    // Queue the envelope until the start of the appropriate slot, plus
+                    // `ADDITIONAL_QUEUED_BLOCK_DELAY`.
+                    self.early_envelope_delay_queue.insert(
+                        early_envelope,
+                        duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
+                    );
+                } else {
+                    // If there is no duration till the next slot, check to see if the slot
+                    // has already arrived. If it has already arrived, send it out for
+                    // immediate processing.
+                    //
+                    // If we can't read the slot or the slot hasn't arrived, simply drop the
+                    // envelope.
+                    if let Some(now) = self.slot_clock.now()
+                        && envelope_slot <= now
+                        && self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Envelope(early_envelope))
+                            .is_err()
+                    {
+                        error!(?block_root, "Failed to send early envelope");
                     }
                 }
             }
@@ -1135,6 +1208,22 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            // An early envelope's slot has arrived. Send it for processing.
+            InboundEvent::ReadyEarlyEnvelope(early_envelope) => {
+                let block_root = early_envelope.beacon_block_root;
+
+                if !self.queued_early_envelope_block_roots.remove(&block_root) {
+                    error!(?block_root, "Unknown early envelope in delay queue");
+                }
+
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::Envelope(early_envelope))
+                    .is_err()
+                {
+                    error!(?block_root, "Failed to send early envelope for processing");
+                }
+            }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
@@ -1322,6 +1411,11 @@ impl<S: SlotClock> ReprocessQueue<S> {
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[EARLY_ENVELOPES],
+            self.early_envelope_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[RPC_BLOCKS],
             self.rpc_block_delay_queue.len() as i64,
         );
@@ -1495,6 +1589,176 @@ mod tests {
             ready_work_rx.try_recv(),
             Ok(ReadyWork::BackfillSync { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn early_envelope_released_when_slot_arrives() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(16);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(16);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue an envelope that arrived one slot early.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        let block_root = Hash256::repeat_byte(0xab);
+        work_reprocessing_tx
+            .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                beacon_block_slot: envelope_slot,
+                beacon_block_root: block_root,
+                process_fn: Box::pin(async {}),
+            }))
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        // The envelope is not released before its slot arrives.
+        assert!(ready_work_rx.try_recv().is_err());
+
+        // Advance to the start of the envelope's slot, plus the additional queuing delay.
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+            .await
+            .expect("the early envelope should be released when its slot arrives")
+            .expect("the reprocess scheduler should be alive");
+        match ready_work {
+            ReadyWork::Envelope(envelope) => {
+                assert_eq!(envelope.beacon_block_root, block_root)
+            }
+            _ => panic!("expected a ready envelope, got a different work type"),
+        }
+    }
+
+    #[tokio::test]
+    async fn early_envelope_deduplicated_by_block_root() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(16);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(16);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue two early envelopes for the same block root.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        let block_root = Hash256::repeat_byte(0xab);
+        for _ in 0..2 {
+            work_reprocessing_tx
+                .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                    beacon_block_slot: envelope_slot,
+                    beacon_block_root: block_root,
+                    process_fn: Box::pin(async {}),
+                }))
+                .unwrap();
+            tokio::task::yield_now().await;
+        }
+
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        // Only one envelope is released for the duplicated root.
+        let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+            .await
+            .expect("the early envelope should be released when its slot arrives")
+            .expect("the reprocess scheduler should be alive");
+        assert!(matches!(ready_work, ReadyWork::Envelope(_)));
+        assert!(ready_work_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn early_envelope_queue_is_bounded() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) =
+            mpsc::channel(2 * MAXIMUM_QUEUED_ENVELOPES);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(2 * MAXIMUM_QUEUED_ENVELOPES);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue one more early envelope than the queue can hold, each for a distinct block root.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        for i in 0..=MAXIMUM_QUEUED_ENVELOPES {
+            work_reprocessing_tx
+                .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                    beacon_block_slot: envelope_slot,
+                    beacon_block_root: Hash256::repeat_byte(i as u8),
+                    process_fn: Box::pin(async {}),
+                }))
+                .unwrap();
+            tokio::task::yield_now().await;
+        }
+
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        // Exactly `MAXIMUM_QUEUED_ENVELOPES` envelopes are released; the excess one was dropped.
+        let mut released_roots = HashSet::new();
+        for _ in 0..MAXIMUM_QUEUED_ENVELOPES {
+            let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+                .await
+                .expect("queued early envelopes should be released when their slot arrives")
+                .expect("the reprocess scheduler should be alive");
+            match ready_work {
+                ReadyWork::Envelope(envelope) => {
+                    released_roots.insert(envelope.beacon_block_root);
+                }
+                _ => panic!("expected a ready envelope, got a different work type"),
+            }
+        }
+        let expected_roots: HashSet<_> = (0..MAXIMUM_QUEUED_ENVELOPES)
+            .map(|i| Hash256::repeat_byte(i as u8))
+            .collect();
+        assert_eq!(released_roots, expected_roots);
+        assert!(ready_work_rx.try_recv().is_err());
     }
 
     /// Advances slot clock and test clock time by the same duration.

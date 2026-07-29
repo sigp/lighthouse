@@ -18,8 +18,8 @@ pub use beacon_state::{
     Balances, BalancesGloas, BalancesMut, BalancesOwned, BalancesRef, BeaconState,
     BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
     BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas, BeaconStateHash,
-    BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD, Validators, ValidatorsGloas,
-    ValidatorsMut, ValidatorsOwned, ValidatorsRef,
+    BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD, Validators,
+    ValidatorsGloas, ValidatorsMut, ValidatorsOwned, ValidatorsRef,
 };
 pub use committee_cache::{
     CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,

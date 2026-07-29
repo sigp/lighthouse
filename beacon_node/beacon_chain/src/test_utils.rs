@@ -727,6 +727,10 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME
+            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(&spec);
 
@@ -737,6 +741,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),

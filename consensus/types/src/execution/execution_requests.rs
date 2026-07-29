@@ -140,7 +140,9 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionRequests<E> {
             ForkName::Electra | ForkName::Fulu => {
                 ExecutionRequestsElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
-            ForkName::Gloas => ExecutionRequestsGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            ForkName::Gloas | ForkName::Heze => {
+                ExecutionRequestsGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
         }
     }
 }

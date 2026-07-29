@@ -23,7 +23,7 @@ pub use application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 pub use chain_spec::{BlobParameters, BlobSchedule, ChainSpec, Config, Domain};
 pub use config_and_preset::{
     ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,
-    ConfigAndPresetGloas, get_extra_fields,
+    ConfigAndPresetGloas, ConfigAndPresetHeze, get_extra_fields,
 };
 pub use enr_fork_id::EnrForkId;
 pub use eth_spec::{EthSpec, EthSpecId, GNOSIS, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -33,7 +33,7 @@ pub use list_ref::ListRef;
 pub use non_zero_usize::new_non_zero_usize;
 pub use preset::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
-    FuluPreset, GloasPreset,
+    FuluPreset, GloasPreset, HezePreset,
 };
 pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use signing_data::{SignedRoot, SigningData};
