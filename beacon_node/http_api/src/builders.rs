@@ -63,8 +63,8 @@ pub fn get_beacon_state_builders<T: BeaconChainTypes>(
         )?;
 
     Ok(ExecutionOptimisticFinalizedResponse {
-        data,
         execution_optimistic: Some(execution_optimistic),
         finalized: Some(finalized),
+        data,
     })
 }
