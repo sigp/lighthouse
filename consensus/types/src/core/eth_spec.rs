@@ -181,6 +181,8 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuildersPerWithdrawalsSweep: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBuilderDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBuilderExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -444,6 +446,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::MaxBuildersPerWithdrawalsSweep::to_usize()
     }
 
+    /// Returns the `MAX_BUILDER_DEPOSIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_builder_deposit_requests_per_payload() -> usize {
+        Self::MaxBuilderDepositRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_BUILDER_EXIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_builder_exit_requests_per_payload() -> usize {
+        Self::MaxBuilderExitRequestsPerPayload::to_usize()
+    }
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -529,6 +541,8 @@ impl EthSpec for MainnetEthSpec {
     type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
     type MaxBuildersPerWithdrawalsSweep = U16384;
+    type MaxBuilderDepositRequestsPerPayload = U256;
+    type MaxBuilderExitRequestsPerPayload = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -606,6 +620,8 @@ impl EthSpec for MinimalEthSpec {
         MaxDepositRequestsPerPayload,
         MaxWithdrawalRequestsPerPayload,
         MaxPayloadAttestations,
+        MaxBuilderDepositRequestsPerPayload,
+        MaxBuilderExitRequestsPerPayload,
         BuilderRegistryLimit
     });
 
@@ -684,6 +700,8 @@ impl EthSpec for GnosisEthSpec {
     type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
     type MaxBuildersPerWithdrawalsSweep = U16384;
+    type MaxBuilderDepositRequestsPerPayload = U256;
+    type MaxBuilderExitRequestsPerPayload = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

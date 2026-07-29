@@ -342,6 +342,10 @@ pub struct GloasPreset {
     pub builder_pending_withdrawals_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_builders_per_withdrawals_sweep: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builder_deposit_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builder_exit_requests_per_payload: u64,
 }
 
 impl GloasPreset {
@@ -352,7 +356,21 @@ impl GloasPreset {
             builder_registry_limit: E::BuilderRegistryLimit::to_u64(),
             builder_pending_withdrawals_limit: E::builder_pending_withdrawals_limit() as u64,
             max_builders_per_withdrawals_sweep: E::max_builders_per_withdrawals_sweep() as u64,
+            max_builder_deposit_requests_per_payload: E::max_builder_deposit_requests_per_payload()
+                as u64,
+            max_builder_exit_requests_per_payload: E::max_builder_exit_requests_per_payload()
+                as u64,
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct HezePreset {}
+
+impl HezePreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {}
     }
 }
 
@@ -406,6 +424,9 @@ mod test {
 
         let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
         assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
+
+        let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
+        assert_eq!(heze, HezePreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

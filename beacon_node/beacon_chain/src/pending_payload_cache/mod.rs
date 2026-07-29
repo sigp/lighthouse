@@ -39,7 +39,7 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
-use types::SignedExecutionPayloadBid;
+use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
 /// The execution payload bid stores the kzg commitments which we use to verify against incoming column data.
@@ -92,14 +92,14 @@ pub struct PendingPayloadCache<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn new(
         kzg: Arc<Kzg>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -110,7 +110,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
         &self.custody_context
     }
 
@@ -140,6 +140,22 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     ) -> Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>> {
         self.peek_pending_components(block_root, |components| {
             components.map(|components| components.bid.clone())
+        })
+    }
+
+    /// Return the executed payload envelope cached for `block_root` awaiting data availability,
+    /// if present.
+    pub fn get_executed_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>> {
+        self.peek_pending_components(block_root, |components| {
+            components.and_then(|components| {
+                components
+                    .envelope
+                    .as_ref()
+                    .map(|envelope| envelope.envelope.clone())
+            })
         })
     }
 
@@ -174,7 +190,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         &self,
         executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let epoch = executed_envelope.envelope.epoch();
         let beacon_block_root = executed_envelope.envelope.beacon_block_root();
         let bid = self
             .get_bid(&beacon_block_root)
@@ -185,19 +200,15 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
-
         pending_components.span.in_scope(|| {
             debug!(
                 component = "executed envelope",
-                status = pending_components.status_str(num_expected_columns),
+                status = pending_components.status_str(&self.custody_context),
                 "Component added to data availability checker"
             );
         });
 
-        self.check_availability(beacon_block_root, pending_components, num_expected_columns)
+        self.check_availability(beacon_block_root, pending_components)
     }
 
     /// Inserts a bid into the pending payload cache.
@@ -228,9 +239,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -252,9 +261,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
+        let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -280,21 +287,15 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
-
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
-
         pending_components.span.in_scope(|| {
             debug!(
                 component = "data_columns",
-                status = pending_components.status_str(num_expected_columns),
+                status = pending_components.status_str(&self.custody_context),
                 "Component added to data availability checker"
             );
         });
 
-        self.check_availability(block_root, pending_components, num_expected_columns)
+        self.check_availability(block_root, pending_components)
     }
 
     #[instrument(skip_all, level = "debug")]
@@ -340,7 +341,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let slot = bid.message.slot;
         let columns_to_sample = self
             .custody_context()
-            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
 
         let data_columns_to_import_and_publish = all_data_columns
             .into_iter()
@@ -388,9 +389,10 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         &self,
         block_root: Hash256,
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
-        num_expected_columns: usize,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_envelope) = pending_components.make_available(num_expected_columns)? {
+        if let Some(available_envelope) =
+            pending_components.make_available(&self.custody_context)?
+        {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.availability_cache.write().get_mut(&block_root) {
@@ -458,9 +460,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let epoch = pending_components.bid.epoch();
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
@@ -516,10 +516,11 @@ mod data_availability_checker_tests {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
-    use types::test_utils::test_unstructured;
+    use slot_clock::{SlotClock, TestingSlotClock};
+    use std::time::Duration;
     use types::{
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope,
+        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName,
+        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
     };
 
     type E = MinimalEthSpec;
@@ -541,10 +542,18 @@ mod data_availability_checker_tests {
         create_test_tracing_subscriber();
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let kzg = get_kzg(&spec);
-        let custody_context = Arc::new(CustodyContext::<E>::new(
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        );
+        let complete_blob_backfill = false;
+        let custody_context = Arc::new(CustodyContext::<T>::new(
             node_custody,
             generate_data_column_indices_rand_order::<E>(),
-            &spec,
+            slot_clock,
+            complete_blob_backfill,
+            spec.clone(),
         ));
         let cache = Arc::new(
             PendingPayloadCache::<T>::new(kzg, custody_context, spec.clone())
@@ -567,9 +576,7 @@ mod data_availability_checker_tests {
         cache.insert_bid(block_root, bid.clone());
 
         let epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let sampling = cache
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &cache.spec);
+        let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()
             .filter(|c| sampling.contains(c.index()))
@@ -619,7 +626,7 @@ mod data_availability_checker_tests {
             envelope: Arc::new(SignedExecutionPayloadEnvelope {
                 message: ExecutionPayloadEnvelope {
                     payload: ExecutionPayloadGloas::default(),
-                    execution_requests: ExecutionRequests::default(),
+                    execution_requests: ExecutionRequestsGloas::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::random(),

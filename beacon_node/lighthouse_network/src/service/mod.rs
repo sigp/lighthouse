@@ -610,7 +610,7 @@ impl<E: EthSpec> Network<E> {
         for bootnode_enr in boot_nodes {
             // If QUIC is enabled, attempt QUIC connections first
             if !config.disable_quic_support {
-                for quic_multiaddr in &bootnode_enr.multiaddr_quic() {
+                for quic_multiaddr in &bootnode_enr.dialable_multiaddrs_quic() {
                     if !self
                         .network_globals
                         .peers
@@ -622,13 +622,7 @@ impl<E: EthSpec> Network<E> {
                 }
             }
 
-            for multiaddr in &bootnode_enr.multiaddr() {
-                // ignore udp multiaddr if it exists
-                let components = multiaddr.iter().collect::<Vec<_>>();
-                if let MProtocol::Udp(_) = components[1] {
-                    continue;
-                }
-
+            for multiaddr in &bootnode_enr.dialable_multiaddrs_tcp() {
                 if !self
                     .network_globals
                     .peers

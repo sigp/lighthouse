@@ -97,11 +97,10 @@ use store::{Error as DBError, KeyValueStore};
 use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
-use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -622,6 +621,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// signature in the block is invalid, an `Err` is returned (it is not possible to known _which_
 /// signature was invalid).
 ///
+/// Also performs kzg verification on columns if they exist.
 /// ## Errors
 ///
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
@@ -652,33 +652,23 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    let mut available_blocks = Vec::with_capacity(chain_segment.len());
-    let mut envelopes = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
-
-        let (available_block, envelope) = block.into_available_block()?;
-        available_blocks.push(available_block.clone());
-        envelopes.push(envelope);
+        // This gets columns from the block for pre-gloas and from the envelope for
+        // post gloas.
+        if let Some(columns) = block.data_columns() {
+            verify_columns_against_block(&chain.kzg, block.as_block(), &columns)?;
+        }
+        let (available_block, _envelope) = block.into_available_block()?;
         signature_verified_blocks.push(SignatureVerifiedBlock {
             block: MaybeAvailableBlock::Available(available_block),
             block_root,
             parent: None,
             consensus_context,
         });
-    }
-
-    chain
-        .data_availability_checker
-        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
-
-    for (available_block, maybe_envelope) in available_blocks.iter().zip(envelopes.iter()) {
-        if let Some(envelope) = maybe_envelope {
-            verify_columns_against_block(&chain.kzg, available_block.block(), &envelope.columns)?;
-        }
     }
 
     // verify signatures
@@ -1246,8 +1236,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                         AvailableBlock::new(
                             block,
                             AvailableBlockData::NoData,
-                            &chain.data_availability_checker,
-                            chain.spec.clone(),
+                            &chain.custody_context,
                         )
                         .map_err(BlockError::AvailabilityCheck)?,
                     )
@@ -1922,7 +1911,7 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
 /// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
-    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
+    fork_choice_read_lock: &BeaconForkChoice<T>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
     match fork_choice_read_lock.get_parent_import_status(&block) {

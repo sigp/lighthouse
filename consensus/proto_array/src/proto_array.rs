@@ -1564,7 +1564,12 @@ impl ProtoArray {
             Ok(fc_node.payload_status as u8)
         } else if fc_node.payload_status == PayloadStatus::Empty {
             Ok(1)
-        } else if self.should_extend_payload::<E>(fc_node, proto_node, proposer_boost_root)? {
+        } else if self.should_extend_payload::<E>(
+            fc_node,
+            proto_node,
+            current_slot,
+            proposer_boost_root,
+        )? {
             Ok(2)
         } else {
             Ok(0)
@@ -1614,8 +1619,17 @@ impl ProtoArray {
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Err(Error::ShouldExtendPayloadInvalidSlot {
+                block_root: fc_node.root,
+                block_slot: proto_node.slot(),
+                current_slot,
+            });
+        }
+
         let Ok(node) = proto_node.as_v29() else {
             return Err(Error::InvalidNodeVariant {
                 block_root: fc_node.root,
@@ -1816,6 +1830,14 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {
+        self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
+    }
+
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of

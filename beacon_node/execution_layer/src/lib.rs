@@ -43,7 +43,6 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
@@ -56,6 +55,7 @@ use types::{
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
     ProposerPreparationData, Slot,
 };
+use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;
@@ -118,14 +118,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
+                requests: Some(builder_bid.execution_requests.into()),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -206,7 +206,7 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload_value: Uint256,
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
@@ -222,6 +222,8 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
         }
     }
 }
+
+// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
@@ -940,6 +942,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         Ok(payload_response.into())
     }
+
+    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
@@ -1699,6 +1703,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     return Err(Error::InvalidForkForPayload);
                 }
                 ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::Heze => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };
