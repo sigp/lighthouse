@@ -8072,7 +8072,7 @@ impl ApiTester {
 
         let envelope = self
             .client
-            .get_validator_execution_payload_envelopes::<E>(slot)
+            .get_validator_execution_payload_envelopes::<E>(slot, block.tree_hash_root())
             .await
             .unwrap()
             .data;
@@ -8133,7 +8133,7 @@ impl ApiTester {
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
         self.client
-            .post_beacon_execution_payload_envelopes(&signed_envelope, expected_fork_name)
+            .post_beacon_execution_payload_envelopes(&signed_envelope, expected_fork_name, None)
             .await
             .unwrap();
 
