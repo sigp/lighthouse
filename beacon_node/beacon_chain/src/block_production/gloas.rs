@@ -1358,7 +1358,8 @@ mod tests {
     ) -> (BuilderIndex, bool, ExecutionPayloadValue) {
         let build = local_build(local_payload_gwei, should_override);
         let cache = cached_gwei.map(cached_bid);
-        let (out, data, value) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
+        let (out, data, value) =
+            select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
         (out.message.builder_index, data.is_some(), value)
     }
 
