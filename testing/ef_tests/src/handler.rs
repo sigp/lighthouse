@@ -1047,6 +1047,10 @@ impl<E> GossipValidationHandler<E> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn latest_stable(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::latest_stable()])
+    }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {

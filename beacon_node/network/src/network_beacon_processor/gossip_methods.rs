@@ -17,8 +17,8 @@ use beacon_chain::payload_envelope_verification::{
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
+    ExitValidationError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -1979,15 +1979,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Dropping invalid exit"
                 );
-                // These errors occur due to a fault in the beacon chain. It is not necessarily
-                // the fault on the peer.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // We still penalize a peer slightly to prevent overuse of invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_exit",
-                );
+                let validation_result = if matches!(
+                    e,
+                    BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_))
+                ) {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_exit",
+                    );
+                    MessageAcceptance::Reject
+                } else {
+                    // This is likely a fault with the beacon chain and not necessarily a
+                    // malicious message from the peer.
+                    MessageAcceptance::Ignore
+                };
+                self.propagate_validation_result(message_id, peer_id, validation_result);
                 return;
             }
         };
