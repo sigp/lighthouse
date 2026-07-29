@@ -15,6 +15,7 @@ use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
 pub use crate::canonical_head::CanonicalHead;
+use crate::canonical_head::ForkChoiceWriteGuard;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::{CustodyContext, CustodyContextSsz};
 use crate::data_availability_checker::{
@@ -109,7 +110,7 @@ use logging::crit;
 use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
@@ -482,7 +483,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
-    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -1448,12 +1449,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         sync_committee_period: u64,
         count: u64,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
-        self.light_client_server_cache.get_light_client_updates(
-            &self.store,
-            sync_committee_period,
-            count,
-            &self.spec,
-        )
+        Ok(self
+            .store
+            .get_light_client_updates(sync_committee_period, count)?)
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -2218,7 +2216,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
-        batch_verify_unaggregated_attestations(attestations, self)
+        let results = batch_verify_unaggregated_attestations(attestations, self)?;
+        for verified_attestation in results.iter().flatten() {
+            self.register_unaggregated_attestation_events(verified_attestation);
+        }
+        Ok(results)
+    }
+
+    /// Register SSE events for a successfully verified unaggregated attestation.
+    fn register_unaggregated_attestation_events(
+        &self,
+        verified_attestation: &VerifiedUnaggregatedAttestation<'_, T>,
+    ) {
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_single_attestation_subscribers()
+        {
+            event_handler.register(EventKind::SingleAttestation(Box::new(
+                verified_attestation.single_attestation(),
+            )));
+        }
     }
 
     /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
@@ -2237,30 +2253,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).inspect(
             |v| {
-                // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-                if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_single_attestation_subscribers() {
-                        let current_fork = self
-                            .spec
-                            .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
-                        if current_fork.electra_enabled() {
-                            event_handler.register(EventKind::SingleAttestation(Box::new(
-                                v.single_attestation(),
-                            )));
-                        }
-                    }
-
-                    if event_handler.has_attestation_subscribers() {
-                        let current_fork = self
-                            .spec
-                            .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
-                        if !current_fork.electra_enabled() {
-                            event_handler.register(EventKind::Attestation(Box::new(
-                                v.attestation().clone_as_attestation(),
-                            )));
-                        }
-                    }
-                }
+                self.register_unaggregated_attestation_events(v);
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
             },
         )
@@ -2276,7 +2269,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
     {
-        batch_verify_aggregated_attestations(aggregates, self)
+        let results = batch_verify_aggregated_attestations(aggregates, self)?;
+        for verified_aggregate in results.iter().flatten() {
+            self.register_aggregated_attestation_event(verified_aggregate);
+        }
+        Ok(results)
+    }
+
+    /// Register an SSE event for a successfully verified aggregated attestation.
+    fn register_aggregated_attestation_event(
+        &self,
+        verified_aggregate: &VerifiedAggregatedAttestation<'_, T>,
+    ) {
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_attestation_subscribers()
+        {
+            event_handler.register(EventKind::Attestation(Box::new(
+                verified_aggregate.attestation().clone_as_attestation(),
+            )));
+        }
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -2290,14 +2301,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
         VerifiedAggregatedAttestation::verify(signed_aggregate, self).inspect(|v| {
-            // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-            if let Some(event_handler) = self.event_handler.as_ref()
-                && event_handler.has_attestation_subscribers()
-            {
-                event_handler.register(EventKind::Attestation(Box::new(
-                    v.attestation().clone_as_attestation(),
-                )));
-            }
+            self.register_aggregated_attestation_event(v);
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
         })
     }
@@ -2381,16 +2385,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_data_column_sidecar_for_gossip(
+    pub async fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
-        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        let chain = self.clone();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                    let _timer = metrics::start_timer(
+                        &metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                    );
+                    GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, &chain).inspect(
+                        |_| {
+                            metrics::inc_counter(
+                                &metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                            );
+                        },
+                    )
+                },
+                "gossip_data_column_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 
     pub fn verify_partial_data_column_header_for_gossip(
@@ -3729,7 +3750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)
@@ -4316,7 +4337,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = fork_choice_reader.upgrade();
 
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
@@ -4604,7 +4625,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        fork_choice_write_lock: ForkChoiceWriteGuard<T>,
     ) -> Result<(), BlockError> {
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
@@ -6219,6 +6240,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Gloas(_) => {
                 return Err(BlockProductionError::GloasNotImplemented(
                     "Attempting to produce gloas beacon block via non gloas code path".to_owned(),
+                ));
+            }
+            BeaconState::Heze(_) => {
+                return Err(BlockProductionError::HezeNotImplemented(
+                    "Attempting to produce heze beacon block via non heze code path".to_owned(),
                 ));
             }
         };

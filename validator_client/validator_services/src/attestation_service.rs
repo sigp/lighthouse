@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
+use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
 use validator_store::{AggregateToSign, AttestationToSign, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -211,7 +211,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         *last_slot = current_slot;
                     }
                     Err(e) => {
-                        crit!(error = e, "Failed to spawn attestation tasks")
+                        crit!(error = e, "Failed to spawn attestation tasks");
                     }
                 }
             }
@@ -480,7 +480,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     committee_index,
                     slot = slot.as_u64(),
                     "Error during aggregate attestation routine"
-                )
+                );
             })?;
 
         Ok(())
@@ -539,33 +539,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 continue;
             }
 
-            let attestation = match Attestation::empty_for_signing(
-                duty.committee_index,
-                duty.committee_length as usize,
-                attestation_data.slot,
-                attestation_data.beacon_block_root,
-                attestation_data.source,
-                attestation_data.target,
-                attestation_data.index != 0,
-                &self.chain_spec,
-            ) {
-                Ok(attestation) => attestation,
-                Err(err) => {
-                    crit!(
-                        validator = ?duty.pubkey,
-                        ?duty,
-                        ?err,
-                        "Invalid validator duties during signing"
-                    );
-                    continue;
-                }
-            };
-
             attestations_to_sign.push(AttestationToSign {
-                validator_index: duty.validator_index,
+                attester_index: duty.validator_index,
                 pubkey: duty.pubkey,
-                validator_committee_index: duty.validator_committee_index as usize,
-                attestation,
+                committee_index: duty.committee_index,
+                data: attestation_data.clone(),
             });
         }
 
@@ -588,29 +566,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 Ok(batch) if !batch.is_empty() => {
                     received_non_empty_batch = true;
 
-                    let single_attestations = batch
-                        .iter()
-                        .filter_map(|(attester_index, attestation)| {
-                            match attestation
-                                .to_single_attestation_with_attester_index(*attester_index)
-                            {
-                                Ok(single_attestation) => Some(single_attestation),
-                                Err(e) => {
-                                    // This shouldn't happen unless BN and VC are out of sync with
-                                    // respect to the Electra fork.
-                                    error!(
-                                        error = ?e,
-                                        committee_index = attestation_data.index,
-                                        slot = slot.as_u64(),
-                                        "type" = "unaggregated",
-                                        "Unable to convert to SingleAttestation"
-                                    );
-                                    None
-                                }
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    let single_attestations = &single_attestations;
+                    let single_attestations = &batch;
                     let validator_indices = single_attestations
                         .iter()
                         .map(|att| att.attester_index)
