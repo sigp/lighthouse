@@ -98,6 +98,16 @@ pub struct LocalBuildResult<E: EthSpec> {
     pub should_override_builder: bool,
 }
 
+/// The outcome of local-vs-builder bid selection.
+pub(crate) struct WinningBid<E: EthSpec> {
+    pub bid: SignedExecutionPayloadBid<E>,
+    /// `Some` when self-building; `None` when committing to a builder bid (the builder
+    /// reveals the envelope).
+    pub payload_data: Option<ExecutionPayloadData<E>>,
+    /// Wei value of the winning bid.
+    pub payload_value: ExecutionPayloadValue,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_block_with_verification_gloas(
         self: &Arc<Self>,
@@ -231,7 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await?;
 
-        let (execution_payload_bid, payload_data, execution_payload_value) =
+        let winning_bid =
             self.select_payload_bid(local_signed_bid, local_build, builder_boost_factor);
 
         // Part 3/3 (blocking)
@@ -243,10 +253,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
-                        execution_payload_bid,
+                        winning_bid,
                         parent_execution_requests,
-                        payload_data,
-                        execution_payload_value,
                         state,
                         verification,
                     )
@@ -534,18 +542,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `post_block_state` is the state post block application
     /// - `consensus_block_value` is the consensus-layer rewards for `block`
     /// - `execution_payload_value` is the wei value of the winning payload bid
-    #[allow(clippy::type_complexity)]
     #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block_gloas(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
-        signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        winning_bid: WinningBid<T::EthSpec>,
         parent_execution_requests: ExecutionRequestsGloas<T::EthSpec>,
-        payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
-        execution_payload_value: ExecutionPayloadValue,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
+        let WinningBid {
+            bid: signed_execution_payload_bid,
+            payload_data,
+            payload_value: execution_payload_value,
+        } = winning_bid;
+
         let PartialBeaconBlock {
             slot,
             proposer_index,
@@ -874,11 +885,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         local_signed_bid: SignedExecutionPayloadBid<T::EthSpec>,
         local_build: LocalBuildResult<T::EthSpec>,
         builder_boost_factor: Option<u64>,
-    ) -> (
-        SignedExecutionPayloadBid<T::EthSpec>,
-        Option<ExecutionPayloadData<T::EthSpec>>,
-        ExecutionPayloadValue,
-    ) {
+    ) -> WinningBid<T::EthSpec> {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
             local_signed_bid.message.slot,
             local_signed_bid.message.parent_block_hash,
@@ -908,11 +915,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
     local_build: LocalBuildResult<E>,
     cached_bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
     builder_boost_factor: Option<u64>,
-) -> (
-    SignedExecutionPayloadBid<E>,
-    Option<ExecutionPayloadData<E>>,
-    ExecutionPayloadValue,
-) {
+) -> WinningBid<E> {
     let LocalBuildResult {
         payload_data,
         payload_value,
@@ -920,7 +923,11 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
     } = local_build;
 
     let Some(cached_bid) = cached_bid else {
-        return (local_signed_bid, Some(payload_data), payload_value);
+        return WinningBid {
+            bid: local_signed_bid,
+            payload_data: Some(payload_data),
+            payload_value,
+        };
     };
 
     let slot = local_signed_bid.message.slot;
@@ -931,7 +938,11 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             cached_bid_value = cached_bid.message.value,
             "Using local payload because EL signaled shouldOverrideBuilder"
         );
-        return (local_signed_bid, Some(payload_data), payload_value);
+        return WinningBid {
+            bid: local_signed_bid,
+            payload_data: Some(payload_data),
+            payload_value,
+        };
     }
 
     // Convert bid value (gwei) to wei for comparison with `payload_value` (wei).
@@ -952,7 +963,11 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             ?builder_boost_factor,
             "Local payload is more profitable than cached builder bid"
         );
-        (local_signed_bid, Some(payload_data), payload_value)
+        WinningBid {
+            bid: local_signed_bid,
+            payload_data: Some(payload_data),
+            payload_value,
+        }
     } else {
         debug!(
             %slot,
@@ -962,7 +977,11 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             ?builder_boost_factor,
             "Including cached builder bid"
         );
-        ((*cached_bid).clone(), None, bid_value_wei)
+        WinningBid {
+            bid: (*cached_bid).clone(),
+            payload_data: None,
+            payload_value: bid_value_wei,
+        }
     }
 }
 
@@ -1358,9 +1377,12 @@ mod tests {
     ) -> (BuilderIndex, bool, ExecutionPayloadValue) {
         let build = local_build(local_payload_gwei, should_override);
         let cache = cached_gwei.map(cached_bid);
-        let (out, data, value) =
-            select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
-        (out.message.builder_index, data.is_some(), value)
+        let winning_bid = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
+        (
+            winning_bid.bid.message.builder_index,
+            winning_bid.payload_data.is_some(),
+            winning_bid.payload_value,
+        )
     }
 
     #[test]
