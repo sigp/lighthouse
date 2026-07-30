@@ -8,9 +8,10 @@ use crate::{
     EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
-use context_deserialize::ContextDeserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
+use fork_choice::PayloadStatus;
 use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
 use multiaddr::Multiaddr;
@@ -1023,29 +1024,16 @@ pub struct SseDataColumnSidecar {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
-    pub kzg_commitments: Vec<KzgCommitment>,
-    pub versioned_hashes: Vec<VersionedHash>,
 }
 
 impl SseDataColumnSidecar {
     pub fn from_data_column_sidecar<E: EthSpec>(
         data_column_sidecar: &DataColumnSidecar<E>,
     ) -> SseDataColumnSidecar {
-        // TODO(gloas): fetch kzg_commitments from block for Gloas SSE events
-        let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
-            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
-            DataColumnSidecar::Gloas(_) => vec![],
-        };
-        let versioned_hashes = kzg_commitments
-            .iter()
-            .map(|c| c.calculate_versioned_hash())
-            .collect();
         SseDataColumnSidecar {
             block_root: data_column_sidecar.block_root(),
             index: *data_column_sidecar.index(),
             slot: data_column_sidecar.slot(),
-            kzg_commitments,
-            versioned_hashes,
         }
     }
 }
@@ -1066,6 +1054,19 @@ pub struct SseHead {
     pub current_duty_dependent_root: Hash256,
     pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
+    pub execution_optimistic: bool,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[context_deserialize(ForkName)]
+pub struct SseHeadV2 {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub state: Hash256,
+    pub payload_status: PayloadStatus,
+    pub epoch_transition: bool,
+    pub current_epoch_dependent_root: Hash256,
+    pub next_epoch_dependent_root: Hash256,
     pub execution_optimistic: bool,
 }
 
@@ -1173,6 +1174,7 @@ pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloa
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
+pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1242,6 +1244,7 @@ pub enum EventKind<E: EthSpec> {
     DataColumnSidecar(SseDataColumnSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
+    HeadV2(Box<VersionedSseHeadV2>),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
@@ -1266,6 +1269,7 @@ impl<E: EthSpec> EventKind<E> {
     pub fn topic_name(&self) -> &str {
         match self {
             EventKind::Head(_) => "head",
+            EventKind::HeadV2(_) => "head_v2",
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
             EventKind::DataColumnSidecar(_) => "data_column_sidecar",
@@ -1325,6 +1329,10 @@ impl<E: EthSpec> EventKind<E> {
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
+            "head_v2" => Ok(EventKind::HeadV2(Box::new(
+                serde_json::from_str(data)
+                    .map_err(|e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)))?,
+            ))),
             "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
             )?)),
@@ -1441,6 +1449,7 @@ pub struct EventQuery {
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
     Head,
+    HeadV2,
     Block,
     BlobSidecar,
     DataColumnSidecar,
@@ -1473,6 +1482,7 @@ impl FromStr for EventTopic {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "head" => Ok(EventTopic::Head),
+            "head_v2" => Ok(EventTopic::HeadV2),
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
             "data_column_sidecar" => Ok(EventTopic::DataColumnSidecar),
@@ -1506,6 +1516,7 @@ impl fmt::Display for EventTopic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventTopic::Head => write!(f, "head"),
+            EventTopic::HeadV2 => write!(f, "head_v2"),
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::DataColumnSidecar => write!(f, "data_column_sidecar"),
@@ -1881,6 +1892,8 @@ pub struct ProduceBlockV4Metadata {
     pub consensus_version: ForkName,
     #[serde(with = "serde_utils::u256_dec")]
     pub consensus_block_value: Uint256,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
 }
 
@@ -2055,6 +2068,11 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
+        let execution_payload_value =
+            parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
+                Uint256::from_str_radix(s, 10)
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
+            })?;
         let execution_payload_included =
             parse_required_header(headers, EXECUTION_PAYLOAD_INCLUDED_HEADER, |s| {
                 s.parse::<bool>()
@@ -2064,6 +2082,7 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
+            execution_payload_value,
             execution_payload_included,
         })
     }
