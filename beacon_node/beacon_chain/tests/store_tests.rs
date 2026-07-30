@@ -35,7 +35,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_xorshift::XorShiftRng;
+use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz::Encode;
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
@@ -44,6 +46,7 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
@@ -53,6 +56,7 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
+use types::test_utils::test_arbitrary_instance;
 use types::*;
 
 // Should ideally be divisible by 3.
@@ -216,6 +220,43 @@ fn get_states_descendant_of_block(
         .collect()
 }
 
+/// Builds a `LightClientUpdate` for the given fork,
+/// sets `signature_slot` to the provided `marker_slot` so tests can identify which update was returned.
+/// Uses `test_arbitrary_instance` for all other fields.
+fn make_light_client_update<E: EthSpec>(
+    fork_name: ForkName,
+    marker_slot: Slot,
+) -> LightClientUpdate<E> {
+    match fork_name {
+        ForkName::Base => panic!("light client updates don't exist pre-Altair"),
+        ForkName::Altair | ForkName::Bellatrix => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateAltair<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Altair(update)
+        }
+        ForkName::Capella => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateCapella<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Capella(update)
+        }
+        ForkName::Deneb => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateDeneb<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Deneb(update)
+        }
+        ForkName::Electra => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateElectra<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Electra(update)
+        }
+        ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateFulu<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Fulu(update)
+        }
+    }
+}
+
 // TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
@@ -346,6 +387,53 @@ async fn light_client_updates_test() {
         .unwrap();
 
     assert_eq!(lc_updates.len(), 2);
+}
+
+/// Verifies that `get_light_client_updates` returns the full requested range
+/// even when it crosses a sync committee period boundary after
+/// switching to big-endian keys.
+#[tokio::test]
+async fn get_light_client_updates_crosses_256_period_boundary() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    let below = 100u64;
+    let cluster: Vec<u64> = (254..=260).collect();
+    let above = 500u64;
+    let all_periods: Vec<u64> = std::iter::once(below)
+        .chain(cluster.iter().copied())
+        .chain(std::iter::once(above))
+        .collect();
+
+    for &period in &all_periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store.store_light_client_update(period, &update).unwrap();
+    }
+
+    let start_period = 254;
+    let count = 5; // covers 254..=258, crossing the 256 boundary
+    let fetched = store.get_light_client_updates(start_period, count).unwrap();
+
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+
+    assert_eq!(
+        fetched_periods,
+        (start_period..start_period + count).collect::<Vec<_>>(),
+        "expected exactly periods 254..259 in order, got {fetched_periods:?}"
+    );
 }
 
 #[tokio::test]
@@ -1647,27 +1735,19 @@ async fn proposer_duties_from_head_fulu() {
     assert_eq!(fork, head_state.fork());
 }
 
-/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
-// TODO(EIP-7732): Extend to gloas
-// `state.latest_execution_payload_header()` not available in Gloas
-// called from `add_block_at_slot` -> `make_block` -> `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload` -> `Error`
-#[ignore]
+fn get_gloas_harness(db_path: &TempDir, gloas_fork_epoch: Epoch) -> TestHarness {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let store = get_store_generic(db_path, Default::default(), spec);
+    get_harness(store, LOW_VALIDATOR_COUNT)
+}
+
+/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead
 #[tokio::test]
 async fn proposer_lookahead_gloas_fork_epoch() {
     let gloas_fork_epoch = Epoch::new(4);
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
-
     let db_path = tempdir().unwrap();
-    let store = get_store_generic(&db_path, Default::default(), spec.clone());
-    let validators_keypairs =
-        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(E::default())
-        .spec(spec.into())
-        .keypairs(validators_keypairs)
-        .fresh_disk_store(store)
-        .mock_execution_layer()
-        .build();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
     let spec = &harness.chain.spec;
 
     let initial_blocks = (gloas_fork_epoch - 1)
@@ -1724,6 +1804,129 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     assert_eq!(no_lookahead_indices, indices);
     assert_eq!(no_lookahead_dependent_root, dependent_root);
     assert_eq!(no_lookahead_fork, fork);
+}
+
+/// Build a chain from genesis to the first slot of end_epoch, activating Gloas at gloas_fork_epoch
+///
+/// Validators in to_slash are slashed by the last block, before end_epoch
+async fn build_across_gloas_boundary(
+    gloas_fork_epoch: Epoch,
+    end_epoch: Epoch,
+    to_slash: &[u64],
+) -> BeaconState<E> {
+    let db_path = tempdir().unwrap();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
+    let all_validators = harness.get_all_validators();
+
+    // Build the chain up to the last slot before end_epoch
+    let last_slot = (end_epoch - 1).end_slot(E::slots_per_epoch());
+    let pre_slots: Vec<Slot> = (1..last_slot.as_u64()).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(state, &pre_slots, &all_validators)
+        .await;
+
+    for &index in to_slash {
+        harness.add_proposer_slashing(index).unwrap();
+    }
+
+    // The last block, before end_epoch applies the slashings
+    // The first block of end_epoch triggers the transition that computes the end_epoch + 1 proposers
+    let boundary_slots = [last_slot, last_slot + 1];
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(head_state, &boundary_slots, &all_validators)
+        .await;
+    assert_eq!(head_state.current_epoch(), end_epoch);
+    for &index in to_slash {
+        assert!(head_state.get_validator(index as usize).unwrap().slashed);
+    }
+    head_state
+}
+
+#[tokio::test]
+async fn proposer_lookahead_retains_slashed_proposer_across_gloas_boundary() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the proposers scheduled for the fork epoch
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (fork_epoch_proposers, _) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Slash a proposer scheduled for the fork epoch, avoiding its first-slot proposer
+    let boundary_proposer = fork_epoch_proposers[0];
+    let target = fork_epoch_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("fork epoch should have a proposer other than its first-slot proposer");
+
+    let slashed_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[target]).await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The fork epoch's proposers were computed pre-fork and only carried forward.
+    // The slashing must leave them unchanged, in particular retaining the slashed proposer
+    assert!(
+        lookahead[..slots_per_epoch].contains(&target),
+        "pre-Gloas-computed proposers for the fork epoch must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        fork_epoch_proposers,
+        "slashing must not alter the pre-Gloas-computed fork epoch proposers"
+    );
+}
+
+#[tokio::test]
+async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas_epochs() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the scheduled proposers on each side of the window
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch + 1, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (pre_fork_proposers, post_fork_proposers) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Pick one proposer to slash on each side of the window, avoiding the boundary proposer
+    let boundary_proposer = pre_fork_proposers[0];
+    let pre_fork_target = pre_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("pre-fork epoch should have a proposer other than the boundary proposer");
+    let post_fork_target = post_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer && index != pre_fork_target)
+        .expect("post-fork epoch should have a proposer distinct from the other targets");
+
+    let slashed_state = build_across_gloas_boundary(
+        gloas_fork_epoch,
+        gloas_fork_epoch + 1,
+        &[pre_fork_target, post_fork_target],
+    )
+    .await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The gloas_fork_epoch + 1 proposers were computed pre-fork and must be unchanged
+    assert!(
+        lookahead[..slots_per_epoch].contains(&pre_fork_target),
+        "pre-fork-computed proposers must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        pre_fork_proposers,
+        "slashing must not alter the pre-fork-computed proposers"
+    );
+
+    // The gloas_fork_epoch + 2 proposers were computed post-fork and must exclude their slashed one
+    assert!(
+        !lookahead[slots_per_epoch..].contains(&post_fork_target),
+        "post-fork-computed proposers must exclude the slashed proposer"
+    );
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
@@ -4173,7 +4376,6 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
-    let is_gloas = spec.is_gloas_scheduled();
 
     let chain_config = ChainConfig {
         archive,
@@ -4196,11 +4398,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = if is_gloas {
-        SchemaVersion(29)
-    } else {
-        SchemaVersion(28)
-    };
+    let min_version = SchemaVersion(29);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -4310,6 +4508,91 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
         true,
     )
     .await
+}
+
+#[tokio::test]
+async fn light_client_update_schema_v30_migration() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    // Write entries directly under the OLD little-endian key encoding, bypassing
+    // store_light_client_update (which now writes big-endian keys) so we start from a
+    // pre-migration state.
+    let periods: Vec<u64> = (254..=260).collect();
+    for &period in &periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store
+            .hot_db
+            .put_bytes(
+                DBColumn::LightClientUpdate,
+                &period.to_le_bytes(),
+                &update.as_ssz_bytes(),
+            )
+            .unwrap();
+    }
+
+    // Sanity check: with only LE keys in place, the BE-based getter shouldn't see them yet.
+    assert!(store.get_light_client_update(254).unwrap().is_none());
+
+    // Upgrade v29 -> v30.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(29), SchemaVersion(30))
+        .expect("schema upgrade to v30 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_none(),
+            "LE key for period {period} should have been removed by the migration"
+        );
+        let update = store
+            .get_light_client_update(period)
+            .unwrap()
+            .unwrap_or_else(|| panic!("period {period} should be readable after migration"));
+        assert_eq!(update.signature_slot().as_u64(), period);
+    }
+
+    // Range scan should now work correctly across the 256 boundary too.
+    let fetched = store.get_light_client_updates(254, 5).unwrap();
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+    assert_eq!(fetched_periods, vec![254, 255, 256, 257, 258]);
+
+    // Downgrade v30 -> v29, keys should revert to LE.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(29))
+        .expect("schema downgrade to v29 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_be_bytes())
+                .unwrap()
+                .is_none(),
+            "BE key for period {period} should have been removed by the downgrade"
+        );
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_some(),
+            "LE key for period {period} should be restored by the downgrade"
+        );
+    }
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.

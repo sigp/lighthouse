@@ -6,14 +6,14 @@ use superstruct::superstruct;
 
 use crate::core::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
-    ElectraPreset, EthSpec, FuluPreset, GloasPreset, consts,
+    ElectraPreset, EthSpec, FuluPreset, GloasPreset, HezePreset, consts,
 };
 
 /// Fusion of a runtime-config with the compile-time preset values.
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Deneb, Electra, Fulu, Gloas),
+    variants(Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -32,15 +32,18 @@ pub struct ConfigAndPreset {
     pub capella_preset: CapellaPreset,
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
-    #[superstruct(only(Fulu, Gloas))]
+    #[superstruct(only(Fulu, Gloas, Heze))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     #[serde(flatten)]
     pub gloas_preset: GloasPreset,
+    #[superstruct(only(Heze))]
+    #[serde(flatten)]
+    pub heze_preset: HezePreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -56,7 +59,26 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.is_gloas_scheduled() {
+        if spec.is_heze_scheduled() {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
+            let heze_preset = HezePreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Heze(ConfigAndPresetHeze {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                fulu_preset,
+                gloas_preset,
+                heze_preset,
+                extra_fields,
+            })
+        } else if spec.is_gloas_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
             let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
@@ -166,6 +188,7 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mut mainnet_spec = ChainSpec::mainnet();
+        // TODO(heze): bump this test to roundtrip a heze config once Heze is enabled.
         // setting gloas_fork_epoch because we are roundtripping a gloas config
         mainnet_spec.gloas_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);

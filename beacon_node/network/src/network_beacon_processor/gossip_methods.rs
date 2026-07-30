@@ -3894,10 +3894,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "envelope arrived early"
                 );
 
-                // TODO(gloas) update metrics to note how early the envelope arrived
+                // Take note of how early this envelope arrived.
+                if let Some(duration) = self
+                    .chain
+                    .slot_clock
+                    .start_of(envelope_slot)
+                    .and_then(|start| start.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_EARLY_SECONDS,
+                        duration,
+                    );
+                }
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_REQUEUED_TOTAL,
+                );
 
                 let inner_self = self.clone();
-                let _process_fn = Box::pin(async move {
+                let process_fn = Box::pin(async move {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
@@ -3905,8 +3920,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         )
                         .await;
                 });
-
-                // TODO(gloas) send to reprocess queue
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::EarlyEnvelope(
+                            QueuedGossipEnvelope {
+                                beacon_block_slot: envelope_slot,
+                                beacon_block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        %envelope_slot,
+                        ?beacon_block_root,
+                        location = "envelope gossip",
+                        "Failed to defer envelope import"
+                    )
+                }
                 None
             }
             Ok(_) => Some(verified_envelope),

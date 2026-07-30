@@ -1337,10 +1337,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots i.e. duplicated roots
-        Ok(block_roots
+        let mut block_roots_and_slots = block_roots
             .into_iter()
             .unique_by(|(root, _)| *root)
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+
+        // If `start_slot` is a skip slot, the first root belongs to a block before the range, remove it.
+        if let Some((first_root, _)) = block_roots_and_slots.first() {
+            let first_block = self.chain.get_blinded_block(first_root).map_err(|e| {
+                error!(
+                    %start_slot,
+                    count,
+                    error = ?e,
+                    "Error fetching first block for range request"
+                );
+                (RpcErrorResponse::ServerError, "Database error")
+            })?;
+            if first_block.is_none_or(|block| block.slot() < start_slot) {
+                block_roots_and_slots.remove(0);
+            }
+        }
+
+        Ok(block_roots_and_slots)
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRange` request from the peer.
