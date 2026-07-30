@@ -47,7 +47,7 @@ use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
-    BlobInfo, DBColumn, HotColdDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
 };
@@ -2901,6 +2901,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let chain_config = ChainConfig {
         archive: true,
+        verify_envelope_payload_hash_in_backfill: false,
         ..ChainConfig::default()
     };
 
@@ -2965,6 +2966,79 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
             "Split block payload must exist in the new node's store after checkpoint sync"
         );
     }
+}
+
+/// Fetch the anchor (checkpoint) block and append it to a backfill batch, so the batch
+/// exercises the anchor re-import path.
+///
+/// Deliberately not `async`: awaited futures fold their locals into the caller's stack frame,
+/// and `weak_subjectivity_sync_test` is close to the `large_stack_frames` limit.
+fn push_anchor_range_sync_block(
+    harness: &TestHarness,
+    anchor_block_root: Hash256,
+    batch: &mut Vec<RangeSyncBlock<E>>,
+) {
+    let anchor_full_block = harness
+        .chain
+        .store
+        .get_full_block(&anchor_block_root)
+        .expect("should get anchor block")
+        .expect("anchor block should exist");
+    batch.push(harness.build_range_sync_block_from_store_blobs(
+        Some(anchor_block_root),
+        Arc::new(anchor_full_block),
+    ));
+}
+
+/// Delete the anchor block's data columns. Returns `true` if any were deleted.
+fn delete_anchor_columns(
+    beacon_chain: &Arc<BeaconChain<DiskHarnessType<E>>>,
+    anchor_block_root: Hash256,
+) -> bool {
+    let column_indices = beacon_chain
+        .store
+        .get_data_columns(&anchor_block_root, ForkName::Gloas)
+        .unwrap()
+        .unwrap_or_default()
+        .iter()
+        .map(|column| *column.index())
+        .collect::<Vec<_>>();
+    if column_indices.is_empty() {
+        return false;
+    }
+    beacon_chain
+        .store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteDataColumns(
+            anchor_block_root,
+            column_indices,
+            ForkName::Gloas,
+        )])
+        .unwrap();
+    true
+}
+
+/// Assert that the anchor block's envelope and data columns are present in the store.
+fn assert_anchor_data_restored(
+    beacon_chain: &Arc<BeaconChain<DiskHarnessType<E>>>,
+    anchor_block_root: Hash256,
+) {
+    assert!(
+        beacon_chain
+            .store
+            .get_payload_envelope(&anchor_block_root)
+            .unwrap()
+            .is_some(),
+        "checkpoint block envelope must be present after anchor re-import"
+    );
+    let restored_columns = beacon_chain
+        .store
+        .get_data_columns(&anchor_block_root, ForkName::Gloas)
+        .unwrap()
+        .unwrap_or_default();
+    assert!(
+        !restored_columns.is_empty(),
+        "checkpoint block columns must be restored by the anchor re-import"
+    );
 }
 
 async fn weak_subjectivity_sync_test(
@@ -3052,6 +3126,9 @@ async fn weak_subjectivity_sync_test(
         // Set archive to true from the start in the genesis case. This makes
         // some of the later checks more uniform across the genesis/non-genesis cases.
         archive: checkpoint_slot == 0,
+        // The mock EL produces synthetic execution block hashes which cannot survive a real
+        // RLP block hash recompute.
+        verify_envelope_payload_hash_in_backfill: false,
         ..ChainConfig::default()
     };
 
@@ -3097,6 +3174,7 @@ async fn weak_subjectivity_sync_test(
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
+    let mut deleted_anchor_columns = false;
 
     // For Gloas, blobs aren't a standalone shape — the WSS data is the column sidecar set, which
     // `get_or_reconstruct_blobs` returns `None` for. Copy the WSS block's columns straight from
@@ -3305,6 +3383,11 @@ async fn weak_subjectivity_sync_test(
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
             available_blocks.push(range_sync_block);
         }
+
+        // Include the anchor block itself so the batch exercises the anchor re-import path,
+        // which must restore the checkpoint block's envelope and columns.
+        push_anchor_range_sync_block(&harness, wss_block_root, &mut available_blocks);
+
         harness
             .chain
             .data_availability_checker
@@ -3346,6 +3429,12 @@ async fn weak_subjectivity_sync_test(
             HistoricalBlockError::InvalidSignature
         ));
         assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
+
+        // Delete the checkpoint block's pre-seeded columns so that the anchor re-import below
+        // is the only thing that can restore them. Regression test for the reveal-status
+        // self-comparison dropping the anchor's envelope and columns during re-import.
+        deleted_anchor_columns = wss_block.fork_name_unchecked().gloas_enabled()
+            && delete_anchor_columns(&beacon_chain, wss_block_root);
 
         let batch_size = backfill_batch_size.unwrap_or(available_blocks.len());
 
@@ -3397,6 +3486,12 @@ async fn weak_subjectivity_sync_test(
         }
     }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
+
+    // The anchor re-import must have restored the checkpoint block's columns (and stored its
+    // envelope) rather than dropping them via the reveal-status self-comparison.
+    if deleted_anchor_columns {
+        assert_anchor_data_restored(&beacon_chain, wss_block_root);
+    }
 
     // Store envelopes for all historic blocks (needed for dumping the chain from the new node).
     for snapshot in chain_dump.iter() {

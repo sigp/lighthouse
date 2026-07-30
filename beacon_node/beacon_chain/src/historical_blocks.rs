@@ -126,18 +126,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // payloads never have an envelope, so we don't require one for them.
         //
         // Start from the anchor block, the child of the newest block in the batch. If the newest
-        // block is the anchor itself being re-imported the comparison is always false, which is
-        // fine as its data was already stored during checkpoint sync.
+        // block is the anchor itself being re-imported it has no child to derive reveal-status
+        // from; seed `None` (indeterminate) so its envelope and columns are stored rather than
+        // dropped by a self-comparison that is always false.
         let mut child_bid_parent_hash = blocks_to_import
             .last()
             .filter(|block| matches!(block, RangeSyncBlock::Gloas { .. }))
-            .and_then(|_| {
-                self.block_root_at_slot(anchor_info.oldest_block_slot, WhenSlotSkipped::None)
+            .and_then(|newest_block| {
+                let anchor_child_root = self
+                    .block_root_at_slot(anchor_info.oldest_block_slot, WhenSlotSkipped::None)
                     .ok()
-                    .flatten()
-            })
-            .and_then(|root| self.get_blinded_block(&root).ok().flatten())
-            .and_then(|child_block| {
+                    .flatten()?;
+                if anchor_child_root == newest_block.block_root() {
+                    return None;
+                }
+                let child_block = self.get_blinded_block(&anchor_child_root).ok().flatten()?;
                 child_block
                     .message()
                     .body()
