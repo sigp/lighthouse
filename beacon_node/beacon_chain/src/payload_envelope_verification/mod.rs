@@ -407,6 +407,25 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
     ))
 }
 
+/// Verify that the envelope's `parent_beacon_block_root` matches its block's parent root.
+///
+/// This is NOT a gossip validation condition per the gloas p2p spec, so it must only run on
+/// the range sync / backfill path. There it is required before recomputing the payload's
+/// execution block hash, since `parent_beacon_block_root` is an envelope-supplied input to
+/// the execution block header.
+pub fn verify_envelope_parent_beacon_block_root<E: EthSpec>(
+    envelope: &ExecutionPayloadEnvelope<E>,
+    block: &types::SignedBeaconBlock<E>,
+) -> Result<(), EnvelopeError> {
+    if envelope.parent_beacon_block_root != block.message().parent_root() {
+        return Err(EnvelopeError::ParentBeaconBlockRootMismatch {
+            block: block.message().parent_root(),
+            envelope: envelope.parent_beacon_block_root,
+        });
+    }
+    Ok(())
+}
+
 /// Recompute the execution block hash of an envelope's payload and verify it, along with the
 /// blob versioned hashes, against the bid committed in the (proposer-signed) block.
 ///

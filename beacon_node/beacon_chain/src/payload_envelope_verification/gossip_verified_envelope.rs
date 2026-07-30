@@ -58,17 +58,6 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
-    // The envelope's parent beacon block root must match the block's parent root. This must
-    // hold before the payload block hash is recomputed (e.g. via
-    // `perform_optimistic_sync_verifications`), since `parent_beacon_block_root` is an
-    // envelope-supplied input to the execution block header.
-    if envelope.parent_beacon_block_root != block.message().parent_root() {
-        return Err(EnvelopeError::ParentBeaconBlockRootMismatch {
-            block: block.message().parent_root(),
-            envelope: envelope.parent_beacon_block_root,
-        });
-    }
-
     // Builder index matches committed bid.
     if envelope.builder_index != execution_bid.builder_index {
         return Err(EnvelopeError::BuilderIndexMismatch {
@@ -344,6 +333,7 @@ mod tests {
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
+    use crate::payload_envelope_verification::verify_envelope_parent_beacon_block_root;
     use tree_hash::TreeHash;
 
     type E = MinimalEthSpec;
@@ -499,7 +489,11 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        // Not a gossip condition: the shared consistency checks must accept it.
+        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+
+        // The sync-only check must reject it.
+        let result = verify_envelope_parent_beacon_block_root::<E>(&envelope, &block);
         assert!(matches!(
             result,
             Err(EnvelopeError::ParentBeaconBlockRootMismatch { .. })

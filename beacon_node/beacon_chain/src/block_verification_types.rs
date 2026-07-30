@@ -4,6 +4,7 @@ pub use crate::data_availability_checker::{
 };
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
+use crate::payload_envelope_verification::verify_envelope_parent_beacon_block_root;
 use crate::{BeaconChainTypes, CustodyContext, PayloadVerificationOutcome};
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
@@ -159,6 +160,9 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 latest_finalized_slot,
             )
             .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
+            // Sync-only check, deliberately not part of gossip validation.
+            verify_envelope_parent_beacon_block_root(envelope.message(), &block)
+                .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
         }
 
         Ok(Self::Gloas { block, envelope })
