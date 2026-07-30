@@ -250,8 +250,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .on_valid_payload_envelope_received(block_root)
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
-        // TODO(gloas) emit SSE event if the payload became the new head payload
-
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
         // state if we returned early without committing. In other words, an error here would
