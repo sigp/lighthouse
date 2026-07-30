@@ -1892,6 +1892,8 @@ pub struct ProduceBlockV4Metadata {
     pub consensus_version: ForkName,
     #[serde(with = "serde_utils::u256_dec")]
     pub consensus_block_value: Uint256,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
 }
 
@@ -2066,6 +2068,11 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
+        let execution_payload_value =
+            parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
+                Uint256::from_str_radix(s, 10)
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
+            })?;
         let execution_payload_included =
             parse_required_header(headers, EXECUTION_PAYLOAD_INCLUDED_HEADER, |s| {
                 s.parse::<bool>()
@@ -2075,6 +2082,7 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
+            execution_payload_value,
             execution_payload_included,
         })
     }
