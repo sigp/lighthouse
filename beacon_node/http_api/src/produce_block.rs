@@ -83,17 +83,17 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let (block, _block_state, consensus_block_value, execution_payload_value, payload_contents) =
         chain
-        .produce_block_with_verification_gloas(
-            randao_reveal,
-            slot,
-            graffiti_settings,
-            randao_verification,
-            builder_boost_factor,
-        )
-        .await
-        .map_err(|e| {
-            warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
-        })?;
+            .produce_block_with_verification_gloas(
+                randao_reveal,
+                slot,
+                graffiti_settings,
+                randao_verification,
+                builder_boost_factor,
+            )
+            .await
+            .map_err(|e| {
+                warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
+            })?;
 
     let payload_contents = include_payload.then_some(payload_contents).flatten();
 
