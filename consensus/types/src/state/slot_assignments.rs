@@ -11,8 +11,7 @@ use crate::{
     state::{BeaconState, BeaconStateError, CommitteeCache},
 };
 
-/// One of the three epochs the assignment window covers, relative to a beacon state's current
-/// epoch.
+/// One of the three epochs the assignment window covers.
 #[derive(Debug, Clone, Copy)]
 enum WindowEpoch {
     PrevPrev,
@@ -62,9 +61,8 @@ impl WindowEpoch {
         ))
     }
 
-    /// The committee cache for this window position. `Current`/`Previous` are read from the
-    /// state's caches when built, falling back to recomputing the shuffling; `PrevPrev` has no
-    /// cached slot in the state, so its shuffling is always recomputed.
+    /// `Current`/`Previous` come from the state's caches when built; `PrevPrev` is always
+    /// recomputed.
     fn committee_cache<E: EthSpec>(
         self,
         state: &BeaconState<E>,
@@ -83,15 +81,12 @@ impl WindowEpoch {
 struct SlotAssignment {
     key: AttestationShufflingId,
     committee_cache: Arc<CommitteeCache>,
-    /// Start slot of `key.shuffling_epoch` cached for quick access.
     epoch_start_slot: Slot,
-    /// End slot of `key.shuffling_epoch` cached for quick access.
     epoch_end_slot: Slot,
 }
 
 impl SlotAssignment {
-    /// Build the assignment for `window_epoch` relative to `state`, re-using a matching cache from
-    /// `prev` when its shuffling is unchanged (a rebuild rotating the window down an epoch).
+    /// Re-uses a matching cache from `prev` when the shuffling is unchanged.
     fn new<E: EthSpec>(
         state: &BeaconState<E>,
         window_epoch: WindowEpoch,
@@ -121,9 +116,8 @@ pub struct SlotAssignments {
 }
 
 impl SlotAssignments {
-    /// Build the `[current-2, current]` committee caches for `state`. When `prev` is supplied (a
-    /// rebuild triggered by a head change), any cache whose shuffling is unchanged is re-used from
-    /// it rather than rebuilt — the common case where we just rotate the window down an epoch.
+    /// Build the `[current-2, current]` committee caches for `state`, re-using unchanged
+    /// epochs from `prev`.
     pub fn new<E: EthSpec>(
         state: &BeaconState<E>,
         spec: &ChainSpec,
@@ -136,19 +130,6 @@ impl SlotAssignments {
                 SlotAssignment::new(state, WindowEpoch::Current, spec, prev)?,
             ],
         })
-    }
-
-    /// Rebuild from `state` if its current-epoch shuffling differs from the cached window,
-    /// re-using any unchanged epochs.
-    pub fn rebuild_if_stale<E: EthSpec>(
-        &mut self,
-        state: &BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<(), BeaconStateError> {
-        if *self.key() != WindowEpoch::Current.shuffling_id(state)? {
-            *self = Self::new(state, spec, Some(self))?;
-        }
-        Ok(())
     }
 
     pub fn key(&self) -> &AttestationShufflingId {
@@ -181,9 +162,8 @@ impl SlotAssignments {
     }
 }
 
-/// The committee slot `val_idx` attests in for `cache`'s epoch, or `None` if it has no duty.
-/// Inverts the spec's `compute_committee` position ranges: the committee for shuffled position `p`
-/// is `(p * count + count - 1) / len`, mapped to a slot via `committees_per_slot`.
+/// The slot `val_idx` attests in for `cache`'s epoch, or `None` if it has no duty.
+/// Inverts the spec's `compute_committee` position ranges.
 fn assigned_slot(
     cache: &CommitteeCache,
     epoch_start: Slot,

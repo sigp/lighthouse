@@ -60,6 +60,31 @@ fn every_validator_attests_once_in_current_epoch() {
     }
 }
 
+// Test that in the `restore_from_store` path a state loaded from disk has no
+// committee caches built, and building slot assignments from it must not fail.
+#[test]
+fn builds_from_state_with_unbuilt_caches() {
+    let (mut state, spec) = genesis_state(64);
+    let spe = E::slots_per_epoch();
+    advance_state(&mut state, Slot::new(spe * 2), &spec);
+    let control = SlotAssignments::new::<E>(&state, &spec, None).expect("build with caches");
+
+    state.drop_all_caches().expect("drop caches");
+    let rebuilt = SlotAssignments::new::<E>(&state, &spec, None)
+        .expect("builds when committee caches are uninitialized");
+
+    for val_idx in 0..state.validators().len() {
+        for slot in 0..spe * 3 {
+            let slot = Slot::new(slot);
+            assert_eq!(
+                control.is_in_range(val_idx, slot, slot).unwrap(),
+                rebuilt.is_in_range(val_idx, slot, slot).unwrap(),
+                "validator {val_idx} assignment mismatch at slot {slot}"
+            );
+        }
+    }
+}
+
 #[test]
 fn is_in_range_returns_false_for_uncovered_epochs() {
     let (state, spec) = genesis_state(64);
