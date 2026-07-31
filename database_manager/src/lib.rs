@@ -363,14 +363,30 @@ pub fn prune_blobs<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
+    let mut schema_version = CURRENT_SCHEMA_VERSION;
     let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
-        |_, _, _| Ok(()),
+        |_, db_initial_version, _| {
+            schema_version = db_initial_version;
+            Ok(())
+        },
         client_config.store,
         spec.clone(),
     )?;
+
+    // Pruning relies on the in-memory `DataInfo` marker, which `open` only loads on schema v31
+    // and later (schema migrations are deliberately not applied here). Refuse to prune with the
+    // uninitialized marker on older schemas.
+    if schema_version < SchemaVersion(31) {
+        return Err(Error::MigrationError(format!(
+            "database schema v{} is too old for blob pruning: run `lighthouse db migrate --to \
+             {}` or start the beacon node to upgrade the database first",
+            schema_version.as_u64(),
+            CURRENT_SCHEMA_VERSION.as_u64(),
+        )));
+    }
 
     // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
     // bails out early by passing true to the force parameter.

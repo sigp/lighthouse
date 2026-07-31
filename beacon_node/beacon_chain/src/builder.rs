@@ -374,13 +374,8 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         self.pending_io_batch.push(
             store
-                .init_blob_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+                .init_data_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data info: {:?}", e))?,
         );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
@@ -595,13 +590,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         let snapshot = BeaconSnapshot {
@@ -1409,13 +1399,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(initial_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         {

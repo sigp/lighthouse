@@ -11,8 +11,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::metadata::DataColumnInfo;
-use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
+use store::{AnchorInfo, DBColumn, DataInfo, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, debug_span, instrument};
 use types::{EthSpec, Hash256, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD};
@@ -87,8 +86,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
-        let blob_info = self.store.get_blob_info();
-        let data_column_info = self.store.get_data_column_info();
+        let data_info = self.store.get_data_info();
 
         // Take all blocks with slots less than or equal to the oldest block slot.
         //
@@ -117,8 +115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut last_block_root = expected_block_root;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
-        let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
-        let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
+        let mut new_oldest_data_slot = data_info.oldest_data_slot;
 
         // A Gloas block's payload was revealed ("full") if its child's bid `parent_block_hash`
         // matches its own bid `block_hash`, see `process_parent_execution_payload` in the spec.
@@ -212,12 +209,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
-            match &block_data {
-                AvailableBlockData::NoData => (),
-                AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
-                AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot())
-                }
+            if !matches!(block_data, AvailableBlockData::NoData) {
+                new_oldest_data_slot = block.slot();
             }
 
             // Store the blobs or data columns too
@@ -282,7 +275,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                     let (signed_envelope, columns) = envelope.deconstruct();
                     if !columns.is_empty() {
-                        new_oldest_data_column_slot = Some(block.slot());
+                        new_oldest_data_slot = block.slot();
                         if let Some(op) = self.get_blobs_or_columns_store_op(
                             block_root,
                             block.slot(),
@@ -434,32 +427,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store.cold_db.do_atomically(cold_batch)?;
         }
 
-        let mut anchor_and_blob_batch = Vec::with_capacity(3);
+        let mut anchor_and_blob_batch = Vec::with_capacity(2);
 
-        // Update the blob info.
-        if new_oldest_blob_slot != blob_info.oldest_blob_slot
-            && let Some(oldest_blob_slot) = new_oldest_blob_slot
-        {
-            let new_blob_info = BlobInfo {
-                oldest_blob_slot: Some(oldest_blob_slot),
-                ..blob_info.clone()
+        // Update the data info.
+        if new_oldest_data_slot != data_info.oldest_data_slot {
+            let new_data_info = DataInfo {
+                oldest_data_slot: new_oldest_data_slot,
             };
             anchor_and_blob_batch.push(
                 self.store
-                    .compare_and_set_blob_info(blob_info, new_blob_info)?,
-            );
-        }
-
-        // Update the data column info.
-        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot
-            && let Some(oldest_data_column_slot) = new_oldest_data_column_slot
-        {
-            let new_data_column_info = DataColumnInfo {
-                oldest_data_column_slot: Some(oldest_data_column_slot),
-            };
-            anchor_and_blob_batch.push(
-                self.store
-                    .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
+                    .compare_and_set_data_info(data_info, new_data_info)?,
             );
         }
 
