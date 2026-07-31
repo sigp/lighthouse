@@ -108,6 +108,8 @@ impl<T> CanonicalHeadRwLock<T> {
 /// verification for the duration.
 const FORK_CHOICE_LOCK_HOLD_LOG_THRESHOLD: Duration = Duration::from_secs(1);
 
+type HeadSlotAssignments<E> = Option<Result<(BeaconState<E>, SlotAssignments), Error>>;
+
 /// Records a fork choice lock hold duration into `metric` when dropped.
 struct ForkChoiceHoldTimer {
     acquired_at: Instant,
@@ -951,17 +953,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && let Some(rebuild_result) = head_state_and_assignments
         {
             let mut fcr = fcr_mutex.lock();
-            match rebuild_result.and_then(|(head_state, slot_assignments)| {
-                Self::run_fcr(
-                    &mut fcr,
-                    &fork_choice_read_lock,
-                    &self.store,
-                    current_slot,
-                    new_view.head_block_root,
-                    &head_state,
-                    &slot_assignments,
-                )
-            }) {
+            match rebuild_result
+                .map_err(|e| FastConfirmationError::UnableToObtainHeadState(format!("{e:?}")))
+                .and_then(|(head_state, slot_assignments)| {
+                    Self::run_fcr(
+                        &mut fcr,
+                        &fork_choice_read_lock,
+                        &self.store,
+                        current_slot,
+                        new_view.head_block_root,
+                        &head_state,
+                        &slot_assignments,
+                    )
+                }) {
                 Ok(FcrOutcome {
                     confirmed_root,
                     confirmed_slot,
@@ -1244,7 +1248,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
-    ) -> Option<Result<(BeaconState<T::EthSpec>, SlotAssignments), FastConfirmationError>> {
+    ) -> HeadSlotAssignments<T::EthSpec> {
         if head_slot.as_u64() + MAX_ADVANCE_DISTANCE < current_slot.as_u64() {
             return None;
         }
@@ -1261,9 +1265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &["unable_to_obtain_head_state"],
                 );
                 error!("Error obtaining pulled-up head state: {e:?}");
-                return Some(Err(FastConfirmationError::UnableToObtainHeadState(
-                    format!("{e:?}"),
-                )));
+                return Some(Err(e));
             }
         };
 
@@ -1278,7 +1280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &["committee_cache_error"],
                 );
                 error!("Error rebuilding slot assignments: {e:?}");
-                return Some(Err(FastConfirmationError::SlotAssignmentsError(e)));
+                return Some(Err(e.into()));
             }
         };
         *self.canonical_head.slot_assignments.lock() = rebuilt.clone();
