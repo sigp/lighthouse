@@ -727,6 +727,10 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME
+            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(&spec);
 
@@ -737,6 +741,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),
@@ -1281,7 +1286,13 @@ where
                 None
             };
 
-            let (block, post_block_state, _consensus_block_value, _payload_contents) = self
+            let (
+                block,
+                post_block_state,
+                _consensus_block_value,
+                _execution_payload_value,
+                _payload_contents,
+            ) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
@@ -4029,16 +4040,19 @@ where
                 .collect()
         });
 
-        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+        let mut verified_columns = vec![];
+        for sidecar in generate_data_column_sidecars_from_block(block, &self.spec)
             .into_iter()
             .filter(|c| custody_columns.contains(c.index()))
-            .map(|sidecar| {
-                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+        {
+            let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+            verified_columns.push(
                 self.chain
                     .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+                    .await
+                    .unwrap(),
+            );
+        }
 
         if !verified_columns.is_empty() {
             self.chain

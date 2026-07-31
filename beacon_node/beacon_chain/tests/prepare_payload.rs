@@ -623,7 +623,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (block, _post_state, _value, _payload_contents) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
         .chain
         .produce_block_on_state_gloas(
             state,

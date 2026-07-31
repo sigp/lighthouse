@@ -46,8 +46,9 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseLateHead,
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2, SseLateHead,
 };
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
@@ -63,8 +64,10 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwL
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use state_processing::state_advance::complete_state_advance;
-use std::sync::Arc;
-use std::time::Duration;
+use std::ops::{Deref, DerefMut};
+use std::panic::Location;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, Instant};
 use store::{
     Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
@@ -97,6 +100,165 @@ impl<T> CanonicalHeadRwLock<T> {
 
     fn write(&self) -> RwLockWriteGuard<'_, T> {
         self.0.write()
+    }
+}
+
+/// Log when a fork choice lock is held longer than this.
+/// One long write hold can stall every other fork choice caller, which can freeze attestation
+/// verification for the duration.
+const FORK_CHOICE_LOCK_HOLD_LOG_THRESHOLD: Duration = Duration::from_secs(1);
+
+/// Records a fork choice lock hold duration into `metric` when dropped.
+struct ForkChoiceHoldTimer {
+    acquired_at: Instant,
+    acquired_from: &'static Location<'static>,
+    metric: &'static LazyLock<metrics::Result<metrics::Histogram>>,
+    lock_kind: &'static str,
+}
+
+impl ForkChoiceHoldTimer {
+    #[track_caller]
+    fn read() -> Self {
+        Self::new(&metrics::FORK_CHOICE_READ_LOCK_HOLD_TIMES, "read")
+    }
+
+    #[track_caller]
+    fn downgraded_read() -> Self {
+        Self::new(
+            &metrics::FORK_CHOICE_READ_LOCK_HOLD_TIMES,
+            "downgraded_read",
+        )
+    }
+
+    #[track_caller]
+    fn write() -> Self {
+        Self::new(&metrics::FORK_CHOICE_WRITE_LOCK_HOLD_TIMES, "write")
+    }
+
+    #[track_caller]
+    fn upgradable_read() -> Self {
+        Self::new(
+            &metrics::FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES,
+            "upgradable_read",
+        )
+    }
+
+    #[track_caller]
+    fn new(
+        metric: &'static LazyLock<metrics::Result<metrics::Histogram>>,
+        lock_kind: &'static str,
+    ) -> Self {
+        Self {
+            acquired_at: Instant::now(),
+            acquired_from: Location::caller(),
+            metric,
+            lock_kind,
+        }
+    }
+}
+
+impl Drop for ForkChoiceHoldTimer {
+    fn drop(&mut self) {
+        let held = self.acquired_at.elapsed();
+        metrics::observe_duration(self.metric, held);
+        if held > FORK_CHOICE_LOCK_HOLD_LOG_THRESHOLD {
+            debug!(
+                held = ?held,
+                lock = self.lock_kind,
+                acquired_from = %self.acquired_from,
+                "Fork choice lock held for a long time"
+            );
+        }
+    }
+}
+
+/// A fork choice read guard that records how long the lock was held when it is dropped.
+pub struct ForkChoiceReadGuard<'a, T: BeaconChainTypes> {
+    guard: RwLockReadGuard<'a, BeaconForkChoice<T>>,
+    _hold_timer: ForkChoiceHoldTimer,
+}
+
+impl<T: BeaconChainTypes> Deref for ForkChoiceReadGuard<'_, T> {
+    type Target = BeaconForkChoice<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+/// A fork choice write guard that records how long the lock was held when it is dropped.
+pub struct ForkChoiceWriteGuard<'a, T: BeaconChainTypes> {
+    guard: RwLockWriteGuard<'a, BeaconForkChoice<T>>,
+    _hold_timer: ForkChoiceHoldTimer,
+}
+
+impl<'a, T: BeaconChainTypes> ForkChoiceWriteGuard<'a, T> {
+    /// Downgrade to a read lock, without allowing access to any other writers. The write hold
+    /// ends when the downgrade completes and the read hold begins.
+    #[track_caller]
+    pub fn downgrade(self) -> ForkChoiceReadGuard<'a, T> {
+        let Self {
+            guard,
+            _hold_timer: write_hold_timer,
+        } = self;
+        let read_guard = RwLockWriteGuard::downgrade(guard);
+        let hold_timer = ForkChoiceHoldTimer::downgraded_read();
+        drop(write_hold_timer);
+        ForkChoiceReadGuard {
+            guard: read_guard,
+            _hold_timer: hold_timer,
+        }
+    }
+}
+
+impl<T: BeaconChainTypes> Deref for ForkChoiceWriteGuard<'_, T> {
+    type Target = BeaconForkChoice<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl<T: BeaconChainTypes> DerefMut for ForkChoiceWriteGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
+
+/// A fork choice upgradable read guard that records how long the lock was held when it is
+/// dropped or upgraded.
+pub struct ForkChoiceUpgradableReadGuard<'a, T: BeaconChainTypes> {
+    // Declared before `_hold_timer` so the lock is released before the hold is observed.
+    guard: RwLockUpgradableReadGuard<'a, BeaconForkChoice<T>>,
+    _hold_timer: ForkChoiceHoldTimer,
+}
+
+impl<'a, T: BeaconChainTypes> ForkChoiceUpgradableReadGuard<'a, T> {
+    /// Upgrade to an exclusive write lock. The upgradable hold ends when the upgrade begins:
+    /// the wait for readers to finish is recorded separately (`FORK_CHOICE_UPGRADE_TIMES`) and
+    /// the write hold starts when the upgrade completes.
+    #[track_caller]
+    pub fn upgrade(self) -> ForkChoiceWriteGuard<'a, T> {
+        let Self {
+            guard,
+            _hold_timer: upgradable_hold_timer,
+        } = self;
+        drop(upgradable_hold_timer);
+        let upgrade_timer = metrics::start_timer(&metrics::FORK_CHOICE_UPGRADE_TIMES);
+        let write_guard = RwLockUpgradableReadGuard::upgrade(guard);
+        metrics::stop_timer(upgrade_timer);
+        ForkChoiceWriteGuard {
+            guard: write_guard,
+            _hold_timer: ForkChoiceHoldTimer::write(),
+        }
+    }
+}
+
+impl<T: BeaconChainTypes> Deref for ForkChoiceUpgradableReadGuard<'_, T> {
+    type Target = BeaconForkChoice<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
     }
 }
 
@@ -349,7 +511,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        mut fork_choice_write_lock: ForkChoiceWriteGuard<T>,
         reset_payload_statuses: ResetPayloadStatuses,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
@@ -494,24 +656,34 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     }
 
     /// Access a read-lock for fork choice.
-    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<'_, BeaconForkChoice<T>> {
+    #[track_caller]
+    pub fn fork_choice_read_lock(&self) -> ForkChoiceReadGuard<'_, T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
-        self.fork_choice.read()
+        ForkChoiceReadGuard {
+            guard: self.fork_choice.read(),
+            _hold_timer: ForkChoiceHoldTimer::read(),
+        }
     }
 
     /// Access an upgradable read-lock for fork choice.
-    pub fn fork_choice_upgradable_read_lock(
-        &self,
-    ) -> RwLockUpgradableReadGuard<'_, BeaconForkChoice<T>> {
+    #[track_caller]
+    pub fn fork_choice_upgradable_read_lock(&self) -> ForkChoiceUpgradableReadGuard<'_, T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES);
-        self.fork_choice.upgradable_read()
+        ForkChoiceUpgradableReadGuard {
+            guard: self.fork_choice.upgradable_read(),
+            _hold_timer: ForkChoiceHoldTimer::upgradable_read(),
+        }
     }
 
     /// Access a write-lock for fork choice.
     #[instrument(skip_all)]
-    pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<'_, BeaconForkChoice<T>> {
+    #[track_caller]
+    pub fn fork_choice_write_lock(&self) -> ForkChoiceWriteGuard<'_, T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
-        self.fork_choice.write()
+        ForkChoiceWriteGuard {
+            guard: self.fork_choice.write(),
+            _hold_timer: ForkChoiceHoldTimer::write(),
+        }
     }
 }
 
@@ -699,7 +871,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
-        let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+        let fork_choice_read_lock = fork_choice_write_lock.downgrade();
 
         // Read the current head value from the fork choice algorithm.
         let new_view = fork_choice_read_lock.cached_fork_choice_view();
@@ -940,6 +1112,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Alias for readability.
         let new_snapshot = &new_cached_head.snapshot;
         let old_snapshot = &old_cached_head.snapshot;
+        let new_head_is_optimistic = new_head_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         // Only run on head *block* changes - payload status changes only need the
         // `cached_head` update above, not re-org detection or event emission.
@@ -951,6 +1126,57 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error = ?e,
                 "Error updating canonical head"
             );
+        }
+
+        // Emit a second head_v2 event for the same slot when the payload status changes from Empty to Full
+        if new_snapshot.beacon_block_root == old_snapshot.beacon_block_root
+            && new_payload_status != old_payload_status
+            && let Some(event_handler) = self
+                .event_handler
+                .as_ref()
+                .filter(|handler| handler.has_head_v2_subscribers())
+        {
+            let state = &new_snapshot.beacon_state;
+            let head_epoch = state.current_epoch();
+            let parent_root = new_snapshot.beacon_block.parent_root();
+            let parent_epoch = self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block(&parent_root)
+                .map(|parent| parent.slot.epoch(T::EthSpec::slots_per_epoch()));
+            let is_epoch_transition =
+                parent_epoch.is_some_and(|parent_epoch| head_epoch > parent_epoch);
+
+            let current_epoch_dependent_root = state
+                .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
+            let next_epoch_dependent_root = state
+                .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Next);
+
+            match (current_epoch_dependent_root, next_epoch_dependent_root) {
+                (Ok(current_epoch_dependent_root), Ok(next_epoch_dependent_root)) => {
+                    let head_v2 = SseHeadV2 {
+                        slot: new_snapshot.beacon_block.slot(),
+                        block: new_snapshot.beacon_block_root,
+                        state: new_snapshot.beacon_state_root(),
+                        payload_status: new_payload_status,
+                        epoch_transition: is_epoch_transition,
+                        current_epoch_dependent_root,
+                        next_epoch_dependent_root,
+                        execution_optimistic: new_head_is_optimistic,
+                    };
+                    event_handler.register(EventKind::HeadV2(Box::new(ForkVersionedResponse {
+                        version: self.spec.fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                        metadata: Default::default(),
+                        data: head_v2,
+                    })));
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    warn!(
+                        error = ?e,
+                        "Unable to find dependent roots, cannot register head_v2 event"
+                    );
+                }
+            }
         }
 
         // Drop the old cache head nice and early to try and free the memory as soon as possible.

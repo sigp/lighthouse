@@ -25,6 +25,7 @@ use execution_layer::test_utils::{
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadStatus;
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -2423,13 +2424,8 @@ impl ApiTester {
 
         let expected = self
             .chain
-            .light_client_server_cache
-            .get_light_client_updates(
-                &self.chain.store,
-                current_sync_committee_period,
-                1,
-                &self.chain.spec,
-            )
+            .store
+            .get_light_client_updates(current_sync_committee_period, 1)
             .unwrap();
 
         assert_eq!(1, expected.len());
@@ -3141,7 +3137,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = if self.chain.spec.is_gloas_scheduled() {
+        let result = if self.chain.spec.is_heze_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetHeze>()
+                .await
+                .map(|res| ConfigAndPreset::Heze(res.data))
+        } else if self.chain.spec.is_gloas_scheduled() {
             self.client
                 .get_config_spec::<ConfigAndPresetGloas>()
                 .await
@@ -4372,6 +4373,10 @@ impl ApiTester {
         );
         // TODO(gloas): check why consensus block value is 0
         // assert!(!metadata.consensus_block_value.is_zero());
+        assert_eq!(
+            metadata.execution_payload_value,
+            Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI)
+        );
         assert!(!metadata.execution_payload_included);
 
         let block_root = block.tree_hash_root();
@@ -8008,7 +8013,7 @@ impl ApiTester {
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
-            EventTopic::Attestation,
+            EventTopic::SingleAttestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
             EventTopic::BlockGossip,
@@ -8066,7 +8071,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
 
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
             .await
             .unwrap();
 
@@ -8078,10 +8083,11 @@ impl ApiTester {
         .await;
         assert_eq!(
             attestation_events.as_slice(),
-            self.attestations
-                .clone()
+            attestations
                 .into_iter()
-                .map(|attestation| EventKind::Attestation(Box::new(attestation)))
+                .map(|single_attestation| EventKind::SingleAttestation(Box::new(
+                    single_attestation
+                )))
                 .collect::<Vec<_>>()
                 .as_slice()
         );
@@ -8452,6 +8458,130 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_head_v2_events(self) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let old_head_slot = self.chain.head_snapshot().beacon_block.slot();
+        let is_epoch_transition = epoch > old_head_slot.epoch(E::slots_per_epoch());
+
+        let current_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let next_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                epoch.start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let (sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let (response, _metadata) = self
+            .client
+            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
+            .await
+            .unwrap();
+        let block = response.data;
+
+        let envelope = self
+            .client
+            .get_validator_execution_payload_envelopes::<E>(slot, block.tree_hash_root())
+            .await
+            .unwrap()
+            .data;
+
+        let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+        let block_root = signed_block.canonical_root();
+        let state_root = signed_block.state_root();
+        let signed_block_request = PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+
+        let topics = vec![EventTopic::HeadV2];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        self.client
+            .post_beacon_blocks_v2(&signed_block_request, None)
+            .await
+            .unwrap();
+
+        let head_v2_events_first_emission =
+            poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+
+        let expected_fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+        // First emit of the head_v2 event, PayloadStatus is always Empty
+        let expected_head_v2 = EventKind::HeadV2(Box::new(ForkVersionedResponse {
+            version: expected_fork_name,
+            metadata: Default::default(),
+            data: SseHeadV2 {
+                block: block_root,
+                slot,
+                state: state_root,
+                payload_status: PayloadStatus::Empty,
+                epoch_transition: is_epoch_transition,
+                current_epoch_dependent_root,
+                next_epoch_dependent_root,
+                execution_optimistic: false,
+            },
+        }));
+
+        assert_eq!(
+            head_v2_events_first_emission.as_slice(),
+            &[expected_head_v2]
+        );
+
+        let result_fork_name = match &head_v2_events_first_emission[0] {
+            // head_v2 event should have a version field
+            EventKind::HeadV2(result) => result.version,
+            _ => panic!("Should have a version in response"),
+        };
+
+        assert_eq!(expected_fork_name, result_fork_name);
+
+        // Post the envelope to reveal the payload
+        // PayloadStatus should change from Empty to Full
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+        self.client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, expected_fork_name, None)
+            .await
+            .unwrap();
+
+        // Should emit a second head_v2 event with payload_status=Full
+        let head_v2_events_second_emission =
+            poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+
+        let result = match &head_v2_events_second_emission[0] {
+            EventKind::HeadV2(result) => &result.data,
+            _ => panic!("should have a head_v2 event"),
+        };
+
+        // Assert that we are still at the same slot and block_root
+        assert_eq!(result.slot, slot);
+        assert_eq!(result.block, block_root);
+        // PayloadStatus should be Full on the second emission of the head_v2 event
+        assert_eq!(result.payload_status, PayloadStatus::Full);
+
+        self
+    }
+
     pub async fn test_check_optimistic_responses(&mut self) {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -8795,6 +8925,22 @@ async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .await
         .test_get_events_from_genesis()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_head_v2_events() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_head_v2_events()
         .await;
 }
 

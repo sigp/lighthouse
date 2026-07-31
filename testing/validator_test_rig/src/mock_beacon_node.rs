@@ -115,6 +115,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let body = serde_json::json!({
             "version": fork_name.to_string(),
             "consensus_block_value": "0",
+            "execution_payload_value": "0",
             "execution_payload_included": false,
             "data": block,
         });
@@ -129,6 +130,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_header("Eth-Consensus-Version", &fork_name.to_string())
             .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Value", "0")
             .with_header("Eth-Execution-Payload-Included", "false")
             .with_body(serde_json::to_string(&body).unwrap())
             .create()
@@ -157,6 +159,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             // These headers are required for v4 get validator block endpoint: https://github.com/ethereum/beacon-APIs/pull/580
             .with_header("Eth-Consensus-Version", &fork_name.to_string())
             .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Value", "0")
             .with_header("Eth-Execution-Payload-Included", "false")
             .with_body(ssz_bytes)
             .create()
@@ -418,6 +421,40 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .match_header("content-type", "application/octet-stream")
             .match_header(CONSENSUS_VERSION_HEADER, "gloas")
             .match_header(BLOB_DATA_INCLUDED_HEADER, "false")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences`
+    pub fn mock_post_validator_proposer_preferences_json(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
+    pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ) returning error
+    pub fn mock_post_validator_proposer_preferences_ssz_error(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
             .with_status(500)
             .with_body(r#"{"message":"Internal server error"}"#)
             .create()
