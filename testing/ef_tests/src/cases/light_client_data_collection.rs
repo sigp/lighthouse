@@ -140,8 +140,25 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
 
 impl<E: EthSpec> Case for LightClientDataCollection<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let spec = _fork_name.make_genesis_spec(E::default_spec());
-        let harness = BeaconChainHarness::builder(E::default())
+        let mut spec = _fork_name.make_genesis_spec(E::default_spec());
+        // Set all forks up to and including fork_name to epoch 0
+	// so the mock EL accepts payloads from the start
+	if _fork_name.bellatrix_enabled() {
+    	    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+	}
+	if _fork_name.capella_enabled() {
+	    spec.capella_fork_epoch = Some(Epoch::new(0));
+	}
+	if _fork_name.deneb_enabled() {
+	    spec.deneb_fork_epoch = Some(Epoch::new(0));
+	}
+	if _fork_name.electra_enabled() {
+	    spec.electra_fork_epoch = Some(Epoch::new(0));
+	}
+	if _fork_name.fulu_enabled() {
+	    spec.fulu_fork_epoch = Some(Epoch::new(0));
+	}
+	let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone().into())
             .deterministic_keypairs(8)
 	    .genesis_state_ephemeral_store(self.initial_state.clone())
@@ -150,7 +167,7 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
         for step in &self.steps {
             match step {
                 Step::NewBlock { block } => {
-                    let block_root = block.canonical_root();
+                    let _block_root = block.canonical_root();
                     harness.set_current_slot(block.slot());    
 		    let block_contents = (Arc::new(block.as_ref().clone()), None);
                     harness.chain.task_executor.clone()
