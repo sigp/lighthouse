@@ -2925,8 +2925,9 @@ impl BeaconNodeHttpClient {
         &self,
         contents: &SignedExecutionPayloadEnvelopeContents<E>,
         fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path(None)?;
+        let path = self.post_beacon_execution_payload_envelopes_path(validation_level)?;
 
         self.post_generic_with_envelope_headers(
             path,
@@ -2947,8 +2948,9 @@ impl BeaconNodeHttpClient {
         &self,
         contents: &SignedExecutionPayloadEnvelopeContents<E>,
         fork_name: ForkName,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path = self.post_beacon_execution_payload_envelopes_path(None)?;
+        let path = self.post_beacon_execution_payload_envelopes_path(validation_level)?;
 
         self.post_generic_with_envelope_headers_and_ssz_body(
             path,

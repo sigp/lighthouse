@@ -5011,12 +5011,12 @@ impl ApiTester {
             };
             if ssz {
                 self.client
-                    .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name)
+                    .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name, None)
                     .await
                     .unwrap();
             } else {
                 self.client
-                    .post_beacon_execution_payload_envelope_contents(&contents, fork_name)
+                    .post_beacon_execution_payload_envelope_contents(&contents, fork_name, None)
                     .await
                     .unwrap();
             }
