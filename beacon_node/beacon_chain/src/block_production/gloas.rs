@@ -29,10 +29,10 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
+    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BlobsList,
     BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    Hash256, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
@@ -48,14 +48,23 @@ pub const BID_VALUE_SELF_BUILD: u64 = 0;
 pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
+
+pub type PayloadEnvelopeContents<E> = (
+    Arc<ExecutionPayloadEnvelope<E>>,
+    KzgProofs<E>,
+    Arc<BlobsList<E>>,
+);
+
 /// Execution payload value in wei: the local payload's EL value when self-building, or the
 /// bid value when committing to a builder bid.
 type ExecutionPayloadValue = Uint256;
+
 type BlockProductionResult<E> = (
     BeaconBlock<E>,
     BeaconState<E>,
     ConsensusBlockValue,
     ExecutionPayloadValue,
+    Option<PayloadEnvelopeContents<E>>,
 );
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
@@ -537,11 +546,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Complete a block by computing its state root, and
     ///
-    /// Return `(block, post_block_state, consensus_block_value, execution_payload_value)` where:
+    /// Return `(block, post_block_state, consensus_block_value, execution_payload_value,
+    /// payload_contents)` where:
     ///
     /// - `post_block_state` is the state post block application
     /// - `consensus_block_value` is the consensus-layer rewards for `block`
     /// - `execution_payload_value` is the wei value of the winning payload bid
+    /// - `payload_contents` is the locally-built envelope, KZG proofs and blobs (`None` when
+    ///   committing to a builder bid)
     #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block_gloas(
         &self,
@@ -682,7 +694,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Construct and cache the ExecutionPayloadEnvelope if we have payload data.
         // For local building, we always have payload data.
         // For trustless building, the builder will provide the envelope separately.
-        if let Some(payload_data) = payload_data {
+        let payload_contents = if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
             let execution_payload_envelope = ExecutionPayloadEnvelope {
@@ -710,23 +722,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
-            // TODO(gloas) might be safer to cache by root instead of by slot.
-            // We should revisit this once this code path + beacon api spec matures
-            let (blobs, _) = payload_data.blobs_and_proofs;
-            self.pending_payload_envelopes.write().insert(
-                envelope_slot,
-                PendingEnvelopeData {
-                    envelope: signed_envelope.message,
-                    blobs: Some(blobs),
-                },
-            );
+            let (blobs, kzg_proofs) = payload_data.blobs_and_proofs;
+            let envelope = Arc::new(signed_envelope.message);
+            let blobs = Arc::new(blobs);
+            self.pending_payload_envelopes
+                .write()
+                .insert(PendingEnvelopeData {
+                    envelope: envelope.clone(),
+                    blobs: Some(blobs.clone()),
+                });
 
             debug!(
                 %beacon_block_root,
                 slot = %envelope_slot,
                 "Cached pending execution payload envelope"
             );
-        }
+            Some((envelope, kzg_proofs, blobs))
+        } else {
+            None
+        };
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
@@ -737,7 +751,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, state, consensus_block_value, execution_payload_value))
+        Ok((
+            block,
+            state,
+            consensus_block_value,
+            execution_payload_value,
+            payload_contents,
+        ))
     }
 
     /// Produce a self-build `ExecutionPayloadBid` for some `slot` upon the given `state`.
