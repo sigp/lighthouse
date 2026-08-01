@@ -8492,10 +8492,10 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
+            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
             .await
             .unwrap();
-        let block = response.data;
+        let block = response.into_block();
 
         let envelope = self
             .client
