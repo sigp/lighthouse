@@ -103,6 +103,12 @@ impl<E: EthSpec> PendingComponents<E> {
         self.get_cached_data_columns().len()
     }
 
+    /// Returns whether our custody requirement for this block's data columns has been
+    /// fulfilled, independent of whether the payload envelope itself has been received.
+    pub fn is_blob_data_available(&self, num_expected_columns: usize) -> bool {
+        self.num_completed_columns() >= num_expected_columns
+    }
+
     /// Returns `Some` if the envelope and all required data columns have been received.
     pub fn make_available<T>(
         &self,

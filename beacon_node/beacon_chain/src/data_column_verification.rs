@@ -1768,7 +1768,7 @@ mod test {
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .clone();
+            .clone_as_signed_execution_payload_bid();
 
         // Put the block on disk only, so the bid can only be found via the store fallback.
         harness.chain.store.put_block(&block_root, block).unwrap();
