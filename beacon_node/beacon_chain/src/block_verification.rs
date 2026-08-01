@@ -276,6 +276,15 @@ pub enum BlockError {
     ParentExecutionPayloadInvalid {
         parent_root: Hash256,
     },
+    /// The block references a parent block which was observed to fail consensus validation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer sent us a block descending from a known-invalid block. The block is invalid and
+    /// the peer is faulty.
+    ParentInvalid {
+        parent_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -341,6 +350,39 @@ pub enum InvalidSignature {
     BlockBodySignatures,
     // One or more signatures in SignedBeaconBlock
     Unknown,
+}
+
+impl BlockError {
+    /// Returns `true` if this error proves that any block with the same root is
+    /// consensus-invalid, making the root safe to record in
+    /// [`crate::observed_invalid_block_roots::ObservedInvalidBlockRoots`].
+    ///
+    /// Errors that depend on anything outside the block *message* must return `false`.
+    /// For example, a block root does not commit to a proposer signature so we cannot record
+    /// valid blocks with invalid proposer signatures in [`crate::observed_invalid_block_roots::ObservedInvalidBlockRoots`].
+    /// Internal errors (DB failures, engine offline, availability failures) must also
+    /// return `false`, as must execution payload invalidity, which is tracked separately via
+    /// fork choice's execution status.
+    pub fn invalidates_block_root(&self) -> bool {
+        match self {
+            BlockError::StateRootMismatch { .. }
+            | BlockError::IncorrectBlockProposer { .. }
+            | BlockError::UnknownValidator(_)
+            | BlockError::InvalidSignature(InvalidSignature::BlockBodySignatures)
+            | BlockError::BlockIsNotLaterThanParent { .. }
+            | BlockError::InconsistentFork(_)
+            | BlockError::InvalidBlobCount { .. }
+            | BlockError::BidParentRootMismatch { .. }
+            | BlockError::BlockSlotLimitReached
+            | BlockError::ParentInvalid { .. } => true,
+            // Exclude `BeaconStateError`, which can indicate an internal cache or state
+            // inconsistency on our side rather than an invalid block.
+            BlockError::PerBlockProcessingError(e) => {
+                !matches!(e, BlockProcessingError::BeaconStateError(_))
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<AvailabilityCheckError> for BlockError {
@@ -916,6 +958,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that is known to be invalid.
         chain.check_invalid_block_roots(block_root)?;
 
+        // Reject blocks that build on a parent observed to be consensus-invalid, and record them
+        // as invalid by descent. This must precede the finalized-descendant check, which would
+        // otherwise classify the unknown parent as `ParentUnknown` (an IGNORE, not a REJECT).
+        let parent_root = block.parent_root();
+        if chain.observed_invalid_block_roots.contains(&parent_root) {
+            chain.observed_invalid_block_roots.insert(block_root);
+            return Err(BlockError::ParentInvalid { parent_root });
+        }
+
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
@@ -1446,8 +1497,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 }
             }
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
+                let parent_root = block.parent_root();
+                if chain.observed_invalid_block_roots.contains(&parent_root) {
+                    // The block builds on a known consensus-invalid block, making it invalid by
+                    // descent. Record its root so its own descendants are also rejected.
+                    chain.observed_invalid_block_roots.insert(block_root);
+                    return Err(BlockError::ParentInvalid { parent_root });
+                }
                 return Err(BlockError::ParentUnknown {
-                    parent_root: block.parent_root(),
+                    parent_root,
                     parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
                 });
             }

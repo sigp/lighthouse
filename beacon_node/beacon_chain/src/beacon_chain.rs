@@ -57,6 +57,7 @@ use crate::observed_attesters::{
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::observed_invalid_block_roots::ObservedInvalidBlockRoots;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
@@ -482,6 +483,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub envelope_times_cache: Arc<RwLock<EnvelopeTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
+    /// A cache of block roots observed to be consensus-invalid, for rejecting gossip messages
+    /// that reference them.
+    pub observed_invalid_block_roots: ObservedInvalidBlockRoots,
     /// A cache used to store gossip verified payload bids.
     pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
@@ -3928,6 +3932,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // The block failed verification.
             Err(other) => {
                 debug!(reason = other.to_string(), "Beacon block rejected");
+                if other.invalidates_block_root() {
+                    self.observed_invalid_block_roots.insert(block_root);
+                }
                 Err(other)
             }
         }

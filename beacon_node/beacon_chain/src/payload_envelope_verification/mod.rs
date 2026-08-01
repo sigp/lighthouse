@@ -37,7 +37,10 @@ use types::{
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 pub mod import;
+
 mod payload_notifier;
+#[cfg(test)]
+mod tests;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
@@ -200,6 +203,8 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// The envelope's block was observed to fail consensus validation.
+    BlockFailedValidation { block_root: Hash256 },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -259,7 +264,8 @@ impl EnvelopeError {
             | EnvelopeError::BlockHashMismatch { .. }
             | EnvelopeError::UnknownValidator { .. }
             | EnvelopeError::IncorrectBlockProposer { .. }
-            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            | EnvelopeError::EnvelopeProcessingError(_)
+            | EnvelopeError::BlockFailedValidation { .. } => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
             | EnvelopeError::PriorToFinalization { .. }

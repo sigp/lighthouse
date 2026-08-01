@@ -14,6 +14,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
+    observed_invalid_block_roots::ObservedInvalidBlockRoots,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeProcessingSnapshot, load_snapshot_from_state_root,
     },
@@ -30,6 +31,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
+    pub observed_invalid_block_roots: &'a ObservedInvalidBlockRoots,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -95,17 +97,18 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let beacon_block_root = envelope.beacon_block_root;
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
-        // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
-        // If we have a block_processing_table, we could have a Processed(Bid, bool) state that is only
-        // entered post adding to fork choice. That way, we could potentially need only a single call to make
-        // sure the block is valid and to do all consequent checks with the bid
-        //
-        // 1. Blocks we haven't seen (IGNORE), and
-        // 2. Blocks we've seen that are invalid (REJECT).
-        //
-        // Presently these two cases are conflated.
+        // Envelopes whose block have observed to fail consensus validation are rejected; envelopes whose blocks
+        // haven't been seen yet are sent to the reprocess queue.
         let fork_choice_read_lock = ctx.canonical_head.fork_choice_read_lock();
         let Some(proto_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
+            if ctx
+                .observed_invalid_block_roots
+                .contains(&beacon_block_root)
+            {
+                return Err(EnvelopeError::BlockFailedValidation {
+                    block_root: beacon_block_root,
+                });
+            }
             return Err(EnvelopeError::BlockRootUnknown {
                 block_root: beacon_block_root,
             });
@@ -251,6 +254,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             validator_pubkey_cache: &self.validator_pubkey_cache,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
+            observed_invalid_block_roots: &self.observed_invalid_block_roots,
         }
     }
 

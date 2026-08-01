@@ -41,6 +41,7 @@ pub mod observed_aggregates;
 mod observed_attesters;
 pub mod observed_block_producers;
 pub mod observed_data_sidecars;
+pub mod observed_invalid_block_roots;
 pub mod observed_operations;
 mod observed_slashable;
 pub mod partial_data_column_assembler;

@@ -1057,6 +1057,7 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::WeakSubjectivityConflict
                     | BlockError::InconsistentFork(_)
                     | BlockError::ParentExecutionPayloadInvalid { .. }
+                    | BlockError::ParentInvalid { .. }
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
                     | BlockError::InvalidBlobCount { .. }

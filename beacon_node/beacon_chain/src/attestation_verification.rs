@@ -174,6 +174,12 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.beacon_block_root` block was observed to fail consensus validation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    HeadBlockInvalid { beacon_block_root: Hash256 },
     /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
     /// execution payload envelope has not been seen yet.
     ///
@@ -1251,6 +1257,13 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
+    } else if chain
+        .observed_invalid_block_roots
+        .contains(&attestation_data.beacon_block_root)
+    {
+        Err(Error::HeadBlockInvalid {
+            beacon_block_root: attestation_data.beacon_block_root,
+        })
     } else if chain.is_pre_finalization_block(attestation_data.beacon_block_root)? {
         Err(Error::HeadBlockFinalized {
             beacon_block_root: attestation_data.beacon_block_root,

@@ -1673,7 +1673,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(e @ BlockError::StateRootMismatch { .. })
+            Err(e @ BlockError::ParentInvalid { .. })
+            | Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
             | Err(e @ BlockError::NonLinearSlots)
@@ -3100,6 +3101,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_too_many_skipped_slots",
                 );
             }
+            AttnError::HeadBlockInvalid { beacon_block_root } => {
+                debug!(
+                    block_root = ?beacon_block_root,
+                    attestation_slot = %failed_att.attestation_data().slot,
+                    "Rejected attestation to invalid block"
+                );
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_to_invalid_block",
+                );
+            }
             AttnError::HeadBlockFinalized { beacon_block_root } => {
                 debug!(
                     block_root = ?beacon_block_root,
@@ -3773,6 +3788,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::BadSignature
+                    | EnvelopeError::BlockFailedValidation { .. }
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }

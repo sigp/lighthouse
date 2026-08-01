@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 // TODO(gloas) we probably need similar test for payload envelope verification
+use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::custody_context::CustodyContext;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
@@ -2904,4 +2905,117 @@ async fn rpc_block_allows_construction_past_da_boundary() {
     }
 
     panic!("No block with blob commitments found");
+}
+
+#[tokio::test]
+async fn observed_invalid_block_roots_reject_descendants_and_attestations() {
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_state = harness.get_current_state();
+    let slot = head_state.slot() + 1;
+    harness.advance_slot();
+    let fork = harness.chain.canonical_head.cached_head().head_fork();
+
+    // A block with a valid proposer signature but an incorrect state root: consensus-invalid,
+    // with the failure attributable to the block root.
+    let ((block, _sidecars), _post_state) = harness.make_block(head_state.clone(), slot).await;
+    let (mut bare_block, _signature) = block.as_ref().clone().deconstruct();
+    *bare_block.state_root_mut() = Hash256::repeat_byte(0xff);
+    let proposer_index = bare_block.proposer_index() as usize;
+    let invalid_block = Arc::new(bare_block.sign(
+        &generate_deterministic_keypair(proposer_index).sk,
+        &fork,
+        harness.chain.genesis_validators_root,
+        &harness.chain.spec,
+    ));
+    let invalid_root = invalid_block.canonical_root();
+
+    let err = harness
+        .chain
+        .process_block(
+            invalid_root,
+            LookupBlock::new(invalid_block),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.invalidates_block_root(),
+        "import should fail with an error attributable to the block root: {err:?}"
+    );
+    assert!(
+        harness
+            .chain
+            .observed_invalid_block_roots
+            .contains(&invalid_root),
+        "the invalid block root should be recorded"
+    );
+
+    // A gossip block building on the invalid block is rejected and recorded as invalid by
+    // descent.
+    harness.advance_slot();
+    let ((child, _sidecars), _post_state) = harness.make_block(head_state.clone(), slot + 1).await;
+    let (mut bare_child, _signature) = child.as_ref().clone().deconstruct();
+    *bare_child.parent_root_mut() = invalid_root;
+    let proposer_index = bare_child.proposer_index() as usize;
+    let child = Arc::new(bare_child.sign(
+        &generate_deterministic_keypair(proposer_index).sk,
+        &fork,
+        harness.chain.genesis_validators_root,
+        &harness.chain.spec,
+    ));
+    let child_root = child.canonical_root();
+
+    let err = unwrap_err(harness.chain.verify_block_for_gossip(child).await);
+    assert!(
+        matches!(err, BlockError::ParentInvalid { parent_root } if parent_root == invalid_root),
+        "expected ParentInvalid, got: {err:?}"
+    );
+    assert!(
+        harness
+            .chain
+            .observed_invalid_block_roots
+            .contains(&child_root),
+        "the descendant's root should be recorded as invalid by descent"
+    );
+
+    // A gossip attestation voting for the invalid block is rejected.
+    let (head_state, head_state_root) = harness.get_current_state_and_root();
+    let head_block_root = harness.chain.canonical_head.cached_head().head_block_root();
+    let mut single_attestation = harness
+        .make_single_attestations(
+            &(0..VALIDATOR_COUNT).collect::<Vec<_>>(),
+            &head_state,
+            head_state_root,
+            head_block_root.into(),
+            slot,
+        )
+        .into_iter()
+        .flatten()
+        .map(|(attestation, _subnet_id)| attestation)
+        .next()
+        .expect("should produce at least one attestation");
+    single_attestation.data.beacon_block_root = invalid_root;
+
+    let err = unwrap_err(
+        harness
+            .chain
+            .verify_unaggregated_attestation_for_gossip(&single_attestation, None),
+    );
+    assert!(
+        matches!(
+            err,
+            AttnError::HeadBlockInvalid { beacon_block_root } if beacon_block_root == invalid_root
+        ),
+        "expected HeadBlockInvalid, got: {err:?}"
+    );
 }
