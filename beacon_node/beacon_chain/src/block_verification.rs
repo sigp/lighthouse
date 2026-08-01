@@ -1499,8 +1499,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 let parent_root = block.parent_root();
                 if chain.observed_invalid_block_roots.contains(&parent_root) {
-                    // The block builds on a known consensus-invalid block, making it invalid by
-                    // descent. Record its root so its own descendants are also rejected.
+                    // The block builds on a known consensus-invalid block, making it invalid.
+                    // Record its root so its descendants are also rejected.
                     chain.observed_invalid_block_roots.insert(block_root);
                     return Err(BlockError::ParentInvalid { parent_root });
                 }
