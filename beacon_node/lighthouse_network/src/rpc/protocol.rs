@@ -919,9 +919,6 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
             RequestType::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
-            RequestType::LightClientUpdatesByRange(_) => {
-                ResponseTermination::LightClientUpdatesByRange
-            }
             RequestType::Status(_) => unreachable!(),
             RequestType::Goodbye(_) => unreachable!(),
             RequestType::Ping(_) => unreachable!(),
@@ -929,6 +926,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
         }
     }
 
