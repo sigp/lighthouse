@@ -959,8 +959,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain.check_invalid_block_roots(block_root)?;
 
         // Reject blocks that build on a parent observed to be consensus-invalid, and record them
-        // as invalid by descent. This must precede the finalized-descendant check, which would
-        // otherwise classify the unknown parent as `ParentUnknown` (an IGNORE, not a REJECT).
+        // as invalid. This must precede the finalized-descendant check, which would instead classify 
+        // the unknown parent as `ParentUnknown` and trigger a lookup sync.
         let parent_root = block.parent_root();
         if chain.observed_invalid_block_roots.contains(&parent_root) {
             chain.observed_invalid_block_roots.insert(block_root);
