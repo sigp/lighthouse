@@ -11,10 +11,7 @@ use crate::sync::SyncDutiesMap;
 use crate::sync::poll_sync_committee_duties;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
-use eth2::types::{
-    AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse,
-    ProposerData, PtcDuty, StateId, ValidatorId,
-};
+use eth2::types::{AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse, InclusionListDuty, ProposerData, PtcDuty, StateId, ValidatorId};
 use futures::{
     StreamExt,
     stream::{self, FuturesUnordered, TryStreamExt},
@@ -286,6 +283,7 @@ type DependentRoot = Hash256;
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
 type PtcMap = HashMap<Epoch, (DependentRoot, Vec<PtcDuty>)>;
+type IlMap = HashMap<Epoch, (DependentRoot, Vec<InclusionListDuty>)>;
 
 pub struct DutiesServiceBuilder<S, T> {
     /// Provides the canonical list of locally-managed validators.
@@ -395,6 +393,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             proposers: Default::default(),
             sync_duties: SyncDutiesMap::new(self.sync_selection_proof_config),
             ptc_duties: Default::default(),
+            il_duties: Default::default(),
             validator_store: self
                 .validator_store
                 .ok_or("Cannot build DutiesService without validator_store")?,
@@ -428,6 +427,8 @@ pub struct DutiesService<S, T> {
     pub sync_duties: SyncDutiesMap,
     /// Maps an epoch to PTC duties for locally-managed validators.
     pub ptc_duties: RwLock<PtcMap>,
+    // Maps an epoch to the IL committee duties for locally-managed validators.
+    pub il_duties: RwLock<IlMap>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<S>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
@@ -763,6 +764,49 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
             },
             "duties_service_ptc",
         );
+    }
+
+    // Spawn the task which keeps track of the inclusion list committee duties.
+    // Only track IL committee duties if the heze fork is scheduled
+    if core_duties_service.spec.is_heze_scheduled() {
+       let duties_service = core_duties_service.clone();
+        core_duties_service.executor.spawn(
+            async move {
+                loop {
+                   let Some(current_slot) = duties_service.slot_clock.now() else {
+                       // Sleep for one slot if we are unable to read from the system clock
+                       sleep(duties_service.slot_clock.slot_duration()).await;
+                       continue;
+                   };
+
+                    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+                    let Some(heze_fork_epoch) = duties_service.spec.heze_fork_epoch else {
+                        // Heze fork epoch not configured
+                        break;
+                    };
+
+                    if current_epoch + 1 < heze_fork_epoch {
+                        // Wait until the next slot and check again if the Heze fork epoch is close
+                        if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                            sleep(duration).await;
+                        } else {
+                            sleep(duties_service.slot_clock.slot_duration()).await;
+                        }
+                        continue;
+                    }
+
+                    // TODO: poll IL committee duties
+
+                    if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                        sleep(duration).await;
+                    } else {
+                        // Sleep for one slot if we are unable to read from the system clock
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                    }
+                }
+            },
+            "duties_service_il_committee"
+        )
     }
 }
 
