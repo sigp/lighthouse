@@ -292,38 +292,8 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
     let signed_block_header = block.signed_block_header();
 
-    if cell_proofs.len() != blobs.len() * E::number_of_columns() {
-        return Err(DataColumnSidecarError::InvalidCellProofLength {
-            expected: blobs.len() * E::number_of_columns(),
-            actual: cell_proofs.len(),
-        });
-    }
-
-    let proof_chunks = cell_proofs
-        .chunks_exact(E::number_of_columns())
-        .collect::<Vec<_>>();
-
-    // NOTE: assumes blob sidecars are ordered by index
-    let zipped: Vec<_> = blobs.iter().zip(proof_chunks).collect();
-    let blob_cells_and_proofs_vec = zipped
-        .into_par_iter()
-        .map(|(blob, proofs)| {
-            let blob = blob.as_ref().try_into().map_err(|e| {
-                KzgError::InconsistentArrayLength(format!(
-                    "blob should have a guaranteed size due to FixedVector: {e:?}"
-                ))
-            })?;
-
-            kzg.compute_cells(blob).and_then(|cells| {
-                let proofs = proofs.try_into().map_err(|e| {
-                    KzgError::InconsistentArrayLength(format!(
-                        "proof chunks should have exactly `number_of_columns` proofs: {e:?}"
-                    ))
-                })?;
-                Ok((cells, proofs))
-            })
-        })
-        .collect::<Result<Vec<_>, KzgError>>()?;
+    let blob_cells_and_proofs_vec =
+        compute_cells_with_provided_proofs::<E>(blobs, cell_proofs, kzg)?;
 
     if block.fork_name_unchecked().gloas_enabled() {
         build_data_column_sidecars_gloas(
@@ -374,6 +344,69 @@ pub fn blobs_to_data_column_sidecars_gloas<E: EthSpec>(
 
     build_data_column_sidecars_gloas(beacon_block_root, slot, blob_cells_and_proofs_vec, spec)
         .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
+/// Build Gloas data column sidecars from blobs and pre-computed cell proofs, computing only the
+/// cells locally.
+pub fn blobs_to_data_column_sidecars_gloas_with_proofs<E: EthSpec>(
+    blobs: &[&Blob<E>],
+    cell_proofs: Vec<KzgProof>,
+    beacon_block_root: Hash256,
+    slot: Slot,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+    if blobs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let blob_cells_and_proofs_vec =
+        compute_cells_with_provided_proofs::<E>(blobs, cell_proofs, kzg)?;
+
+    build_data_column_sidecars_gloas(beacon_block_root, slot, blob_cells_and_proofs_vec, spec)
+        .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
+/// Compute cells for each blob and pair them with the provided per-blob cell proofs.
+fn compute_cells_with_provided_proofs<E: EthSpec>(
+    blobs: &[&Blob<E>],
+    cell_proofs: Vec<KzgProof>,
+    kzg: &Kzg,
+) -> Result<Vec<CellsAndKzgProofs>, DataColumnSidecarError> {
+    if cell_proofs.len() != blobs.len() * E::number_of_columns() {
+        return Err(DataColumnSidecarError::InvalidCellProofLength {
+            expected: blobs.len() * E::number_of_columns(),
+            actual: cell_proofs.len(),
+        });
+    }
+
+    let proof_chunks = cell_proofs
+        .chunks_exact(E::number_of_columns())
+        .collect::<Vec<_>>();
+
+    // NOTE: assumes blobs and proofs are ordered by blob index
+    let zipped: Vec<_> = blobs.iter().zip(proof_chunks).collect();
+    let blob_cells_and_proofs_vec = zipped
+        .into_par_iter()
+        .map(|(blob, proofs)| {
+            let blob = blob.as_ref().try_into().map_err(|e| {
+                KzgError::InconsistentArrayLength(format!(
+                    "blob should have a guaranteed size due to FixedVector: {e:?}"
+                ))
+            })?;
+
+            kzg.compute_cells(blob).and_then(|cells| {
+                let proofs = proofs.try_into().map_err(|e| {
+                    KzgError::InconsistentArrayLength(format!(
+                        "proof chunks should have exactly `number_of_columns` proofs: {e:?}"
+                    ))
+                })?;
+                Ok((cells, proofs))
+            })
+        })
+        .collect::<Result<Vec<_>, KzgError>>()?;
+
+    Ok(blob_cells_and_proofs_vec)
 }
 
 /// Build data column sidecars from a signed beacon block and its blobs.
