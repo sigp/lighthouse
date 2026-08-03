@@ -1902,7 +1902,19 @@ impl<'de> Deserialize<'de> for BlobSchedule {
         D: Deserializer<'de>,
     {
         let vec = Vec::<BlobParameters>::deserialize(deserializer)?;
-        Ok(BlobSchedule::new(vec))
+        let schedule = BlobSchedule::new(vec);
+        if let Some((dup, _)) = schedule
+            .schedule
+            .iter()
+            .zip(schedule.schedule.iter().skip(1))
+            .find(|(a, b)| a.epoch == b.epoch)
+        {
+            return Err(serde::de::Error::custom(format!(
+                "duplicate epoch {} in blob schedule",
+                dup.epoch
+            )));
+        }
+        Ok(schedule)
     }
 }
 
@@ -3459,6 +3471,17 @@ mod yaml_tests {
             deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
             "BlobSchedule should serialize in ascending order by epoch"
         );
+    }
+
+    #[test]
+    fn blob_schedule_rejects_duplicate_epochs() {
+        let schedule_contents = r#"
+        - EPOCH: 512
+          MAX_BLOBS_PER_BLOCK: 12
+        - EPOCH: 512
+          MAX_BLOBS_PER_BLOCK: 15
+        "#;
+        assert!(yaml_serde::from_str::<BlobSchedule>(schedule_contents).is_err());
     }
 
     #[test]
