@@ -327,7 +327,7 @@ pub struct ChainSpec {
     /*
      * Networking Heze
      */
-    pub max_bytes_per_inclusion_list: u64,
+    pub max_transactions_bytes_per_inclusion_list: u64,
     pub max_request_inclusion_list: u64,
     pub min_slots_for_inclusion_lists_requests: u64,
 
@@ -1347,7 +1347,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -1793,7 +1793,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -4009,7 +4009,7 @@ mod yaml_tests {
         "MAX_REQUEST_PAYLOADS",
         // Heze networking
         "MAX_REQUEST_INCLUSION_LIST",
-        "MAX_BYTES_PER_INCLUSION_LIST",
+        "MAX_TRANSACTIONS_BYTES_PER_INCLUSION_LIST",
         "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
