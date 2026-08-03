@@ -9,8 +9,8 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
-    self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
-    ValidatorIndexData, ValidatorsRequestBody,
+    self as api_types, BuildersRequestBody, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
 use std::sync::Arc;
@@ -608,6 +608,33 @@ pub fn post_beacon_state_validators<T: BeaconChainTypes>(
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validators(
+                        state_id,
+                        chain,
+                        &query.ids,
+                        &query.statuses,
+                    )
+                })
+            },
+        )
+        .boxed()
+}
+
+// POST beacon/states/{state_id}/builders
+pub fn post_beacon_state_builders<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builders"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json_no_body())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: BuildersRequestBody| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    crate::builders::get_beacon_state_builders(
                         state_id,
                         chain,
                         &query.ids,

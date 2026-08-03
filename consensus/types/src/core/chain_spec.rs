@@ -38,6 +38,7 @@ pub enum Domain {
     PTCAttester,
     ProposerPreferences,
     BuilderDeposit,
+    InclusionListCommittee,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -114,6 +115,7 @@ pub struct ChainSpec {
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
     pub contribution_due_bps: u64,
+    pub inclusion_list_due_bps: u64,
 
     /*
      * Derived time values (computed at startup via `compute_derived_values()`)
@@ -149,6 +151,7 @@ pub struct ChainSpec {
     pub(crate) domain_ptc_attester: u32,
     pub(crate) domain_proposer_preferences: u32,
     pub(crate) domain_builder_deposit: u32,
+    pub(crate) domain_inclusion_list_committee: u32,
 
     /*
      * Fork choice
@@ -320,6 +323,13 @@ pub struct ChainSpec {
      * Networking Gloas
      */
     pub max_request_payloads: u64,
+
+    /*
+     * Networking Heze
+     */
+    pub max_bytes_per_inclusion_list: u64,
+    pub max_request_inclusion_list: u64,
+    pub min_slots_for_inclusion_lists_requests: u64,
 
     /*
      * Networking Derived
@@ -550,6 +560,7 @@ impl ChainSpec {
             Domain::PTCAttester => self.domain_ptc_attester,
             Domain::ProposerPreferences => self.domain_proposer_preferences,
             Domain::BuilderDeposit => self.domain_builder_deposit,
+            Domain::InclusionListCommittee => self.domain_inclusion_list_committee,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -999,6 +1010,11 @@ impl ChainSpec {
             "invalid chain spec: contribution_due_bps ({}) exceeds slot duration",
             self.contribution_due_bps
         );
+        assert!(
+            self.inclusion_list_due_bps <= BASIS_POINTS,
+            "invalid chain spec: inclusion_list_due_bps ({}) exceeds slot duration",
+            self.inclusion_list_due_bps
+        );
 
         self.unaggregated_attestation_due = self
             .compute_slot_component_duration(self.attestation_due_bps)
@@ -1148,6 +1164,7 @@ impl ChainSpec {
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1184,6 +1201,7 @@ impl ChainSpec {
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
+            domain_inclusion_list_committee: 0x10,
 
             /*
              * Fork choice
@@ -1329,6 +1347,9 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
+            min_slots_for_inclusion_lists_requests: 1,
 
             /*
              * Network specific
@@ -1624,6 +1645,7 @@ impl ChainSpec {
             domain_ptc_attester: 0x0C,
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
+            domain_inclusion_list_committee: 0x10,
 
             /*
              * Fork choice
@@ -1676,6 +1698,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(512)),
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Bellatrix hard fork params
@@ -1770,6 +1793,9 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
+            min_slots_for_inclusion_lists_requests: 1,
 
             /*
              * Network specific
@@ -2232,6 +2258,9 @@ pub struct Config {
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+    #[serde(default = "default_inclusion_list_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    inclusion_list_due_bps: u64,
 
     #[serde(default = "default_min_builder_withdrawability_delay")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2481,6 +2510,10 @@ const fn default_payload_attestation_due_bps() -> u64 {
 }
 
 const fn default_aggregate_due_bps() -> u64 {
+    6667
+}
+
+const fn default_inclusion_list_due_bps() -> u64 {
     6667
 }
 
@@ -2773,6 +2806,7 @@ impl Config {
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             contribution_due_bps: spec.contribution_due_bps,
+            inclusion_list_due_bps: spec.inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
 
@@ -2880,6 +2914,7 @@ impl Config {
             sync_message_due_bps,
             contribution_due_bps,
             confirmation_byzantine_threshold,
+            inclusion_list_due_bps,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
@@ -2993,6 +3028,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
 
@@ -3067,6 +3103,11 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(
+            Domain::InclusionListCommittee,
+            spec.domain_inclusion_list_committee,
+            &spec,
+        );
         test_domain(
             Domain::ProposerPreferences,
             spec.domain_proposer_preferences,
@@ -3967,9 +4008,9 @@ mod yaml_tests {
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
         // Heze networking
-        "INCLUSION_LIST_DUE_BPS",
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
+        "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.

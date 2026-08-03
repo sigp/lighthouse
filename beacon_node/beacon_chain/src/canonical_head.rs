@@ -46,8 +46,9 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseLateHead,
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2, SseLateHead,
 };
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
@@ -1111,6 +1112,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Alias for readability.
         let new_snapshot = &new_cached_head.snapshot;
         let old_snapshot = &old_cached_head.snapshot;
+        let new_head_is_optimistic = new_head_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         // Only run on head *block* changes - payload status changes only need the
         // `cached_head` update above, not re-org detection or event emission.
@@ -1122,6 +1126,57 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error = ?e,
                 "Error updating canonical head"
             );
+        }
+
+        // Emit a second head_v2 event for the same slot when the payload status changes from Empty to Full
+        if new_snapshot.beacon_block_root == old_snapshot.beacon_block_root
+            && new_payload_status != old_payload_status
+            && let Some(event_handler) = self
+                .event_handler
+                .as_ref()
+                .filter(|handler| handler.has_head_v2_subscribers())
+        {
+            let state = &new_snapshot.beacon_state;
+            let head_epoch = state.current_epoch();
+            let parent_root = new_snapshot.beacon_block.parent_root();
+            let parent_epoch = self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block(&parent_root)
+                .map(|parent| parent.slot.epoch(T::EthSpec::slots_per_epoch()));
+            let is_epoch_transition =
+                parent_epoch.is_some_and(|parent_epoch| head_epoch > parent_epoch);
+
+            let current_epoch_dependent_root = state
+                .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
+            let next_epoch_dependent_root = state
+                .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Next);
+
+            match (current_epoch_dependent_root, next_epoch_dependent_root) {
+                (Ok(current_epoch_dependent_root), Ok(next_epoch_dependent_root)) => {
+                    let head_v2 = SseHeadV2 {
+                        slot: new_snapshot.beacon_block.slot(),
+                        block: new_snapshot.beacon_block_root,
+                        state: new_snapshot.beacon_state_root(),
+                        payload_status: new_payload_status,
+                        epoch_transition: is_epoch_transition,
+                        current_epoch_dependent_root,
+                        next_epoch_dependent_root,
+                        execution_optimistic: new_head_is_optimistic,
+                    };
+                    event_handler.register(EventKind::HeadV2(Box::new(ForkVersionedResponse {
+                        version: self.spec.fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                        metadata: Default::default(),
+                        data: head_v2,
+                    })));
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    warn!(
+                        error = ?e,
+                        "Unable to find dependent roots, cannot register head_v2 event"
+                    );
+                }
+            }
         }
 
         // Drop the old cache head nice and early to try and free the memory as soon as possible.

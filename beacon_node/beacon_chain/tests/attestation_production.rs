@@ -4,6 +4,7 @@ use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, fork_name_from_env,
+    generate_data_column_sidecars_from_block,
 };
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
@@ -517,5 +518,73 @@ async fn gloas_payload_attestation_seen_but_data_unavailable() {
     assert!(
         !pa_data.blob_data_available,
         "unimported envelope data should vote blob_data_available=false"
+    );
+}
+
+/// Verify that `produce_payload_attestation_data` reports `payload_present = false` but
+/// `blob_data_available = true` when all custody columns were received but the envelope was
+/// withheld.
+/// This is the scenario reported in <https://github.com/sigp/lighthouse/issues/9679>
+#[tokio::test]
+async fn gloas_payload_attestation_blob_data_available_without_payload() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slot 3: import the beacon block but withhold its envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+    let block = block_contents.0.clone();
+    let block_root = block.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // Derive and feed in all custody columns for the block without ever importing the
+    // envelope itself.
+    let columns = generate_data_column_sidecars_from_block(&block, &chain.spec);
+    assert!(
+        !columns.is_empty(),
+        "test block should carry non-zero blob commitments for this test to be meaningful"
+    );
+    chain
+        .process_rpc_custody_columns(columns)
+        .await
+        .expect("columns should be accepted");
+
+    let pa_data = chain
+        .produce_payload_attestation_data(Slot::new(3))
+        .expect("should produce payload attestation data");
+
+    assert!(
+        !pa_data.payload_present,
+        "withheld envelope should vote payload_present=false"
+    );
+    assert!(
+        pa_data.blob_data_available,
+        "fully custodied columns should vote blob_data_available=true, independent of the envelope never having been received"
     );
 }

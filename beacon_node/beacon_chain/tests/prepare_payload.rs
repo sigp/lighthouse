@@ -625,7 +625,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (_block, _post_state, _value) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
@@ -641,14 +641,16 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .await
         .unwrap();
 
-    // The envelope + blobs should now be in the pending cache.
+    // The envelope + blobs should now be in the pending cache, keyed by the block root.
+    let block_root = block.canonical_root();
     assert!(
         harness
             .chain
             .pending_payload_envelopes
             .read()
-            .contains(slot),
-        "Pending cache should contain an envelope for the produced slot"
+            .get_by_block_root(block_root)
+            .is_some(),
+        "Pending cache should contain an envelope for the produced block"
     );
 
     // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
@@ -656,7 +658,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
 
     assert!(
         blobs.is_some(),
@@ -674,7 +676,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
     assert!(
         second_take.is_none(),
         "Blobs should only be consumable once"
@@ -686,7 +688,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_block_root(block_root)
             .is_some(),
         "Envelope should remain in cache after taking blobs"
     );
