@@ -23,6 +23,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
+    kzg_utils::reconstruct_blobs,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -31,8 +32,12 @@ use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand_xorshift::XorShiftRng;
+use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz::Encode;
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
@@ -41,6 +46,7 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
@@ -50,7 +56,7 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
-use types::test_utils::{SeedableRng, XorShiftRng};
+use types::test_utils::test_arbitrary_instance;
 use types::*;
 
 // Should ideally be divisible by 3.
@@ -67,7 +73,44 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+/// Retrieve or reconstruct blobs for a given block root. This uses the block's epoch to determine
+/// whether to retrieve blobs directly or reconstruct them from columns.
+///
+/// Returns `None` for Gloas blocks (which have no blob sidecar representation).
+fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block_root: &Hash256,
+) -> Result<Option<BlobSidecarList<T::EthSpec>>, BeaconChainError> {
+    let Some(block) = chain.store.get_blinded_block(block_root)? else {
+        return Ok(None);
+    };
+
+    if block.fork_name_unchecked().gloas_enabled() {
+        return Ok(None);
+    }
+
+    if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
+        if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
+            let num_required_columns = T::EthSpec::number_of_columns() / 2;
+            if columns.len() >= num_required_columns {
+                reconstruct_blobs(&chain.kzg, columns, None, &block, &chain.spec)
+                    .map(Some)
+                    .map_err(BeaconChainError::FailedToReconstructBlobs)
+            } else {
+                Err(BeaconChainError::InsufficientColumnsToReconstructBlobs {
+                    columns_found: columns.len(),
+                })
+            }
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(chain.get_blobs(block_root)?.blobs())
+    }
+}
+
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
     let store_config = StoreConfig {
         prune_payloads: false,
         ..StoreConfig::default()
@@ -79,7 +122,7 @@ fn get_store_generic(
     db_path: &TempDir,
     config: StoreConfig,
     spec: ChainSpec,
-) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
     create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
@@ -97,7 +140,7 @@ fn get_store_generic(
 }
 
 fn get_harness(
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     validator_count: usize,
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
@@ -114,7 +157,7 @@ fn get_harness(
 }
 
 fn get_harness_import_all_data_columns(
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     validator_count: usize,
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
@@ -132,7 +175,7 @@ fn get_harness_import_all_data_columns(
 }
 
 fn get_harness_generic(
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     validator_count: usize,
     chain_config: ChainConfig,
     node_custody_type: NodeCustodyType,
@@ -166,7 +209,7 @@ fn check_db_invariants(harness: &TestHarness) {
 }
 
 fn get_states_descendant_of_block(
-    store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
+    store: &HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>,
     block_root: Hash256,
 ) -> Vec<(Hash256, Slot)> {
     let summaries = store.load_hot_state_summaries().unwrap();
@@ -175,6 +218,43 @@ fn get_states_descendant_of_block(
         .filter(|(_, s)| s.latest_block_root == block_root)
         .map(|(state_root, summary)| (*state_root, summary.slot))
         .collect()
+}
+
+/// Builds a `LightClientUpdate` for the given fork,
+/// sets `signature_slot` to the provided `marker_slot` so tests can identify which update was returned.
+/// Uses `test_arbitrary_instance` for all other fields.
+fn make_light_client_update<E: EthSpec>(
+    fork_name: ForkName,
+    marker_slot: Slot,
+) -> LightClientUpdate<E> {
+    match fork_name {
+        ForkName::Base => panic!("light client updates don't exist pre-Altair"),
+        ForkName::Altair | ForkName::Bellatrix => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateAltair<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Altair(update)
+        }
+        ForkName::Capella => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateCapella<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Capella(update)
+        }
+        ForkName::Deneb => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateDeneb<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Deneb(update)
+        }
+        ForkName::Electra => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateElectra<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Electra(update)
+        }
+        ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateFulu<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Fulu(update)
+        }
+    }
 }
 
 // TODO(EIP-7732) Extend to support gloas
@@ -197,11 +277,10 @@ async fn light_client_bootstrap_test() {
     let num_initial_slots = E::slots_per_epoch() * 7;
     let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
         .add_attested_blocks_at_slots_with_lc_data(
             genesis_state.clone(),
-            genesis_state_root,
             &slots,
             &all_validators,
             None,
@@ -257,14 +336,9 @@ async fn light_client_updates_test() {
     let num_initial_slots = E::slots_per_epoch() * 10;
     let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     harness.advance_slot();
@@ -313,6 +387,53 @@ async fn light_client_updates_test() {
         .unwrap();
 
     assert_eq!(lc_updates.len(), 2);
+}
+
+/// Verifies that `get_light_client_updates` returns the full requested range
+/// even when it crosses a sync committee period boundary after
+/// switching to big-endian keys.
+#[tokio::test]
+async fn get_light_client_updates_crosses_256_period_boundary() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    let below = 100u64;
+    let cluster: Vec<u64> = (254..=260).collect();
+    let above = 500u64;
+    let all_periods: Vec<u64> = std::iter::once(below)
+        .chain(cluster.iter().copied())
+        .chain(std::iter::once(above))
+        .collect();
+
+    for &period in &all_periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store.store_light_client_update(period, &update).unwrap();
+    }
+
+    let start_period = 254;
+    let count = 5; // covers 254..=258, crossing the 256 boundary
+    let fetched = store.get_light_client_updates(start_period, count).unwrap();
+
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+
+    assert_eq!(
+        fetched_periods,
+        (start_period..start_period + count).collect::<Vec<_>>(),
+        "expected exactly periods 254..259 in order, got {fetched_periods:?}"
+    );
 }
 
 #[tokio::test]
@@ -638,7 +759,7 @@ async fn forwards_iter_block_and_state_roots_until() {
 
     for slot in (1..=num_blocks_produced).map(Slot::from) {
         let (block_root, mut state) = harness
-            .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
+            .add_attested_block_at_slot(slot, head_state, all_validators)
             .await
             .unwrap();
         head_state_root = state.update_tree_hash_cache().unwrap();
@@ -713,10 +834,10 @@ async fn block_replayer_hooks() {
     let max_slot = *block_slots.last().unwrap();
     let all_slots = (0..=max_slot.as_u64()).map(Slot::new).collect::<Vec<_>>();
 
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, end_block_root, mut end_state) = harness
-        .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
+        .add_attested_blocks_at_slots(state.clone(), &block_slots, &all_validators)
         .await;
 
     let blocks = store
@@ -785,10 +906,10 @@ async fn delete_blocks_and_states() {
 
     // Finalize an initial portion of the chain.
     let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Create a fork post-finalization.
@@ -923,10 +1044,10 @@ async fn multi_epoch_fork_valid_blocks_test(
     // Create the initial portion of the chain
     if initial_blocks > 0 {
         let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-        let (state, state_root) = harness.get_current_state_and_root();
+        let state = harness.get_current_state();
         let all_validators = harness.get_all_validators();
         harness
-            .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+            .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
             .await;
     }
 
@@ -1176,7 +1297,8 @@ fn check_shuffling_compatible(
             .with_committee_cache(
                 block_root,
                 head_state.current_epoch(),
-                |committee_cache, _| {
+                |cached_shuffling, _| {
+                    let committee_cache = cached_shuffling.committee_cache.as_ref();
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
                     // We used to check for false negatives here, but had to remove that check
                     // because `shuffling_is_compatible` does not guarantee their absence.
@@ -1214,7 +1336,8 @@ fn check_shuffling_compatible(
             .with_committee_cache(
                 block_root,
                 head_state.previous_epoch(),
-                |committee_cache, _| {
+                |cached_shuffling, _| {
+                    let committee_cache = cached_shuffling.committee_cache.as_ref();
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
                         assert_eq!(committee_cache, state_cache.as_ref());
@@ -1268,17 +1391,17 @@ async fn proposer_shuffling_root_consistency_test(
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=parent_slot).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, parent_root, _) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Add the child block.
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, child_root, child_block_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &[child_slot], &all_validators)
+        .add_attested_blocks_at_slots(state, &[child_slot], &all_validators)
         .await;
 
     let child_block_epoch = child_slot.epoch(E::slots_per_epoch());
@@ -1450,7 +1573,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
         target_pubkey: validator_to_topup.pubkey,
     };
 
-    let execution_requests = ExecutionRequests::<E> {
+    let execution_requests = ExecutionRequestsElectra::<E> {
         deposits: VariableList::new(vec![deposit_request]).unwrap(),
         withdrawals: vec![].try_into().unwrap(),
         consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
@@ -1590,10 +1713,10 @@ async fn proposer_duties_from_head_fulu() {
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, head_block_root, head_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Compute the proposer duties at the next epoch from the head
@@ -1612,27 +1735,19 @@ async fn proposer_duties_from_head_fulu() {
     assert_eq!(fork, head_state.fork());
 }
 
-/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
-// TODO(EIP-7732): Extend to gloas
-// `state.latest_execution_payload_header()` not available in Gloas
-// called from `add_block_at_slot` -> `make_block` -> `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload` -> `Error`
-#[ignore]
+fn get_gloas_harness(db_path: &TempDir, gloas_fork_epoch: Epoch) -> TestHarness {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let store = get_store_generic(db_path, Default::default(), spec);
+    get_harness(store, LOW_VALIDATOR_COUNT)
+}
+
+/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead
 #[tokio::test]
 async fn proposer_lookahead_gloas_fork_epoch() {
     let gloas_fork_epoch = Epoch::new(4);
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
-
     let db_path = tempdir().unwrap();
-    let store = get_store_generic(&db_path, Default::default(), spec.clone());
-    let validators_keypairs =
-        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(E::default())
-        .spec(spec.into())
-        .keypairs(validators_keypairs)
-        .fresh_disk_store(store)
-        .mock_execution_layer()
-        .build();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
     let spec = &harness.chain.spec;
 
     let initial_blocks = (gloas_fork_epoch - 1)
@@ -1641,10 +1756,10 @@ async fn proposer_lookahead_gloas_fork_epoch() {
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, head_block_root, mut head_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
     let head_state_root = head_state.canonical_root().unwrap();
 
@@ -1680,7 +1795,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     // Build a block in the Gloas fork epoch and assert that the shuffling does not change.
     let gloas_slots = vec![gloas_fork_epoch.start_slot(E::slots_per_epoch())];
     let (_, _, _, _) = harness
-        .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
+        .add_attested_blocks_at_slots(head_state, &gloas_slots, &all_validators)
         .await;
 
     let (no_lookahead_indices, no_lookahead_dependent_root, _, _, no_lookahead_fork) =
@@ -1689,6 +1804,129 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     assert_eq!(no_lookahead_indices, indices);
     assert_eq!(no_lookahead_dependent_root, dependent_root);
     assert_eq!(no_lookahead_fork, fork);
+}
+
+/// Build a chain from genesis to the first slot of end_epoch, activating Gloas at gloas_fork_epoch
+///
+/// Validators in to_slash are slashed by the last block, before end_epoch
+async fn build_across_gloas_boundary(
+    gloas_fork_epoch: Epoch,
+    end_epoch: Epoch,
+    to_slash: &[u64],
+) -> BeaconState<E> {
+    let db_path = tempdir().unwrap();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
+    let all_validators = harness.get_all_validators();
+
+    // Build the chain up to the last slot before end_epoch
+    let last_slot = (end_epoch - 1).end_slot(E::slots_per_epoch());
+    let pre_slots: Vec<Slot> = (1..last_slot.as_u64()).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(state, &pre_slots, &all_validators)
+        .await;
+
+    for &index in to_slash {
+        harness.add_proposer_slashing(index).unwrap();
+    }
+
+    // The last block, before end_epoch applies the slashings
+    // The first block of end_epoch triggers the transition that computes the end_epoch + 1 proposers
+    let boundary_slots = [last_slot, last_slot + 1];
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(head_state, &boundary_slots, &all_validators)
+        .await;
+    assert_eq!(head_state.current_epoch(), end_epoch);
+    for &index in to_slash {
+        assert!(head_state.get_validator(index as usize).unwrap().slashed);
+    }
+    head_state
+}
+
+#[tokio::test]
+async fn proposer_lookahead_retains_slashed_proposer_across_gloas_boundary() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the proposers scheduled for the fork epoch
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (fork_epoch_proposers, _) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Slash a proposer scheduled for the fork epoch, avoiding its first-slot proposer
+    let boundary_proposer = fork_epoch_proposers[0];
+    let target = fork_epoch_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("fork epoch should have a proposer other than its first-slot proposer");
+
+    let slashed_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch, &[target]).await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The fork epoch's proposers were computed pre-fork and only carried forward.
+    // The slashing must leave them unchanged, in particular retaining the slashed proposer
+    assert!(
+        lookahead[..slots_per_epoch].contains(&target),
+        "pre-Gloas-computed proposers for the fork epoch must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        fork_epoch_proposers,
+        "slashing must not alter the pre-Gloas-computed fork epoch proposers"
+    );
+}
+
+#[tokio::test]
+async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas_epochs() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    // Run with no slashings, to determine the scheduled proposers on each side of the window
+    let reference_state =
+        build_across_gloas_boundary(gloas_fork_epoch, gloas_fork_epoch + 1, &[]).await;
+    let reference_lookahead = reference_state.proposer_lookahead().unwrap().to_vec();
+    let (pre_fork_proposers, post_fork_proposers) = reference_lookahead.split_at(slots_per_epoch);
+
+    // Pick one proposer to slash on each side of the window, avoiding the boundary proposer
+    let boundary_proposer = pre_fork_proposers[0];
+    let pre_fork_target = pre_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer)
+        .expect("pre-fork epoch should have a proposer other than the boundary proposer");
+    let post_fork_target = post_fork_proposers
+        .iter()
+        .copied()
+        .find(|&index| index != boundary_proposer && index != pre_fork_target)
+        .expect("post-fork epoch should have a proposer distinct from the other targets");
+
+    let slashed_state = build_across_gloas_boundary(
+        gloas_fork_epoch,
+        gloas_fork_epoch + 1,
+        &[pre_fork_target, post_fork_target],
+    )
+    .await;
+    let lookahead = slashed_state.proposer_lookahead().unwrap().to_vec();
+
+    // The gloas_fork_epoch + 1 proposers were computed pre-fork and must be unchanged
+    assert!(
+        lookahead[..slots_per_epoch].contains(&pre_fork_target),
+        "pre-fork-computed proposers must retain the slashed proposer"
+    );
+    assert_eq!(
+        &lookahead[..slots_per_epoch],
+        pre_fork_proposers,
+        "slashing must not alter the pre-fork-computed proposers"
+    );
+
+    // The gloas_fork_epoch + 2 proposers were computed post-fork and must exclude their slashed one
+    assert!(
+        !lookahead[slots_per_epoch..].contains(&post_fork_target),
+        "post-fork-computed proposers must exclude the slashed proposer"
+    );
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
@@ -1703,16 +1941,11 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (mut state, state_root) = rig.get_current_state_and_root();
+    let mut state = rig.get_current_state();
 
     let canonical_chain_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks_pre_finalization, _, _, new_state) = rig
-        .add_attested_blocks_at_slots(
-            state,
-            state_root,
-            &canonical_chain_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(state, &canonical_chain_slots, &honest_validators)
         .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
@@ -1720,14 +1953,9 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.epoch_start_slot(2))
         .map(Slot::new)
         .collect();
-    let (current_state, current_state_root) = rig.get_current_state_and_root();
+    let current_state = rig.get_current_state();
     let (stray_blocks, stray_states, stray_head, _) = rig
-        .add_attested_blocks_at_slots(
-            current_state,
-            current_state_root,
-            &stray_slots,
-            &adversarial_validators,
-        )
+        .add_attested_blocks_at_slots(current_state, &stray_slots, &adversarial_validators)
         .await;
 
     // Precondition: Ensure all stray_blocks blocks are still known
@@ -1757,9 +1985,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (canonical_chain_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators)
         .await;
 
     // Postcondition: New blocks got finalized
@@ -1814,15 +2041,14 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch
     let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (_, _, _, mut state) = rig
+    let (_, _, _, state) = rig
         .add_attested_blocks_at_slots(
             state,
-            state_root,
             &canonical_chain_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -1833,11 +2059,9 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 1)
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
-    let (canonical_chain_blocks_first_epoch, _, shared_head, mut state) = rig
+    let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_chain_slots_first_epoch,
             &honest_validators,
         )
@@ -1848,11 +2072,9 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 2)
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &stray_chain_slots_first_epoch,
             &adversarial_validators,
         )
@@ -1889,9 +2111,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (canonical_chain_blocks, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -1944,12 +2165,12 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (mut state, state_root) = rig.get_current_state_and_root();
+    let mut state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks, _, _, new_state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators)
         .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
@@ -1958,14 +2179,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let first_epoch_slots: Vec<Slot> = ((rig.epoch_start_slot(1) + 1)..(rig.epoch_start_slot(2)))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig
-        .add_attested_blocks_at_slots(
-            state.clone(),
-            state_root,
-            &first_epoch_slots,
-            &adversarial_validators,
-        )
+        .add_attested_blocks_at_slots(state.clone(), &first_epoch_slots, &adversarial_validators)
         .await;
 
     // Preconditions
@@ -1993,9 +2208,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
         ..=(canonical_chain_slot + slots_per_epoch * 4))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (_, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2036,29 +2250,23 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+    let (canonical_blocks_zeroth_epoch, _, _, state) = rig
+        .add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators)
         .await;
 
     // Fill up 1st epoch.  Contains a fork.
     let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
-    let (stray_blocks_first_epoch, stray_states_first_epoch, _, mut stray_state) = rig
-        .add_attested_blocks_at_slots(
-            state.clone(),
-            state_root,
-            &slots_first_epoch,
-            &adversarial_validators,
-        )
+    let (stray_blocks_first_epoch, stray_states_first_epoch, _, stray_state) = rig
+        .add_attested_blocks_at_slots(state.clone(), &slots_first_epoch, &adversarial_validators)
         .await;
-    let (canonical_blocks_first_epoch, _, _, mut canonical_state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &slots_first_epoch, &honest_validators)
+    let (canonical_blocks_first_epoch, _, _, canonical_state) = rig
+        .add_attested_blocks_at_slots(state, &slots_first_epoch, &honest_validators)
         .await;
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
@@ -2066,11 +2274,9 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         ..=rig.epoch_start_slot(2) + 1)
         .map(Into::into)
         .collect();
-    let stray_state_root = stray_state.update_tree_hash_cache().unwrap();
     let (stray_blocks_second_epoch, stray_states_second_epoch, stray_head, _) = rig
         .add_attested_blocks_at_slots(
             stray_state,
-            stray_state_root,
             &stray_slots_second_epoch,
             &adversarial_validators,
         )
@@ -2113,10 +2319,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks, _, _, _) = Box::pin(rig.add_attested_blocks_at_slots(
         canonical_state,
-        canonical_state_root,
         &canonical_slots,
         &honest_validators,
     ))
@@ -2178,14 +2382,13 @@ async fn prunes_skipped_slots_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..=rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -2196,11 +2399,9 @@ async fn prunes_skipped_slots_states() {
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig
         .add_attested_blocks_at_slots(
             canonical_state.clone(),
-            canonical_state_root,
             &stray_slots,
             &adversarial_validators,
         )
@@ -2241,14 +2442,8 @@ async fn prunes_skipped_slots_states() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(
-            canonical_state,
-            canonical_state_root,
-            &canonical_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2303,14 +2498,13 @@ async fn finalizes_non_epoch_start_slot() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -2321,11 +2515,9 @@ async fn finalizes_non_epoch_start_slot() {
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig
         .add_attested_blocks_at_slots(
             canonical_state.clone(),
-            canonical_state_root,
             &stray_slots,
             &adversarial_validators,
         )
@@ -2366,14 +2558,8 @@ async fn finalizes_non_epoch_start_slot() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(
-            canonical_state,
-            canonical_state_root,
-            &canonical_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2596,11 +2782,10 @@ async fn pruning_test(
 
     let start_slot = Slot::new(1);
     let divergence_slot = start_slot + num_initial_blocks;
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let (_, _, _, divergence_state) = harness
         .add_attested_blocks_at_slots(
             state,
-            state_root,
             &slots(start_slot, num_initial_blocks)[..],
             &honest_validators,
         )
@@ -2625,7 +2810,7 @@ async fn pruning_test(
             ),
         ])
         .await;
-    let (_, _, _, mut canonical_state) = chains.remove(0);
+    let (_, _, _, canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
     let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
@@ -2649,11 +2834,9 @@ async fn pruning_test(
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
     let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     harness
         .add_attested_blocks_at_slots(
             canonical_state,
-            canonical_state_root,
             &slots(canonical_slot, num_finalization_blocks),
             &honest_validators,
         )
@@ -2861,14 +3044,9 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     // Extract snapshot data from the harness.
@@ -2900,10 +3078,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
                 .is_ok()
     );
 
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
 
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
@@ -3015,14 +3190,9 @@ async fn weak_subjectivity_sync_test(
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     let wss_block_root = harness
@@ -3041,10 +3211,7 @@ async fn weak_subjectivity_sync_test(
         .state_root_at_slot(checkpoint_slot)
         .unwrap()
         .unwrap();
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
@@ -3133,6 +3300,29 @@ async fn weak_subjectivity_sync_test(
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
+
+    // For Gloas, blobs aren't a standalone shape — the WSS data is the column sidecar set, which
+    // `get_or_reconstruct_blobs` returns `None` for. Copy the WSS block's columns straight from
+    // the source store so that the destination has them after checkpoint sync, matching what
+    // network-driven WSS would produce in production.
+    if wss_block.fork_name_unchecked().gloas_enabled()
+        && let Ok(Some(source_columns)) = harness
+            .chain
+            .store
+            .get_data_columns(&wss_block_root, ForkName::Gloas)
+        && !source_columns.is_empty()
+        && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
+            wss_block_root,
+            wss_block.slot(),
+            beacon_chain::block_verification_types::AvailableBlockData::DataColumns(source_columns),
+        )
+    {
+        beacon_chain
+            .store
+            .do_atomically_with_block_and_blobs_cache(vec![store_op])
+            .unwrap();
+    }
+
     let store_wss_block = harness
         .chain
         .get_block(&wss_block_root)
@@ -3140,9 +3330,7 @@ async fn weak_subjectivity_sync_test(
         .unwrap()
         .unwrap();
     // This test may break in the future if we no longer store the full checkpoint data columns.
-    let store_wss_blobs_opt = beacon_chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let store_wss_blobs_opt = get_or_reconstruct_blobs(&beacon_chain, &wss_block_root).unwrap();
 
     assert_eq!(store_wss_block, wss_block);
     // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.
@@ -3162,6 +3350,14 @@ async fn weak_subjectivity_sync_test(
         beacon_chain
             .store
             .put_payload_envelope(&wss_block_root, &envelope)
+            .unwrap();
+
+        // `from_anchor` doesn't mark the anchor's payload received, so do it here; otherwise the
+        // first forward block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
+        beacon_chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(wss_block_root)
             .unwrap();
     }
 
@@ -3200,12 +3396,43 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // Store the envelope and apply it to fork choice.
+        // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
+            // Persist data columns for Gloas blocks. This mirrors what production does in
+            // `import_available_execution_payload_envelope` and what the harness now does in
+            // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
+            let mut ops = vec![];
+            let columns_block = beacon_chain
+                .store
+                .get_blinded_block(&block_root)
+                .unwrap()
+                .and_then(|b| beacon_chain.store.make_full_block(&block_root, b).ok());
+            if let Some(full_block) = columns_block {
+                let columns = beacon_chain::test_utils::generate_data_column_sidecars_from_block(
+                    &full_block,
+                    &beacon_chain.spec,
+                );
+                if !columns.is_empty()
+                    && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
+                        block_root,
+                        full_block.slot(),
+                        beacon_chain::block_verification_types::AvailableBlockData::DataColumns(
+                            columns,
+                        ),
+                    )
+                {
+                    ops.push(store_op);
+                }
+            }
+            ops.push(store::StoreOp::PutPayloadEnvelope(
+                block_root,
+                std::sync::Arc::new(envelope.as_ref().clone()),
+            ));
             beacon_chain
                 .store
-                .put_payload_envelope(&block_root, envelope)
+                .do_atomically_with_block_and_blobs_cache(ops)
                 .unwrap();
+
             // Update fork choice so head selection accounts for Full payload status.
             beacon_chain
                 .canonical_head
@@ -3280,7 +3507,8 @@ async fn weak_subjectivity_sync_test(
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
-            let fully_available_block = range_sync_block.into_available_block();
+            let (fully_available_block, _envelope) =
+                range_sync_block.into_available_block().unwrap();
             harness
                 .chain
                 .data_availability_checker
@@ -3297,13 +3525,8 @@ async fn weak_subjectivity_sync_test(
             let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
             let mut corrupt_block = (*block).clone();
             *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::new(
-                Arc::new(corrupt_block),
-                data,
-                &beacon_chain.data_availability_checker,
-                Arc::new(spec),
-            )
-            .expect("available block")
+            AvailableBlock::new(Arc::new(corrupt_block), data, &beacon_chain.custody_context)
+                .expect("available block")
         };
 
         // Importing the invalid batch should error.
@@ -3830,14 +4053,9 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .map(Slot::new)
         .collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     // Before the split slot becomes finalized, create two forking blocks that build on the split
@@ -4050,7 +4268,6 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
-    let is_gloas = spec.is_gloas_scheduled();
 
     let chain_config = ChainConfig {
         archive,
@@ -4073,11 +4290,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = if is_gloas {
-        SchemaVersion(29)
-    } else {
-        SchemaVersion(28)
-    };
+    let min_version = SchemaVersion(29);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -4187,6 +4400,91 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
         true,
     )
     .await
+}
+
+#[tokio::test]
+async fn light_client_update_schema_v30_migration() {
+    let db_path = tempdir().unwrap();
+    let spec = test_spec::<E>();
+    if spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    // Write entries directly under the OLD little-endian key encoding, bypassing
+    // store_light_client_update (which now writes big-endian keys) so we start from a
+    // pre-migration state.
+    let periods: Vec<u64> = (254..=260).collect();
+    for &period in &periods {
+        let epoch = period
+            .safe_mul(spec.epochs_per_sync_committee_period.into())
+            .unwrap();
+        let fork_name = spec.fork_name_at_epoch(epoch.into());
+        let update = make_light_client_update::<E>(fork_name, Slot::new(period));
+        store
+            .hot_db
+            .put_bytes(
+                DBColumn::LightClientUpdate,
+                &period.to_le_bytes(),
+                &update.as_ssz_bytes(),
+            )
+            .unwrap();
+    }
+
+    // Sanity check: with only LE keys in place, the BE-based getter shouldn't see them yet.
+    assert!(store.get_light_client_update(254).unwrap().is_none());
+
+    // Upgrade v29 -> v30.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(29), SchemaVersion(30))
+        .expect("schema upgrade to v30 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_none(),
+            "LE key for period {period} should have been removed by the migration"
+        );
+        let update = store
+            .get_light_client_update(period)
+            .unwrap()
+            .unwrap_or_else(|| panic!("period {period} should be readable after migration"));
+        assert_eq!(update.signature_slot().as_u64(), period);
+    }
+
+    // Range scan should now work correctly across the 256 boundary too.
+    let fetched = store.get_light_client_updates(254, 5).unwrap();
+    let fetched_periods: Vec<u64> = fetched
+        .iter()
+        .map(|u| u.signature_slot().as_u64())
+        .collect();
+    assert_eq!(fetched_periods, vec![254, 255, 256, 257, 258]);
+
+    // Downgrade v30 -> v29, keys should revert to LE.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(29))
+        .expect("schema downgrade to v29 should succeed");
+
+    for &period in &periods {
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_be_bytes())
+                .unwrap()
+                .is_none(),
+            "BE key for period {period} should have been removed by the downgrade"
+        );
+        assert!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::LightClientUpdate, &period.to_le_bytes())
+                .unwrap()
+                .is_some(),
+            "LE key for period {period} should be restored by the downgrade"
+        );
+    }
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.
@@ -4858,7 +5156,10 @@ async fn test_column_da_boundary() {
 
     // The column da boundary should be the fulu fork epoch
     assert_eq!(
-        harness.chain.column_data_availability_boundary(),
+        harness
+            .chain
+            .custody_context
+            .column_data_availability_boundary(),
         Some(fulu_fork_epoch)
     );
 }
@@ -5273,6 +5574,7 @@ async fn test_custody_column_filtering_regular_node() {
     // Get custody columns for this epoch - regular nodes only store a subset
     let expected_custody_columns: HashSet<_> = harness
         .chain
+        .custody_context
         .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
         .iter()
         .copied()
@@ -5354,8 +5656,6 @@ async fn test_missing_columns_after_cgc_change() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5377,7 +5677,10 @@ async fn test_missing_columns_after_cgc_change() {
     let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot);
 
     harness.advance_slot();
     harness
@@ -5424,8 +5727,6 @@ async fn test_safely_backfill_data_column_custody_info() {
         return;
     }
 
-    let custody_context = harness.chain.data_availability_checker.custody_context();
-
     harness.advance_slot();
     harness
         .extend_chain(
@@ -5441,7 +5742,10 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
-    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+    harness
+        .chain
+        .custody_context
+        .register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot);
 
     let epoch_after_increase =
         (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());
@@ -5693,7 +5997,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
     check_db_invariants(&harness);
 }
 
-/// Test block replay with and without envelopes.
+/// Test that Gloas block replay works without envelopes.
 #[tokio::test]
 async fn test_gloas_block_replay_with_envelopes() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -5705,18 +6009,17 @@ async fn test_gloas_block_replay_with_envelopes() {
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let num_blocks = 16u64;
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     let mut state = genesis_state.clone();
 
     let mut last_block_root = Hash256::zero();
-    let mut pending_states = HashMap::new();
-    let mut full_states = HashMap::new();
+    let mut states = HashMap::new();
 
     for i in 1..=num_blocks {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, pending_state) =
+        let (block_contents, envelope, mut block_state) =
             harness.make_block_with_envelope(state, slot).await;
         let block_root = block_contents.0.canonical_root();
 
@@ -5725,18 +6028,16 @@ async fn test_gloas_block_replay_with_envelopes() {
             .await
             .unwrap();
 
-        let pending_state_root = pending_state.clone().update_tree_hash_cache().unwrap();
-        pending_states.insert(slot, (pending_state_root, pending_state.clone()));
+        let state_root = block_state.update_tree_hash_cache().unwrap();
+        states.insert(slot, (state_root, block_state.clone()));
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        let full_state = pending_state;
         harness
-            .process_envelope(block_root, envelope, &full_state, pending_state_root)
+            .process_envelope(block_root, envelope, &block_state, state_root)
             .await;
-        full_states.insert(slot, (pending_state_root, full_state.clone()));
 
         last_block_root = block_root;
-        state = full_state;
+        state = block_state;
     }
 
     let end_slot = Slot::new(num_blocks);
@@ -5756,7 +6057,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         .into_state();
     replayed.apply_pending_mutations().unwrap();
 
-    let (_, mut expected) = pending_states.get(&end_slot).unwrap().clone();
+    let (_, mut expected) = states.get(&end_slot).unwrap().clone();
     expected.apply_pending_mutations().unwrap();
 
     replayed.drop_all_caches().unwrap();
@@ -5782,10 +6083,9 @@ async fn test_gloas_hot_state_hierarchy() {
     // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
-    // TODO(gloas): enable finalisation by increasing this threshold
-    let some_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
 
     // Use manual block building with envelopes for the first few blocks,
     // then use the standard attested-blocks path once we've verified envelope handling.
@@ -5796,7 +6096,7 @@ async fn test_gloas_hot_state_hierarchy() {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, mut pending_state) =
+        let (block_contents, envelope, mut block_state) =
             harness.make_block_with_envelope(state.clone(), slot).await;
         let block_root = block_contents.0.canonical_root();
         let signed_block = block_contents.0.clone();
@@ -5809,24 +6109,22 @@ async fn test_gloas_hot_state_hierarchy() {
         // Attest to the current block at its own slot (same-slot attestation).
         // In Gloas, same-slot attestations have index=0 and route to Pending in
         // fork choice, correctly propagating weight through the Full path.
-        // Use pending_state (at slot i) so the target root resolves correctly.
-        let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
+        let state_root = block_state.update_tree_hash_cache().unwrap();
         harness.attest_block(
-            &pending_state,
-            pending_state_root,
+            &block_state,
+            state_root,
             block_root.into(),
             &signed_block,
-            &some_validators,
+            &all_validators,
         );
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        let full_state = pending_state;
         harness
-            .process_envelope(block_root, envelope, &full_state, pending_state_root)
+            .process_envelope(block_root, envelope, &block_state, state_root)
             .await;
 
         last_block_root = block_root;
-        state = full_state;
+        state = block_state;
     }
 
     // Head should be the block at slot 40 with full payload.
@@ -5856,7 +6154,7 @@ async fn test_gloas_hot_state_hierarchy() {
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
 fn check_split_slot(
     harness: &TestHarness,
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
 ) {
     let split_slot = store.get_split_slot();
     assert_eq!(

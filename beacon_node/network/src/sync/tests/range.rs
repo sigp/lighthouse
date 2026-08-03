@@ -21,13 +21,20 @@
 use super::lookups::SimulateConfig;
 use super::*;
 use crate::status::ToStatusMessage;
-use crate::sync::SyncMessage;
-use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::range_sync::RangeSyncType;
-use lighthouse_network::rpc::RPCError;
-use lighthouse_network::rpc::methods::StatusMessageV2;
-use lighthouse_network::{PeerId, SyncInfo};
-use types::{Epoch, EthSpec, Hash256, MinimalEthSpec as E, Slot};
+use crate::sync::{
+    SyncMessage, block_sidecar_coupling::CouplingError, manager::SLOT_IMPORT_TOLERANCE,
+    network_context::RpcResponseError, range_sync::RangeSyncType,
+};
+use lighthouse_network::{
+    PeerId, SyncInfo,
+    rpc::{RPCError, methods::StatusMessageV2},
+    service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+        DataColumnsByRangeRequester,
+    },
+};
+use std::collections::HashSet;
+use types::{Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec as E, Slot};
 
 /// MinimalEthSpec has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
@@ -50,7 +57,7 @@ impl TestRig {
             finalized_root: Hash256::random(),
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
-            earliest_available_slot: None,
+            earliest_available_slot: Some(Slot::new(0)),
         }
     }
 
@@ -248,6 +255,81 @@ impl TestRig {
             _ => None,
         })
         .expect("Peer with blacklisted root should receive Goodbye");
+    }
+
+    async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
+        self.build_chain(1).await;
+        self.import_blocks_up_to_slot(1).await;
+        let good_peer = self.new_connected_supernode_peer();
+        let bad_peer = self.new_connected_supernode_peer();
+        let columns = self
+            .network_blocks_by_slot
+            .get(&Slot::new(1))
+            .and_then(|block| block.data_columns())
+            .expect("slot 1 should have data columns");
+        let mut columns = columns.iter();
+        let good_column = columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .clone();
+        let good_column_index = *good_column.index();
+        let missing_column_index = *columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .index();
+
+        let batch_request_id = CustodyBackFillBatchRequestId {
+            id: 999,
+            batch_id: CustodyBackfillBatchId {
+                epoch: Epoch::new(0),
+                run_id: 1,
+            },
+        };
+        let good_request_id = DataColumnsByRangeRequestId {
+            id: 1000,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: good_peer,
+        };
+        let bad_request_id = DataColumnsByRangeRequestId {
+            id: 1001,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: bad_peer,
+        };
+
+        let context = self.sync_manager.network_context();
+        context.insert_test_custody_backfill_entry(
+            batch_request_id,
+            vec![
+                (good_request_id, vec![good_column_index]),
+                (bad_request_id, vec![missing_column_index]),
+            ],
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let pending_response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            good_request_id,
+            Ok(vec![good_column]),
+        );
+        assert!(pending_response.is_none());
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            bad_request_id,
+            Ok(vec![]),
+        );
+
+        assert!(
+            matches!(
+                response,
+                Some(Err(RpcResponseError::BlockComponentCouplingError(
+                    CouplingError::DataColumnPeerFailure { .. }
+                )))
+            ),
+            "expected DataColumnPeerFailure, got {response:?}",
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 0);
     }
 }
 
@@ -475,4 +557,87 @@ async fn not_enough_custody_peers_then_peers_arrive() {
     r.add_remaining_finalized_peers(remote_info);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
+}
+
+/// This is a regression test for the following race condition scenario:
+/// 1. A node is connected to 3 supernode peers: peer 1 is synced, & peer 2 and 3 are advanced.
+/// 2. No metadata has been received yet (i.e. no custody info), so the node cannot start data
+///    column range sync yet.
+/// 3. Now peer 1 sends the CGC via metadata response, we now have one peer on all custody subnets,
+///    BUT not on the finalized syncing chain.
+/// 4. The node tries to `send_batch` but fails repeatedly with `NoPeers`, as there's no peer
+///    that is able to serve columns for the advanced epochs. The chain is removed after 5 failed attempts.
+/// 5. Now peer 2 & 3 send CGC updates, BUT because there's no syncing chain, nothing happens -
+///    sync is stuck until finding new peers.
+///
+/// The expected behaviour in this scenario should be:
+/// 4. not finding suitable peers, chain is kept and batch remains in AwaitingDownload
+/// 5. finalized sync should resume as soon as CGC updates are received from peer 2 or 3.
+#[tokio::test]
+async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() {
+    let mut r = TestRig::default();
+    if !r.fork_name.fulu_enabled() {
+        return;
+    }
+
+    // GIVEN: the node is connected to 3 supernode peers:
+    let advanced_epochs: usize = 2;
+    let sync_epochs = advanced_epochs + 3;
+    let sync_slots = sync_epochs * SLOTS_PER_EPOCH - 1;
+    r.build_chain(sync_slots).await;
+    r.harness.set_current_slot(Slot::new(sync_slots as u64 + 1));
+
+    // Peer 1 is synced (same finalized epoch), but its earliest available slot means it
+    // cannot serve the batches needed for this sync.
+    let peer_1 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    let mut remote_info = r.local_info().clone();
+    remote_info.earliest_available_slot = Some(Slot::new(sync_slots as u64));
+    r.send_sync_message(SyncMessage::AddPeer(peer_1, remote_info));
+
+    // Peer 2 is advanced (local finalized epoch + 2)
+    let peer_2 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    let remote_info = r.finalized_remote_info_advanced_by((advanced_epochs as u64).into());
+    r.send_sync_message(SyncMessage::AddPeer(peer_2, remote_info.clone()));
+    // We expect a finalized chain to be created with peer 2, but no requests sent out yet due to missing custody info.
+    r.assert_state(RangeSyncType::Finalized);
+    r.assert_empty_network();
+
+    // Peer 3 is connected and advanced
+    let peer_3 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    r.send_sync_message(SyncMessage::AddPeer(peer_3, remote_info));
+    // We are still in finalized sync state (now with peer 3 added)
+    r.assert_state(RangeSyncType::Finalized);
+
+    for (i, p) in [peer_1, peer_2, peer_3].iter().enumerate() {
+        let peer_idx = i + 1;
+        r.log(&format!("Peer {peer_idx}: {p:?}"));
+    }
+
+    // WHEN: peer 1 sends its CGC via metadata response
+    let all_custody_subnets = (0..r.harness.spec.data_column_sidecar_subnet_count)
+        .map(|i| i.into())
+        .collect::<HashSet<_>>();
+    r.send_peer_cgc_update_to_sync(&peer_1, all_custody_subnets.clone());
+
+    // We still don't have any peers on the syncing chain with custody columns (only peer 1)
+    // The node won't send the batch and will remain in the finalized sync state (this was failing before!)
+    r.assert_state(RangeSyncType::Finalized);
+    r.assert_empty_network();
+
+    // Now we receive peer 2 & 3's CGC updates, the node will resume syncing from these two peers
+    r.send_peer_cgc_update_to_sync(&peer_2, all_custody_subnets.clone());
+    r.send_peer_cgc_update_to_sync(&peer_3, all_custody_subnets);
+
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_range_sync_completed();
+}
+
+#[tokio::test]
+async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_peer_failure_cleans_up_request()
+        .await;
 }

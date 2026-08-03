@@ -58,6 +58,8 @@ pub struct Eth1DataReset;
 #[derive(Debug)]
 pub struct PendingBalanceDeposits;
 #[derive(Debug)]
+pub struct PendingDepositsChurn;
+#[derive(Debug)]
 pub struct PendingConsolidations;
 #[derive(Debug)]
 pub struct EffectiveBalanceUpdates;
@@ -93,6 +95,7 @@ type_name!(RegistryUpdates, "registry_updates");
 type_name!(Slashings, "slashings");
 type_name!(Eth1DataReset, "eth1_data_reset");
 type_name!(PendingBalanceDeposits, "pending_deposits");
+type_name!(PendingDepositsChurn, "pending_deposits_churn");
 type_name!(PendingConsolidations, "pending_consolidations");
 type_name!(EffectiveBalanceUpdates, "effective_balance_updates");
 type_name!(SlashingsReset, "slashings_reset");
@@ -178,6 +181,20 @@ impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
 }
 
 impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                pending_deposits: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for PendingDepositsChurn {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         process_epoch_single_pass(
             state,
@@ -387,7 +404,9 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         }
 
         if !fork_name.gloas_enabled()
-            && (T::name() == "builder_pending_payments" || T::name() == "ptc_window")
+            && (T::name() == "builder_pending_payments"
+                || T::name() == "ptc_window"
+                || T::name() == "pending_deposits_churn")
         {
             return false;
         }
@@ -403,6 +422,9 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         // Processing requires the committee caches.
         pre_state.build_all_committee_caches(spec).unwrap();
+
+        // Proposer index computation (e.g. proposer lookahead) requires the slashings cache post-Gloas
+        pre_state.build_slashings_cache().unwrap();
 
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();

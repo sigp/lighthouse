@@ -155,7 +155,8 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         | ForkName::Deneb
         | ForkName::Electra
         | ForkName::Fulu
-        | ForkName::Gloas => RpcLimits::new(
+        | ForkName::Gloas
+        | ForkName::Heze => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN,
             *SIGNED_BEACON_BLOCK_BELLATRIX_MAX,
         ),
@@ -184,7 +185,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -204,7 +205,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -225,7 +226,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => RpcLimits::new(
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -242,7 +243,7 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
         }
     }
@@ -262,6 +263,9 @@ pub enum Protocol {
     /// The `BlocksByRoot` protocol name.
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
+    /// The `BlocksByHead` protocol name.
+    #[strum(serialize = "beacon_blocks_by_head")]
+    BlocksByHead,
     /// The `BlobsByRange` protocol name.
     #[strum(serialize = "blob_sidecars_by_range")]
     BlobsByRange,
@@ -306,6 +310,7 @@ impl Protocol {
             Protocol::Goodbye => None,
             Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::BlocksByHead => Some(ResponseTermination::BlocksByHead),
             Protocol::PayloadEnvelopesByRange => Some(ResponseTermination::PayloadEnvelopesByRange),
             Protocol::PayloadEnvelopesByRoot => Some(ResponseTermination::PayloadEnvelopesByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
@@ -338,6 +343,7 @@ pub enum SupportedProtocol {
     BlocksByRangeV2,
     BlocksByRootV1,
     BlocksByRootV2,
+    BlocksByHeadV1,
     PayloadEnvelopesByRangeV1,
     PayloadEnvelopesByRootV1,
     BlobsByRangeV1,
@@ -366,6 +372,7 @@ impl SupportedProtocol {
             SupportedProtocol::PayloadEnvelopesByRootV1 => "1",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
+            SupportedProtocol::BlocksByHeadV1 => "1",
             SupportedProtocol::BlobsByRangeV1 => "1",
             SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRootV1 => "1",
@@ -390,6 +397,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::BlocksByHeadV1 => Protocol::BlocksByHead,
             SupportedProtocol::PayloadEnvelopesByRangeV1 => Protocol::PayloadEnvelopesByRange,
             SupportedProtocol::PayloadEnvelopesByRootV1 => Protocol::PayloadEnvelopesByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
@@ -457,6 +465,13 @@ impl SupportedProtocol {
                     Encoding::SSZSnappy,
                 ),
             ]);
+        }
+        // BeaconBlocksByHead is new in Fulu (consensus-specs PR 5181).
+        if fork_context.fork_exists(ForkName::Fulu) {
+            supported.push(ProtocolId::new(
+                SupportedProtocol::BlocksByHeadV1,
+                Encoding::SSZSnappy,
+            ));
         }
         supported
     }
@@ -564,6 +579,10 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
+            Protocol::BlocksByHead => RpcLimits::new(
+                <BlocksByHeadRequest as Encode>::ssz_fixed_len(),
+                <BlocksByHeadRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::PayloadEnvelopesByRange => RpcLimits::new(
                 <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
                 <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
@@ -609,6 +628,7 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
+            Protocol::BlocksByHead => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::PayloadEnvelopesByRange => rpc_payload_limits(),
             Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
@@ -648,6 +668,7 @@ impl ProtocolId {
         match self.versioned_protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::BlocksByHeadV1
             | SupportedProtocol::PayloadEnvelopesByRangeV1
             | SupportedProtocol::PayloadEnvelopesByRootV1
             | SupportedProtocol::BlobsByRangeV1
@@ -706,20 +727,17 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     spec: &ChainSpec,
 ) -> RpcLimits {
     let fork_name = spec.fork_name_at_epoch(current_digest_epoch);
+    let max_blobs = spec.max_blobs_per_block(current_digest_epoch) as usize;
 
     if fork_name.gloas_enabled() {
         RpcLimits::new(
             DataColumnSidecarGloas::<E>::min_size(),
-            DataColumnSidecarGloas::<E>::max_size(
-                spec.max_blobs_per_block(current_digest_epoch) as usize
-            ),
+            DataColumnSidecarFulu::<E>::max_size(max_blobs),
         )
     } else {
         RpcLimits::new(
             DataColumnSidecarFulu::<E>::min_size(),
-            DataColumnSidecarFulu::<E>::max_size(
-                spec.max_blobs_per_block(current_digest_epoch) as usize
-            ),
+            DataColumnSidecarFulu::<E>::max_size(max_blobs),
         )
     }
 }
@@ -801,6 +819,7 @@ pub enum RequestType<E: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlocksByHead(BlocksByHeadRequest),
     PayloadEnvelopesByRange(PayloadEnvelopesByRangeRequest),
     PayloadEnvelopesByRoot(PayloadEnvelopesByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
@@ -826,6 +845,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
+            RequestType::BlocksByHead(req) => req.count,
             RequestType::PayloadEnvelopesByRange(req) => req.count,
             RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.len() as u64,
             RequestType::BlobsByRange(req) => req.max_blobs_requested(digest_epoch, spec),
@@ -857,6 +877,7 @@ impl<E: EthSpec> RequestType<E> {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
+            RequestType::BlocksByHead(_) => SupportedProtocol::BlocksByHeadV1,
             RequestType::PayloadEnvelopesByRange(_) => SupportedProtocol::PayloadEnvelopesByRangeV1,
             RequestType::PayloadEnvelopesByRoot(_) => SupportedProtocol::PayloadEnvelopesByRootV1,
             RequestType::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
@@ -890,6 +911,7 @@ impl<E: EthSpec> RequestType<E> {
             // variants that have `multiple_responses()` can have values.
             RequestType::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             RequestType::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RequestType::BlocksByHead(_) => ResponseTermination::BlocksByHead,
             RequestType::PayloadEnvelopesByRange(_) => ResponseTermination::PayloadEnvelopesByRange,
             RequestType::PayloadEnvelopesByRoot(_) => ResponseTermination::PayloadEnvelopesByRoot,
             RequestType::BlobsByRange(_) => ResponseTermination::BlobsByRange,
@@ -926,6 +948,10 @@ impl<E: EthSpec> RequestType<E> {
                 ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
+            RequestType::BlocksByHead(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlocksByHeadV1,
+                Encoding::SSZSnappy,
+            )],
             RequestType::PayloadEnvelopesByRange(_) => vec![ProtocolId::new(
                 SupportedProtocol::PayloadEnvelopesByRangeV1,
                 Encoding::SSZSnappy,
@@ -984,6 +1010,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::Goodbye(_) => false,
             RequestType::BlocksByRange(_) => false,
             RequestType::BlocksByRoot(_) => false,
+            RequestType::BlocksByHead(_) => false,
             RequestType::BlobsByRange(_) => false,
             RequestType::PayloadEnvelopesByRange(_) => false,
             RequestType::PayloadEnvelopesByRoot(_) => false,
@@ -1097,6 +1124,7 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RequestType::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RequestType::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            RequestType::BlocksByHead(req) => write!(f, "Blocks by head: {}", req),
             RequestType::PayloadEnvelopesByRange(req) => {
                 write!(f, "Payload envelopes by range: {:?}", req)
             }
@@ -1170,6 +1198,8 @@ mod tests {
             PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
                 fork_context.fork_exists(ForkName::Gloas)
             }
+
+            BlocksByHeadV1 => fork_context.fork_exists(ForkName::Fulu),
 
             // Light client protocols are not in currently_supported()
             LightClientBootstrapV1

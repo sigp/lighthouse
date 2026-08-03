@@ -21,6 +21,8 @@ pub enum MessageType {
     ValidatorRegistration,
     // TODO(gloas) verify w/ web3signer specs
     ExecutionPayloadEnvelope,
+    PayloadAttestation,
+    ProposerPreferences,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -34,6 +36,7 @@ pub enum ForkName {
     Electra,
     Fulu,
     Gloas,
+    Heze,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -78,6 +81,8 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     ContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
     ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
+    PayloadAttestationData(&'a PayloadAttestationData),
+    ProposerPreferences(&'a ProposerPreferences),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -123,6 +128,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
                 block: None,
                 block_header: Some(block.block_header()),
             }),
+            BeaconBlock::Heze(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Heze,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
         }
     }
 
@@ -144,6 +154,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }
             Web3SignerObject::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
             Web3SignerObject::ExecutionPayloadEnvelope(_) => MessageType::ExecutionPayloadEnvelope,
+            Web3SignerObject::PayloadAttestationData(_) => MessageType::PayloadAttestation,
+            Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
         }
     }
 }

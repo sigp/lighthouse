@@ -8,8 +8,9 @@
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 //!
-//! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
-//! block will be re-queued until their block is imported, or until they expire.
+//! Aggregated and unaggregated attestations, as well as payload attestation messages, that failed
+//! verification due to referencing an unknown block will be re-queued until their block is
+//! imported, or until they expire.
 use crate::metrics;
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
@@ -36,6 +37,7 @@ use types::{EthSpec, Hash256, Slot};
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const GOSSIP_ENVELOPES: &str = "gossip_envelopes";
+const EARLY_ENVELOPES: &str = "early_envelopes";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
@@ -46,11 +48,16 @@ const LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT: &str = "lc_updates_per_parent_root";
 /// This is to account for any slight drift in the system clock.
 pub const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
-/// For how long to queue aggregated and unaggregated attestations for re-processing.
+/// For how long to queue aggregated and unaggregated attestations, as well as payload attestation
+/// messages, for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
+
+/// Data column timeout as a multiplier of slot duration. Columns waiting for their block will be
+/// sent for processing after this many slots worth of time, even if the block hasn't arrived.
+const QUEUED_DATA_COLUMN_DELAY_SLOTS: u32 = 1;
 
 /// Envelope timeout as a multiplier of slot duration. Envelopes waiting for their block will be
 /// sent for processing after this many slots worth of time, even if the block hasn't arrived.
@@ -75,6 +82,9 @@ const MAXIMUM_QUEUED_ENVELOPES: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
+
+/// How many columns we keep before new ones get dropped.
+const MAXIMUM_QUEUED_DATA_COLUMNS: usize = 256;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
@@ -103,15 +113,18 @@ pub enum ReprocessQueueMessage {
     EarlyBlock(QueuedGossipBlock),
     /// An execution payload envelope that references a block not yet in fork choice.
     UnknownBlockForEnvelope(QueuedGossipEnvelope),
+    /// A verified execution payload envelope that arrived before its slot and should be queued
+    /// until the slot arrives.
+    EarlyEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
     /// A block that was successfully processed. We use this to handle attestations updates
     /// for unknown blocks.
-    BlockImported {
-        block_root: Hash256,
-        parent_root: Hash256,
-    },
+    BlockImported { block_root: Hash256 },
+    /// A block's execution payload envelope was imported. We use this to release attestations that
+    /// claim payload-present (`index == 1`) for a block whose payload had not yet been seen.
+    PayloadEnvelopeImported { block_root: Hash256 },
     /// A new `LightClientOptimisticUpdate` has been produced. We use this to handle light client
     /// updates for unknown parent blocks.
     NewLightClientOptimisticUpdate { parent_root: Hash256 },
@@ -119,10 +132,20 @@ pub enum ReprocessQueueMessage {
     UnknownBlockUnaggregate(QueuedUnaggregate),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate),
+    /// A payload attestation message that references an unknown block.
+    UnknownBlockPayloadAttestation(QueuedPayloadAttestation),
+    /// An unaggregated attestation (`index == 1`) whose block's execution payload envelope has not
+    /// been seen yet.
+    UnknownPayloadUnaggregate(QueuedUnaggregate),
+    /// An aggregated attestation (`index == 1`) whose block's execution payload envelope has not
+    /// been seen yet.
+    UnknownPayloadAggregate(QueuedAggregate),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
+    /// A gossip data column that references an unknown block.
+    UnknownBlockDataColumn(QueuedGossipDataColumn),
     /// A delayed column reconstruction that needs checking
     DelayColumnReconstruction(QueuedColumnReconstruction),
 }
@@ -135,9 +158,11 @@ pub enum ReadyWork {
     IgnoredRpcBlock(IgnoredRpcBlock),
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
+    PayloadAttestation(QueuedPayloadAttestation),
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
+    DataColumn(QueuedGossipDataColumn),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -150,6 +175,13 @@ pub struct QueuedUnaggregate {
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedAggregate {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
+}
+
+/// A payload attestation message for which the corresponding block was not seen while processing,
+/// queued for later.
+pub struct QueuedPayloadAttestation {
     pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
 }
@@ -200,6 +232,12 @@ pub struct QueuedColumnReconstruction {
     pub process_fn: AsyncFn,
 }
 
+/// A gossip data column that references an unknown block, queued for later reprocessing.
+pub struct QueuedGossipDataColumn {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
+}
+
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     type Error = WorkEvent<E>;
 
@@ -229,6 +267,8 @@ enum InboundEvent {
     ReadyGossipBlock(QueuedGossipBlock),
     /// An envelope whose block has been imported and is now ready for processing.
     ReadyEnvelope(Hash256),
+    /// An early envelope that was queued until its slot and is now ready for processing.
+    ReadyEarlyEnvelope(QueuedGossipEnvelope),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
     ReadyRpcBlock(QueuedRpcBlock),
@@ -240,6 +280,8 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
+    /// A gossip data column that is ready for re-processing.
+    ReadyDataColumn(Hash256),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -256,6 +298,8 @@ struct ReprocessQueue<S> {
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
     /// Queue to manage envelope timeouts (keyed by block root).
     envelope_delay_queue: DelayQueue<Hash256>,
+    /// Queue to manage scheduled early envelopes.
+    early_envelope_delay_queue: DelayQueue<QueuedGossipEnvelope>,
     /// Queue to manage scheduled early blocks.
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock>,
     /// Queue to manage scheduled attestations.
@@ -264,26 +308,39 @@ struct ReprocessQueue<S> {
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
     /// Queue to manage scheduled column reconstructions.
     column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
+    /// Queue to manage gossip data column timeouts.
+    data_columns_delay_queue: DelayQueue<Hash256>,
 
     /* Queued items */
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
     /// Queued envelopes awaiting their block, keyed by block root.
     awaiting_envelopes_per_root: HashMap<Hash256, (QueuedGossipEnvelope, DelayKey)>,
+    /// Block roots of queued early envelopes.
+    queued_early_envelope_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
-    /// Attestations (aggregated and unaggregated) per root.
+    /// Queued payload attestation messages.
+    queued_payload_attestations: FnvHashMap<usize, (QueuedPayloadAttestation, DelayKey)>,
+    /// Attestations (aggregated, unaggregated and payload attestation messages) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
+    /// Attestations (aggregated and unaggregated) awaiting a block's execution payload envelope,
+    /// keyed by block root. Released on `PayloadEnvelopeImported`.
+    awaiting_attestations_per_payload: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
-    /// Column reconstruction per block root.
-    queued_column_reconstructions: HashMap<Hash256, DelayKey>,
+    /// Column reconstruction per block root. `None` means reconstruction was already dispatched.
+    queued_column_reconstructions: HashMap<Hash256, Option<DelayKey>>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
+    /// Queued gossip data columns awaiting their block, keyed by block root.
+    awaiting_data_columns_per_root: HashMap<Hash256, (Vec<QueuedGossipDataColumn>, DelayKey)>,
+    /// Total number of queued gossip data columns across all roots.
+    queued_data_columns_count: usize,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -291,9 +348,11 @@ struct ReprocessQueue<S> {
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
+    early_envelope_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
+    data_column_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
     slot_clock: Arc<S>,
 }
@@ -304,6 +363,23 @@ pub type QueuedLightClientUpdateId = usize;
 enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
+    PayloadAttestation(usize),
+}
+
+/// An attestation queued for re-processing, of either aggregation kind, or a payload
+/// attestation message.
+enum QueuedAttestation {
+    Aggregate(QueuedAggregate),
+    Unaggregate(QueuedUnaggregate),
+    PayloadAttestation(QueuedPayloadAttestation),
+}
+
+/// The component an attestation is waiting on before it can be re-processed.
+enum AwaitingComponent {
+    /// The attestation's head block has not been seen.
+    Block,
+    /// The block's execution payload envelope has not been seen (`index == 1`, post-Gloas).
+    Payload,
 }
 
 impl QueuedAggregate {
@@ -313,6 +389,12 @@ impl QueuedAggregate {
 }
 
 impl QueuedUnaggregate {
+    pub fn beacon_block_root(&self) -> &Hash256 {
+        &self.beacon_block_root
+    }
+}
+
+impl QueuedPayloadAttestation {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.beacon_block_root
     }
@@ -343,6 +425,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         match self.envelope_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(block_root)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyEnvelope(block_root.into_inner())));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.early_envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(queued_envelope)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyEarlyEnvelope(
+                    queued_envelope.into_inner(),
+                )));
             }
             Poll::Ready(None) | Poll::Pending => (),
         }
@@ -383,6 +474,13 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
                 return Poll::Ready(Some(InboundEvent::ReadyColumnReconstruction(
                     reconstruction.into_inner(),
                 )));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.data_columns_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(block_root)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyDataColumn(block_root.into_inner())));
             }
             Poll::Ready(None) | Poll::Pending => (),
         }
@@ -451,29 +549,105 @@ impl<S: SlotClock> ReprocessQueue<S> {
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
             envelope_delay_queue: DelayQueue::new(),
+            early_envelope_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             column_reconstructions_delay_queue: DelayQueue::new(),
+            data_columns_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             awaiting_envelopes_per_root: HashMap::new(),
+            queued_early_envelope_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
+            queued_payload_attestations: FnvHashMap::default(),
             awaiting_attestations_per_root: HashMap::new(),
+            awaiting_attestations_per_payload: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            awaiting_data_columns_per_root: HashMap::new(),
+            queued_data_columns_count: 0,
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
+            early_envelope_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
+            data_column_delay_debounce: TimeLatch::default(),
             next_backfill_batch_event: None,
             slot_clock,
         }
+    }
+
+    /// Queue an attestation for re-processing once the component it is waiting on (`awaiting`) is
+    /// imported. Shared by the unknown-block and unknown-payload paths for both aggregate and
+    /// unaggregate attestations.
+    fn queue_awaiting_attestation(
+        &mut self,
+        attestation: QueuedAttestation,
+        awaiting: AwaitingComponent,
+    ) {
+        if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+            if self.attestation_delay_debounce.elapsed() {
+                error!(
+                    queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                    msg = "system resources may be saturated",
+                    "Attestation delay queue is full"
+                );
+            }
+            // Drop the attestation.
+            return;
+        }
+
+        let id = self.next_attestation;
+        let (att_id, beacon_block_root) = match &attestation {
+            QueuedAttestation::Aggregate(a) => {
+                (QueuedAttestationId::Aggregate(id), *a.beacon_block_root())
+            }
+            QueuedAttestation::Unaggregate(u) => {
+                (QueuedAttestationId::Unaggregate(id), *u.beacon_block_root())
+            }
+            QueuedAttestation::PayloadAttestation(p) => (
+                QueuedAttestationId::PayloadAttestation(id),
+                *p.beacon_block_root(),
+            ),
+        };
+
+        // Register the delay.
+        let delay_key = self
+            .attestations_delay_queue
+            .insert(att_id, QUEUED_ATTESTATION_DELAY);
+
+        // Register this attestation against the component it awaits.
+        match awaiting {
+            AwaitingComponent::Block => &mut self.awaiting_attestations_per_root,
+            AwaitingComponent::Payload => &mut self.awaiting_attestations_per_payload,
+        }
+        .entry(beacon_block_root)
+        .or_default()
+        .push(att_id);
+
+        // Store the attestation and its info.
+        match attestation {
+            QueuedAttestation::Aggregate(queued_aggregate) => {
+                self.queued_aggregates
+                    .insert(id, (queued_aggregate, delay_key));
+            }
+            QueuedAttestation::Unaggregate(queued_unaggregate) => {
+                self.queued_unaggregates
+                    .insert(id, (queued_unaggregate, delay_key));
+            }
+            QueuedAttestation::PayloadAttestation(queued_payload_attestation) => {
+                self.queued_payload_attestations
+                    .insert(id, (queued_payload_attestation, delay_key));
+            }
+        }
+
+        self.next_attestation += 1;
     }
 
     fn handle_message(&mut self, msg: InboundEvent) {
@@ -533,6 +707,56 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            // A verified envelope that has been indicated as early (envelope slot > chain slot)
+            // and should be processed when the appropriate slot arrives.
+            InboundEvent::Msg(EarlyEnvelope(early_envelope)) => {
+                let envelope_slot = early_envelope.beacon_block_slot;
+                let block_root = early_envelope.beacon_block_root;
+
+                // Don't add the same envelope to the queue twice. This prevents DoS attacks.
+                if self.queued_early_envelope_block_roots.contains(&block_root) {
+                    return;
+                }
+
+                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(envelope_slot) {
+                    // Check to ensure this won't over-fill the queue.
+                    if self.queued_early_envelope_block_roots.len() >= MAXIMUM_QUEUED_ENVELOPES {
+                        if self.early_envelope_debounce.elapsed() {
+                            warn!(
+                                queue_size = MAXIMUM_QUEUED_ENVELOPES,
+                                msg = "system resources may be saturated",
+                                "Early envelopes queue is full"
+                            );
+                        }
+                        // Drop the envelope.
+                        return;
+                    }
+
+                    self.queued_early_envelope_block_roots.insert(block_root);
+                    // Queue the envelope until the start of the appropriate slot, plus
+                    // `ADDITIONAL_QUEUED_BLOCK_DELAY`.
+                    self.early_envelope_delay_queue.insert(
+                        early_envelope,
+                        duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
+                    );
+                } else {
+                    // If there is no duration till the next slot, check to see if the slot
+                    // has already arrived. If it has already arrived, send it out for
+                    // immediate processing.
+                    //
+                    // If we can't read the slot or the slot hasn't arrived, simply drop the
+                    // envelope.
+                    if let Some(now) = self.slot_clock.now()
+                        && envelope_slot <= now
+                        && self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Envelope(early_envelope))
+                            .is_err()
+                    {
+                        error!(?block_root, "Failed to send early envelope");
+                    }
+                }
+            }
             // An envelope that references an unknown block. Queue it until the block is
             // imported, or until the timeout expires.
             InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
@@ -551,22 +775,16 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     return;
                 }
 
-                // When the queue is full, evict the oldest entry to make room for newer envelopes.
+                // When the queue is full, drop the new envelope.
                 if self.awaiting_envelopes_per_root.len() >= MAXIMUM_QUEUED_ENVELOPES {
                     if self.envelope_delay_debounce.elapsed() {
                         warn!(
                             queue_size = MAXIMUM_QUEUED_ENVELOPES,
                             msg = "system resources may be saturated",
-                            "Envelope delay queue is full, evicting oldest entry"
+                            "Envelope delay queue is full, dropping envelope"
                         );
                     }
-                    if let Some(oldest_root) =
-                        self.awaiting_envelopes_per_root.keys().next().copied()
-                        && let Some((_envelope, delay_key)) =
-                            self.awaiting_envelopes_per_root.remove(&oldest_root)
-                    {
-                        self.envelope_delay_queue.remove(&delay_key);
-                    }
+                    return;
                 }
 
                 // Register the timeout.
@@ -624,69 +842,61 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     error!("Failed to send rpc block to beacon processor");
                 }
             }
-            InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+            InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Aggregate(queued_aggregate),
+                    AwaitingComponent::Block,
+                ),
+            InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Unaggregate(queued_unaggregate),
+                    AwaitingComponent::Block,
+                ),
+            InboundEvent::Msg(UnknownBlockPayloadAttestation(queued_payload_attestation)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::PayloadAttestation(queued_payload_attestation),
+                    AwaitingComponent::Block,
+                ),
+            InboundEvent::Msg(UnknownPayloadAggregate(queued_aggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Aggregate(queued_aggregate),
+                    AwaitingComponent::Payload,
+                ),
+            InboundEvent::Msg(UnknownPayloadUnaggregate(queued_unaggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Unaggregate(queued_unaggregate),
+                    AwaitingComponent::Payload,
+                ),
+            InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
+                let block_root = queued_data_column.beacon_block_root;
+
+                if self.queued_data_columns_count >= MAXIMUM_QUEUED_DATA_COLUMNS {
+                    if self.data_column_delay_debounce.elapsed() {
+                        warn!(
+                            queue_size = MAXIMUM_QUEUED_DATA_COLUMNS,
                             msg = "system resources may be saturated",
-                            "Aggregate attestation delay queue is full"
+                            "Data column delay queue is full, dropping column"
                         );
                     }
-                    // Drop the attestation.
                     return;
                 }
 
-                let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
+                if let Some((columns, _delay_key)) =
+                    self.awaiting_data_columns_per_root.get_mut(&block_root)
+                {
+                    // Append to existing entry; the timer for this root is already running.
+                    columns.push(queued_data_column);
+                } else {
+                    let delay_key = self.data_columns_delay_queue.insert(
+                        block_root,
+                        self.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+                    );
 
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation for the corresponding root.
-                self.awaiting_attestations_per_root
-                    .entry(*queued_aggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_aggregates
-                    .insert(self.next_attestation, (queued_aggregate, delay_key));
-
-                self.next_attestation += 1;
-            }
-            InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "system resources may be saturated",
-                            "Attestation delay queue is full"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
+                    self.awaiting_data_columns_per_root
+                        .insert(block_root, (vec![queued_data_column], delay_key));
                 }
 
-                let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
-
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation for the corresponding root.
-                self.awaiting_attestations_per_root
-                    .entry(*queued_unaggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_unaggregates
-                    .insert(self.next_attestation, (queued_unaggregate, delay_key));
-
-                self.next_attestation += 1;
+                self.queued_data_columns_count += 1;
             }
             InboundEvent::Msg(UnknownLightClientOptimisticUpdate(
                 queued_light_client_optimistic_update,
@@ -724,10 +934,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_lc_update += 1;
             }
-            InboundEvent::Msg(BlockImported {
-                block_root,
-                parent_root,
-            }) => {
+            InboundEvent::Msg(BlockImported { block_root }) => {
                 // Unqueue the envelope we have for this root, if any.
                 if let Some((envelope, delay_key)) =
                     self.awaiting_envelopes_per_root.remove(&block_root)
@@ -768,6 +975,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .map(|(unaggregate, delay_key)| {
                                     (ReadyWork::Unaggregate(unaggregate), delay_key)
                                 }),
+                            QueuedAttestationId::PayloadAttestation(id) => self
+                                .queued_payload_attestations
+                                .remove(&id)
+                                .map(|(payload_attestation, delay_key)| {
+                                    (
+                                        ReadyWork::PayloadAttestation(payload_attestation),
+                                        delay_key,
+                                    )
+                                }),
                         } {
                             // Remove the delay.
                             self.attestations_delay_queue.remove(&delay_key);
@@ -792,11 +1008,84 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if failed_to_send_count > 0 {
                         error!(
                             hint = "system may be overloaded",
-                            ?parent_root,
                             ?block_root,
                             failed_count = failed_to_send_count,
                             sent_count,
                             "Ignored scheduled attestation(s) for block"
+                        );
+                    }
+                }
+
+                // Unqueue the data columns we have for this root, if any.
+                if let Some((data_columns, delay_key)) =
+                    self.awaiting_data_columns_per_root.remove(&block_root)
+                {
+                    self.data_columns_delay_queue.remove(&delay_key);
+                    self.queued_data_columns_count = self
+                        .queued_data_columns_count
+                        .saturating_sub(data_columns.len());
+                    for data_column in data_columns {
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::DataColumn(data_column))
+                            .is_err()
+                        {
+                            error!(?block_root, "Failed to send data column for reprocessing");
+                        }
+                    }
+                }
+            }
+            InboundEvent::Msg(PayloadEnvelopeImported { block_root }) => {
+                // Release attestations that were awaiting this block's execution payload envelope.
+                if let Some(queued_ids) = self.awaiting_attestations_per_payload.remove(&block_root)
+                {
+                    let mut failed_to_send_count = 0;
+
+                    for id in queued_ids {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                        );
+
+                        if let Some((work, delay_key)) = match id {
+                            QueuedAttestationId::Aggregate(id) => self
+                                .queued_aggregates
+                                .remove(&id)
+                                .map(|(aggregate, delay_key)| {
+                                    (ReadyWork::Aggregate(aggregate), delay_key)
+                                }),
+                            QueuedAttestationId::Unaggregate(id) => self
+                                .queued_unaggregates
+                                .remove(&id)
+                                .map(|(unaggregate, delay_key)| {
+                                    (ReadyWork::Unaggregate(unaggregate), delay_key)
+                                }),
+                            // Payload attestations are only ever queued awaiting a block.
+                            QueuedAttestationId::PayloadAttestation(_) => None,
+                        } {
+                            // Remove the delay.
+                            self.attestations_delay_queue.remove(&delay_key);
+
+                            // Send the work.
+                            if self.ready_work_tx.try_send(work).is_err() {
+                                failed_to_send_count += 1;
+                            }
+                        } else {
+                            // There is a mismatch between the attestation ids registered for this
+                            // root and the queued attestations. This should never happen.
+                            error!(
+                                ?block_root,
+                                att_id = ?id,
+                                "Unknown queued attestation for payload envelope"
+                            );
+                        }
+                    }
+
+                    if failed_to_send_count > 0 {
+                        error!(
+                            hint = "system may be overloaded",
+                            ?block_root,
+                            failed_count = failed_to_send_count,
+                            "Ignored scheduled attestation(s) for payload envelope"
                         );
                     }
                 }
@@ -865,20 +1154,20 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     && duration_from_current_slot >= reconstruction_deadline
                     && current_slot == request.slot
                 {
-                    // If we are at least `reconstruction_deadline` seconds into the current slot,
-                    // and the reconstruction request is for the current slot, process reconstruction immediately.
                     reconstruction_delay = Duration::from_secs(0);
                 }
                 match self.queued_column_reconstructions.entry(request.block_root) {
-                    Entry::Occupied(key) => {
-                        self.column_reconstructions_delay_queue
-                            .reset(key.get(), reconstruction_delay);
+                    Entry::Occupied(entry) => {
+                        if let Some(delay_key) = entry.get() {
+                            self.column_reconstructions_delay_queue
+                                .reset(delay_key, reconstruction_delay);
+                        }
                     }
                     Entry::Vacant(vacant) => {
                         let delay_key = self
                             .column_reconstructions_delay_queue
                             .insert(request, reconstruction_delay);
-                        vacant.insert(delay_key);
+                        vacant.insert(Some(delay_key));
                     }
                 }
             }
@@ -919,6 +1208,22 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            // An early envelope's slot has arrived. Send it for processing.
+            InboundEvent::ReadyEarlyEnvelope(early_envelope) => {
+                let block_root = early_envelope.beacon_block_root;
+
+                if !self.queued_early_envelope_block_roots.remove(&block_root) {
+                    error!(?block_root, "Unknown early envelope in delay queue");
+                }
+
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::Envelope(early_envelope))
+                    .is_err()
+                {
+                    error!(?block_root, "Failed to send early envelope for processing");
+                }
+            }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
@@ -944,6 +1249,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 ReadyWork::Unaggregate(unaggregate),
                             )
                         }),
+                    QueuedAttestationId::PayloadAttestation(id) => self
+                        .queued_payload_attestations
+                        .remove(&id)
+                        .map(|(payload_attestation, _delay_key)| {
+                            (
+                                *payload_attestation.beacon_block_root(),
+                                ReadyWork::PayloadAttestation(payload_attestation),
+                            )
+                        }),
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
@@ -953,18 +1267,25 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
 
-                    if let Entry::Occupied(mut queued_atts) =
-                        self.awaiting_attestations_per_root.entry(root)
-                        && let Some(index) =
-                            queued_atts.get().iter().position(|&id| id == queued_id)
-                    {
-                        let queued_atts_mut = queued_atts.get_mut();
-                        queued_atts_mut.swap_remove(index);
+                    // The attestation is awaiting either its block or its payload envelope; prune it
+                    // from whichever map holds it (the other lookup is a no-op) to avoid leaking the
+                    // entry on expiry.
+                    for awaiting in [
+                        &mut self.awaiting_attestations_per_root,
+                        &mut self.awaiting_attestations_per_payload,
+                    ] {
+                        if let Entry::Occupied(mut queued_atts) = awaiting.entry(root)
+                            && let Some(index) =
+                                queued_atts.get().iter().position(|&id| id == queued_id)
+                        {
+                            let queued_atts_mut = queued_atts.get_mut();
+                            queued_atts_mut.swap_remove(index);
 
-                        // If the vec is empty after this attestation's removal, we need to delete
-                        // the entry to prevent bloating the hashmap indefinitely.
-                        if queued_atts_mut.is_empty() {
-                            queued_atts.remove_entry();
+                            // If the vec is empty after this attestation's removal, we need to
+                            // delete the entry to prevent bloating the hashmap indefinitely.
+                            if queued_atts_mut.is_empty() {
+                                queued_atts.remove_entry();
+                            }
                         }
                     }
                 }
@@ -1034,12 +1355,16 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                     // The message was not sent and we didn't get the correct
                     // return result. This is a logic error.
-                    _ => crit!("Unexpected return from try_send error"),
+                    _ => {
+                        crit!("Unexpected return from try_send error");
+                    }
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
                 self.queued_column_reconstructions
-                    .remove(&column_reconstruction.block_root);
+                    .retain(|_, v| v.is_some());
+                self.queued_column_reconstructions
+                    .insert(column_reconstruction.block_root, None);
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
@@ -1049,6 +1374,27 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         hint = "system may be overloaded",
                         "Ignored scheduled column reconstruction"
                     );
+                }
+            }
+            InboundEvent::ReadyDataColumn(block_root) => {
+                if let Some((data_columns, _)) =
+                    self.awaiting_data_columns_per_root.remove(&block_root)
+                {
+                    self.queued_data_columns_count = self
+                        .queued_data_columns_count
+                        .saturating_sub(data_columns.len());
+                    for data_column in data_columns {
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::DataColumn(data_column))
+                            .is_err()
+                        {
+                            error!(
+                                hint = "system may be overloaded",
+                                "Ignored expired gossip data column"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1062,6 +1408,11 @@ impl<S: SlotClock> ReprocessQueue<S> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[GOSSIP_ENVELOPES],
             self.awaiting_envelopes_per_root.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[EARLY_ENVELOPES],
+            self.early_envelope_delay_queue.len() as i64,
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
@@ -1240,6 +1591,176 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn early_envelope_released_when_slot_arrives() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(16);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(16);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue an envelope that arrived one slot early.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        let block_root = Hash256::repeat_byte(0xab);
+        work_reprocessing_tx
+            .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                beacon_block_slot: envelope_slot,
+                beacon_block_root: block_root,
+                process_fn: Box::pin(async {}),
+            }))
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        // The envelope is not released before its slot arrives.
+        assert!(ready_work_rx.try_recv().is_err());
+
+        // Advance to the start of the envelope's slot, plus the additional queuing delay.
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+            .await
+            .expect("the early envelope should be released when its slot arrives")
+            .expect("the reprocess scheduler should be alive");
+        match ready_work {
+            ReadyWork::Envelope(envelope) => {
+                assert_eq!(envelope.beacon_block_root, block_root)
+            }
+            _ => panic!("expected a ready envelope, got a different work type"),
+        }
+    }
+
+    #[tokio::test]
+    async fn early_envelope_deduplicated_by_block_root() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(16);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(16);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue two early envelopes for the same block root.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        let block_root = Hash256::repeat_byte(0xab);
+        for _ in 0..2 {
+            work_reprocessing_tx
+                .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                    beacon_block_slot: envelope_slot,
+                    beacon_block_root: block_root,
+                    process_fn: Box::pin(async {}),
+                }))
+                .unwrap();
+            tokio::task::yield_now().await;
+        }
+
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        // Only one envelope is released for the duplicated root.
+        let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+            .await
+            .expect("the early envelope should be released when its slot arrives")
+            .expect("the reprocess scheduler should be alive");
+        assert!(matches!(ready_work, ReadyWork::Envelope(_)));
+        assert!(ready_work_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn early_envelope_queue_is_bounded() {
+        create_test_tracing_subscriber();
+        let runtime = TestRuntime::default();
+        let (work_reprocessing_tx, work_reprocessing_rx) =
+            mpsc::channel(2 * MAXIMUM_QUEUED_ENVELOPES);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(2 * MAXIMUM_QUEUED_ENVELOPES);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Queue one more early envelope than the queue can hold, each for a distinct block root.
+        let envelope_slot = slot_clock.now().unwrap() + 1;
+        for i in 0..=MAXIMUM_QUEUED_ENVELOPES {
+            work_reprocessing_tx
+                .try_send(ReprocessQueueMessage::EarlyEnvelope(QueuedGossipEnvelope {
+                    beacon_block_slot: envelope_slot,
+                    beacon_block_root: Hash256::repeat_byte(i as u8),
+                    process_fn: Box::pin(async {}),
+                }))
+                .unwrap();
+            tokio::task::yield_now().await;
+        }
+
+        let duration_to_slot = slot_clock.duration_to_next_slot().unwrap();
+        advance_time(
+            &slot_clock,
+            duration_to_slot + ADDITIONAL_QUEUED_BLOCK_DELAY + Duration::from_millis(1),
+        )
+        .await;
+
+        // Exactly `MAXIMUM_QUEUED_ENVELOPES` envelopes are released; the excess one was dropped.
+        let mut released_roots = HashSet::new();
+        for _ in 0..MAXIMUM_QUEUED_ENVELOPES {
+            let ready_work = tokio::time::timeout(Duration::from_secs(60), ready_work_rx.recv())
+                .await
+                .expect("queued early envelopes should be released when their slot arrives")
+                .expect("the reprocess scheduler should be alive");
+            match ready_work {
+                ReadyWork::Envelope(envelope) => {
+                    released_roots.insert(envelope.beacon_block_root);
+                }
+                _ => panic!("expected a ready envelope, got a different work type"),
+            }
+        }
+        let expected_roots: HashSet<_> = (0..MAXIMUM_QUEUED_ENVELOPES)
+            .map(|i| Hash256::repeat_byte(i as u8))
+            .collect();
+        assert_eq!(released_roots, expected_roots);
+        assert!(ready_work_rx.try_recv().is_err());
+    }
+
     /// Advances slot clock and test clock time by the same duration.
     async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
         slot_clock.advance_time(duration);
@@ -1307,6 +1828,214 @@ mod tests {
 
         // The entry for the block root should be gone.
         assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    /// Tests that a queued payload attestation message is released when its block is imported.
+    #[tokio::test]
+    async fn payload_attestation_released_on_block_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert a payload attestation.
+        let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(QueuedPayloadAttestation {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.queued_payload_attestations.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Simulate block import.
+        let imported = ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+        };
+        queue.handle_message(InboundEvent::Msg(imported));
+
+        // The entry for the block root should be gone.
+        assert!(queue.queued_payload_attestations.is_empty());
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+        // Delay queue entry should also be cancelled.
+        assert_eq!(queue.attestations_delay_queue.len(), 0);
+    }
+
+    /// Tests that an expired payload attestation message is pruned from
+    /// `awaiting_attestations_per_root`.
+    #[tokio::test]
+    async fn prune_awaiting_payload_attestations_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert a payload attestation.
+        let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(QueuedPayloadAttestation {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the payload attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.queued_payload_attestations.is_empty());
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    // Regression test for the same memory leak as `prune_awaiting_attestations_per_root`, but for
+    // attestations awaiting a block's execution payload envelope.
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_payload() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert a payload-present attestation awaiting its payload envelope.
+        let att = ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_payload
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry should be pruned on expiry.
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // The payload envelope import releases attestations awaiting that block's payload.
+    #[tokio::test]
+    async fn release_awaiting_attestations_on_payload_envelope_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+
+        // Importing the payload envelope drains the awaiting attestations for that root.
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: beacon_block_root,
+            },
+        ));
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // As `prune_awaiting_attestations_per_payload`, but for an aggregated payload-present
+    // attestation (`UnknownPayloadAggregate`).
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_payload_aggregate() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_payload
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry should be pruned on expiry.
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // As `release_awaiting_attestations_on_payload_envelope_imported`, but for an aggregated
+    // payload-present attestation (`UnknownPayloadAggregate`).
+    #[tokio::test]
+    async fn release_awaiting_aggregate_on_payload_envelope_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+
+        // Importing the payload envelope drains the awaiting attestations for that root.
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: beacon_block_root,
+            },
+        ));
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
     }
 
     // This is a regression test for a memory leak in `awaiting_lc_updates_per_parent_root`.
@@ -1398,7 +2127,10 @@ mod tests {
             queue.handle_message(InboundEvent::ReadyColumnReconstruction(reconstruction));
         }
 
-        assert!(queue.queued_column_reconstructions.is_empty());
+        assert_eq!(
+            queue.queued_column_reconstructions.get(&block_root),
+            Some(&None)
+        );
     }
 
     /// Tests that column reconstruction queued after the deadline is triggered immediately
@@ -1516,7 +2248,6 @@ mod tests {
         tokio::time::pause();
 
         let beacon_block_root = Hash256::repeat_byte(0xaf);
-        let parent_root = Hash256::repeat_byte(0xab);
 
         // Insert an envelope.
         let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
@@ -1534,7 +2265,6 @@ mod tests {
         // Simulate block import.
         let imported = ReprocessQueueMessage::BlockImported {
             block_root: beacon_block_root,
-            parent_root,
         };
         queue.handle_message(InboundEvent::Msg(imported));
 
@@ -1576,48 +2306,86 @@ mod tests {
         assert_eq!(queue.envelope_delay_queue.len(), 1);
     }
 
+    /// Tests that a queued gossip data column is released when its block is imported.
     #[tokio::test]
-    async fn envelope_capacity_evicts_oldest() {
+    async fn data_column_released_on_block_imported() {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, mut ready_work_rx) =
+            mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock);
+
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xbb);
+
+        let msg = ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        assert_eq!(queue.awaiting_data_columns_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_data_columns_per_root
+                .contains_key(&beacon_block_root)
+        );
+        assert_eq!(queue.data_columns_delay_queue.len(), 1);
+
+        // Simulate block import.
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+        }));
+
+        // Internal state should be cleaned up.
+        assert!(queue.awaiting_data_columns_per_root.is_empty());
+        assert_eq!(queue.data_columns_delay_queue.len(), 0);
+
+        // The column should have been sent to the ready_work channel.
+        let ready = ready_work_rx.try_recv().expect("column should be ready");
+        assert!(matches!(ready, ReadyWork::DataColumn(_)));
+    }
+
+    /// Tests that an expired gossip data column is pruned cleanly from all internal state.
+    #[tokio::test]
+    async fn prune_awaiting_data_columns_per_root() {
         create_test_tracing_subscriber();
 
         let mut queue = test_queue();
 
-        // Pause time so it only advances manually
         tokio::time::pause();
 
-        // Fill the queue to capacity.
-        for i in 0..MAXIMUM_QUEUED_ENVELOPES {
-            let block_root = Hash256::repeat_byte(i as u8);
-            let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
-                beacon_block_slot: Slot::new(1),
-                beacon_block_root: block_root,
-                process_fn: Box::pin(async {}),
-            });
-            queue.handle_message(InboundEvent::Msg(msg));
-        }
-        assert_eq!(
-            queue.awaiting_envelopes_per_root.len(),
-            MAXIMUM_QUEUED_ENVELOPES
-        );
+        let beacon_block_root = Hash256::repeat_byte(0xcd);
 
-        // One more should evict the oldest and insert the new one.
-        let overflow_root = Hash256::repeat_byte(0xff);
-        let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
-            beacon_block_slot: Slot::new(1),
-            beacon_block_root: overflow_root,
-            process_fn: Box::pin(async {}),
+        let msg = ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
         });
         queue.handle_message(InboundEvent::Msg(msg));
 
-        // Queue should still be at capacity, with the new root present.
-        assert_eq!(
-            queue.awaiting_envelopes_per_root.len(),
-            MAXIMUM_QUEUED_ENVELOPES
-        );
+        assert_eq!(queue.awaiting_data_columns_per_root.len(), 1);
         assert!(
             queue
-                .awaiting_envelopes_per_root
-                .contains_key(&overflow_root)
+                .awaiting_data_columns_per_root
+                .contains_key(&beacon_block_root)
         );
+
+        // Advance time past the delay so the entry expires.
+        advance_time(
+            &queue.slot_clock,
+            2 * queue.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+        )
+        .await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyDataColumn(_)));
+        queue.handle_message(ready_msg);
+
+        // All internal state should be cleaned up.
+        assert!(queue.awaiting_data_columns_per_root.is_empty());
     }
 }

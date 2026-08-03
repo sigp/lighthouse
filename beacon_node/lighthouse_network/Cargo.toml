@@ -21,6 +21,7 @@ ethereum_ssz_derive = { workspace = true }
 fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+hashlink = { workspace = true }
 hex = { workspace = true }
 if-addrs = "0.14"
 itertools = { workspace = true }
@@ -28,7 +29,6 @@ libp2p = { workspace = true }
 libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }

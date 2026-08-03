@@ -4,6 +4,7 @@ mod gloas_payload;
 mod no_votes;
 mod votes;
 
+use crate::error::Error;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
@@ -30,6 +31,8 @@ pub enum Operation {
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
         current_slot: Slot,
+        // TODO(gloas): Make this non-optional. `find_head` always returns a `PayloadStatus`
+        // (Empty for pre-GLOAS), so every test should assert on it explicitly.
         #[serde(default)]
         expected_payload_status: Option<PayloadStatus>,
     },
@@ -60,6 +63,12 @@ pub enum Operation {
         validator_index: usize,
         block_root: Hash256,
         attestation_slot: Slot,
+    },
+    ProcessGloasAttestation {
+        validator_index: usize,
+        block_root: Hash256,
+        attestation_slot: Slot,
+        payload_present: bool,
     },
     ProcessPayloadAttestation {
         validator_index: usize,
@@ -105,6 +114,25 @@ pub enum Operation {
         block_root: Hash256,
         expected: bool,
     },
+    AssertPayloadStatusByWeight {
+        block_root: Hash256,
+        expected_status: PayloadStatus,
+        /// Override `current_slot`. Defaults to the `current_slot` of the last `FindHead`.
+        #[serde(default)]
+        current_slot: Option<Slot>,
+        /// Override the proposer boost root. Defaults to `Hash256::zero()`.
+        #[serde(default)]
+        proposer_boost_root: Option<Hash256>,
+    },
+    /// Assert the result of `should_build_on_full` for the parent `block_root`, where
+    /// `parent_payload_status` is the status the proposer would build on and `proposal_slot`
+    /// is the slot being proposed.
+    AssertShouldBuildOnFull {
+        block_root: Hash256,
+        parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
+        expected: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +153,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
             let mut spec = MainnetEthSpec::default_spec();
-            spec.proposer_score_boost = Some(50);
+            spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
             spec
@@ -149,6 +177,7 @@ impl ForkChoiceTestDefinition {
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
+        let mut last_current_slot = Slot::new(0);
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -189,6 +218,16 @@ impl ForkChoiceTestDefinition {
                             op_index, op
                         );
                     }
+                    assert_canonical_payload_status_matches_find_head(
+                        &fork_choice,
+                        &head,
+                        current_slot,
+                        Hash256::zero(),
+                        &spec,
+                        payload_status,
+                        op_index,
+                    );
+                    last_current_slot = current_slot;
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
@@ -201,7 +240,7 @@ impl ForkChoiceTestDefinition {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
-                    let (head, _payload_status) = fork_choice
+                    let (head, payload_status) = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
@@ -219,6 +258,15 @@ impl ForkChoiceTestDefinition {
                         head, expected_head,
                         "Operation at index {} failed head check. Operation: {:?}",
                         op_index, op
+                    );
+                    assert_canonical_payload_status_matches_find_head(
+                        &fork_choice,
+                        &head,
+                        Slot::new(0),
+                        proposer_boost_root,
+                        &spec,
+                        payload_status,
+                        op_index,
                     );
                     check_bytes_round_trip(&fork_choice);
                 }
@@ -282,6 +330,7 @@ impl ForkChoiceTestDefinition {
                         execution_payload_parent_hash,
                         execution_payload_block_hash,
                         proposer_index: Some(0),
+                        payload_received: false,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)
@@ -300,6 +349,27 @@ impl ForkChoiceTestDefinition {
                 } => {
                     fork_choice
                         .process_attestation(validator_index, block_root, attestation_slot, false)
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "process_attestation op at index {} returned error",
+                                op_index
+                            )
+                        });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProcessGloasAttestation {
+                    validator_index,
+                    block_root,
+                    attestation_slot,
+                    payload_present,
+                } => {
+                    fork_choice
+                        .process_attestation(
+                            validator_index,
+                            block_root,
+                            attestation_slot,
+                            payload_present,
+                        )
                         .unwrap_or_else(|_| {
                             panic!(
                                 "process_attestation op at index {} returned error",
@@ -496,7 +566,11 @@ impl ForkChoiceTestDefinition {
                     node_v29.payload_data_availability_votes =
                         BitVector::from_bytes(smallvec::smallvec![fill; 64])
                             .expect("valid 512-bit bitvector");
-                    // Per spec, is_payload_timely/is_payload_data_available require
+                    // Mark all PTC members as having participated.
+                    node_v29.ptc_participation =
+                        BitVector::from_bytes(smallvec::smallvec![0xFF; 64])
+                            .expect("valid 512-bit bitvector");
+                    // Per spec, payload_timeliness/payload_data_availability require
                     // the payload to be in payload_states (payload_received).
                     node_v29.payload_received = is_timely || is_data_available;
                 }
@@ -522,6 +596,50 @@ impl ForkChoiceTestDefinition {
                         op_index
                     );
                 }
+                Operation::AssertPayloadStatusByWeight {
+                    block_root,
+                    expected_status,
+                    current_slot,
+                    proposer_boost_root,
+                } => {
+                    let actual = fork_choice
+                        .get_canonical_payload_status::<MainnetEthSpec>(
+                            &block_root,
+                            current_slot.unwrap_or(last_current_slot),
+                            proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            &spec,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        actual, expected_status,
+                        "canonical payload status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertShouldBuildOnFull {
+                    block_root,
+                    parent_payload_status,
+                    proposal_slot,
+                    expected,
+                } => {
+                    let actual = fork_choice
+                        .should_build_on_full::<MainnetEthSpec>(
+                            &block_root,
+                            parent_payload_status,
+                            proposal_slot,
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "should_build_on_full op at index {} returned error: {}",
+                                op_index, e
+                            )
+                        });
+                    assert_eq!(
+                        actual, expected,
+                        "should_build_on_full mismatch at op index {}",
+                        op_index
+                    );
+                }
             }
         }
     }
@@ -543,6 +661,37 @@ fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::new(i),
         root: get_root(i),
+    }
+}
+
+/// Checks that `get_canonical_payload_status` agrees with the `payload_status`
+/// returned by `find_head` for the head block.
+fn assert_canonical_payload_status_matches_find_head(
+    fork_choice: &ProtoArrayForkChoice,
+    head: &Hash256,
+    current_slot: Slot,
+    proposer_boost_root: Hash256,
+    spec: &ChainSpec,
+    expected: PayloadStatus,
+    op_index: usize,
+) {
+    match fork_choice.get_canonical_payload_status::<MainnetEthSpec>(
+        head,
+        current_slot,
+        proposer_boost_root,
+        spec,
+    ) {
+        Ok(actual) => assert_eq!(
+            actual, expected,
+            "get_canonical_payload_status disagreed with find_head for head {:?} at op index {}",
+            head, op_index
+        ),
+        // Skip the check for pre-gloas nodes
+        Err(Error::InvalidNodeVariant { .. }) => {}
+        Err(e) => panic!(
+            "get_canonical_payload_status failed at op index {}: {:?}",
+            op_index, e
+        ),
     }
 }
 

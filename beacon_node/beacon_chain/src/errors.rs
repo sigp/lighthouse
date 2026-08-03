@@ -251,6 +251,13 @@ pub enum BeaconChainError {
         request_epoch: Epoch,
         cache_epoch: Epoch,
     },
+    AttesterCachePtcOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    AttesterCacheNoPtcPreGloas {
+        slot: Slot,
+    },
     SkipProposerPreparation,
     FailedColumnCustodyInfoUpdate,
 }
@@ -326,6 +333,8 @@ pub enum BlockProductionError {
     MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
+    // TODO(heze): Remove this once Heze is implemented
+    HezeNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

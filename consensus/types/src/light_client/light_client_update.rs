@@ -10,7 +10,6 @@ use ssz_derive::Decode;
 use ssz_derive::Encode;
 use ssz_types::FixedVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 use typenum::{U4, U5, U6, U7};
 
@@ -23,7 +22,6 @@ use crate::{
         LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
     },
     sync_committee::{SyncAggregate, SyncCommittee},
-    test_utils::TestRandom,
 };
 
 pub type FinalizedRootProofLen = U6;
@@ -47,17 +45,7 @@ type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProo
 #[superstruct(
     variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Educe,
-            Decode,
-            Encode,
-            TestRandom,
-            TreeHash,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
@@ -141,7 +129,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
         };
         Ok(match context {
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -328,6 +316,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             // if you need to test or support lightclient usages
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
         Ok(light_client_update)
@@ -343,7 +332,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientUpdateFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
                 )));
@@ -500,7 +489,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Electra => <LightClientUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientUpdateFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => 0,
+            ForkName::Gloas | ForkName::Heze => 0,
         };
         fixed_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

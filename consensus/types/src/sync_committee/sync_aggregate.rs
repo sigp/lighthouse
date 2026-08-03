@@ -5,14 +5,12 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
     fork::ForkName,
     sync_committee::SyncCommitteeContribution,
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq)]
@@ -32,7 +30,7 @@ impl From<ArithError> for Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]

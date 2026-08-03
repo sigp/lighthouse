@@ -35,11 +35,15 @@ use types::builder::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
-    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
+    ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
-use warp::reply::{self, Reply};
-use warp::{Filter, Rejection};
+use warp::{
+    Filter, Rejection,
+    http::StatusCode,
+    reply::{self, Reply},
+};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
@@ -282,7 +286,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 #[derive(Clone)]
 pub struct PayloadParametersCloned {
     pub parent_hash: ExecutionBlockHash,
-    pub parent_gas_limit: u64,
+    pub parent_gas_limit: Option<u64>,
     pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: PayloadAttributes,
     pub forkchoice_update_params: ForkchoiceUpdateParameters,
@@ -475,6 +479,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                 return Err("invalid fork".to_string());
             }
+            SignedBlindedBeaconBlock::Heze(_) => {
+                // TODO(heze) Check if this is how we want to do error handling for heze
+                return Err("invalid fork".to_string());
+            }
         };
         let block_hash = block
             .message()
@@ -593,6 +601,10 @@ impl<E: EthSpec> MockBuilder<E> {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                         return Err("invalid fork".to_string());
                     }
+                    ForkName::Heze => {
+                        // TODO(heze) Check if this is how we want to do error handling for heze
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -603,7 +615,13 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: maybe_requests
+                            .map(|r| ExecutionRequestsElectra {
+                                deposits: r.deposits().clone(),
+                                withdrawals: r.withdrawals().clone(),
+                                consolidations: r.consolidations().clone(),
+                            })
+                            .unwrap_or_default(),
                     }),
                     ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                         header: payload
@@ -615,7 +633,13 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: maybe_requests
+                            .map(|r| ExecutionRequestsElectra {
+                                deposits: r.deposits().clone(),
+                                withdrawals: r.withdrawals().clone(),
+                                consolidations: r.consolidations().clone(),
+                            })
+                            .unwrap_or_default(),
                     }),
                     ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                         header: payload
@@ -800,6 +824,10 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
 
+        // TODO(gloas): Currently the tests are pre-Gloas and we are not considering
+        // other payload statuses. This codepath may not be relevant for Gloas.
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
+
         let head_execution_payload = head
             .message()
             .body()
@@ -899,6 +927,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 expected_withdrawals,
                 None,
                 None,
+                None,
             ),
             ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
                 timestamp,
@@ -907,14 +936,16 @@ impl<E: EthSpec> MockBuilder<E> {
                 expected_withdrawals,
                 Some(head_block_root),
                 None,
+                None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
                 expected_withdrawals,
                 Some(head_block_root),
                 Some(slot.as_u64()),
+                None, // TODO(gloas): pass target_gas_limit
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
@@ -934,7 +965,13 @@ impl<E: EthSpec> MockBuilder<E> {
         );
 
         self.el
-            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
+            .insert_proposer(
+                slot,
+                head_block_root,
+                head_payload_status,
+                val_index,
+                payload_attributes.clone(),
+            )
             .await;
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -952,13 +989,14 @@ impl<E: EthSpec> MockBuilder<E> {
                 finalized_execution_hash,
                 slot - 1,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;
 
         let payload_parameters = PayloadParametersCloned {
             parent_hash: head_execution_hash,
-            parent_gas_limit: head_gas_limit,
+            parent_gas_limit: Some(head_gas_limit),
             proposer_gas_limit: Some(proposer_gas_limit),
             payload_attributes,
             forkchoice_update_params,
@@ -1049,11 +1087,10 @@ pub fn serve<E: EthSpec>(
                                 .unwrap(),
                         )
                     } else {
-                        Ok(warp::http::Response::builder()
-                            .status(202)
-                            .body(&[] as &'static [u8])
-                            .map(|res| add_consensus_version_header(res, fork_name))
-                            .unwrap())
+                        Ok(add_consensus_version_header(
+                            StatusCode::ACCEPTED.into_response(),
+                            fork_name,
+                        ))
                     }
                 },
             );
@@ -1100,11 +1137,10 @@ pub fn serve<E: EthSpec>(
                             .unwrap(),
                     )
                 } else {
-                    Ok(warp::http::Response::builder()
-                        .status(202)
-                        .body("".to_string())
-                        .map(|res| add_consensus_version_header(res, fork_name))
-                        .unwrap())
+                    Ok(add_consensus_version_header(
+                        StatusCode::ACCEPTED.into_response(),
+                        fork_name,
+                    ))
                 }
             },
         );
@@ -1170,9 +1206,21 @@ pub fn serve<E: EthSpec>(
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
-    let (listening_socket, server) = warp::serve(routes)
-        .try_bind_ephemeral(SocketAddrV4::new(listen_addr, listen_port))
+    // Use a `std::net::TcpListener` here which keeps the parent `serve` function from needing to be async.
+    // Once the mock_builder server has been migrated to Axum, we can use the tokio listener directly
+    // since we will require async anyway.
+    let std_listener = std::net::TcpListener::bind(SocketAddrV4::new(listen_addr, listen_port))
         .expect("mock builder server should start");
+    std_listener
+        .set_nonblocking(true)
+        .expect("mock builder server should set nonblocking");
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .expect("mock builder server should convert to tokio listener");
+    let listening_socket = listener
+        .local_addr()
+        .expect("mock builder server should have a local address");
+
+    let server = warp::serve(routes).incoming(listener).run();
     Ok((listening_socket, server))
 }
 

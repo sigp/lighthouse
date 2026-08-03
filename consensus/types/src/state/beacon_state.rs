@@ -17,14 +17,13 @@ use ssz_types::{BitVector, FixedVector};
 use std::collections::BTreeMap;
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
-use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -50,7 +49,6 @@ use crate::{
         get_active_validator_indices,
     },
     sync_committee::{SyncCommittee, SyncDuty},
-    test_utils::TestRandom,
     validator::Validator,
     withdrawal::PendingPartialWithdrawal,
 };
@@ -278,7 +276,7 @@ impl From<BeaconStateHash> for Hash256 {
 ///
 /// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(
             Educe,
@@ -289,7 +287,6 @@ impl From<BeaconStateHash> for Hash256 {
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             CompareFields,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
@@ -412,6 +409,20 @@ impl From<BeaconStateHash> for Hash256 {
                 groups(tree_lists)
             )),
             num_fields(all()),
+        )),
+        Heze(metastruct(
+            mappings(
+                map_beacon_state_heze_fields(),
+                map_beacon_state_heze_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_heze_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_heze_tree_list_fields(
+                other_type = "BeaconStateHeze",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
         ))
     ),
     cast_error(
@@ -455,21 +466,21 @@ where
     // History
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_header: BeaconBlockHeader,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     // Frozen in Capella, replaced by historical_summaries
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -478,42 +489,42 @@ where
 
     // Registry
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub validators: Validators<E>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Randomness
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub randao_mixes: Vector<Hash256, E::EpochsPerHistoricalVector>,
 
     // Slashings
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[compare_fields(as_iter)]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude_from(tree_lists))]
     pub justification_bits: BitVector<E::JustificationBitsLength>,
     #[superstruct(getter(copy))]
@@ -528,15 +539,15 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -571,149 +582,150 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_hash: ExecutionBlockHash,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
     // Fulu
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Fulu, Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Fulu, Gloas, Heze))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
     // Gloas
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     pub builders: List<Builder, E::BuilderRegistryLimit>,
 
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(only(Gloas), partial_getter(copy))]
+    #[superstruct(only(Gloas, Heze), partial_getter(copy))]
     pub next_withdrawal_builder_index: BuilderIndex,
 
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub execution_payload_availability: BitVector<E::SlotsPerHistoricalRoot>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     pub builder_pending_payments: Vector<BuilderPendingPayment, E::BuilderPendingPaymentsLimit>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
-    #[superstruct(only(Gloas))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Gloas, Heze))]
     pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub progressive_balances_cache: ProgressiveBalancesCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub slashings_cache: SlashingsCache,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub epoch_cache: EpochCache,
 }
@@ -812,6 +824,7 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Electra { .. } => ForkName::Electra,
             BeaconState::Fulu { .. } => ForkName::Fulu,
             BeaconState::Gloas { .. } => ForkName::Gloas,
+            BeaconState::Heze { .. } => ForkName::Heze,
         }
     }
 
@@ -1129,21 +1142,33 @@ impl<E: EthSpec> BeaconState<E> {
             // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
             // would be very dangerous as it would lead to conflicts between the *true* proposer as
             // defined by `self.proposer_lookahead` and the output of this function.
-            // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
-            // requested epoch is not the current epoch.
             //
-            // We do not run this check if this function is called from `upgrade_to_fulu`,
-            // which runs *after* the slot is incremented, and needs to compute the proposer
-            // shuffling for the epoch that was just transitioned into.
-            if self.fork_name_unchecked().fulu_enabled()
-                && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
-            {
-                return Err(
-                    BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
-                        current_epoch,
-                        request_epoch: epoch,
-                    },
-                );
+            // Furthermore, post-Gloas, we must never compute proposers at any slot other than the
+            // dependent root slot itself, as slashings at subsequent slots have the ability to
+            // change the shuffling.
+            //
+            // For simplicity these two checks are combined into a single check on the dependent
+            // slot, which is safe for Fulu and Gloas. This function is always called from
+            // `get_beacon_proposer_indices`, which uses the cached lookahead for `current_epoch` and
+            // `next_epoch`. The only epoch's shuffling that should ordinarily be computed therefore
+            // is `next_epoch + 1`, which for Fulu and Gloas is computed during the epoch transition
+            // in the last slot of `current_epoch` (before the slot is incremented into
+            // `next_epoch`).
+            //
+            // The only case where computation of proposers in `current_epoch` and `next_epoch` is
+            // directly required is during the fork to Fulu itself
+            // (`upgrade_to_fulu`/`initialize_proposer_lookahead`), in which case the state is not
+            // yet the Fulu variant, and we omit the check.
+            if self.fork_name_unchecked().fulu_enabled() {
+                let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+                if self.slot() != dependent_slot {
+                    return Err(
+                        BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
+                            current_epoch,
+                            request_epoch: epoch,
+                        },
+                    );
+                }
             }
         } else {
             // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
@@ -1243,6 +1268,7 @@ impl<E: EthSpec> BeaconState<E> {
             )),
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -1270,6 +1296,7 @@ impl<E: EthSpec> BeaconState<E> {
             )),
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -1331,43 +1358,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Check if the validator is the proposer for the given slot in the current or next epoch.
-    pub fn is_valid_proposal_slot(
-        &self,
-        preferences: &ProposerPreferences,
-    ) -> Result<bool, BeaconStateError> {
-        let current_epoch = self.current_epoch();
-        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
-
-        if proposal_epoch < current_epoch {
-            return Ok(false);
-        }
-
-        let next_epoch = current_epoch.saturating_add(1u64);
-        if proposal_epoch > next_epoch {
-            return Ok(false);
-        }
-
-        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
-
-        let slot_in_epoch = preferences
-            .proposal_slot
-            .as_u64()
-            .safe_rem(E::slots_per_epoch())?;
-
-        let index = epoch_offset
-            .safe_mul(E::slots_per_epoch())
-            .and_then(|v| v.safe_add(slot_in_epoch))?;
-
-        let proposer_lookahead = self.proposer_lookahead()?;
-
-        let proposer = proposer_lookahead
-            .get(index as usize)
-            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
-
-        Ok(*proposer == preferences.validator_index)
-    }
-
     /// Returns the beacon proposer index for each `slot` in `epoch`.
     ///
     /// The returned `Vec` contains one proposer index for each slot in the epoch.
@@ -1377,7 +1367,7 @@ impl<E: EthSpec> BeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, BeaconStateError> {
         // This isn't in the spec, but we remove the footgun that is requesting the current epoch
-        // for a Fulu state.
+        // or next epoch for a Fulu state.
         if let Ok(proposer_lookahead) = self.proposer_lookahead()
             && epoch >= self.current_epoch()
             && epoch <= self.next_epoch()?
@@ -1396,7 +1386,15 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Not using the cached validator indices since they are shuffled.
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        let mut indices = self.get_active_validator_indices(epoch, spec)?;
+
+        // Post-Gloas, slashed validators are excluded from proposer selection
+        if self.fork_name_unchecked().gloas_enabled() {
+            let latest_block_slot = self.latest_block_header().slot;
+            let slashings_cache = self.slashings_cache();
+            slashings_cache.check_initialized(latest_block_slot)?;
+            indices.retain(|&index| !slashings_cache.is_slashed(index));
+        }
 
         let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
         self.compute_proposer_indices(epoch, preimage.as_slice(), &indices, spec)
@@ -1911,6 +1909,16 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
+            BeaconState::Heze(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
         }
     }
 
@@ -2043,6 +2051,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn add_builder_to_registry(
         &mut self,
         pubkey: PublicKeyBytes,
+        version: u8,
         withdrawal_credentials: Hash256,
         amount: u64,
         slot: Slot,
@@ -2054,10 +2063,6 @@ impl<E: EthSpec> BeaconState<E> {
         let builder_index = self.get_index_for_new_builder()?;
         let builders = self.builders_mut()?;
 
-        let version = *withdrawal_credentials
-            .as_slice()
-            .first()
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
         let execution_address = withdrawal_credentials
             .as_slice()
             .get(12..)
@@ -2175,7 +2180,8 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Deneb(_)
             | BeaconState::Electra(_)
             | BeaconState::Fulu(_)
-            | BeaconState::Gloas(_) => std::cmp::min(
+            | BeaconState::Gloas(_)
+            | BeaconState::Heze(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_validator_churn_limit(spec)?,
             ),
@@ -2324,6 +2330,7 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Gloas(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Heze(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == previous_epoch {
             match self {
@@ -2335,6 +2342,7 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Gloas(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Heze(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -2638,6 +2646,11 @@ impl<E: EthSpec> BeaconState<E> {
                     any_pending_mutations |= self_field.has_pending_updates();
                 });
             }
+            Self::Heze(self_inner) => {
+                map_beacon_state_heze_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
         };
         any_pending_mutations
     }
@@ -2762,29 +2775,55 @@ impl<E: EthSpec> BeaconState<E> {
     /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         let total_active_balance = self.get_total_active_balance()?;
+        let quotient = if self.fork_name_unchecked().gloas_enabled() {
+            spec.churn_limit_quotient_gloas
+        } else {
+            spec.churn_limit_quotient
+        };
         let churn = std::cmp::max(
             spec.min_per_epoch_churn_limit_electra,
-            total_active_balance.safe_div(spec.churn_limit_quotient)?,
+            total_active_balance.safe_div(quotient)?,
         );
 
         Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
     }
 
     /// Return the churn limit for the current epoch dedicated to activations and exits.
+    ///
+    /// From Gloas onwards this is the activation-only churn limit (EIP-8061); exits use
+    /// [`Self::get_exit_churn_limit`].
     pub fn get_activation_exit_churn_limit(
         &self,
         spec: &ChainSpec,
     ) -> Result<u64, BeaconStateError> {
+        let max_limit = if self.fork_name_unchecked().gloas_enabled() {
+            spec.max_per_epoch_activation_churn_limit_gloas
+        } else {
+            spec.max_per_epoch_activation_exit_churn_limit
+        };
         Ok(std::cmp::min(
-            spec.max_per_epoch_activation_exit_churn_limit,
+            max_limit,
             self.get_balance_churn_limit(spec)?,
         ))
     }
 
+    /// Return the Gloas (EIP-8061) exit churn limit for the current epoch.
+    ///
+    /// Unlike [`Self::get_activation_exit_churn_limit`], this is uncapped.
+    pub fn get_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
+        self.get_balance_churn_limit(spec)
+    }
+
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
-        self.get_balance_churn_limit(spec)?
-            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
-            .map_err(Into::into)
+        if self.fork_name_unchecked().gloas_enabled() {
+            let total_active_balance = self.get_total_active_balance()?;
+            let churn = total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
+            Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+        } else {
+            self.get_balance_churn_limit(spec)?
+                .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+                .map_err(Into::into)
+        }
     }
 
     pub fn get_pending_balance_to_withdraw(
@@ -2879,7 +2918,11 @@ impl<E: EthSpec> BeaconState<E> {
             self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
         );
 
-        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        let per_epoch_churn = if self.fork_name_unchecked().gloas_enabled() {
+            self.get_exit_churn_limit(spec)?
+        } else {
+            self.get_activation_exit_churn_limit(spec)?
+        };
         // New epoch for exits
         let mut exit_balance_to_consume = if self.earliest_exit_epoch()? < earliest_exit_epoch {
             per_epoch_churn
@@ -2904,7 +2947,10 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(BeaconStateError::IncorrectStateVariant),
-            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
+            BeaconState::Electra(_)
+            | BeaconState::Fulu(_)
+            | BeaconState::Gloas(_)
+            | BeaconState::Heze(_) => {
                 // Consume the balance and update state variables
                 *self.exit_balance_to_consume_mut()? =
                     exit_balance_to_consume.safe_sub(exit_balance)?;
@@ -2951,7 +2997,10 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(BeaconStateError::IncorrectStateVariant),
-            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
+            BeaconState::Electra(_)
+            | BeaconState::Fulu(_)
+            | BeaconState::Gloas(_)
+            | BeaconState::Heze(_) => {
                 // Consume the balance and update state variables.
                 *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
@@ -3029,6 +3078,14 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Gloas(_), _) => (),
+            (Self::Heze(self_inner), Self::Heze(base_inner)) => {
+                bimap_beacon_state_heze_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Heze(_), _) => (),
         }
 
         // Use sync committees from `base` if they are equal.
@@ -3103,7 +3160,19 @@ impl<E: EthSpec> BeaconState<E> {
         let total_active_balance = self.get_total_active_balance()?;
         let fork_name = self.fork_name_unchecked();
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            // [Modified in Gloas:EIP8061]
+            let exit_churn = self.get_exit_churn_limit(spec)?;
+            let activation_churn = self.get_activation_exit_churn_limit(spec)?;
+            let consolidation_churn = self.get_consolidation_churn_limit(spec)?;
+            compute_weak_subjectivity_period_gloas(
+                total_active_balance,
+                exit_churn,
+                activation_churn,
+                consolidation_churn,
+                spec,
+            )
+        } else if fork_name.electra_enabled() {
             let balance_churn_limit = self.get_balance_churn_limit(spec)?;
             compute_weak_subjectivity_period_electra(
                 total_active_balance,
@@ -3196,6 +3265,27 @@ impl<E: EthSpec> BeaconState<E> {
             .to_vec();
         preimage.append(&mut int_to_bytes8(slot.as_u64()));
         Ok(hash(&preimage))
+    }
+
+    /// Find the first slot in the given epoch where the validator is assigned to the PTC.
+    ///
+    /// Returns `Ok(Some(slot))` if the validator is in the PTC for any slot in the epoch,
+    /// `Ok(None)` if the validator is not in the PTC for this epoch.
+    ///
+    /// This iterates through all slots in the epoch, so it's O(slots_per_epoch) per validator.
+    pub fn get_ptc_assignment(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Option<Slot>, BeaconStateError> {
+        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+            let ptc = self.get_ptc(slot, spec)?;
+            if ptc.0.contains(&validator_index) {
+                return Ok(Some(slot));
+            }
+        }
+        Ok(None)
     }
 
     /// Return size indices sampled by effective balance, using indices as candidates.
@@ -3317,6 +3407,7 @@ impl<E: EthSpec> BeaconState<E> {
             ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Heze => BeaconStateHeze::<E>::NUM_FIELDS.next_power_of_two(),
         }
     }
 
@@ -3369,6 +3460,9 @@ impl<E: EthSpec> BeaconState<E> {
             }
             Self::Gloas(inner) => {
                 map_beacon_state_gloas_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Heze(inner) => {
+                map_beacon_state_heze_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
         Ok(())
@@ -3487,6 +3581,11 @@ impl<E: EthSpec> BeaconState<E> {
                     leaves.push(field.tree_hash_root());
                 });
             }
+            BeaconState::Heze(state) => {
+                map_beacon_state_heze_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
         };
 
         leaves
@@ -3546,6 +3645,7 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
             (BeaconState::Electra(x), BeaconState::Electra(y)) => x.compare_fields(y),
             (BeaconState::Fulu(x), BeaconState::Fulu(y)) => x.compare_fields(y),
             (BeaconState::Gloas(x), BeaconState::Gloas(y)) => x.compare_fields(y),
+            (BeaconState::Heze(x), BeaconState::Heze(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }
@@ -3573,6 +3673,30 @@ pub fn compute_weak_subjectivity_period_electra(
     let epochs_for_validator_set_churn = SAFETY_DECAY
         .safe_mul(total_active_balance)?
         .safe_div(balance_churn_limit.safe_mul(200)?)?;
+    let ws_period = spec
+        .min_validator_withdrawability_delay
+        .safe_add(epochs_for_validator_set_churn)?;
+
+    Ok(ws_period)
+}
+
+/// Spec: https://github.com/ethereum/consensus-specs/blob/v1.7.0-alpha.6/specs/gloas/weak-subjectivity.md
+pub fn compute_weak_subjectivity_period_gloas(
+    total_active_balance: u64,
+    exit_churn_limit: u64,
+    activation_churn_limit: u64,
+    consolidation_churn_limit: u64,
+    spec: &ChainSpec,
+) -> Result<Epoch, BeaconStateError> {
+    // delta = 2 * exit_churn // 3 + activation_churn // 3 + consolidation_churn
+    let delta = exit_churn_limit
+        .safe_mul(2)?
+        .safe_div(3)?
+        .safe_add(activation_churn_limit.safe_div(3)?)?
+        .safe_add(consolidation_churn_limit)?;
+    let epochs_for_validator_set_churn = SAFETY_DECAY
+        .safe_mul(total_active_balance)?
+        .safe_div(delta.safe_mul(200)?)?;
     let ws_period = spec
         .min_validator_withdrawability_delay
         .safe_add(epochs_for_validator_set_churn)?;

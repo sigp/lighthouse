@@ -19,8 +19,8 @@ use crate::{
     parse_data_column_key,
 };
 use fixed_bytes::FixedBytesExtended;
+use hashlink::lru_cache::LruCache;
 use itertools::{Itertools, process_results};
-use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
@@ -30,11 +30,11 @@ use state_processing::{
     AllCaches, BlockProcessingError, BlockReplayer, SlotProcessingError,
     block_replayer::PreSlotHook,
 };
+use std::array::TryFromSliceError;
 use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,7 +49,7 @@ use zstd::{Decoder, Encoder};
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
-pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -97,7 +97,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: NonZeroUsize) -> Self {
+    pub fn new(size: usize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -106,14 +106,15 @@ impl<E: EthSpec> BlockCache<E> {
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
-        self.block_cache.put(block_root, block);
+        self.block_cache.insert(block_root, block);
     }
     pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarList<E>) {
-        self.blob_cache.put(block_root, blobs);
+        self.blob_cache.insert(block_root, blobs);
     }
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
         self.data_column_cache
-            .get_or_insert_mut(block_root, Default::default)
+            .entry(block_root)
+            .or_insert_with(Default::default)
             .insert(*data_column.index(), data_column);
     }
     pub fn put_data_column_custody_info(
@@ -143,13 +144,13 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
-        let _ = self.block_cache.pop(block_root);
+        let _ = self.block_cache.remove(block_root);
     }
     pub fn delete_blobs(&mut self, block_root: &Hash256) {
-        let _ = self.blob_cache.pop(block_root);
+        let _ = self.blob_cache.remove(block_root);
     }
     pub fn delete_data_columns(&mut self, block_root: &Hash256) {
-        let _ = self.data_column_cache.pop(block_root);
+        let _ = self.data_column_cache.remove(block_root);
     }
     pub fn delete(&mut self, block_root: &Hash256) {
         self.delete_block(block_root);
@@ -217,11 +218,11 @@ pub enum HotColdDBError {
     Rollback,
 }
 
-impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
     pub fn open_ephemeral(
         config: StoreConfig,
         spec: Arc<ChainSpec>,
-    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+    ) -> Result<HotColdDB<E, MemoryStore, MemoryStore>, Error> {
         config.verify::<E>()?;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
@@ -236,17 +237,16 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
-            block_cache: NonZeroUsize::new(config.block_cache_size)
-                .map(BlockCache::new)
-                .map(Mutex::new),
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.cold_hdiff_buffer_cache_size,
-                config.historic_state_cache_size,
+                config.cold_hdiff_buffer_cache_size.get(),
+                config.historic_state_cache_size.get(),
             )),
             config,
             hierarchy,
@@ -258,7 +258,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     }
 }
 
-impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
+impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
     /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide
@@ -290,17 +290,16 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
-            block_cache: NonZeroUsize::new(config.block_cache_size)
-                .map(BlockCache::new)
-                .map(Mutex::new),
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.cold_hdiff_buffer_cache_size,
-                config.historic_state_cache_size,
+                config.cold_hdiff_buffer_cache_size.get(),
+                config.historic_state_cache_size.get(),
             )),
             config,
             hierarchy,
@@ -451,7 +450,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     fn cold_storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
         // The start slot for the freezer HDiff is always 0
         Ok(self.hierarchy.storage_strategy(slot, Slot::new(0))?)
@@ -868,7 +867,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<LightClientUpdate<E>>, Error> {
         let res = self.hot_db.get_bytes(
             DBColumn::LightClientUpdate,
-            &sync_committee_period.to_le_bytes(),
+            &sync_committee_period.to_be_bytes(),
         )?;
 
         if let Some(light_client_update_bytes) = res {
@@ -893,12 +892,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
         let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
+        let end_period = start_period.safe_add(count)?;
         for res in self
             .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_be_bytes())
         {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
+            let sync_committee_period = u64::from_be_bytes(
+                sync_committee_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|e: TryFromSliceError| Error::InvalidKey(e.to_string()))?,
+            );
+
+            if sync_committee_period >= end_period {
+                break;
+            }
+
             let epoch = sync_committee_period
                 .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
 
@@ -908,10 +918,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
 
             light_client_updates.push(light_client_update);
-
-            if sync_committee_period >= start_period + count {
-                break;
-            }
         }
         Ok(light_client_updates)
     }
@@ -923,7 +929,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         self.hot_db.put_bytes(
             DBColumn::LightClientUpdate,
-            &sync_committee_period.to_le_bytes(),
+            &sync_committee_period.to_be_bytes(),
             &light_client_update.as_ssz_bytes(),
         )?;
 
@@ -3575,7 +3581,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 /// This function previously did a combination of freezer migration alongside pruning. Now it is
 /// *just* responsible for copying relevant data to the freezer, while pruning is implemented
 /// in `prune_hot_db`.
-pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn migrate_database<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
     finalized_state_root: Hash256,
     finalized_block_root: Hash256,
@@ -3786,7 +3792,7 @@ pub enum StateSummaryIteratorError {
 
 /// Return the ancestor state root of a state beyond SlotsPerHistoricalRoot using the roots iterator
 /// and the store
-pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: &'a HotColdDB<E, Hot, Cold>,
     from_state: &'a BeaconState<E>,
     target_slot: Slot,
@@ -3993,7 +3999,7 @@ impl StoreItem for HotStateSummary {
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.
-    pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    pub fn new<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
         store: &HotColdDB<E, Hot, Cold>,
         state_root: Hash256,
         state: &BeaconState<E>,

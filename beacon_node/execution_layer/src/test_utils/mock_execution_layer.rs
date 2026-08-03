@@ -24,6 +24,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Arc::new(spec),
             None,
@@ -38,6 +39,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -53,6 +55,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             kzg,
         );
 
@@ -90,6 +93,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
         let head_block_root = Hash256::repeat_byte(42);
+        // TODO(gloas): allow statuses other than Pending?
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,
             head_hash: Some(parent_hash),
@@ -103,13 +108,20 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
         let validator_index = 0;
         self.el
-            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
+            .insert_proposer(
+                slot,
+                head_block_root,
+                head_payload_status,
+                validator_index,
+                payload_attributes,
+            )
             .await;
 
         self.el
@@ -119,6 +131,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 ExecutionBlockHash::zero(),
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -137,11 +150,12 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -190,11 +204,12 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -280,6 +295,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         // Use junk values for slot/head-root to ensure there is no payload supplied.
         let slot = Slot::new(0);
         let head_block_root = Hash256::repeat_byte(13);
+        // TODO(gloas): reconsider the state_payload_status
         self.el
             .notify_forkchoice_updated(
                 block_hash,
@@ -287,6 +303,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 ExecutionBlockHash::zero(),
                 slot,
                 head_block_root,
+                fork_choice::PayloadStatus::Pending,
             )
             .await
             .unwrap();

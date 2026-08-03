@@ -1,13 +1,11 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
-use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
-use beacon_chain::blob_verification::GossipBlobError;
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
+use ::fork_choice::{
+    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
 };
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
+use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -15,17 +13,21 @@ use beacon_chain::{
     attestation_verification::{
         VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
-    blob_verification::GossipVerifiedBlob,
+    blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
+use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
+use proto_array::ReOrgThreshold;
 use serde::Deserialize;
 use ssz_derive::Decode;
+use ssz_types::VariableList;
 use state_processing::VerifySignatures;
 use state_processing::envelope_processing::verify_execution_payload_envelope;
+use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -33,9 +35,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, Epoch, ExecutionBlockHash, Hash256,
+    IndexedAttestation, IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage,
+    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -54,6 +56,9 @@ pub struct PowBlock {
 pub struct Head {
     slot: Slot,
     root: Hash256,
+    // Post-gloas, the head check also asserts the payload status of the head block
+    #[serde(default)]
+    payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -61,6 +66,13 @@ pub struct Head {
 pub struct ShouldOverrideFcu {
     validator_is_connected: bool,
     result: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PayloadVoteCheck {
+    block_root: Hash256,
+    votes: Vec<Option<bool>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,7 +89,16 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
+    // Fast Confirmation Rule (FCR) checks
+    confirmed_root: Option<Hash256>,
+    previous_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    current_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    previous_epoch_greatest_unrealized_checkpoint: Option<Checkpoint>,
+    previous_slot_head: Option<Hash256>,
+    current_slot_head: Option<Hash256>,
     head_payload_status: Option<u8>,
+    payload_timeliness_vote: Option<PayloadVoteCheck>,
+    payload_data_availability_vote: Option<PayloadVoteCheck>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +129,7 @@ pub enum Step<
     TAttesterSlashing,
     TPowBlock,
     TExecutionPayload = String,
+    TPayloadAttestationMessage = String,
 > {
     Tick {
         tick: u64,
@@ -123,6 +145,10 @@ pub enum Step<
     },
     Attestation {
         attestation: TAttestation,
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid payload-present index). Defaults to `true` for the pre-Gloas tests that omit it.
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
@@ -146,13 +172,26 @@ pub enum Step<
         execution_payload: TExecutionPayload,
         valid: bool,
     },
+    PayloadAttestationMessage {
+        payload_attestation_message: TPayloadAttestationMessage,
+        #[serde(default = "default_true")]
+        valid: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
-    #[serde(rename(deserialize = "description"))]
-    _description: String,
+    #[serde(default, rename(deserialize = "description"))]
+    _description: Option<String>,
+    // Some Gloas fork choice tests carry a `bls_setting` instead of a description. We accept and
+    // ignore it: the value is always `1` (BLS required), which matches our default behaviour.
+    #[serde(default, rename(deserialize = "bls_setting"))]
+    _bls_setting: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -170,6 +209,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
             AttesterSlashing<E>,
             PowBlock,
             SignedExecutionPayloadEnvelope<E>,
+            PayloadAttestationMessage,
         >,
     >,
 }
@@ -184,8 +224,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, Vec<String>, String, String, String>> =
-            yaml_decode_file(&path.join("steps.yaml"))?;
+
+        #[allow(clippy::type_complexity)]
+        let steps: Vec<
+            Step<String, String, Vec<String>, String, String, String, String, String>,
+        > = yaml_decode_file(&path.join("steps.yaml"))?;
+
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -217,17 +261,19 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
+                Step::Attestation { attestation, valid } => {
                     if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
+                                valid,
                             },
                         )
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Base(attestation),
+                                valid,
                             },
                         )
                     }
@@ -301,6 +347,18 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
+                    valid,
+                } => {
+                    let msg: PayloadAttestationMessage = ssz_decode_file(
+                        &path.join(format!("{payload_attestation_message}.ssz_snappy")),
+                    )?;
+                    Ok(Step::PayloadAttestationMessage {
+                        payload_attestation_message: msg,
+                        valid,
+                    })
+                }
             })
             .collect::<Result<_, _>>()?;
         let anchor_state = ssz_decode_state(&path.join("anchor_state.ssz_snappy"), spec)?;
@@ -335,15 +393,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // TODO(gloas): We have not implemented this change to fork choice/proposer boost yet.
-        // https://github.com/sigp/lighthouse/issues/8689
-        if self.description == "voting_source_beyond_two_epoch"
-            || self.description == "justified_update_not_realized_finality"
-            || self.description == "justified_update_always_if_better"
-        {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
@@ -363,7 +412,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     proofs.clone(),
                     *valid,
                 )?,
-                Step::Attestation { attestation } => tester.process_attestation(attestation)?,
+                Step::Attestation { attestation, valid } => {
+                    tester.process_attestation(attestation, *valid)?
+                }
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing.to_ref())
                 }
@@ -389,7 +440,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         proposer_boost_root,
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
+                        confirmed_root,
+                        previous_epoch_observed_justified_checkpoint,
+                        current_epoch_observed_justified_checkpoint,
+                        previous_epoch_greatest_unrealized_checkpoint,
+                        previous_slot_head,
+                        current_slot_head,
                         head_payload_status,
+                        payload_timeliness_vote,
+                        payload_data_availability_vote,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -437,8 +496,34 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
                     }
 
+                    if let Some(expected) = confirmed_root {
+                        tester.check_confirmed_root(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_observed_justified_checkpoint {
+                        tester.check_previous_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = current_epoch_observed_justified_checkpoint {
+                        tester.check_current_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_greatest_unrealized_checkpoint {
+                        tester.check_previous_epoch_greatest_unrealized_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_slot_head {
+                        tester.check_previous_slot_head(*expected)?;
+                    }
+                    if let Some(expected) = current_slot_head {
+                        tester.check_current_slot_head(*expected)?;
+                    }
                     if let Some(expected_status) = head_payload_status {
                         tester.check_head_payload_status(*expected_status)?;
+                    }
+
+                    if let Some(expected) = payload_timeliness_vote {
+                        tester.check_payload_timeliness_vote(expected)?;
+                    }
+
+                    if let Some(expected) = payload_data_availability_vote {
+                        tester.check_payload_data_availability_vote(expected)?;
                     }
                 }
 
@@ -454,6 +539,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     valid,
                 } => {
                     tester.process_execution_payload(execution_payload, *valid)?;
+                }
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
+                    valid,
+                } => {
+                    tester
+                        .process_payload_attestation_message(payload_attestation_message, *valid)?;
                 }
             }
         }
@@ -490,6 +582,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .chain_config(ChainConfig {
                 archive: true,
+                fast_confirmation: FastConfirmationMode::Enabled,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())
@@ -520,6 +613,14 @@ impl<E: EthSpec> Tester<E> {
             harness.chain.slot_clock.genesis_duration().as_secs(),
             genesis_time
         );
+
+        // Disable FCR auto-confirmation for spec tests. The spec only calls
+        // `on_fast_confirmation` at explicit `with_fast_confirmation` points,
+        // not on every block/attestation import. We trigger confirmation
+        // explicitly in `check_confirmed_root` instead.
+        if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
+            fcr_mutex.lock().set_spec_test_mode(true);
+        }
 
         Ok(Self { harness, spec })
     }
@@ -630,7 +731,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -651,7 +752,6 @@ impl<E: EthSpec> Tester<E> {
 
         let mut blob_success = true;
 
-        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
             let commitments = block
@@ -664,37 +764,51 @@ impl<E: EthSpec> Tester<E> {
             // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
             // of the tests don't provide enough proofs/blobs, and should fail the availability
             // check.
-            for (i, ((blob, kzg_proof), kzg_commitment)) in
-                blobs.into_iter().zip(proofs).zip(commitments).enumerate()
-            {
-                let blob_sidecar = Arc::new(BlobSidecar {
-                    index: i as u64,
-                    blob,
-                    kzg_commitment,
-                    kzg_proof,
-                    signed_block_header: block.signed_block_header(),
-                    kzg_commitment_inclusion_proof: block
-                        .message()
-                        .body()
-                        .kzg_commitment_merkle_proof(i)
-                        .unwrap(),
-                });
+            let verified_blobs: Vec<KzgVerifiedBlob<E>> = blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments)
+                .enumerate()
+                .filter_map(|(i, ((blob, kzg_proof), kzg_commitment))| {
+                    let blob_sidecar = Arc::new(BlobSidecar {
+                        index: i as u64,
+                        blob,
+                        kzg_commitment,
+                        kzg_proof,
+                        signed_block_header: block.signed_block_header(),
+                        kzg_commitment_inclusion_proof: block
+                            .message()
+                            .body()
+                            .kzg_commitment_merkle_proof(i)
+                            .unwrap(),
+                    });
 
-                let chain = self.harness.chain.clone();
-                let blob =
-                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
-                    {
-                        Ok(gossip_verified_blob) => gossip_verified_blob,
-                        Err(GossipBlobError::KzgError(_)) => {
+                    match KzgVerifiedBlob::new(
+                        blob_sidecar.clone(),
+                        &self.harness.chain.kzg,
+                        Duration::default(),
+                    ) {
+                        Ok(verified) => Some(verified),
+                        Err(_) => {
                             blob_success = false;
-                            GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                            None
                         }
-                        Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
-                    };
-                let result =
-                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
+                    }
+                })
+                .collect();
+
+            if !verified_blobs.is_empty() {
+                let result = self
+                    .harness
+                    .chain
+                    .data_availability_checker
+                    .put_kzg_verified_blobs(block_root, verified_blobs);
                 if valid {
-                    assert!(result.is_ok());
+                    assert!(
+                        result.is_ok(),
+                        "put_kzg_verified_blobs failed: {:?}",
+                        result
+                    );
                 }
             }
         };
@@ -710,7 +824,8 @@ impl<E: EthSpec> Tester<E> {
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
-        if success != valid {
+        // Only assert valid blocks import; blob-DA failure cases are expected to import now.
+        if valid && !success {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
@@ -729,7 +844,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -805,22 +920,41 @@ impl<E: EthSpec> Tester<E> {
         Ok(())
     }
 
-    pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
+    pub fn process_attestation(
+        &self,
+        attestation: &Attestation<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid same-slot/payload-present index). Treat any failure in either indexing or fork
+        // choice application as a rejection so it can be compared against the expected `valid` flag.
+        let result = obtain_indexed_attestation_and_committees_per_slot(
             &self.harness.chain,
             attestation.to_ref(),
         )
-        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
-        let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
-            ManuallyVerifiedAttestation {
-                attestation,
-                indexed_attestation,
-            };
+        .map_err(|e| format!("attestation indexing failed with {:?}", e))
+        .and_then(|(indexed_attestation, _)| {
+            let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+                ManuallyVerifiedAttestation {
+                    attestation,
+                    indexed_attestation,
+                };
 
-        self.harness
-            .chain
-            .apply_attestation_to_fork_choice(&verified_attestation)
-            .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+            self.harness
+                .chain
+                .apply_attestation_to_fork_choice(&verified_attestation)
+                .map_err(|e| format!("attestation import failed with {:?}", e))
+        });
+
+        if valid {
+            result.map_err(Error::InternalError)
+        } else if result.is_ok() {
+            Err(Error::DidntFail(
+                "attestation was valid but the test expects it to be rejected".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
@@ -851,9 +985,17 @@ impl<E: EthSpec> Tester<E> {
         let chain_head = Head {
             slot: head.head_slot(),
             root: head.head_block_root(),
+            // Compared separately below so the slot/root equality is not affected.
+            payload_status: expected_head.payload_status,
         };
 
-        check_equal("head", chain_head, expected_head)
+        check_equal("head", chain_head, expected_head)?;
+
+        if let Some(expected_status) = expected_head.payload_status {
+            self.check_head_payload_status(expected_status)?;
+        }
+
+        Ok(())
     }
 
     pub fn check_time(&self, expected_time: u64) -> Result<(), Error> {
@@ -979,10 +1121,9 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_HEAD_THRESHOLD,
-            DEFAULT_RE_ORG_PARENT_THRESHOLD,
-            &DisallowedReOrgOffsets::default(),
-            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            ReOrgThreshold(self.spec.reorg_head_weight_threshold),
+            ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),
@@ -1156,6 +1297,286 @@ impl<E: EthSpec> Tester<E> {
             fcu_params != canonical_fcu_params,
             expected_should_override_fcu.result,
         )
+    }
+
+    fn get_fcr_field<T: Clone>(
+        &self,
+        field_name: &str,
+        f: impl FnOnce(&fast_confirmation::FastConfirmationRule) -> T,
+    ) -> Result<T, Error> {
+        let fcr_mutex = self
+            .harness
+            .chain
+            .canonical_head
+            .fast_confirmation
+            .as_ref()
+            .ok_or_else(|| {
+                Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
+            })?;
+        let guard = fcr_mutex.lock();
+        Ok(f(&guard))
+    }
+
+    pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
+        // Trigger head recomputation so fork choice state is up to date.
+        let cached_head = self.find_head()?;
+        let current_slot = self
+            .harness
+            .chain
+            .slot()
+            .map_err(|e| Error::InternalError(format!("Failed to get slot: {e:?}")))?;
+
+        // Explicitly trigger the confirmation step. `find_head()` above already
+        // ran the FCR setup via `on_fast_confirmation` (with `spec_test_mode`
+        // suppressing the confirmation), so the caches are warm; we just need
+        // to compute and store the new confirmed root.
+        let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let head_root = cached_head.head_block_root();
+        let finalized_cp = fork_choice_lock.finalized_checkpoint();
+        let unrealized_justified_cp = fork_choice_lock.unrealized_justified_checkpoint();
+        let proto_array = fork_choice_lock.proto_array().core_proto_array();
+        let votes = fork_choice_lock.proto_array().votes();
+        let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
+
+        if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
+            let mut fcr = fcr_mutex.lock();
+            fcr.confirmed_root = fcr
+                .get_latest_confirmed::<E>(
+                    head_root,
+                    &finalized_cp,
+                    &unrealized_justified_cp,
+                    current_slot,
+                    proto_array,
+                    votes,
+                    equivocating_indices,
+                )
+                .map_err(|e| {
+                    Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
+                })?;
+        }
+        drop(fork_choice_lock);
+
+        let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;
+        check_equal("confirmed_root", actual, expected)
+    }
+
+    pub fn check_previous_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.previous_epoch_observed_justified.checkpoint()
+        })?;
+        check_equal(
+            "previous_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_current_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.current_epoch_observed_justified.checkpoint()
+        })?;
+        check_equal(
+            "current_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_epoch_greatest_unrealized_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self
+            .get_fcr_field("previous_epoch_greatest_unrealized_checkpoint", |fcr| {
+                fcr.previous_epoch_greatest_unrealized_checkpoint
+            })?;
+        check_equal(
+            "previous_epoch_greatest_unrealized_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_slot_head", |fcr| fcr.previous_slot_head)?;
+        check_equal("previous_slot_head", actual, expected)
+    }
+
+    pub fn check_current_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_slot_head", |fcr| fcr.current_slot_head)?;
+        check_equal("current_slot_head", actual, expected)
+    }
+    pub fn process_payload_attestation_message(
+        &self,
+        msg: &PayloadAttestationMessage,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let slot = msg.data.slot;
+        let block_root = msg.data.beacon_block_root;
+
+        // Get the state at the block to compute the PTC and verify signature.
+        let store = &self.harness.chain.store;
+        let block = store
+            .get_blinded_block(&block_root)
+            .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?;
+
+        let state_opt = block.and_then(|block| {
+            store
+                .get_hot_state(&block.state_root(), CACHE_STATE_IN_TESTS)
+                .ok()?
+        });
+
+        // Build IndexedPayloadAttestation from the message.
+        let indexed = IndexedPayloadAttestation::<E> {
+            attesting_indices: VariableList::new(vec![msg.validator_index]).unwrap(),
+            data: msg.data.clone(),
+            signature: AggregateSignature::from(&msg.signature),
+        };
+
+        let result = if let Some(ref state) = state_opt {
+            is_valid_indexed_payload_attestation(
+                state,
+                &indexed,
+                VerifySignatures::True,
+                &self.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "payload attestation signature verification failed for validator {}: {:?}",
+                    msg.validator_index, e
+                ))
+            })
+            .and_then(|_| {
+                let ptc = state.get_ptc(slot, &self.spec).map_err(|e| {
+                    Error::InternalError(format!(
+                        "Could not compute PTC for block root {block_root:?} at slot {slot:?}: {e:?}"
+                    ))
+                })?;
+
+                self.harness
+                    .chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_payload_attestation(
+                        self.harness.chain.slot().unwrap(),
+                        &indexed,
+                        AttestationFromBlock::False,
+                        &ptc.0,
+                    )
+                    .map_err(|e| {
+                        Error::InternalError(format!(
+                            "on_payload_attestation for validator {} failed: {:?}",
+                            msg.validator_index, e
+                        ))
+                    })
+            })
+        } else {
+            Err(Error::InternalError(format!(
+                "Could not get state for block root {block_root:?} at slot {slot:?}"
+            )))
+        };
+
+        if valid {
+            result?;
+        } else if result.is_ok() {
+            return Err(Error::DidntFail(format!(
+                "payload_attestation_message for validator {} should have failed",
+                msg.validator_index
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_timeliness_vote(&self, expected: &PayloadVoteCheck) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let timeliness_votes = &v29.payload_timeliness_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(timeliness_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_timeliness_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_data_availability_vote(
+        &self,
+        expected: &PayloadVoteCheck,
+    ) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let availability_votes = &v29.payload_data_availability_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(availability_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_data_availability_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
