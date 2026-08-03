@@ -322,7 +322,9 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
-            Protocol::LightClientUpdatesByRange => None,
+            Protocol::LightClientUpdatesByRange => {
+                Some(ResponseTermination::LightClientUpdatesByRange)
+            }
         }
     }
 }
@@ -925,7 +927,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
-            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
         }
     }
 
@@ -1022,7 +1026,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
-            RequestType::LightClientUpdatesByRange(_) => true,
+            RequestType::LightClientUpdatesByRange(_) => false,
         }
     }
 }
