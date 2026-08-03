@@ -294,6 +294,18 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
+    pub fn set_aggregation_bit(
+        &mut self,
+        index: usize,
+        value: bool,
+    ) -> Result<(), ssz::BitfieldError> {
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.set(index, value),
+            Attestation::Electra(att) => att.aggregation_bits.set(index, value),
+            Attestation::Gloas(att) => att.aggregation_bits.set(index, value),
+        }
+    }
+
     pub fn to_single_attestation_with_attester_index(
         &self,
         attester_index: u64,

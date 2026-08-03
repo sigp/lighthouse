@@ -28,6 +28,7 @@ pub use database::{
 };
 pub use error::Error;
 
+use tracing::error;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
 };
@@ -79,10 +80,7 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                         }))
                     }
                     // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
-                    (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                        attestation_1: existing.clone().to_electra().ok()?,
-                        attestation_2: new_attestation.clone().to_electra().ok()?,
-                    })),
+                    (_, _) => electra_slashing(&existing, new_attestation),
                 }
             }
             SurroundsExisting(existing) => match (&*existing, new_attestation) {
@@ -101,11 +99,31 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                     }))
                 }
                 // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
-                (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                    attestation_1: new_attestation.clone().to_electra().ok()?,
-                    attestation_2: existing.clone().to_electra().ok()?,
-                })),
+                (_, _) => electra_slashing(new_attestation, &existing),
             },
         }
     }
+}
+
+/// Build an Electra-typed attester slashing, logging an error if conversion fails.
+///
+/// Conversion failure should be unreachable: `to_electra` can only fail for Gloas attestations,
+/// which `into_slashing` handles before reaching this function.
+fn electra_slashing<E: EthSpec>(
+    attestation_1: &IndexedAttestation<E>,
+    attestation_2: &IndexedAttestation<E>,
+) -> Option<AttesterSlashing<E>> {
+    let to_electra = |attestation: &IndexedAttestation<E>| {
+        attestation
+            .clone()
+            .to_electra()
+            .inspect_err(
+                |e| error!(error = ?e, "Failed to convert attestation for Electra slashing"),
+            )
+            .ok()
+    };
+    Some(AttesterSlashing::Electra(AttesterSlashingElectra {
+        attestation_1: to_electra(attestation_1)?,
+        attestation_2: to_electra(attestation_2)?,
+    }))
 }

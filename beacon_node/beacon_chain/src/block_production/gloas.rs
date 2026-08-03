@@ -472,9 +472,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 AttesterSlashing::Base(_) => None,
-                // [Modified in Gloas:EIP7688] Convert Electra slashings left over from before the
-                // fork into the Gloas type. The SSZ bytes are the same, only the hash tree root
-                // differs.
+                // Convert Electra slashings left over from before the fork into the Gloas type.
+                // The SSZ bytes are the same, only the hash tree root differs.
+                // TODO(post-gloas): remove this conversion once mainnet has forked to Gloas.
                 AttesterSlashing::Electra(a) => Some(AttesterSlashingGloas {
                     attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
                     attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
@@ -487,9 +487,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 Attestation::Base(_) => None,
-                // [Modified in Gloas:EIP7688] Convert Electra attestations left over from before
-                // the fork into the Gloas type. The SSZ bytes are the same, only the hash tree
-                // root differs.
+                // Convert Electra attestations left over from before the fork into the Gloas
+                // type. The SSZ bytes are the same, only the hash tree root differs.
+                // TODO(post-gloas): remove this conversion once mainnet has forked to Gloas.
                 Attestation::Electra(a) => Some(AttestationGloas {
                     aggregation_bits: ProgressiveBitList::from_bytes(
                         a.aggregation_bits.into_bytes(),
@@ -596,8 +596,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     randao_reveal,
                     eth1_data,
                     graffiti,
-                    // [Modified in Gloas:EIP7688] the operation list lengths are bounded by the op
-                    // pool packing limits above.
+                    // The operation list lengths are bounded by the op pool packing limits above.
                     proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
                     attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
                     attestations: ProgressiveVariableList::from_iter(attestations),
@@ -828,11 +827,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blobs_and_proofs,
             should_override_builder,
         } = block_proposal_contents;
-
-        // [Modified in Gloas:EIP7688] Convert the EL blob commitments to the progressive list
-        // type. The execution requests already use the Gloas type.
-        let blob_kzg_commitments =
-            ProgressiveVariableList::from_iter(blob_kzg_commitments.iter().cloned());
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.

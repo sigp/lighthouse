@@ -1748,18 +1748,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
         match attestation {
             AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
-            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
-                att.data.slot,
-                &att.data.tree_hash_root(),
-                att.committee_index()
-                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
-            ),
-            AttestationRef::Gloas(att) => self.get_aggregated_attestation_electra(
-                att.data.slot,
-                &att.data.tree_hash_root(),
-                att.committee_index()
-                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
-            ),
+            AttestationRef::Electra(_) | AttestationRef::Gloas(_) => self
+                .get_aggregated_attestation_electra(
+                    attestation.data().slot,
+                    &attestation.data().tree_hash_root(),
+                    attestation
+                        .committee_index()
+                        .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+                ),
         }
     }
 
@@ -5843,33 +5839,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (attester_slashings_base, attester_slashings_electra) =
-            attester_slashings.into_iter().fold(
-                (Vec::new(), Vec::new()),
-                |(mut base, mut electra), slashing| {
-                    match slashing {
-                        AttesterSlashing::Base(slashing) => base.push(slashing),
-                        AttesterSlashing::Electra(slashing) => electra.push(slashing),
-                        // Gloas-typed slashings cannot be included in pre-Gloas blocks, and
-                        // Gloas blocks are produced via `complete_partial_beacon_block_gloas`.
-                        AttesterSlashing::Gloas(_) => (),
-                    }
-                    (base, electra)
-                },
-            );
-        let (attestations_base, attestations_electra) = attestations.into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut base, mut electra), attestation| {
-                match attestation {
-                    Attestation::Base(attestation) => base.push(attestation),
-                    Attestation::Electra(attestation) => electra.push(attestation),
-                    // Gloas-typed attestations cannot be included in pre-Gloas blocks, and
-                    // Gloas blocks are produced via `complete_partial_beacon_block_gloas`.
-                    Attestation::Gloas(_) => (),
+        let mut attester_slashings_base = Vec::new();
+        let mut attester_slashings_electra = Vec::new();
+        for slashing in attester_slashings {
+            match slashing {
+                AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
+                AttesterSlashing::Electra(slashing) => attester_slashings_electra.push(slashing),
+                // Gloas-typed slashings cannot be included in pre-Gloas blocks, and Gloas
+                // blocks are produced via `complete_partial_beacon_block_gloas`.
+                AttesterSlashing::Gloas(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Gloas attester slashing in pre-Gloas block production".to_owned(),
+                    ));
                 }
-                (base, electra)
-            },
-        );
+            }
+        }
+        let mut attestations_base = Vec::new();
+        let mut attestations_electra = Vec::new();
+        for attestation in attestations {
+            match attestation {
+                Attestation::Base(attestation) => attestations_base.push(attestation),
+                Attestation::Electra(attestation) => attestations_electra.push(attestation),
+                // Gloas-typed attestations cannot be included in pre-Gloas blocks, and Gloas
+                // blocks are produced via `complete_partial_beacon_block_gloas`.
+                Attestation::Gloas(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Gloas attestation in pre-Gloas block production".to_owned(),
+                    ));
+                }
+            }
+        }
 
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (

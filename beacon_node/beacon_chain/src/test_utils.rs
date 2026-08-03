@@ -1928,17 +1928,7 @@ where
                             )
                             .unwrap();
 
-                        match attestation {
-                            Attestation::Base(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                            Attestation::Electra(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                            Attestation::Gloas(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                        }
+                        attestation.set_aggregation_bit(i, true).unwrap();
 
                         *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(
@@ -2565,58 +2555,17 @@ where
         attestation_2.data_mut().target.epoch = target2.unwrap_or(fork.epoch);
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Gloas(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
@@ -2718,58 +2667,17 @@ where
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Gloas(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 

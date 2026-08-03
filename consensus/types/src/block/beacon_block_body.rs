@@ -359,6 +359,12 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     pub fn kzg_commitments_merkle_proof(
         &self,
     ) -> Result<FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>, BeaconStateError> {
+        // [Modified in Gloas:EIP7688] the body is a progressive container with different
+        // generalized indices, which are not implemented yet. The body also no longer contains
+        // `blob_kzg_commitments`, which moved to the execution payload bid (EIP-7732).
+        if self.fork_name().gloas_enabled() {
+            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+        }
         let body_leaves = self.body_merkle_leaves();
         let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
         let tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
@@ -372,6 +378,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         &self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, BeaconStateError> {
+        // [Modified in Gloas:EIP7688] the body is a progressive container with different
+        // generalized indices, which are not implemented yet.
+        if self.fork_name().gloas_enabled() {
+            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+        }
         let field_index = match generalized_index {
             EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices

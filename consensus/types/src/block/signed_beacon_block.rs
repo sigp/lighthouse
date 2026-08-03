@@ -300,6 +300,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         ),
         BeaconStateError,
     > {
+        // [Modified in Gloas:EIP7688] the body is a progressive container, so the binary
+        // merkleization below would produce an incorrect body root and proof. The body also no
+        // longer contains `blob_kzg_commitments`, which moved to the execution payload bid
+        // (EIP-7732).
+        if self.message().body().fork_name().gloas_enabled() {
+            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+        }
+
         // Create the block body merkle tree
         let body_leaves = self.message().body().body_merkle_leaves();
         let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;

@@ -262,7 +262,11 @@ impl IndexedAttestationOnDisk {
     ) -> Result<IndexedAttestation<E>, Error> {
         let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
         if fork_at_target_epoch.gloas_enabled() {
-            let attesting_indices = ProgressiveVariableList::new(self.attesting_indices);
+            // Build a regular `VariableList` with a type-level bound to enforce the
+            // pre-Gloas length check, then convert to the `Progressive` version.
+            let attesting_indices =
+                VariableList::<u64, E::MaxValidatorsPerSlot>::new(self.attesting_indices)?;
+            let attesting_indices = ProgressiveVariableList::new(attesting_indices.into());
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
                 attesting_indices,
                 data: self.data,
