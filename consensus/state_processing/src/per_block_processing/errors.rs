@@ -117,6 +117,59 @@ pub enum BlockProcessingError {
     NonEmptyParentExecutionRequests,
 }
 
+impl BlockProcessingError {
+    /// Returns `true` if the failure is deterministic on the block message and the ancestry it
+    /// commits to, making any block with the same root equally invalid. Internal errors and
+    /// failures of data the root does not commit to (proposer signature, payload envelope)
+    /// must return `false`.
+    pub fn is_deterministic_on_block_root(&self) -> bool {
+        match self {
+            BlockProcessingError::RandaoSignatureInvalid
+            | BlockProcessingError::StateRootMismatch
+            | BlockProcessingError::DepositCountInvalid { .. }
+            | BlockProcessingError::HeaderInvalid { .. }
+            | BlockProcessingError::ProposerSlashingInvalid { .. }
+            | BlockProcessingError::AttesterSlashingInvalid { .. }
+            | BlockProcessingError::IndexedAttestationInvalid { .. }
+            | BlockProcessingError::AttestationInvalid { .. }
+            | BlockProcessingError::PayloadAttestationInvalid { .. }
+            | BlockProcessingError::DepositInvalid { .. }
+            | BlockProcessingError::ExitInvalid { .. }
+            | BlockProcessingError::BlsExecutionChangeInvalid { .. }
+            | BlockProcessingError::SyncAggregateInvalid { .. }
+            | BlockProcessingError::InconsistentBlockFork(_)
+            | BlockProcessingError::ExecutionHashChainIncontiguous { .. }
+            | BlockProcessingError::ExecutionRandaoMismatch { .. }
+            | BlockProcessingError::ExecutionInvalidTimestamp { .. }
+            | BlockProcessingError::ExecutionInvalidBlobsLen { .. }
+            | BlockProcessingError::ExecutionInvalid
+            | BlockProcessingError::WithdrawalsRootMismatch { .. }
+            | BlockProcessingError::WithdrawalCredentialsInvalid
+            | BlockProcessingError::ExecutionPayloadBidInvalid { .. } => true,
+            BlockProcessingError::IncorrectStateType
+            | BlockProcessingError::BulkSignatureVerificationFailed
+            | BlockProcessingError::BeaconStateError(_)
+            | BlockProcessingError::SignatureSetError(_)
+            | BlockProcessingError::SszTypesError(_)
+            | BlockProcessingError::SszDecodeError(_)
+            | BlockProcessingError::BitfieldError(_)
+            | BlockProcessingError::MerkleTreeError(_)
+            | BlockProcessingError::ArithError(_)
+            | BlockProcessingError::InconsistentStateFork(_)
+            | BlockProcessingError::ConsensusContext(_)
+            | BlockProcessingError::MilhouseError(_)
+            | BlockProcessingError::EpochCacheError(_)
+            | BlockProcessingError::WithdrawalsLimitExceeded { .. }
+            | BlockProcessingError::IncorrectExpectedWithdrawalsVariant
+            | BlockProcessingError::MissingLastWithdrawal
+            | BlockProcessingError::PendingAttestationInElectra
+            | BlockProcessingError::BuilderPaymentIndexOutOfBounds(_)
+            | BlockProcessingError::ExecutionRequestsRootMismatch { .. }
+            | BlockProcessingError::NonEmptyParentExecutionRequests => false,
+        }
+    }
+}
+
 impl From<BeaconStateError> for BlockProcessingError {
     fn from(e: BeaconStateError) -> Self {
         BlockProcessingError::BeaconStateError(e)

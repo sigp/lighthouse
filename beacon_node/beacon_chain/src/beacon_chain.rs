@@ -3932,7 +3932,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // The block failed verification.
             Err(other) => {
                 debug!(reason = other.to_string(), "Beacon block rejected");
-                if other.invalidates_block_root() {
+                if other.is_deterministic_on_block_root() {
                     self.observed_invalid_block_roots.insert(block_root);
                 }
                 Err(other)

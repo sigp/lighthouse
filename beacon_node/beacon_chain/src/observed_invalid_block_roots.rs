@@ -5,7 +5,7 @@
 //!
 //! Only failures attributable to the block root may be recorded here. The block root
 //! commits to the block *message* but not its proposer signature. A proposer signature failure must
-//! never mark the root as invalid. See [`crate::block_verification::BlockError::invalidates_block_root`].
+//! never mark the root as invalid. See [`crate::block_verification::BlockError::is_deterministic_on_block_root`].
 //!
 //! Pre-gloas payload-invalid blocks are deliberately excluded; they are tracked via fork choice's execution
 //! status and have separate gossip conditions (e.g. `ParentExecutionPayloadInvalid`).

@@ -2949,7 +2949,7 @@ async fn observed_invalid_block_roots_reject_descendants_and_attestations() {
         .await
         .unwrap_err();
     assert!(
-        err.invalidates_block_root(),
+        err.is_deterministic_on_block_root(),
         "import should fail with an error attributable to the block root: {err:?}"
     );
     assert!(

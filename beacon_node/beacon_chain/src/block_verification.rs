@@ -362,17 +362,12 @@ pub enum InvalidSignature {
 }
 
 impl BlockError {
-    /// Returns `true` if this error proves that any block with the same root is
-    /// consensus-invalid, making the root safe to record in
-    /// [`crate::observed_invalid_block_roots::ObservedInvalidBlockRoots`].
-    ///
-    /// Errors that depend on anything outside the block *message* must return `false`.
-    /// For example, a block root does not commit to a proposer signature so we cannot record
-    /// valid blocks with invalid proposer signatures in [`crate::observed_invalid_block_roots::ObservedInvalidBlockRoots`].
-    /// Internal errors (DB failures, engine offline, availability failures) must also
-    /// return `false`, as must execution payload invalidity, which is tracked separately via
-    /// fork choice's execution status.
-    pub fn invalidates_block_root(&self) -> bool {
+    /// Returns `true` if the failure is deterministic on the block message and the ancestry the
+    /// block root commits to, making any block with the same root equally invalid and the root
+    /// safe to record in [`crate::observed_invalid_block_roots::ObservedInvalidBlockRoots`].
+    /// Errors that depend on anything else (proposer signature, internal failures, our view of
+    /// time or finality) must return `false`.
+    pub fn is_deterministic_on_block_root(&self) -> bool {
         match self {
             BlockError::StateRootMismatch { .. }
             | BlockError::IncorrectBlockProposer { .. }
@@ -389,56 +384,7 @@ impl BlockError {
                 InvalidSignature::BlockBodySignatures => true,
                 InvalidSignature::ProposerSignature | InvalidSignature::Unknown => false,
             },
-            BlockError::PerBlockProcessingError(e) => match e {
-                // Failures deterministic on the block message and its ancestors.
-                BlockProcessingError::RandaoSignatureInvalid
-                | BlockProcessingError::StateRootMismatch
-                | BlockProcessingError::DepositCountInvalid { .. }
-                | BlockProcessingError::HeaderInvalid { .. }
-                | BlockProcessingError::ProposerSlashingInvalid { .. }
-                | BlockProcessingError::AttesterSlashingInvalid { .. }
-                | BlockProcessingError::IndexedAttestationInvalid { .. }
-                | BlockProcessingError::AttestationInvalid { .. }
-                | BlockProcessingError::PayloadAttestationInvalid { .. }
-                | BlockProcessingError::DepositInvalid { .. }
-                | BlockProcessingError::ExitInvalid { .. }
-                | BlockProcessingError::BlsExecutionChangeInvalid { .. }
-                | BlockProcessingError::SyncAggregateInvalid { .. }
-                | BlockProcessingError::InconsistentBlockFork(_)
-                | BlockProcessingError::ExecutionHashChainIncontiguous { .. }
-                | BlockProcessingError::ExecutionRandaoMismatch { .. }
-                | BlockProcessingError::ExecutionInvalidTimestamp { .. }
-                | BlockProcessingError::ExecutionInvalidBlobsLen { .. }
-                | BlockProcessingError::ExecutionInvalid
-                | BlockProcessingError::WithdrawalsRootMismatch { .. }
-                | BlockProcessingError::WithdrawalCredentialsInvalid
-                | BlockProcessingError::ExecutionPayloadBidInvalid { .. } => true,
-                // Internal errors, or not attributable to the block message alone.
-                // `BulkSignatureVerificationFailed` may include the proposer signature and
-                // `ExecutionRequestsRootMismatch`/`NonEmptyParentExecutionRequests` fault the
-                // envelope, which the block root does not commit to.
-                BlockProcessingError::IncorrectStateType
-                | BlockProcessingError::BulkSignatureVerificationFailed
-                | BlockProcessingError::BeaconStateError(_)
-                | BlockProcessingError::SignatureSetError(_)
-                | BlockProcessingError::SszTypesError(_)
-                | BlockProcessingError::SszDecodeError(_)
-                | BlockProcessingError::BitfieldError(_)
-                | BlockProcessingError::MerkleTreeError(_)
-                | BlockProcessingError::ArithError(_)
-                | BlockProcessingError::InconsistentStateFork(_)
-                | BlockProcessingError::ConsensusContext(_)
-                | BlockProcessingError::MilhouseError(_)
-                | BlockProcessingError::EpochCacheError(_)
-                | BlockProcessingError::WithdrawalsLimitExceeded { .. }
-                | BlockProcessingError::IncorrectExpectedWithdrawalsVariant
-                | BlockProcessingError::MissingLastWithdrawal
-                | BlockProcessingError::PendingAttestationInElectra
-                | BlockProcessingError::BuilderPaymentIndexOutOfBounds(_)
-                | BlockProcessingError::ExecutionRequestsRootMismatch { .. }
-                | BlockProcessingError::NonEmptyParentExecutionRequests => false,
-            },
-            // Unknown, duplicate, timing or finality-view statuses: not proof of invalidity.
+            BlockError::PerBlockProcessingError(e) => e.is_deterministic_on_block_root(),
             BlockError::ParentUnknown { .. }
             | BlockError::FutureSlot { .. }
             | BlockError::GenesisBlock
@@ -450,12 +396,10 @@ impl BlockError {
             | BlockError::NonLinearSlots
             | BlockError::WeakSubjectivityConflict
             | BlockError::Slashable
-            // Internal errors.
             | BlockError::BeaconChainError(_)
             | BlockError::InternalError(_)
             | BlockError::AvailabilityCheck(_)
-            // Execution payload validity is tracked via fork choice's execution status, and
-            // envelopes are not committed to by the block root.
+            // Payload validity is tracked via fork choice's execution status.
             | BlockError::ExecutionPayloadError(_)
             | BlockError::ParentExecutionPayloadInvalid { .. }
             | BlockError::KnownInvalidExecutionPayload(_)
