@@ -2993,7 +2993,9 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     }
 }
 
-/// Tests that a chain segment with a valid gloas block but an envelope with invalid beacon_block_root is rejected.
+/// Tests that a chain segment with a valid gloas block but an envelope with a mismatched
+/// beacon_block_root is rejected with LatestBlockHeaderMismatch. The envelope is re-signed
+/// after mutation so the signature check passes and the block root check is exercised.
 #[tokio::test]
 async fn process_chain_segment_rejects_envelope_with_invalid_block_root() {
     let spec = test_spec::<E>();
@@ -3013,14 +3015,28 @@ async fn process_chain_segment_rejects_envelope_with_invalid_block_root() {
 
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
+    let ((block, _blob), envelope, post_state) =
+        harness.make_block_with_envelope(state, slot).await;
     let mut envelope = envelope.expect("gloas block should have envelope");
 
-    // Manually modify the beacon_block_root to make it invalid
+    // Modify the beacon_block_root to be invalid
     envelope.message.beacon_block_root = Hash256::zero();
 
-    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+    // Re-sign the envelope so that the signature is valid
+    let proposer_index = block.message().proposer_index() as usize;
+    let epoch = slot.epoch(MainnetEthSpec::slots_per_epoch());
+    let domain = harness.spec.get_domain(
+        epoch,
+        Domain::BeaconBuilder,
+        &post_state.fork(),
+        post_state.genesis_validators_root(),
+    );
+    let signing_root = envelope.message.signing_root(domain);
+    envelope.signature = harness.validator_keypairs[proposer_index]
+        .sk
+        .sign(signing_root);
 
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
     let bid = block
         .message()
         .body()
@@ -3041,17 +3057,14 @@ async fn process_chain_segment_rejects_envelope_with_invalid_block_root() {
         .process_chain_segment(segment, NotifyExecutionLayer::Yes)
         .await;
 
-    // Even though we modify the beacon_block_root, the test will fail with BadSignature
-    // This is because process_chain_segment() calls process_range_sync_envelope(), which then calls verify_execution_payload_envelope()
-    // The first thing the function does is to verify the signature and it should fail with: Err(EnvelopeProcessingError::BadSignature)
     match result {
         ChainSegmentResult::Failed { error, .. } => {
             assert!(
-                error.to_string().contains("BadSignature"),
-                "expected BadSignature error, got: {error}"
+                error.to_string().contains("LatestBlockHeaderMismatch"),
+                "expected LatestBlockHeaderMismatch error, got: {error}"
             );
         }
-        _ => panic!("chain segment should fail with invalid envelope signature"),
+        _ => panic!("chain segment should fail with invalid beacon_block_root"),
     }
 }
 
