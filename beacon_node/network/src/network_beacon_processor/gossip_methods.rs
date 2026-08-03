@@ -1674,6 +1674,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             Err(e @ BlockError::ParentInvalid { .. })
+            | Err(e @ BlockError::KnownInvalid { .. })
             | Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)

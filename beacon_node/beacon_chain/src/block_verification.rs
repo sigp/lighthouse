@@ -285,6 +285,15 @@ pub enum BlockError {
     ParentInvalid {
         parent_root: Hash256,
     },
+    /// The block's own root was observed to fail consensus validation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer sent us a block that was previously observed to be invalid. The block is invalid
+    /// and the peer is faulty.
+    KnownInvalid {
+        block_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -374,7 +383,8 @@ impl BlockError {
             | BlockError::InvalidBlobCount { .. }
             | BlockError::BidParentRootMismatch { .. }
             | BlockError::BlockSlotLimitReached
-            | BlockError::ParentInvalid { .. } => true,
+            | BlockError::ParentInvalid { .. }
+            | BlockError::KnownInvalid { .. } => true,
             // Exclude `BeaconStateError`, which can indicate an internal cache or state
             // inconsistency on our side rather than an invalid block.
             BlockError::PerBlockProcessingError(e) => {
@@ -958,8 +968,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that is known to be invalid.
         chain.check_invalid_block_roots(block_root)?;
 
+        // Reject blocks whose root was observed to be consensus-invalid.
+        if chain.observed_invalid_block_roots.contains(&block_root) {
+            return Err(BlockError::KnownInvalid { block_root });
+        }
+
         // Reject blocks that build on a parent observed to be consensus-invalid, and record them
-        // as invalid. This must precede the finalized-descendant check, which would instead classify 
+        // as invalid. This must precede the finalized-descendant check, which would instead classify
         // the unknown parent as `ParentUnknown` and trigger a lookup sync.
         let parent_root = block.parent_root();
         if chain.observed_invalid_block_roots.contains(&parent_root) {
@@ -1183,6 +1198,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         // Check whether the block is a banned block prior to loading the parent.
         chain.check_invalid_block_roots(block_root)?;
+
+        // Reject blocks whose root was observed to be consensus-invalid.
+        if chain.observed_invalid_block_roots.contains(&block_root) {
+            return Err(BlockError::KnownInvalid { block_root });
+        }
 
         let (mut parent, block) = load_parent(block, chain)?;
 

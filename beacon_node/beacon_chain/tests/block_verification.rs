@@ -2941,7 +2941,7 @@ async fn observed_invalid_block_roots_reject_descendants_and_attestations() {
         .chain
         .process_block(
             invalid_root,
-            LookupBlock::new(invalid_block),
+            LookupBlock::new(invalid_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2958,6 +2958,13 @@ async fn observed_invalid_block_roots_reject_descendants_and_attestations() {
             .observed_invalid_block_roots
             .contains(&invalid_root),
         "the invalid block root should be recorded"
+    );
+
+    // A gossip copy of the invalid block itself is rejected without reprocessing.
+    let err = unwrap_err(harness.chain.verify_block_for_gossip(invalid_block).await);
+    assert!(
+        matches!(err, BlockError::KnownInvalid { block_root } if block_root == invalid_root),
+        "expected KnownInvalid, got: {err:?}"
     );
 
     // A gossip block building on the invalid block is rejected and recorded as invalid by

@@ -1058,6 +1058,7 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::InconsistentFork(_)
                     | BlockError::ParentExecutionPayloadInvalid { .. }
                     | BlockError::ParentInvalid { .. }
+                    | BlockError::KnownInvalid { .. }
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
                     | BlockError::InvalidBlobCount { .. }

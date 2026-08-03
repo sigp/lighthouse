@@ -1,6 +1,6 @@
 //! Cache of block roots observed to fail consensus validation.
 //!
-//! When a block fails consensus validation during import, we store it in this cache. 
+//! When a block fails consensus validation during import, we store it in this cache.
 //! This allows us to quickly reject messages that build on top of invalid blocks.
 //!
 //! Only failures attributable to the block root may be recorded here. The block root
