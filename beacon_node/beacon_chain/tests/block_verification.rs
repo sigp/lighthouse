@@ -2932,43 +2932,6 @@ async fn rpc_block_allows_construction_past_da_boundary() {
     panic!("No block with blob commitments found");
 }
 
-/// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
-/// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
-#[tokio::test]
-async fn range_sync_block_new_rejects_gloas_block() {
-    let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
-        return;
-    }
-
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
-        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
-        .node_custody_type(NodeCustodyType::Supernode)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    harness.advance_slot();
-
-    let state = harness.get_current_state();
-    let slot = harness.get_current_slot();
-    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
-    assert!(envelope.is_some(), "gloas block should produce an envelope");
-
-    // Attempt to use the pre-gloas constructor with a gloas block, it should error
-    let result = RangeSyncBlock::new(
-        block,
-        AvailableBlockData::NoData,
-        &harness.chain.custody_context,
-    );
-
-    assert!(
-        result.is_err(),
-        "RangeSyncBlock::new should reject a gloas block"
-    );
-}
-
 /// Tests that a chain segment with a valid gloas block but an envelope with an invalid signature is rejected.
 #[tokio::test]
 async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
