@@ -47,6 +47,18 @@ pub enum ProposerPreferencesError {
     },
     /// The signature is invalid.
     BadSignature,
+
+    /// The block with root `dependent_root` is not before the start of the lookahead epoch.
+    DependentRootToRecent {
+        dependent_root: Hash256,
+        block_slot: Slot,
+        epoch_start_slot: Slot,
+    },
+
+    /// The block with root `dependent_root` is not a possible dependent block
+    /// for the given epoch.
+    InvalidDependentRoot { dependent_root: Hash256 },
+
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
