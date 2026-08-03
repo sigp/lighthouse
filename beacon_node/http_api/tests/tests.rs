@@ -50,10 +50,11 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256, MainnetEthSpec,
-    ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
+    MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    attestation::AttestationBase,
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
 type E = MainnetEthSpec;
@@ -100,6 +101,11 @@ struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
     node_custody_type: NodeCustodyType,
+}
+
+struct BuilderStateTestFixture {
+    state_id: CoreStateId,
+    pending_id: BuilderId,
 }
 
 impl Default for ApiTesterConfig {
@@ -1176,6 +1182,144 @@ impl ApiTester {
             }
         }
 
+        self
+    }
+
+    fn builder_state_test_fixture(&self) -> BuilderStateTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        assert!(
+            finalized_epoch > 0,
+            "precondition: finalized epoch permits an active builder"
+        );
+
+        let builder =
+            |keypair_index: usize, deposit_epoch: Epoch, withdrawable_epoch: Epoch| Builder {
+                pubkey: self.validator_keypairs()[keypair_index].pk.clone().into(),
+                version: PAYLOAD_BUILDER_VERSION,
+                execution_address: Address::repeat_byte(keypair_index as u8 + 1),
+                balance: self.chain.spec.min_deposit_amount,
+                deposit_epoch,
+                withdrawable_epoch,
+            };
+
+        let active = builder(0, Epoch::new(0), self.chain.spec.far_future_epoch);
+        let pending = builder(1, finalized_epoch, self.chain.spec.far_future_epoch);
+        let pending_id = BuilderId::PublicKey(pending.pubkey);
+        let exited = builder(2, Epoch::new(0), state.current_epoch());
+        let builders = state.builders_mut().unwrap();
+        assert!(builders.is_empty());
+        builders.push(active).unwrap();
+        builders.push(pending).unwrap();
+        builders.push(exited).unwrap();
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderStateTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            pending_id,
+        }
+    }
+
+    pub async fn test_beacon_state_builders_filters(self) -> Self {
+        let fixture = self.builder_state_test_fixture();
+        let all_builders = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, None, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(all_builders.execution_optimistic, Some(false));
+        assert_eq!(all_builders.finalized, Some(false));
+        assert_eq!(
+            all_builders
+                .data
+                .iter()
+                .map(|builder| (builder.index, builder.status))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, BuilderStatus::Active),
+                (1, BuilderStatus::Pending),
+                (2, BuilderStatus::Exited),
+            ]
+        );
+
+        let builders_url = self
+            .client
+            .server()
+            .expose_full()
+            .join(&format!(
+                "/eth/v1/beacon/states/{}/builders",
+                fixture.state_id
+            ))
+            .unwrap();
+
+        let bodyless_response = reqwest::Client::new()
+            .post(builders_url.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bodyless_response.status(), StatusCode::OK);
+        let bodyless_builders: ExecutionOptimisticFinalizedResponse<Vec<BuilderData>> =
+            bodyless_response.json().await.unwrap();
+        assert_eq!(bodyless_builders, all_builders);
+
+        let empty_filters = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, Some(vec![]), Some(vec![]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(empty_filters, all_builders);
+
+        let filtered_by_index = self
+            .client
+            .post_beacon_states_builders(
+                fixture.state_id,
+                Some(vec![BuilderId::Index(0), BuilderId::Index(u64::MAX)]),
+                Some(vec![BuilderStatus::Active]),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_index.data, vec![all_builders.data[0].clone()]);
+
+        let filtered_by_pubkey = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, Some(vec![fixture.pending_id]), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_pubkey.data, vec![all_builders.data[1].clone()]);
+
+        let filtered_by_status = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, None, Some(vec![BuilderStatus::Pending]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_status.data, vec![all_builders.data[1].clone()]);
+
+        let malformed_id_response = reqwest::Client::new()
+            .post(builders_url)
+            .header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
+            .body(r#"{"ids":["0xzz"]}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(malformed_id_response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_beacon_state_builders_pre_gloas(self) -> Self {
+        let error = self
+            .client
+            .post_beacon_states_builders(CoreStateId::Head, None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
         self
     }
 
@@ -9024,6 +9168,30 @@ async fn beacon_get_state_info_fulu() {
         .test_beacon_states_proposer_lookahead()
         .await
         .test_beacon_states_proposer_lookahead_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_state_builders_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_state_builders_filters()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_state_builders_pre_gloas() {
+    ApiTester::new()
+        .await
+        .test_beacon_state_builders_pre_gloas()
         .await;
 }
 
