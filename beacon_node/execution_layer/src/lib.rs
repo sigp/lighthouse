@@ -223,6 +223,8 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
     }
 }
 
+// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
+
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
         payload: Payload,
@@ -941,6 +943,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(payload_response.into())
     }
 
+    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
+
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -1122,7 +1126,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
@@ -1699,6 +1703,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     return Err(Error::InvalidForkForPayload);
                 }
                 ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::Heze => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };

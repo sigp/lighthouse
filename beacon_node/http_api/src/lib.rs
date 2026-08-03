@@ -1537,6 +1537,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_envelopes (SSZ)
@@ -1545,6 +1546,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_bids
@@ -2571,7 +2573,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/execution_payload_envelopes/{slot}/{builder_index}
+    // GET validator/execution_payload_envelopes/{slot}/{beacon_block_root}
     let get_validator_execution_payload_envelopes = get_validator_execution_payload_envelopes(
         eth_v1.clone(),
         chain_filter.clone(),
@@ -3200,6 +3202,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
+                                api_types::EventTopic::HeadV2 => event_handler.subscribe_head_v2(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()
@@ -3266,6 +3269,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::PayloadAttestationMessage => {
                                     event_handler.subscribe_payload_attestation_message()
+                                }
+                                api_types::EventTopic::FastConfirmation => {
+                                    event_handler.subscribe_fast_confirmation()
                                 }
                             };
 

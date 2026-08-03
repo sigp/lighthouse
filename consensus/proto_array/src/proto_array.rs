@@ -1722,7 +1722,7 @@ impl ProtoArray {
         }
 
         // Adjust the indices map.
-        for (_root, index) in self.indices.iter_mut() {
+        for index in self.indices.values_mut() {
             *index = index
                 .checked_sub(finalized_index)
                 .ok_or(Error::IndexOverflow("indices"))?;
@@ -1830,6 +1830,14 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {
+        self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
+    }
+
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of

@@ -184,6 +184,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxBuilderDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuilderExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /*
+     * New in Heze
+     */
+    type InclusionListCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     fn default_spec() -> ChainSpec;
 
     fn spec_name() -> EthSpecId;
@@ -465,6 +470,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn data_availability_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
     }
+
+    /// Returns the `INCLUSION_LIST_COMMITTEE_SIZE` constant for this specification.
+    fn inclusion_list_committee_size() -> usize {
+        Self::InclusionListCommitteeSize::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -543,6 +553,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -622,6 +633,7 @@ impl EthSpec for MinimalEthSpec {
         MaxPayloadAttestations,
         MaxBuilderDepositRequestsPerPayload,
         MaxBuilderExitRequestsPerPayload,
+        InclusionListCommitteeSize,
         BuilderRegistryLimit
     });
 
@@ -702,6 +714,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

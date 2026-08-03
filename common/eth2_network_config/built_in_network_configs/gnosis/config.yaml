@@ -51,6 +51,10 @@ FULU_FORK_EPOCH: 1714688  # Tue Apr 14 2026 12:06:20 GMT+0000
 GLOAS_FORK_VERSION: 0x07000064
 GLOAS_FORK_EPOCH: 18446744073709551615
 
+# Heze
+HEZE_FORK_VERSION: 0x08000064
+HEZE_FORK_EPOCH: 18446744073709551615
+
 # Time parameters
 # ---------------------------------------------------------------
 # 5 seconds
