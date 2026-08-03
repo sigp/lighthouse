@@ -30,12 +30,12 @@ use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
-    BeaconState, BeaconStateError,BlobsList, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
+    BeaconState, BeaconStateError, BlobsList, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
     ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, KzgProofs,PayloadAttestation, ProposerSlashing,
-    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
-    Withdrawals,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, KzgProofs, PayloadAttestation,
+    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
+    SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
