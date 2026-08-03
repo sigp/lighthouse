@@ -37,8 +37,7 @@ pub fn single_attestation_to_attestation<E: EthSpec>(
             .set(committee_index as usize, true)
             .map_err(|e| Error::Invalid(e.into()))?;
 
-        let mut aggregation_bits = ProgressiveBitList::with_capacity(committee.len())
-            .map_err(|e| Error::Invalid(e.into()))?;
+        let mut aggregation_bits = ProgressiveBitList::with_capacity(committee.len());
         aggregation_bits
             .set(aggregation_bit, true)
             .map_err(|e| Error::Invalid(e.into()))?;

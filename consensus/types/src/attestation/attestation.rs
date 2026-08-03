@@ -127,8 +127,7 @@ impl<E: EthSpec> Attestation<E> {
             let index = if payload_present { 1u64 } else { 0u64 };
             Ok(Attestation::Gloas(AttestationGloas {
                 // [Modified in Gloas:EIP7688]
-                aggregation_bits: ProgressiveBitList::with_capacity(committee_length)
-                    .map_err(|_| Error::InvalidCommitteeLength)?,
+                aggregation_bits: ProgressiveBitList::with_capacity(committee_length),
                 data: AttestationData {
                     slot,
                     index,

@@ -437,7 +437,7 @@ fn progressive_bitlist_extend(
     list2: &ProgressiveBitList,
 ) -> Option<ProgressiveBitList> {
     let new_length = list1.len() + list2.len();
-    let mut list = ProgressiveBitList::with_capacity(new_length).ok()?;
+    let mut list = ProgressiveBitList::with_capacity(new_length);
 
     // Copy bits from list1.
     for (i, bit) in list1.iter().enumerate() {
