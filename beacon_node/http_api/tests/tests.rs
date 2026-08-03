@@ -1244,6 +1244,26 @@ impl ApiTester {
             ]
         );
 
+        let builders_url = self
+            .client
+            .server()
+            .expose_full()
+            .join(&format!(
+                "/eth/v1/beacon/states/{}/builders",
+                fixture.state_id
+            ))
+            .unwrap();
+
+        let bodyless_response = reqwest::Client::new()
+            .post(builders_url.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bodyless_response.status(), StatusCode::OK);
+        let bodyless_builders: ExecutionOptimisticFinalizedResponse<Vec<BuilderData>> =
+            bodyless_response.json().await.unwrap();
+        assert_eq!(bodyless_builders, all_builders);
+
         let empty_filters = self
             .client
             .post_beacon_states_builders(fixture.state_id, Some(vec![]), Some(vec![]))
@@ -1271,6 +1291,23 @@ impl ApiTester {
             .unwrap()
             .unwrap();
         assert_eq!(filtered_by_pubkey.data, vec![all_builders.data[1].clone()]);
+
+        let filtered_by_status = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, None, Some(vec![BuilderStatus::Pending]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_status.data, vec![all_builders.data[1].clone()]);
+
+        let malformed_id_response = reqwest::Client::new()
+            .post(builders_url)
+            .header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
+            .body(r#"{"ids":["0xzz"]}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(malformed_id_response.status(), StatusCode::BAD_REQUEST);
 
         self
     }
