@@ -12,7 +12,7 @@ use types::{BeaconState, ChainSpec, EthSpec, Slot};
 /// apply diffs once on the first request, and latter just apply blocks one at a time.
 #[derive(Debug)]
 pub struct HistoricStateCache<E: EthSpec> {
-    hdiff_buffers: LruCache<Slot, HDiffBuffer>,
+    hdiff_buffers: LruCache<Slot, HDiffBuffer<E>>,
     states: LruCache<Slot, BeaconState<E>>,
 }
 
@@ -31,7 +31,7 @@ impl<E: EthSpec> HistoricStateCache<E> {
         }
     }
 
-    pub fn get_hdiff_buffer(&mut self, slot: Slot) -> Option<HDiffBuffer> {
+    pub fn get_hdiff_buffer(&mut self, slot: Slot) -> Option<HDiffBuffer<E>> {
         if let Some(buffer_ref) = self.hdiff_buffers.get(&slot) {
             let _timer = metrics::start_timer_vec(
                 &metrics::BEACON_HDIFF_BUFFER_CLONE_TIME,
@@ -73,11 +73,11 @@ impl<E: EthSpec> HistoricStateCache<E> {
         self.states.insert(slot, state);
     }
 
-    pub fn put_hdiff_buffer(&mut self, slot: Slot, buffer: HDiffBuffer) {
+    pub fn put_hdiff_buffer(&mut self, slot: Slot, buffer: HDiffBuffer<E>) {
         self.hdiff_buffers.insert(slot, buffer);
     }
 
-    pub fn put_both(&mut self, slot: Slot, state: BeaconState<E>, buffer: HDiffBuffer) {
+    pub fn put_both(&mut self, slot: Slot, state: BeaconState<E>, buffer: HDiffBuffer<E>) {
         self.put_state(slot, state);
         self.put_hdiff_buffer(slot, buffer);
     }
