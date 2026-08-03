@@ -177,6 +177,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let body = serde_json::json!({
             "version": fork_name.to_string(),
             "consensus_block_value": "0",
+            "execution_payload_value": "0",
             "execution_payload_included": false,
             "data": block,
         });
@@ -191,6 +192,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_header("Eth-Consensus-Version", &fork_name.to_string())
             .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Value", "0")
             .with_header("Eth-Execution-Payload-Included", "false")
             .with_body(serde_json::to_string(&body).unwrap())
             .create()
@@ -219,6 +221,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             // These headers are required for v4 get validator block endpoint: https://github.com/ethereum/beacon-APIs/pull/580
             .with_header("Eth-Consensus-Version", &fork_name.to_string())
             .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Value", "0")
             .with_header("Eth-Execution-Payload-Included", "false")
             .with_body(ssz_bytes)
             .create()
