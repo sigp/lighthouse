@@ -25,7 +25,7 @@ use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
-    common::{attesting_indices_base, attesting_indices_electra},
+    common::{attesting_indices_base, attesting_indices_electra, attesting_indices_gloas},
     per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
@@ -379,12 +379,12 @@ fn update_data_column_signed_header<E: EthSpec>(
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
         let new_column_sidecar = match old_column_sidecar.as_ref() {
-            DataColumnSidecar::Fulu(_) => {
+            DataColumnSidecar::Fulu(old_sidecar) => {
                 Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-                    index: *old_column_sidecar.index(),
-                    column: old_column_sidecar.column().clone(),
-                    kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
-                    kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
+                    index: old_sidecar.index,
+                    column: old_sidecar.column.clone(),
+                    kzg_commitments: old_sidecar.kzg_commitments.clone(),
+                    kzg_proofs: old_sidecar.kzg_proofs.clone(),
                     signed_block_header: signed_block.signed_block_header(),
                     kzg_commitments_inclusion_proof: signed_block
                         .message()
@@ -912,8 +912,7 @@ async fn invalid_signature_proposer_slashing() {
         };
         block
             .body_mut()
-            .proposer_slashings_mut()
-            .push(proposer_slashing)
+            .proposer_slashings_push(proposer_slashing)
             .expect("should update proposer slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -996,20 +995,61 @@ async fn invalid_signature_attester_slashing() {
             .as_ref()
             .clone()
             .deconstruct();
-        if fork_name.electra_enabled() {
-            block
-                .body_mut()
-                .attester_slashings_electra_mut()
-                .unwrap()
-                .push(attester_slashing.as_electra().unwrap().clone())
-        } else {
-            block
-                .body_mut()
-                .attester_slashings_base_mut()
-                .unwrap()
-                .push(attester_slashing.as_base().unwrap().clone())
+        match &mut block.body_mut() {
+            BeaconBlockBodyRefMut::Base(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Altair(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Bellatrix(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Capella(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Deneb(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Electra(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Fulu(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Gloas(blk) => {
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings.push(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                });
+            }
+            BeaconBlockBodyRefMut::Heze(blk) => {
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings.push(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                });
+            }
         }
-        .expect("should update attester slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_envelope_block_root(&mut snapshots[block_index]);
@@ -1096,8 +1136,7 @@ async fn invalid_signature_deposit() {
             .deconstruct();
         block
             .body_mut()
-            .deposits_mut()
-            .push(deposit)
+            .deposits_push(deposit)
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -1145,8 +1184,7 @@ async fn invalid_signature_exit() {
             .deconstruct();
         block
             .body_mut()
-            .voluntary_exits_mut()
-            .push(SignedVoluntaryExit {
+            .voluntary_exits_push(SignedVoluntaryExit {
                 message: VoluntaryExit {
                     epoch,
                     validator_index: 0,
@@ -1634,11 +1672,15 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             Attestation::Electra(att) => {
                 attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
             }
+            Attestation::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation_from_state(&state, att).unwrap()
+            }
         };
 
         for index in match indexed_attestation {
             IndexedAttestation::Base(att) => att.attesting_indices.into_iter(),
             IndexedAttestation::Electra(att) => att.attesting_indices.into_iter(),
+            IndexedAttestation::Gloas(att) => att.attesting_indices.into_iter(),
         } {
             let index = index as usize;
 
