@@ -138,6 +138,21 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
+    /// Returns whether the custody requirement for `block_root` has been
+    /// satisfied, independent of whether the payload envelope has been received
+    /// or imported into fork choice.
+    ///
+    /// Returns `false` if the block is not present in the pending payload cache.
+    #[instrument(skip_all, level = "trace")]
+    pub fn is_blob_data_available(&self, block_root: &Hash256) -> bool {
+        self.peek_pending_components(block_root, |components| {
+            components.is_some_and(|c| {
+                let num_expected_columns = c.num_columns_required(&self.custody_context);
+                c.is_blob_data_available(num_expected_columns)
+            })
+        })
+    }
+
     /// Return the cached Gloas payload bid for `block_root`, if present.
     pub fn get_bid(
         &self,
@@ -266,7 +281,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
             custody_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.kzg,
         )
         .map_err(AvailabilityCheckError::InvalidColumn)?;
@@ -457,7 +472,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {

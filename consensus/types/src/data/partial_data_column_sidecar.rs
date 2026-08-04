@@ -11,7 +11,7 @@ use kzg::KzgProof;
 use merkle_proof::verify_merkle_proof;
 use ssz::BitList;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{FixedVector, ListEncodedOption, VariableList};
+use ssz_types::{FixedVector, ListEncodedOption, ProgressiveVariableList, VariableList};
 use std::fmt::Display;
 use superstruct::superstruct;
 use tree_hash::TreeHash;
@@ -336,8 +336,8 @@ impl<E: EthSpec> PartialDataColumnGloas<E> {
         }
         Some(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index: self.index,
-            column: self.sidecar.column.clone(),
-            kzg_proofs: self.sidecar.kzg_proofs.clone(),
+            column: ProgressiveVariableList::new(Vec::from(self.sidecar.column.clone())),
+            kzg_proofs: ProgressiveVariableList::new(Vec::from(self.sidecar.kzg_proofs.clone())),
             slot: self.slot,
             beacon_block_root: self.block_root,
         }))
@@ -349,8 +349,8 @@ impl<E: EthSpec> PartialDataColumnGloas<E> {
         }
         Some(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index: self.index,
-            column: self.sidecar.column,
-            kzg_proofs: self.sidecar.kzg_proofs,
+            column: ProgressiveVariableList::new(Vec::from(self.sidecar.column)),
+            kzg_proofs: ProgressiveVariableList::new(Vec::from(self.sidecar.kzg_proofs)),
             slot: self.slot,
             beacon_block_root: self.block_root,
         }))

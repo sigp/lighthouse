@@ -33,7 +33,7 @@ use std::sync::Arc;
 use tracing::{debug, instrument, warn};
 use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError};
 use types::{
-    AbstractExecPayload, BeaconStateError, EthSpec, Hash256, KzgCommitments,
+    AbstractExecPayload, BeaconStateError, EthSpec, Hash256, KzgCommitment, ListRef,
     PartialDataColumnHeader, SignedBeaconBlock, SignedExecutionPayloadBid, Slot, VersionedHash,
 };
 
@@ -65,10 +65,10 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
         }
     }
 
-    pub fn kzg_commitments(&self) -> &KzgCommitments<E> {
+    pub fn kzg_commitments(&self) -> ListRef<'_, KzgCommitment, E::MaxBlobCommitmentsPerBlock> {
         match self {
-            PartialHeaderOrBid::PartialHeader(header) => &header.kzg_commitments,
-            PartialHeaderOrBid::Bid(bid) => &bid.message.blob_kzg_commitments,
+            PartialHeaderOrBid::PartialHeader(header) => ListRef::Basic(&header.kzg_commitments),
+            PartialHeaderOrBid::Bid(bid) => ListRef::Progressive(&bid.message.blob_kzg_commitments),
         }
     }
 
