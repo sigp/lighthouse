@@ -1403,7 +1403,7 @@ async fn lighthouse_custody_info() {
     );
 }
 
-/// Inclusion list duties across the Heze fork boundary: pre-Heze epochs are rejected,
+/// Inclusion list duties across the Heze fork boundary: pre-Heze epochs are not rejected,
 /// and duties at the fork epoch resolve their dependent root from pre-fork history.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inclusion_list_duties_across_fork_boundary() {
