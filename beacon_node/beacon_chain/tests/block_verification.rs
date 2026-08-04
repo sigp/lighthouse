@@ -2993,7 +2993,7 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     }
 }
 
-/// Tests that when a chain segment has 2 gloas blocks with one block has invalid signature
+/// Tests that when a chain segment has 2 gloas blocks with one block has invalid envelope signature
 /// both blocks imported into fork choice but only the block with valid envelope has payload received
 #[tokio::test]
 async fn process_chain_segment_partial_import_with_invalid_envelope() {
@@ -3117,5 +3117,104 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
     assert!(
         !fork_choice.is_payload_received(&block_root2),
         "block2 payload should be rejected"
+    );
+}
+
+/// Tests that a block cannot be imported when the parent's envelope is missing
+#[tokio::test]
+async fn process_chain_segment_import_fails_without_parent_envelope() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    // Block 1 is without an envelope
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, None).unwrap();
+
+    // Block 2 is a child of block1
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope2 = chain_dump[1].execution_envelope.clone().unwrap();
+    let columns2 = generate_data_column_sidecars_from_block(&block2, &harness.chain.spec);
+    let bid2 = block2
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope2 = AvailableEnvelope::new(
+        envelope2,
+        columns2,
+        bid2,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+
+    let block_root1 = range_sync_block1.block_root();
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed {
+            imported_blocks,
+            error,
+        } => {
+            // Block 1 is imported successfully
+            assert_eq!(imported_blocks.len(), 1, "only block 1 should be imported");
+            assert_eq!(imported_blocks[0].0, block_root1);
+            // Block 2 import fails because it's a child of block1, but block1 has no envelope
+            // It has ParentImportStatus::UnknownPayload, and the error is: BlockError::ParentUnknown
+            assert!(
+                error.to_string().contains("ParentUnknown"),
+                "expected ParentUnknown error, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail without parent envelope"),
+    }
+
+    // Verify block 1 is in fork choice but payload not received.
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(
+        fork_choice.contains_block(&block_root1),
+        "block1 should be in fork choice"
+    );
+    assert!(
+        !fork_choice.is_payload_received(&block_root1),
+        "block1 payload should not be received (no envelope was provided)"
     );
 }
