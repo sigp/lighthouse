@@ -3170,6 +3170,152 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     }
 }
 
+#[tokio::test]
+async fn pruning_preserves_payload_aligned() {
+    type E = MinimalEthSpec;
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9); // Aligned Slot
+
+    let slots = (1..num_initial_slots).map(Slot::new).collect::<Vec<_>>();
+
+    verify_pruning_preserves_payload(checkpoint_slot, slots).await;
+}
+
+#[tokio::test]
+async fn pruning_preserves_payload_unaligned() {
+    type E = MinimalEthSpec;
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9 - 3);
+
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| slot <= checkpoint_slot || slot > checkpoint_slot + 3)
+        .collect::<Vec<_>>();
+
+    verify_pruning_preserves_payload(checkpoint_slot, slots).await;
+}
+
+async fn verify_pruning_preserves_payload(checkpoint_slot: Slot, slots: Vec<Slot>) {
+    type E = MinimalEthSpec;
+    let spec = test_spec::<E>();
+
+    // Requires Execution Payloads.
+    let Some(_) = spec.deneb_fork_epoch else {
+        return;
+    };
+
+    // Create a standard chain.
+    let temp1 = tempdir().unwrap();
+    let full_store = get_store_generic(&temp1, StoreConfig::default(), spec.clone());
+
+    let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let genesis_state = harness.get_current_state();
+    harness
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
+        .await;
+
+    // Extract snapshot data.
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+        
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+        
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
+    
+    let wss_state = full_store
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
+        .unwrap()
+        .unwrap();
+
+    // Ensure client with `prune_payloads = true`.
+    let temp2 = tempdir().unwrap();
+    let store_config = StoreConfig {
+        prune_payloads: true,
+        ..StoreConfig::default()
+    };
+
+    let store = get_store_generic(&temp2, store_config, spec.clone());
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        spec.get_slot_duration(),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+
+    let chain_config = ChainConfig {
+        archive: true,
+        ..ChainConfig::default()
+    };
+
+    let trusted_setup = get_kzg(&spec);
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+    let mock = mock_execution_layer_from_parts(
+        harness.spec.clone(),
+        harness.runtime.task_executor.clone(),
+    );
+    let all_custody_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, trusted_setup)
+        .chain_config(chain_config)
+        .store(store.clone())
+        .custom_spec(spec.clone().into())
+        .task_executor(harness.chain.task_executor.clone())
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
+        .unwrap()
+        .store_migrator_config(MigratorConfig::default().blocking())
+        .slot_clock(slot_clock)
+        .shutdown_sender(shutdown_tx)
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
+        .execution_layer(Some(mock.el))
+        .ordered_custody_column_indices(all_custody_columns)
+        .rng(Box::new(StdRng::seed_from_u64(42)))
+        .build();
+
+    assert!(beacon_chain.is_ok(), "Beacon Chain failed to build");
+    let chain = beacon_chain.as_ref().unwrap();
+
+    // Trigger Pruning Explicitly.
+    chain
+        .store
+        .try_prune_execution_payloads(true)
+        .expect("Pruning should succeed");
+
+    // In Gloas, the execution payload envelope is separate from the block.
+    if !wss_block.fork_name_unchecked().gloas_enabled() {
+        // Assert the Split Payload still exists.
+        let payload_exists = chain
+            .store
+            .execution_payload_exists(&wss_block_root)
+            .unwrap_or(false);
+
+        assert!(
+            payload_exists,
+            "Split block payload must exist after pruning"
+        );
+    }
+}
+
 async fn weak_subjectivity_sync_test(
     slots: Vec<Slot>,
     checkpoint_slot: Slot,
