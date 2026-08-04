@@ -12,7 +12,7 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
-use ssz_types::Bitfield;
+use ssz_types::BitList;
 use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
@@ -213,7 +213,6 @@ async fn valid_4_deposits() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 4, None, None);
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -222,9 +221,17 @@ async fn valid_4_deposits() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -237,7 +244,6 @@ async fn invalid_deposit_deposit_count_too_big() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -246,11 +252,19 @@ async fn invalid_deposit_deposit_count_too_big() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -269,7 +283,6 @@ async fn invalid_deposit_count_too_small() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -278,11 +291,19 @@ async fn invalid_deposit_count_too_small() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -301,7 +322,6 @@ async fn invalid_deposit_bad_merkle_proof() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -310,13 +330,21 @@ async fn invalid_deposit_bad_merkle_proof() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
     let bad_index = state.eth1_deposit_index() as usize;
 
     // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data_mut().deposit_count += 1;
     *state.eth1_deposit_index_mut() += 1;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -336,7 +364,6 @@ async fn invalid_deposit_wrong_sig() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -345,9 +372,17 @@ async fn invalid_deposit_wrong_sig() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
@@ -360,7 +395,6 @@ async fn invalid_deposit_invalid_pub_key() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
-    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -369,9 +403,17 @@ async fn invalid_deposit_invalid_pub_key() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    head_block
+        .to_mut()
+        .body_mut()
+        .set_deposits_from_iter(deposits)
+        .unwrap();
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        state,
+        &head_block.body().deposits().to_cow_slice(),
+        &spec,
+    );
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
@@ -396,7 +438,7 @@ async fn invalid_attestation_no_committee_for_index() {
         .attestations_mut()
         .next()
         .unwrap()
-        .data_mut()
+        .into_data_mut()
         .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -445,7 +487,7 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .attestations_mut()
         .next()
         .unwrap()
-        .data_mut()
+        .into_data_mut()
         .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -486,14 +528,21 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .deconstruct()
         .0;
     // Use Electra method since harness runs at Electra fork
-    *head_block
+    if let AttestationRefMut::Electra(att) = head_block
         .to_mut()
         .body_mut()
         .attestations_mut()
         .next()
         .unwrap()
-        .aggregation_bits_electra_mut()
-        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
+    {
+        att.aggregation_bits =
+            BitList::<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>::with_capacity(
+                spec.target_committee_size,
+            )
+            .unwrap();
+    } else {
+        panic!("harness should produce Electra attestations");
+    }
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -533,7 +582,7 @@ async fn invalid_attestation_bad_signature() {
         .attestations_mut()
         .next()
         .unwrap()
-        .signature_mut() = AggregateSignature::empty();
+        .into_signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -576,7 +625,7 @@ async fn invalid_attestation_included_too_early() {
         .attestations_mut()
         .next()
         .unwrap()
-        .data_mut()
+        .into_data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -626,7 +675,7 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .attestations_mut()
         .next()
         .unwrap()
-        .data_mut()
+        .into_data_mut()
         .target
         .epoch += Epoch::new(1);
 
@@ -684,6 +733,9 @@ async fn invalid_attester_slashing_not_slashable() {
         AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
+        AttesterSlashing::Gloas(attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
     }
 
     let mut state = harness.get_current_state();
@@ -720,6 +772,10 @@ async fn invalid_attester_slashing_1_invalid() {
         AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices =
                 VariableList::try_from(vec![2, 1]).unwrap();
+        }
+        AttesterSlashing::Gloas(attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices =
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
         }
     }
 
@@ -760,6 +816,10 @@ async fn invalid_attester_slashing_2_invalid() {
         AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices =
                 VariableList::try_from(vec![2, 1]).unwrap();
+        }
+        AttesterSlashing::Gloas(attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices =
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
         }
     }
 
