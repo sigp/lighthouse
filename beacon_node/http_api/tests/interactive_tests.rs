@@ -1432,12 +1432,12 @@ async fn inclusion_list_duties_across_fork_boundary() {
 
     // Pre-Heze epochs are not rejected.
     for epoch in [Epoch::new(0), Epoch::new(1)] {
-        let duties =             client
+        let duties = client
             .post_validator_duties_inclusion_list(epoch, &[0])
             .await
             .unwrap_or_else(|e| panic!("Failed to get duties on pre-Heze epoch {epoch}: {e:?}"));
         assert_eq!(
-               duties.data.len(),
+            duties.data.len(),
             1,
             "validator 0 should have an IL duty in pre-Heze epoch {epoch}"
         );
