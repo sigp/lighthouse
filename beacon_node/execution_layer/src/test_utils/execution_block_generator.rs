@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -801,11 +801,11 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     extra_data: "block gen was here".as_bytes().to_vec().try_into().unwrap(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].try_into().unwrap(),
-                    withdrawals: pa.withdrawals.clone().try_into().unwrap(),
+                    transactions: ProgressiveVariableList::empty(),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
-                    block_access_list: VariableList::empty(),
+                    block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
                 ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
@@ -822,11 +822,11 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     extra_data: "block gen was here".as_bytes().to_vec().try_into().unwrap(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].try_into().unwrap(),
-                    withdrawals: pa.withdrawals.clone().try_into().unwrap(),
+                    transactions: ProgressiveVariableList::empty(),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
-                    block_access_list: VariableList::empty(),
+                    block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
                 _ => unreachable!(),
@@ -847,11 +847,23 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 let max_blobs = max(1, self.min_blobs_count);
                 let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
                 let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-                for tx in Vec::from(transactions) {
-                    execution_payload
-                        .transactions_mut()
-                        .push(tx)
-                        .map_err(|_| "transactions are full".to_string())?;
+                match &mut execution_payload {
+                    ExecutionPayload::Gloas(payload) => {
+                        for tx in Vec::from(transactions) {
+                            payload
+                                .transactions
+                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
+                        }
+                    }
+                    _ => {
+                        for tx in Vec::from(transactions) {
+                            execution_payload
+                                .transactions_bounded_mut()
+                                .map_err(|e| format!("invalid payload variant: {e:?}"))?
+                                .push(tx)
+                                .map_err(|_| "transactions are full".to_string())?;
+                        }
+                    }
                 }
                 bundle
             } else {

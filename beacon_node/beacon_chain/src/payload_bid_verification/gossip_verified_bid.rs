@@ -341,7 +341,7 @@ mod tests {
     use super::is_gas_limit_target_compatible;
     use bls::Signature;
     use kzg::KzgCommitment;
-    use ssz_types::VariableList;
+    use ssz_types::ProgressiveVariableList;
     use types::{
         Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
         ProposerPreferences, SignedProposerPreferences, Slot,
@@ -449,7 +449,7 @@ mod tests {
         let commitments: Vec<KzgCommitment> = (0..=max_blobs)
             .map(|_| KzgCommitment::empty_for_testing())
             .collect();
-        bid.blob_kzg_commitments = VariableList::new(commitments).unwrap();
+        bid.blob_kzg_commitments = ProgressiveVariableList::new(commitments);
 
         let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(
