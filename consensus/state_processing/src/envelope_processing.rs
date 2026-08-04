@@ -267,7 +267,7 @@ mod tests {
 
         let state = harness.get_current_state();
         let slot = harness.get_current_slot();
-        let ((block, _), envelope, post_state) =
+        let ((block, _blob), envelope, post_state) =
             harness.make_block_with_envelope(state, slot).await;
         let mut envelope = envelope.unwrap();
 
@@ -301,11 +301,11 @@ mod tests {
 
         let state = harness.get_current_state();
         let slot = harness.get_current_slot();
-        let ((block, _), envelope, post_state) =
+        let ((block, _blob), envelope, post_state) =
             harness.make_block_with_envelope(state, slot).await;
         let mut envelope = envelope.unwrap();
 
-        // Corrupt the parent_beacon_block_root.
+        // Manually modify the parent beacon_block_root to make it invalid.
         envelope.message.parent_beacon_block_root = Hash256::zero();
 
         let block_state_root = block.state_root();

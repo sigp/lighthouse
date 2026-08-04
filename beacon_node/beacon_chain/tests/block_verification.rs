@@ -3139,7 +3139,6 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
     // Block 1 is without an envelope
     let range_sync_block1 = RangeSyncBlock::new_gloas(block1, None).unwrap();
 
-    // Block 2 is a child of block1
     let block2 = Arc::new(
         harness
             .chain
@@ -3222,7 +3221,6 @@ async fn process_chain_segment_full_and_empty_transitions() {
         )
         .await;
 
-    // Get blocks 1 and 2 from chain dump.
     let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
     let block1 = Arc::new(
         harness
