@@ -1,4 +1,3 @@
-use std::assert_matches;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -413,7 +412,10 @@ fn invalid_bid_slot() {
         ctx.genesis_block_root,
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
-    assert_matches!(result, Err(PayloadBidError::InvalidBidSlot { .. }));
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::InvalidBidSlot { .. })
+    ));
 }
 
 #[test]

@@ -13,6 +13,8 @@ use crate::{
 
 mod gloas;
 
+pub use gloas::PayloadEnvelopeContents;
+
 /// State loaded from the database for block production.
 pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state: BeaconState<E>,
