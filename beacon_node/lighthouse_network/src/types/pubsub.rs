@@ -7,14 +7,15 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, CellBitmap, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnHeader,
-    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnHeader, PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+    SignedAggregateAndProofGloas, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas, SignedBeaconBlockHeze, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
@@ -200,7 +201,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] Gloas and Electra produce the same
+                                // SSZ bytes but different hash tree roots, so the variant must be
+                                // chosen by fork.
+                                if fork_name.gloas_enabled() {
+                                    SignedAggregateAndProof::Gloas(
+                                        SignedAggregateAndProofGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     SignedAggregateAndProof::Electra(
                                         SignedAggregateAndProofElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -267,6 +276,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
+                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                                SignedBeaconBlockHeze::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
                             None => {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
@@ -309,7 +322,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
+                                if fork_name.gloas_enabled() {
+                                    AttesterSlashing::Gloas(
+                                        AttesterSlashingGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     AttesterSlashing::Electra(
                                         AttesterSlashingElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,

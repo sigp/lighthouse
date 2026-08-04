@@ -364,6 +364,21 @@ impl GloasPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct HezePreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub inclusion_list_committee_size: u64,
+}
+
+impl HezePreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            inclusion_list_committee_size: E::inclusion_list_committee_size() as u64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -414,6 +429,9 @@ mod test {
 
         let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
         assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
+
+        let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
+        assert_eq!(heze, HezePreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

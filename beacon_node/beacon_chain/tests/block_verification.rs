@@ -25,7 +25,7 @@ use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
-    common::{attesting_indices_base, attesting_indices_electra},
+    common::{attesting_indices_base, attesting_indices_electra, attesting_indices_gloas},
     per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
@@ -55,9 +55,17 @@ type ChainSegmentData = (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>);
 
 static CHAIN_SEGMENT: LazyLock<tokio::sync::OnceCell<ChainSegmentData>> =
     LazyLock::new(tokio::sync::OnceCell::new);
+static CHAIN_SEGMENT_NO_BLOBS: LazyLock<tokio::sync::OnceCell<Vec<BeaconSnapshot<E>>>> =
+    LazyLock::new(tokio::sync::OnceCell::new);
 
 async fn get_chain_segment() -> &'static ChainSegmentData {
     CHAIN_SEGMENT.get_or_init(build_chain_segment).await
+}
+
+async fn get_chain_segment_no_blobs() -> &'static Vec<BeaconSnapshot<E>> {
+    CHAIN_SEGMENT_NO_BLOBS
+        .get_or_init(build_chain_segment_no_blobs)
+        .await
 }
 
 async fn build_chain_segment() -> ChainSegmentData {
@@ -65,7 +73,26 @@ async fn build_chain_segment() -> ChainSegmentData {
     // is no longer true, as fullnodes stores less than what they sample.
     // We use a supernode here to build a chain segment.
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    build_chain_segment_from_harness(harness).await
+}
 
+/// Build a chain segment of blocks without blobs. Used for testing pre-fulu blocks, where
+/// gossip blob functionality has been deprecated.
+async fn build_chain_segment_no_blobs() -> Vec<BeaconSnapshot<E>> {
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    build_chain_segment_from_harness(harness).await.0
+}
+
+fn is_fulu_enabled_at_slot(spec: &ChainSpec, slot: Slot) -> bool {
+    spec.fork_name_at_slot::<E>(slot).fulu_enabled()
+}
+
+async fn build_chain_segment_from_harness(
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+) -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
     harness
         .extend_chain(
             CHAIN_SEGMENT_LENGTH,
@@ -352,12 +379,12 @@ fn update_data_column_signed_header<E: EthSpec>(
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
         let new_column_sidecar = match old_column_sidecar.as_ref() {
-            DataColumnSidecar::Fulu(_) => {
+            DataColumnSidecar::Fulu(old_sidecar) => {
                 Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-                    index: *old_column_sidecar.index(),
-                    column: old_column_sidecar.column().clone(),
-                    kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
-                    kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
+                    index: old_sidecar.index,
+                    column: old_sidecar.column.clone(),
+                    kzg_commitments: old_sidecar.kzg_commitments.clone(),
+                    kzg_proofs: old_sidecar.kzg_proofs.clone(),
                     signed_block_header: signed_block.signed_block_header(),
                     kzg_commitments_inclusion_proof: signed_block
                         .message()
@@ -885,8 +912,7 @@ async fn invalid_signature_proposer_slashing() {
         };
         block
             .body_mut()
-            .proposer_slashings_mut()
-            .push(proposer_slashing)
+            .proposer_slashings_push(proposer_slashing)
             .expect("should update proposer slashing");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -1006,9 +1032,22 @@ async fn invalid_signature_attester_slashing() {
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Gloas(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings.push(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                });
+            }
+            BeaconBlockBodyRefMut::Heze(blk) => {
+                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings.push(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                });
             }
         }
         snapshots[block_index].beacon_block =
@@ -1042,40 +1081,9 @@ async fn invalid_signature_attestation() {
             .as_ref()
             .clone()
             .deconstruct();
-        match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Altair(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Bellatrix(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Capella(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Deneb(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Electra(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Fulu(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Gloas(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-        };
+        if let Some(mut att) = block.body_mut().attestations_mut().next() {
+            *att.signature_mut() = junk_aggregate_signature();
+        }
 
         if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =
@@ -1128,8 +1136,7 @@ async fn invalid_signature_deposit() {
             .deconstruct();
         block
             .body_mut()
-            .deposits_mut()
-            .push(deposit)
+            .deposits_push(deposit)
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -1177,8 +1184,7 @@ async fn invalid_signature_exit() {
             .deconstruct();
         block
             .body_mut()
-            .voluntary_exits_mut()
-            .push(SignedVoluntaryExit {
+            .voluntary_exits_push(SignedVoluntaryExit {
                 message: VoluntaryExit {
                     epoch,
                     validator_index: 0,
@@ -1213,10 +1219,22 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-    let (chain_segment, ref_blobs) = get_chain_segment().await;
-    let chain_segment_blobs = ref_blobs.clone();
-
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
+    let test_block_slot = Slot::new(block_index as u64);
+    let (chain_segment, chain_segment_blobs): (
+        &Vec<BeaconSnapshot<E>>,
+        Vec<Option<DataSidecars<E>>>,
+    ) = if is_fulu_enabled_at_slot(&harness.spec, test_block_slot) {
+        let (chain_segment, ref_blobs) = get_chain_segment().await;
+        (chain_segment, ref_blobs.clone())
+    } else {
+        // disable blobs if we're testing pre-fulu forks, as gossip blobs support has been removed.
+        let chain_segment = get_chain_segment_no_blobs().await;
+        let chain_segment_blobs = std::iter::repeat_with(|| None)
+            .take(chain_segment.len())
+            .collect();
+        (chain_segment, chain_segment_blobs)
+    };
 
     harness
         .chain
@@ -1589,7 +1607,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if blobs1.is_some() {
+    if blobs1.is_some() && is_fulu_enabled_at_slot(&spec, verified_block.block().slot()) {
         harness
             .process_gossip_columns(verified_block.block(), None)
             .await;
@@ -1654,11 +1672,15 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             Attestation::Electra(att) => {
                 attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
             }
+            Attestation::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation_from_state(&state, att).unwrap()
+            }
         };
 
         for index in match indexed_attestation {
             IndexedAttestation::Base(att) => att.attesting_indices.into_iter(),
             IndexedAttestation::Electra(att) => att.attesting_indices.into_iter(),
+            IndexedAttestation::Gloas(att) => att.attesting_indices.into_iter(),
         } {
             let index = index as usize;
 
@@ -2729,9 +2751,14 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
         {
             let blobs = harness.chain.get_blobs(&root).unwrap().blobs().unwrap();
 
-            // Create AvailableBlockData with wrong number of blobs (remove one)
+            // Create AvailableBlockData with wrong number of blobs (add one)
             let mut wrong_blobs_vec: Vec<_> = blobs.iter().cloned().collect();
-            wrong_blobs_vec.pop();
+            wrong_blobs_vec.push(
+                wrong_blobs_vec
+                    .first()
+                    .expect("block should have at least one blob")
+                    .clone(),
+            );
 
             let max_blobs = harness.spec.max_blobs_per_block(block.epoch()) as usize;
             let wrong_blobs = ssz_types::RuntimeVariableList::new(wrong_blobs_vec, max_blobs)
