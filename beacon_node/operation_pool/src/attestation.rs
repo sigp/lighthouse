@@ -81,9 +81,19 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let att_data = att.attestation_data();
 
         let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
-        let att_participation_flags =
-            get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
-                .ok()?;
+        let parent_slot = state
+            .latest_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.slot);
+
+        let att_participation_flags = get_attestation_participation_flag_indices(
+            state,
+            &att_data,
+            parent_slot,
+            inclusion_delay,
+            spec,
+        )
+        .ok()?;
 
         let fresh_validators_rewards = att
             .indexed
