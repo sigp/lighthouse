@@ -1677,7 +1677,7 @@ mod test {
             .unwrap()
             .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions().clone())
+        Ok(ep.transactions_bounded().unwrap().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(

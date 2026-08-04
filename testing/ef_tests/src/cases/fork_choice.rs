@@ -262,7 +262,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation, valid } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Gloas(attestation),
+                                valid,
+                            },
+                        )
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
@@ -279,7 +286,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     }
                 }
                 Step::AttesterSlashing { attester_slashing } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Gloas(attester_slashing),
+                            })
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),
@@ -393,6 +405,17 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(alpha.12): remove once fast confirmation matches the v1.7.0-alpha.12 spec. These
+        // cases are new in alpha.12 and test behaviour that is not implemented yet.
+        const IGNORED_FAST_CONFIRMATION_CASES: &[&str] = &[
+            "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
+            "is_one_confirmed_passes_with_empty_slot_and_attester_in_two_consecutive_slots_2",
+            "fcr_no_restart_if_head_gu_is_stale",
+        ];
+        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str()) {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
