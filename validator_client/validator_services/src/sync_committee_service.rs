@@ -139,7 +139,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let interval_fut = async move {
             let mut head_monitor_rx = self.head_monitor_rx.lock().await.take();
-            let mut last_sync_message_slot: Option<Slot> = None;
+            let mut last_processed_slot: Option<Slot> = None;
             loop {
                 let Some((next_slot, duration_to_next_slot)) =
                     next_slot_with_duration(&self.slot_clock)
@@ -169,8 +169,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     None => (next_slot, None),
                 };
 
-                if last_sync_message_slot.is_some_and(|last_slot| current_slot <= last_slot) {
-                    debug!(%current_slot, "Sync messages already initiated for the slot");
+                if last_processed_slot.is_some_and(|last_slot| current_slot <= last_slot) {
+                    debug!(%current_slot, "Sync message slot already processed");
                     continue;
                 }
 
@@ -179,21 +179,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     continue;
                 }
 
-                match self
-                    .spawn_contribution_tasks(current_slot, head_event_root)
-                    .await
-                {
-                    Ok(()) => {
-                        last_sync_message_slot = Some(current_slot);
-                        trace!("Spawned sync contribution tasks");
-                    }
-                    Err(e) => {
-                        crit!(
-                            error = ?e,
-                            "Failed to spawn sync contribution tasks"
-                        );
-                    }
-                }
+                self.spawn_contribution_tasks(current_slot, head_event_root)
+                    .await;
+                last_processed_slot = Some(current_slot);
 
                 // Do subscriptions for future slots/epochs.
                 self.spawn_subscription_tasks();
@@ -204,11 +192,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(
-        &self,
-        slot: Slot,
-        mut head_event_root: Option<Hash256>,
-    ) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self, slot: Slot, mut head_event_root: Option<Hash256>) {
         let spec = &self.duties_service.spec;
 
         let mut slot_duties = self
@@ -239,12 +223,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let Some(slot_duties) = slot_duties else {
             debug!("No duties known for slot {}", slot);
-            return Ok(());
+            return;
         };
 
         if slot_duties.duties.is_empty() {
             debug!(%slot, "No local validators in current sync committee");
-            return Ok(());
+            return;
         }
 
         // If a validator needs to publish a sync aggregate, they must do so at 2/3
@@ -253,7 +237,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             delay_until_slot_offset(&self.slot_clock, slot, spec.get_contribution_message_due())
         else {
             debug!(%slot, "Skipping sync committee tasks for expired slot");
-            return Ok(());
+            return;
         };
         let aggregate_production_instant = Instant::now() + contribution_delay;
 
@@ -296,7 +280,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         "Refusing to sign sync committee messages for an optimistic head block or \
                         a block head with unknown optimistic status"
                     );
-                    return Ok(());
+                    return;
                 }
             }
         };
@@ -333,7 +317,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             "sync_committee_aggregate_publish",
         );
 
-        Ok(())
+        trace!("Spawned sync contribution tasks");
     }
 
     /// Publish sync committee signatures.
