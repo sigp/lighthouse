@@ -21,14 +21,6 @@ pub fn inclusion_list_duties<T: BeaconChainTypes>(
         ));
     }
 
-    // Inclusion list committees only exist from the Heze fork onwards.
-    if !chain.spec.fork_name_at_epoch(request_epoch).heze_enabled() {
-        return Err(warp_utils::reject::custom_bad_request(format!(
-            "request epoch {} is prior to the Heze fork",
-            request_epoch
-        )));
-    }
-
     let current_epoch = chain
         .slot_clock
         .now_or_genesis()
