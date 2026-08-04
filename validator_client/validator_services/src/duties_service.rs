@@ -506,6 +506,15 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
             .unwrap_or(0)
     }
 
+    /// Returns the total number of validators that have IL duties in the given epoch.
+    pub fn il_duties_count(&self, epoch: Epoch) -> usize {
+        self.il_duties
+            .read()
+            .get(&epoch)
+            .map(|(_, duties)| duties.len())
+            .unwrap_or(0)
+    }
+
     /// Returns the total number of validators that are in a doppelganger detection period.
     pub fn doppelganger_detecting_count(&self) -> usize {
         self.validator_store
@@ -1468,7 +1477,7 @@ async fn post_validator_il_duties<S: ValidatorStore, T: SlotClock + 'static>(
         .first_success(|beacon_node| async move {
             let _timer = validator_metrics::start_timer_vec(
                 &validator_metrics::DUTIES_SERVICE_TIMES,
-                &[validator_metrics::PTC_DUTIES_HTTP_POST],
+                &[validator_metrics::IL_DUTIES_HTTP_POST],
             );
             beacon_node
                 .post_validator_duties_inclusion_list(epoch, validator_indices)
@@ -2061,7 +2070,7 @@ async fn poll_beacon_ptc_attesters_for_epoch<
 async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     duties_service: &Arc<DutiesService<S, T>>,
 ) -> Result<(), Error<S::Error>> {
-    let curren_epoch_timer = validator_metrics::start_timer_vec(
+    let current_epoch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
         &[validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH],
     );
@@ -2097,7 +2106,7 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
             "Failed to download IL committee duties"
         );
     }
-    drop(curren_epoch_timer);
+    drop(current_epoch_timer);
 
     let next_epoch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
@@ -2139,7 +2148,7 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     if local_indices.is_empty() {
         debug!(
             %epoch,
-            "No validators, not downloading PTC duties"
+            "No validators, not downloading IL duties"
         );
         return Ok(());
     }
@@ -2148,6 +2157,10 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         &validator_metrics::DUTIES_SERVICE_TIMES,
         &[validator_metrics::UPDATE_IL_DUTIES_FETCH],
     );
+
+    // TODO(heze) Same limitation as PTC duties:
+    // only `dependent_root` changes are detected, so validators added mid-epoch won't get IL duties
+    // until the next epoch boundary.
     let initial_indices_to_request =
         &local_indices[0..min(INITIAL_IL_DUTIES_QUERY_SIZE, local_indices.len())];
 
@@ -2159,8 +2172,8 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     // We update if we have no epoch data OR if the dependent_root changed.
     let validators_to_update = {
         // Avoid holding the read-lock for any longer than required.
-        let ptc_duties = duties_service.ptc_duties.read();
-        let needs_update = ptc_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
+        let il_duties = duties_service.il_duties.read();
+        let needs_update = il_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
             // Update if dependent_root changed
             *prior_root != dependent_root
         });

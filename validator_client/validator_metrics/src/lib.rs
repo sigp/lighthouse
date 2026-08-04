@@ -179,6 +179,13 @@ pub static PTC_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
         &["task"],
     )
 });
+pub static IL_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "vc_beacon_il_count",
+        "Number of IL (Inclusion List Committee) validators on this host",
+        &["task"],
+    )
+});
 pub static PROPOSAL_CHANGED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "vc_beacon_block_proposal_changed",
