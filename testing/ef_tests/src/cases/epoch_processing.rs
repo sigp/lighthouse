@@ -452,10 +452,6 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
 
         if let Some(pre_epoch_state) = &self.pre_epoch {
-            let mut pre_epoch_state = pre_epoch_state.clone();
-            // No `post_epoch` means the spec expects the transition to abort (the `invalid_*` cases).
-            let mut expected_post_epoch_state = self.post_epoch.clone();
-
             // fake_crypto aggregates pubkeys to INFINITY_PUBLIC_KEY, so a transition that rotates
             // the sync committee can't reproduce `post_epoch`. Covered by the blst run.
             let rotates_sync_committee = pre_epoch_state.fork_name_unchecked().altair_enabled()
@@ -467,6 +463,10 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 cfg!(feature = "fake_crypto") && rotates_sync_committee;
 
             if !skip_full_epoch_transition {
+                let mut pre_epoch_state = pre_epoch_state.clone();
+                // No `post_epoch` means the spec expects the transition to abort (the `invalid_*` cases).
+                let mut expected_post_epoch_state = self.post_epoch.clone();
+
                 // Proposer index computation (e.g. proposer lookahead) requires the slashings cache post-Gloas
                 pre_epoch_state.build_slashings_cache().unwrap();
 
