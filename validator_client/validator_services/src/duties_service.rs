@@ -2062,8 +2062,8 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
     duties_service: &Arc<DutiesService<S, T>>,
 ) -> Result<(), Error<S::Error>> {
     let curren_epoch_timer = validator_metrics::start_timer_vec(
-     &validator_metrics::DUTIES_SERVICE_TIMES,
-     &[validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH],
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH],
     );
 
     let current_slot = duties_service
