@@ -432,7 +432,7 @@ pub struct DutiesService<S, T> {
     pub sync_duties: SyncDutiesMap,
     /// Maps an epoch to PTC duties for locally-managed validators.
     pub ptc_duties: RwLock<PtcMap>,
-    // Maps an epoch to the IL committee duties for locally-managed validators.
+    /// Maps an epoch to the IL committee duties for locally-managed validators.
     pub il_duties: RwLock<IlMap>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<S>,
@@ -2120,7 +2120,7 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
             .await
     {
         error!(
-            %next_epoch,
+            %current_epoch,
             request_epoch = %next_epoch,
             err = ?e,
             "Failed to download IL committee duties"
