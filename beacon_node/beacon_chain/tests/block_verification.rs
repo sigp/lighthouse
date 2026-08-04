@@ -3099,25 +3099,13 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
 
     // Both blocks land in fork choice
     let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
-    assert!(
-        fork_choice.contains_block(&block_root1),
-        "block1 should be in fork choice"
-    );
-    assert!(
-        fork_choice.contains_block(&block_root2),
-        "block2 should be in fork choice"
-    );
+    assert!(fork_choice.contains_block(&block_root1),);
+    assert!(fork_choice.contains_block(&block_root2),);
 
     // Only the first block payload is received
-    assert!(
-        fork_choice.is_payload_received(&block_root1),
-        "block1 payload should be received"
-    );
+    assert!(fork_choice.is_payload_received(&block_root1),);
     // the second block payload is false, because the envelope is invalid
-    assert!(
-        !fork_choice.is_payload_received(&block_root2),
-        "block2 payload should be rejected"
-    );
+    assert!(!fork_choice.is_payload_received(&block_root2),);
 }
 
 /// Tests that a block cannot be imported when the parent's envelope is missing
@@ -3194,10 +3182,10 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
             imported_blocks,
             error,
         } => {
-            // Block 1 is imported successfully
+            // block1 is imported successfully
             assert_eq!(imported_blocks.len(), 1, "only block 1 should be imported");
             assert_eq!(imported_blocks[0].0, block_root1);
-            // Block 2 import fails because it's a child of block1, but block1 has no envelope
+            // block2 import fails because it's a child of block1, but block1 has no envelope
             // It has ParentImportStatus::UnknownPayload, and the error is: BlockError::ParentUnknown
             assert!(
                 error.to_string().contains("ParentUnknown"),
@@ -3209,12 +3197,127 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
 
     // Verify block 1 is in fork choice but payload not received.
     let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
-    assert!(
-        fork_choice.contains_block(&block_root1),
-        "block1 should be in fork choice"
+    assert!(fork_choice.contains_block(&block_root1),);
+    assert!(!fork_choice.is_payload_received(&block_root1),);
+}
+
+/// Tests a batch containing both full and empty parent, verify that blocks and payloads are imported consistently:
+/// block1: with envelope (full transition, payload received)
+/// block2: without envelope
+/// block3: empty child of block 2, with envelope
+#[tokio::test]
+async fn process_chain_segment_full_and_empty_transitions() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get blocks 1 and 2 from chain dump.
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
     );
-    assert!(
-        !fork_choice.is_payload_received(&block_root1),
-        "block1 payload should not be received (no envelope was provided)"
+    let envelope1 = chain_dump[0].execution_envelope.clone().unwrap();
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
     );
+
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    // block1 with envelope
+    let columns1 = generate_data_column_sidecars_from_block(&block1, &harness.chain.spec);
+    let bid1 = block1
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope1 = AvailableEnvelope::new(
+        envelope1,
+        columns1,
+        bid1,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+
+    // block2 is without envelope
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, None).unwrap();
+
+    // Produce block 3 as an empty child of block2
+    // This simulates a proposer who did not see block2 payload, and build block3 with PayloadStatus::Empty
+    harness.advance_slot();
+    let state3 = harness.get_current_state();
+    let slot3 = harness.get_current_slot();
+    let ((block3, _blob3), envelope3, _post_state3) = harness
+        .make_block_with_envelope_on(state3, slot3, PayloadStatus::Empty)
+        .await;
+    // block3 has a valid envelope.
+    let envelope3 = envelope3.unwrap();
+    let columns3 = generate_data_column_sidecars_from_block(&block3, &harness.chain.spec);
+    let bid3 = block3
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope3 = AvailableEnvelope::new(
+        Arc::new(envelope3),
+        columns3,
+        bid3,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block3 = RangeSyncBlock::new_gloas(block3, Some(available_envelope3)).unwrap();
+
+    let block_root1 = range_sync_block1.block_root();
+    let block_root2 = range_sync_block2.block_root();
+    let block_root3 = range_sync_block3.block_root();
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2, range_sync_block3];
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    // All blocks are imported successfully
+    // block2 can be imported because block1 payload is available
+    // block3 can be imported because it does not build on block2's payload (PayloadStatus::Empty)
+    let ChainSegmentResult::Successful { imported_blocks } = result else {
+        panic!("All blocks should be imported successfully");
+    };
+
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.contains_block(&block_root1));
+    assert!(fork_choice.contains_block(&block_root2));
+    assert!(fork_choice.contains_block(&block_root3));
+    // block1 payload is received (envelope provided).
+    assert!(fork_choice.is_payload_received(&block_root1),);
+    // block2 payload is not received (no envelope provided).
+    assert!(!fork_choice.is_payload_received(&block_root2),);
+    // block3 payload is received because it has its own envelope
+    assert!(fork_choice.is_payload_received(&block_root3),);
 }
