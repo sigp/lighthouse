@@ -1990,8 +1990,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     MessageAcceptance::Reject
                 } else {
-                    // This is likely a fault with the beacon chain and not necessarily a
-                    // malicious message from the peer.
+                    // Other errors do not prove that the peer sent an invalid message.
                     MessageAcceptance::Ignore
                 };
                 self.propagate_validation_result(message_id, peer_id, validation_result);

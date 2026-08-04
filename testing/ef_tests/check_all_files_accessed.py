@@ -91,6 +91,7 @@ excluded_paths = [
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_message/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_contribution_and_proof/.*",
     # The production-backed harness cannot construct these synthetic fixture histories.
+    # Keep these patterns synchronized with GossipValidation::has_known_harness_limitation.
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",

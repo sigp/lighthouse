@@ -99,10 +99,8 @@ struct MessageMeta {
     #[serde(default)]
     reason: Option<String>,
     #[serde(default)]
-    #[allow(dead_code)]
     subnet_id: Option<u64>,
     #[serde(default)]
-    #[allow(dead_code)]
     offset_ms: Option<u64>,
 }
 
@@ -364,6 +362,7 @@ impl<E: EthSpec> GossipTester<E> {
                     peer_id,
                 ) {
                     return match error {
+                        // The network service rejects SSZ decode failures before gossip processing.
                         Error::InvalidBLSInput(_) => Ok(MessageAcceptance::Reject),
                         error => Err(error),
                     };
@@ -459,7 +458,7 @@ impl<E: EthSpec> GossipTester<E> {
     ) -> Result<(), Error> {
         let voluntary_exit: SignedVoluntaryExit =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
-        self.message_seen_duration(message_meta)?;
+        self.set_message_time(message_meta)?;
 
         self.network_beacon_processor.process_gossip_voluntary_exit(
             message_id,
@@ -481,7 +480,7 @@ impl<E: EthSpec> GossipTester<E> {
         let subnet_id = SubnetId::new(message_meta.subnet_id.ok_or_else(|| {
             Error::FailedToParseTest("missing beacon_attestation subnet_id".into())
         })?);
-        let seen_duration = self.message_seen_duration(message_meta)?;
+        let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
             .clone()
@@ -492,7 +491,7 @@ impl<E: EthSpec> GossipTester<E> {
                 subnet_id,
                 true,
                 ReprocessAllowance::None,
-                seen_duration,
+                seen_timestamp,
             );
         Ok(())
     }
@@ -508,7 +507,7 @@ impl<E: EthSpec> GossipTester<E> {
             &path.join(format!("{}.ssz_snappy", message_meta.message)),
         )
         .map(SignedAggregateAndProof::Electra)?;
-        let seen_duration = self.message_seen_duration(message_meta)?;
+        let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
             .clone()
@@ -517,7 +516,7 @@ impl<E: EthSpec> GossipTester<E> {
                 peer_id,
                 Box::new(aggregate),
                 ReprocessAllowance::None,
-                seen_duration,
+                seen_timestamp,
             );
         Ok(())
     }
@@ -531,7 +530,7 @@ impl<E: EthSpec> GossipTester<E> {
     ) -> Result<(), Error> {
         let bls_to_execution_change: SignedBlsToExecutionChange =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
-        self.message_seen_duration(message_meta)?;
+        self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
             .process_gossip_bls_to_execution_change(message_id, peer_id, bls_to_execution_change);
@@ -551,7 +550,7 @@ impl<E: EthSpec> GossipTester<E> {
             SyncSubnetId::new(message_meta.subnet_id.ok_or_else(|| {
                 Error::FailedToParseTest("missing sync_committee subnet_id".into())
             })?);
-        let seen_duration = self.message_seen_duration(message_meta)?;
+        let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
             .process_gossip_sync_committee_signature(
@@ -559,7 +558,7 @@ impl<E: EthSpec> GossipTester<E> {
                 peer_id,
                 sync_message,
                 subnet_id,
-                seen_duration,
+                seen_timestamp,
             );
         Ok(())
     }
@@ -573,14 +572,14 @@ impl<E: EthSpec> GossipTester<E> {
     ) -> Result<(), Error> {
         let contribution: SignedContributionAndProof<E> =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
-        let seen_duration = self.message_seen_duration(message_meta)?;
+        let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
-            .process_sync_committee_contribution(message_id, peer_id, contribution, seen_duration);
+            .process_sync_committee_contribution(message_id, peer_id, contribution, seen_timestamp);
         Ok(())
     }
 
-    fn message_seen_duration(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
+    fn set_message_time(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
         let time_ms = self
             .current_time_ms
             .checked_add(message_meta.offset_ms.unwrap_or_default())
