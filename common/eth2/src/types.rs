@@ -301,6 +301,53 @@ impl From<ValidatorId> for String {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
+pub enum BuilderId {
+    PublicKey(PublicKeyBytes),
+    Index(u64),
+}
+
+impl TryFrom<std::borrow::Cow<'_, str>> for BuilderId {
+    type Error = String;
+
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
+    }
+}
+
+impl FromStr for BuilderId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("0x") {
+            PublicKeyBytes::from_str(s)
+                .map(BuilderId::PublicKey)
+                .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
+        } else {
+            u64::from_str(s)
+                .map(BuilderId::Index)
+                .map_err(|e| format!("{} cannot be parsed as a builder index: {}", s, e))
+        }
+    }
+}
+
+impl fmt::Display for BuilderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuilderId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            BuilderId::Index(index) => write!(f, "{}", index),
+        }
+    }
+}
+
+impl From<BuilderId> for String {
+    fn from(id: BuilderId) -> String {
+        id.to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -325,6 +372,38 @@ pub struct ValidatorIdentityData {
     pub index: u64,
     pub pubkey: PublicKeyBytes,
     pub activation_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuilderData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub status: BuilderStatus,
+    pub builder: Builder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuilderStatus {
+    Pending,
+    Active,
+    Exited,
+}
+
+impl BuilderStatus {
+    pub fn from_builder(
+        builder: &Builder,
+        finalized_epoch: Epoch,
+        far_future_epoch: Epoch,
+    ) -> Self {
+        if builder.withdrawable_epoch != far_future_epoch {
+            Self::Exited
+        } else if builder.deposit_epoch < finalized_epoch {
+            Self::Active
+        } else {
+            Self::Pending
+        }
+    }
 }
 
 // Implemented according to what is described here:
@@ -491,6 +570,15 @@ pub struct ValidatorsRequestBody {
     pub ids: Option<Vec<ValidatorId>>,
     #[serde(default)]
     pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildersRequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<BuilderId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<BuilderStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1895,6 +1983,108 @@ pub struct ProduceBlockV4Metadata {
     #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Encode)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlockAndEnvelope<E: EthSpec> {
+    pub block: BeaconBlock<E>,
+    pub execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            block: serde_json::Value,
+            execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+            kzg_proofs: KzgProofs<E>,
+            #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+            blobs: BlobsList<E>,
+        }
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        let block = BeaconBlock::context_deserialize(helper.block, context)
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            block,
+            execution_payload_envelope: helper.execution_payload_envelope,
+            kzg_proofs: helper.kzg_proofs,
+            blobs: helper.blobs,
+        })
+    }
+}
+
+impl<E: EthSpec> BlockAndEnvelope<E> {
+    /// SSZ decode with fork variant passed in explicitly (the `block` field is fork-versioned).
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<ExecutionPayloadEnvelope<E>>()?;
+        builder.register_type::<KzgProofs<E>>()?;
+        builder.register_type::<BlobsList<E>>()?;
+
+        let mut decoder = builder.build()?;
+        let block = decoder
+            .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name))?;
+        let execution_payload_envelope = decoder.decode_next()?;
+        let kzg_proofs = decoder.decode_next()?;
+        let blobs = decoder.decode_next()?;
+
+        Ok(Self {
+            block,
+            execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        })
+    }
+}
+
+/// The data returned by `produce_block_v4`: either just the beacon block or the full
+/// [`BlockAndEnvelope`]. Callers should branch on the `Eth-Execution-Payload-Included` header to
+/// decide which variant to expect.
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ProduceBlockV4Response<E: EthSpec> {
+    BlockOnly(BeaconBlock<E>),
+    BlockAndEnvelope(BlockAndEnvelope<E>),
+}
+
+impl<E: EthSpec> ProduceBlockV4Response<E> {
+    pub fn block(&self) -> &BeaconBlock<E> {
+        match self {
+            ProduceBlockV4Response::BlockOnly(block) => block,
+            ProduceBlockV4Response::BlockAndEnvelope(contents) => &contents.block,
+        }
+    }
+
+    pub fn into_block(self) -> BeaconBlock<E> {
+        match self {
+            ProduceBlockV4Response::BlockOnly(block) => block,
+            ProduceBlockV4Response::BlockAndEnvelope(contents) => contents.block,
+        }
+    }
+}
+
+/// A signed execution payload envelope bundled with blobs and KZG proofs for stateless
+/// publishing via `POST beacon/execution_payload_envelopes`, used when the receiving beacon node
+/// does not have the blobs cached.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
+    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
 }
 
 impl<E: EthSpec> FullBlockContents<E> {

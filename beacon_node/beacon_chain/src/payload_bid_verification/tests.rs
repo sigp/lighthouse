@@ -8,7 +8,7 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
@@ -677,7 +677,7 @@ fn invalid_blob_kzg_commitments() {
                 value: 0,
                 parent_block_root: ctx.genesis_block_root,
                 prev_randao: ctx.expected_prev_randao(),
-                blob_kzg_commitments: VariableList::new(commitments).unwrap(),
+                blob_kzg_commitments: ProgressiveVariableList::from_iter(commitments),
                 ..ExecutionPayloadBidGloas::default()
             },
             signature: Signature::empty(),

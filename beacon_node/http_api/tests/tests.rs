@@ -50,11 +50,12 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256,
-    MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
+    ExecutionPayloadBidGloas, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
+    SelectionProof, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    attestation::AttestationBase,
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
 type E = MainnetEthSpec;
@@ -101,6 +102,11 @@ struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
     node_custody_type: NodeCustodyType,
+}
+
+struct BuilderStateTestFixture {
+    state_id: CoreStateId,
+    pending_id: BuilderId,
 }
 
 impl Default for ApiTesterConfig {
@@ -888,9 +894,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -985,9 +989,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
 
@@ -1177,6 +1179,144 @@ impl ApiTester {
             }
         }
 
+        self
+    }
+
+    fn builder_state_test_fixture(&self) -> BuilderStateTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+        let finalized_epoch = state.finalized_checkpoint().epoch;
+        assert!(
+            finalized_epoch > 0,
+            "precondition: finalized epoch permits an active builder"
+        );
+
+        let builder =
+            |keypair_index: usize, deposit_epoch: Epoch, withdrawable_epoch: Epoch| Builder {
+                pubkey: self.validator_keypairs()[keypair_index].pk.clone().into(),
+                version: PAYLOAD_BUILDER_VERSION,
+                execution_address: Address::repeat_byte(keypair_index as u8 + 1),
+                balance: self.chain.spec.min_deposit_amount,
+                deposit_epoch,
+                withdrawable_epoch,
+            };
+
+        let active = builder(0, Epoch::new(0), self.chain.spec.far_future_epoch);
+        let pending = builder(1, finalized_epoch, self.chain.spec.far_future_epoch);
+        let pending_id = BuilderId::PublicKey(pending.pubkey);
+        let exited = builder(2, Epoch::new(0), state.current_epoch());
+        let builders = state.builders_mut().unwrap();
+        assert!(builders.is_empty());
+        builders.push(active).unwrap();
+        builders.push(pending).unwrap();
+        builders.push(exited).unwrap();
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderStateTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            pending_id,
+        }
+    }
+
+    pub async fn test_beacon_state_builders_filters(self) -> Self {
+        let fixture = self.builder_state_test_fixture();
+        let all_builders = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, None, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(all_builders.execution_optimistic, Some(false));
+        assert_eq!(all_builders.finalized, Some(false));
+        assert_eq!(
+            all_builders
+                .data
+                .iter()
+                .map(|builder| (builder.index, builder.status))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, BuilderStatus::Active),
+                (1, BuilderStatus::Pending),
+                (2, BuilderStatus::Exited),
+            ]
+        );
+
+        let builders_url = self
+            .client
+            .server()
+            .expose_full()
+            .join(&format!(
+                "/eth/v1/beacon/states/{}/builders",
+                fixture.state_id
+            ))
+            .unwrap();
+
+        let bodyless_response = reqwest::Client::new()
+            .post(builders_url.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bodyless_response.status(), StatusCode::OK);
+        let bodyless_builders: ExecutionOptimisticFinalizedResponse<Vec<BuilderData>> =
+            bodyless_response.json().await.unwrap();
+        assert_eq!(bodyless_builders, all_builders);
+
+        let empty_filters = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, Some(vec![]), Some(vec![]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(empty_filters, all_builders);
+
+        let filtered_by_index = self
+            .client
+            .post_beacon_states_builders(
+                fixture.state_id,
+                Some(vec![BuilderId::Index(0), BuilderId::Index(u64::MAX)]),
+                Some(vec![BuilderStatus::Active]),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_index.data, vec![all_builders.data[0].clone()]);
+
+        let filtered_by_pubkey = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, Some(vec![fixture.pending_id]), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_pubkey.data, vec![all_builders.data[1].clone()]);
+
+        let filtered_by_status = self
+            .client
+            .post_beacon_states_builders(fixture.state_id, None, Some(vec![BuilderStatus::Pending]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(filtered_by_status.data, vec![all_builders.data[1].clone()]);
+
+        let malformed_id_response = reqwest::Client::new()
+            .post(builders_url)
+            .header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
+            .body(r#"{"ids":["0xzz"]}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(malformed_id_response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_beacon_state_builders_pre_gloas(self) -> Self {
+        let error = self
+            .client
+            .post_beacon_states_builders(CoreStateId::Head, None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
         self
     }
 
@@ -2634,6 +2774,9 @@ impl ApiTester {
             AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
+            AttesterSlashing::Gloas(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
         }
 
         self.client
@@ -2656,6 +2799,9 @@ impl ApiTester {
                 slashing.attestation_1.data.slot += 1;
             }
             AttesterSlashing::Electra(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Gloas(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -3080,6 +3226,7 @@ impl ApiTester {
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
             execution_requests_root: Hash256::zero(),
+            _phantom: std::marker::PhantomData,
         };
 
         let signed = SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
@@ -4059,6 +4206,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4123,6 +4274,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_ssz(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4216,6 +4371,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_v3_ssz(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -4373,7 +4532,7 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_block_root(block_root)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
         assert_eq!(envelope.beacon_block_root, block_root);
@@ -4439,10 +4598,10 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, Some(false), None, None)
+            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
             .await
             .unwrap();
-        let block = response.data;
+        let block = response.into_block();
         let block_root = block.tree_hash_root();
         let proposer_index = block.proposer_index();
 
@@ -4496,6 +4655,8 @@ impl ApiTester {
         assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
         self
     }
 
@@ -4535,6 +4696,8 @@ impl ApiTester {
 
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         assert!(self.network_rx.network_recv.recv().now_or_never().is_some());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -4577,11 +4740,207 @@ impl ApiTester {
         assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
         self
     }
 
-    /// Test V4 block production (JSON). Only runs if Gloas is scheduled.
-    pub async fn test_block_production_v4(self) -> Self {
+    pub async fn test_block_production_v4_missing_include_payload_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let mut url = self
+            .client
+            .get_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let query_pairs = url
+            .query_pairs()
+            .filter(|(key, _)| key != "include_payload")
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        url.query_pairs_mut().clear();
+        for (key, value) in &query_pairs {
+            url.query_pairs_mut().append_pair(key, value);
+        }
+
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_envelope_post_when_syncing_returns_503(mut self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        // Simulate a syncing node: long-range sync with the head beyond the sync tolerance.
+        let network_globals = self.ctx.network_globals.as_ref().unwrap();
+        *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+            start_slot: Slot::new(0),
+            target_slot: Slot::new(u64::MAX),
+        };
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let tolerance = self.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+        let original_slot = self.chain.slot().unwrap();
+        self.chain
+            .slot_clock
+            .set_slot(head_slot.as_u64() + tolerance + 1);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
+            .expect_err("envelope post should fail while syncing");
+
+        assert_eq!(err.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+        self.chain.slot_clock.set_slot(original_slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_envelope_post_stateful_no_cached_blobs_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        // Drain the cached blobs so the node has nothing to attach. The mock EL is configured
+        // with a minimum blob count, so the block's bid commits to blobs.
+        let drained_blobs = self
+            .chain
+            .pending_payload_envelopes
+            .write()
+            .take_blobs(envelope.beacon_block_root);
+        assert!(
+            drained_blobs.is_some_and(|blobs| !blobs.is_empty()),
+            "precondition: the block should commit to blobs"
+        );
+
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
+            .expect_err("stateful envelope post without cached blobs should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_get_beacon_execution_payload_envelopes(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (sk, _, envelope) = self
+            .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
+            .await;
+        let block_root = envelope.beacon_block_root;
+        let signed_envelope =
+            self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+
+        self.client
+            .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
+            .await
+            .unwrap();
+
+        let json_envelope = self
+            .client
+            .get_beacon_execution_payload_envelopes::<E>(CoreBlockId::Root(block_root))
+            .await
+            .unwrap()
+            .expect("envelope should be returned")
+            .into_data();
+        assert_eq!(json_envelope, signed_envelope);
+
+        let ssz_envelope = self
+            .client
+            .get_beacon_execution_payload_envelopes_ssz::<E>(CoreBlockId::Root(block_root))
+            .await
+            .unwrap()
+            .expect("envelope should be returned");
+        assert_eq!(ssz_envelope, signed_envelope);
+
+        let missing = self
+            .client
+            .get_beacon_execution_payload_envelopes::<E>(CoreBlockId::Root(Hash256::repeat_byte(
+                0xab,
+            )))
+            .await
+            .unwrap();
+        assert!(missing.is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    /// Test V4 block production with `include_payload=false` (JSON). Only runs if Gloas is
+    /// scheduled.
+    pub async fn test_block_production_v4_without_payload(self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
         }
@@ -4605,10 +4964,10 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, Some(false), None, None)
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
                 .await
                 .unwrap();
-            let block = response.data;
+            let block = response.into_block();
 
             self.assert_v4_block_metadata(&block, &metadata, slot);
 
@@ -4654,8 +5013,9 @@ impl ApiTester {
         self
     }
 
-    /// Test V4 block production (SSZ). Only runs if Gloas is scheduled.
-    pub async fn test_block_production_v4_ssz(self) -> Self {
+    /// Test V4 block production with `include_payload=false` (SSZ). Only runs if Gloas is
+    /// scheduled.
+    pub async fn test_block_production_v4_without_payload_ssz(self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
         }
@@ -4677,18 +5037,12 @@ impl ApiTester {
                 .proposer_setup(slot, epoch, &fork, genesis_validators_root)
                 .await;
 
-            let (block, metadata) = self
+            let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4_ssz::<E>(
-                    slot,
-                    &randao_reveal,
-                    None,
-                    Some(false),
-                    None,
-                    None,
-                )
+                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, false, None, None)
                 .await
                 .unwrap();
+            let block = response.into_block();
 
             self.assert_v4_block_metadata(&block, &metadata, slot);
 
@@ -4722,7 +5076,143 @@ impl ApiTester {
         self
     }
 
+    /// Test V4 stateless block production with `include_payload=true` (JSON). The response
+    /// should bundle the execution payload envelope, blobs and KZG proofs.
+    pub async fn test_block_production_v4_with_payload(self) -> Self {
+        self.run_block_production_v4_with_payload(false).await
+    }
+
+    /// Test V4 stateless block production with `include_payload=true` (SSZ).
+    pub async fn test_block_production_v4_with_payload_ssz(self) -> Self {
+        self.run_block_production_v4_with_payload(true).await
+    }
+
+    async fn run_block_production_v4_with_payload(self, ssz: bool) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            let (response, metadata) = if ssz {
+                self.client
+                    .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, true, None, None)
+                    .await
+                    .unwrap()
+            } else {
+                self.client
+                    .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, true, None, None)
+                    .await
+                    .unwrap()
+            };
+
+            let BlockAndEnvelope {
+                block,
+                execution_payload_envelope: envelope,
+                kzg_proofs,
+                blobs,
+            } = self.unwrap_v4_block_contents(response, &metadata, slot);
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
+            if ssz {
+                self.client
+                    .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                    .await
+                    .unwrap();
+            } else {
+                self.client
+                    .post_beacon_blocks_v2(&signed_block_request, None)
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
+
+            // Clear the pending cache to simulate publishing via a beacon node that did not
+            // produce the block, then publish the bundled envelope, blobs and proofs.
+            self.chain
+                .pending_payload_envelopes
+                .write()
+                .remove(envelope.beacon_block_root);
+            let signed_envelope =
+                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            let contents = SignedExecutionPayloadEnvelopeContents {
+                signed_execution_payload_envelope: signed_envelope,
+                kzg_proofs,
+                blobs,
+            };
+            if ssz {
+                self.client
+                    .post_beacon_execution_payload_envelope_contents_ssz(&contents, fork_name, None)
+                    .await
+                    .unwrap();
+            } else {
+                self.client
+                    .post_beacon_execution_payload_envelope_contents(&contents, fork_name, None)
+                    .await
+                    .unwrap();
+            }
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// Assert an `include_payload=true` v4 response carries the full block contents, verify the
+    /// bundled envelope, and return the block contents for signing/publishing.
+    fn unwrap_v4_block_contents(
+        &self,
+        response: ProduceBlockV4Response<E>,
+        metadata: &ProduceBlockV4Metadata,
+        slot: Slot,
+    ) -> BlockAndEnvelope<E> {
+        // Local building always has a payload to include.
+        assert!(metadata.execution_payload_included);
+        let block_contents = match response {
+            ProduceBlockV4Response::BlockAndEnvelope(block_contents) => block_contents,
+            ProduceBlockV4Response::BlockOnly(_) => {
+                panic!("expected block contents when include_payload=true")
+            }
+        };
+
+        let block_root = block_contents.block.tree_hash_root();
+        self.assert_envelope_fields(&block_contents.execution_payload_envelope, block_root, slot);
+
+        // The bundled envelope should match the one cached for the stateful flow.
+        let cached_envelope = self
+            .chain
+            .pending_payload_envelopes
+            .read()
+            .get_by_block_root(block_root)
+            .cloned()
+            .expect("envelope should exist in pending cache for local building");
+        assert_eq!(block_contents.execution_payload_envelope, *cached_envelope);
+
+        block_contents
+    }
+
     pub async fn test_block_production_no_verify_randao(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
@@ -4747,6 +5237,10 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_verify_randao_invalid(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -5137,10 +5631,10 @@ impl ApiTester {
             // Produce and publish a block.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, Some(false), None, None)
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
                 .await
                 .unwrap();
-            let block = response.data;
+            let block = response.into_block();
             let block_root = block.tree_hash_root();
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
@@ -5220,10 +5714,10 @@ impl ApiTester {
             // Produce and publish a block, but withhold its envelope.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, Some(false), None, None)
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
                 .await
                 .unwrap();
-            let block = response.data;
+            let block = response.into_block();
             let block_root = block.tree_hash_root();
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
@@ -5465,6 +5959,9 @@ impl ApiTester {
             SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
+            SignedAggregateAndProof::Gloas(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
         }
 
         self.client
@@ -5500,6 +5997,9 @@ impl ApiTester {
                 aggregate.message.aggregate.data.slot += 1;
             }
             SignedAggregateAndProof::Electra(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Gloas(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -5861,6 +6361,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_respects_registration(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -5888,6 +6392,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_zero_builder_boost_factor(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -5916,6 +6424,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_max_builder_boost_factor(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
@@ -6067,6 +6579,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_accepts_mutated_gas_limit(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate gas limit.
         self.mock_builder
             .as_ref()
@@ -6144,6 +6660,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_accepts_changed_fee_recipient(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let test_fee_recipient = "0x4242424242424242424242424242424242424242"
             .parse::<Address>()
             .unwrap();
@@ -6231,6 +6751,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_parent_hash(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_parent_hash =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
                 .parse::<Hash256>()
@@ -6324,6 +6848,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_prev_randao(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_prev_randao =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
                 .parse::<Hash256>()
@@ -6415,6 +6943,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_block_number(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_block_number = 2;
 
         // Mutate block number.
@@ -6505,6 +7037,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_timestamp(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let invalid_timestamp = 2;
 
         // Mutate timestamp.
@@ -6579,6 +7115,10 @@ impl ApiTester {
     }
 
     pub async fn test_payload_v3_rejects_invalid_signature(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         self.mock_builder.as_ref().unwrap().invalid_signatures();
 
         let slot = self.chain.slot().unwrap();
@@ -6643,6 +7183,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_skips(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let slot = self.chain.slot().unwrap();
 
         // Since we are proposing this slot, start the count from the previous slot.
@@ -6752,6 +7296,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_skips_per_epoch(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Fill an epoch with `builder_fallback_skips_per_epoch` skip slots.
         for i in 0..E::slots_per_epoch() {
             if i == 0 || i as usize > self.chain.config.builder_fallback_skips_per_epoch {
@@ -6903,6 +7451,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_epochs_since_finalization(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         let skips = E::slots_per_epoch()
             * self.chain.config.builder_fallback_epochs_since_finalization as u64;
 
@@ -7023,6 +7575,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_v3_chain_health_optimistic_head(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Make sure the next payload verification will return optimistic before advancing the chain.
         self.harness.mock_execution_layer.as_ref().inspect(|el| {
             el.server.all_payloads_syncing(true);
@@ -7102,6 +7658,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7171,6 +7731,10 @@ impl ApiTester {
     }
 
     pub async fn test_local_payload_v3_chosen_when_equally_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7240,6 +7804,10 @@ impl ApiTester {
     }
 
     pub async fn test_local_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Mutate value.
         self.mock_builder
             .as_ref()
@@ -7308,6 +7876,10 @@ impl ApiTester {
     }
 
     pub async fn test_builder_works_post_deneb(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Ensure builder payload is chosen
         self.mock_builder
             .as_ref()
@@ -7377,6 +7949,10 @@ impl ApiTester {
     }
 
     pub async fn test_lighthouse_rejects_invalid_withdrawals_root_v3(self) -> Self {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
         // Ensure builder payload *would be* chosen
         self.mock_builder
             .as_ref()
@@ -8070,10 +8646,10 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
+            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
             .await
             .unwrap();
-        let block = response.data;
+        let block = response.into_block();
 
         let envelope = self
             .client
@@ -8161,6 +8737,10 @@ impl ApiTester {
     }
 
     pub async fn test_check_optimistic_responses(&mut self) {
+        // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
+        if self.chain.spec.is_gloas_scheduled() {
+            return;
+        }
         // Check responses are not optimistic.
         let result = self
             .client
@@ -8382,7 +8962,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                None,
+                false,
                 builder_boost_factor,
                 None,
             )
@@ -8397,7 +8977,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                None,
+                false,
                 builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
@@ -8422,7 +9002,7 @@ impl ApiTester {
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
-                None,
+                false,
                 builder_boost_factor,
                 Some(GraffitiPolicy::PreserveUserGraffiti),
             )
@@ -8598,6 +9178,30 @@ async fn beacon_get_state_info_fulu() {
         .test_beacon_states_proposer_lookahead()
         .await
         .test_beacon_states_proposer_lookahead_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_state_builders_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_state_builders_filters()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_state_builders_pre_gloas() {
+    ApiTester::new()
+        .await
+        .test_beacon_state_builders_pre_gloas()
         .await;
 }
 
@@ -9045,15 +9649,13 @@ async fn block_production_v3_ssz_with_skip_slots() {
 async fn block_production_v4() {
     ApiTester::new_with_hard_forks()
         .await
-        .test_block_production_v4()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn block_production_v4_ssz() {
-    ApiTester::new_with_hard_forks()
+        .test_block_production_v4_without_payload()
         .await
-        .test_block_production_v4_ssz()
+        .test_block_production_v4_without_payload_ssz()
+        .await
+        .test_block_production_v4_with_payload()
+        .await
+        .test_block_production_v4_with_payload_ssz()
         .await;
 }
 
@@ -9193,35 +9795,25 @@ async fn payload_attestation_present_after_envelope_publish() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_consensus_invalid_returns_400_no_broadcast() {
+async fn envelope_api() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4_missing_include_payload_returns_400()
         .await
         .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_gossip_partial_pass_returns_202() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
         .await
         .test_envelope_post_gossip_partial_pass_returns_202()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn envelope_post_equivocation_returns_400() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    ApiTester::new_with_hard_forks()
         .await
         .test_envelope_post_equivocation_returns_400()
+        .await
+        .test_envelope_post_stateful_no_cached_blobs_returns_400()
+        .await
+        .test_get_beacon_execution_payload_envelopes()
+        .await
+        .test_envelope_post_when_syncing_returns_503()
         .await;
 }
 

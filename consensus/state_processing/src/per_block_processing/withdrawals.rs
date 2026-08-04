@@ -4,7 +4,7 @@ use crate::per_block_processing::builder::{
     is_builder_index,
 };
 use crate::per_block_processing::errors::BlockProcessingError;
-use milhouse::List;
+use milhouse::ProgressiveList;
 use safe_arith::{SafeArith, SafeArithIter};
 use tree_hash::TreeHash;
 use types::{
@@ -354,7 +354,7 @@ fn update_payload_expected_withdrawals<E: EthSpec>(
     state: &mut BeaconState<E>,
     withdrawals: &Withdrawals<E>,
 ) -> Result<(), BlockProcessingError> {
-    *state.payload_expected_withdrawals_mut()? = List::new(withdrawals.to_vec())?;
+    *state.payload_expected_withdrawals_mut()? = ProgressiveList::new(withdrawals.to_vec())?;
     Ok(())
 }
 

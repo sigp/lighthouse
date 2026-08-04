@@ -1,4 +1,4 @@
-use crate::kzg_ext::KzgCommitments;
+use crate::kzg_ext::ProgressiveKzgCommitments;
 use crate::{
     Address, BeaconStateError, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, Hash256,
     SignedRoot, Slot,
@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+use std::marker::PhantomData;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -36,6 +37,16 @@ use tree_hash_derive::TreeHash;
         ),
     ),
     ref_attributes(derive(Debug, PartialEq, TreeHash), tree_hash(enum_behaviour = "transparent")),
+    specific_variant_attributes(
+        Gloas(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+        )),
+        Heze(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+        ))
+    ),
     cast_error(
         ty = "BeaconStateError",
         expr = "BeaconStateError::IncorrectStateVariant"
@@ -82,12 +93,18 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    // [Modified in Gloas:EIP7688]
+    pub blob_kzg_commitments: ProgressiveKzgCommitments,
     #[superstruct(getter(copy))]
     pub execution_requests_root: Hash256,
     // [New in Heze:EIP7805]
     #[superstruct(only(Heze))]
     pub inclusion_list_bits: BitVector<E::InclusionListCommitteeSize>,
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}

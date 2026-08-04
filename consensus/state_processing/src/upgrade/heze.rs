@@ -1,4 +1,5 @@
 use ssz_types::BitVector;
+use std::marker::PhantomData;
 use std::mem;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,
@@ -86,6 +87,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
                 blob_kzg_commitments: pre_bid.blob_kzg_commitments.clone(),
                 execution_requests_root: pre_bid.execution_requests_root,
                 inclusion_list_bits: BitVector::new(),
+                _phantom: PhantomData,
             }
         },
         // Capella

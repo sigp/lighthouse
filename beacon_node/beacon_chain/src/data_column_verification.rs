@@ -1143,7 +1143,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     let kzg_verified = verify_kzg_for_data_column_with_commitments(
         data_column.clone(),
         cells_to_kzg_verify,
-        kzg_commitments.as_ref(),
+        kzg_commitments,
         kzg,
         seen_timestamp,
     )

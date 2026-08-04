@@ -695,6 +695,13 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
+pub static SLOT_ASSIGNMENTS_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_slot_assignments_errors_total",
+        "Count of slot assignments cache update errors by error category",
+        &["error"],
+    )
+});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
