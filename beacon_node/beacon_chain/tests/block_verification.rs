@@ -3306,7 +3306,7 @@ async fn process_chain_segment_full_and_empty_transitions() {
     // All blocks are imported successfully
     // block2 can be imported because block1 payload is available
     // block3 can be imported because it does not build on block2's payload (PayloadStatus::Empty)
-    let ChainSegmentResult::Successful { imported_blocks } = result else {
+    let ChainSegmentResult::Successful { imported_blocks: _ } = result else {
         panic!("All blocks should be imported successfully");
     };
 
