@@ -1,7 +1,7 @@
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
     core::{EthSpec, Hash256, ListRef, Slot},
-    data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas},
+    data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu},
     execution::AbstractExecPayload,
     kzg_ext::KzgCommitments,
     state::BeaconStateError,
@@ -301,18 +301,6 @@ impl<E: EthSpec> PartialDataColumn<E> {
     pub fn sidecar(&self) -> PartialDataColumnSidecarRef<'_, E> {
         self.to_ref().sidecar()
     }
-
-    /// Equivalent to a call to `clone` followed by `try_into_full`, but returns early if conversion
-    /// is not possible.
-    pub fn try_clone_full(
-        &self,
-        header: Option<&PartialDataColumnHeader<E>>,
-    ) -> Option<DataColumnSidecar<E>> {
-        match self {
-            PartialDataColumn::Fulu(fulu) => fulu.try_clone_full(header?),
-            PartialDataColumn::Gloas(gloas) => gloas.try_clone_full(),
-        }
-    }
 }
 
 impl<E: EthSpec> PartialDataColumnFulu<E> {
@@ -353,40 +341,6 @@ impl<E: EthSpec> PartialDataColumnFulu<E> {
             kzg_proofs: self.sidecar.kzg_proofs,
             signed_block_header: header.signed_block_header.clone(),
             kzg_commitments_inclusion_proof: header.kzg_commitments_inclusion_proof.clone(),
-        }))
-    }
-}
-
-impl<E: EthSpec> PartialDataColumnGloas<E> {
-    fn is_complete(&self) -> bool {
-        PartialDataColumnSidecarRef::Gloas(&self.sidecar).is_complete()
-    }
-
-    /// Equivalent to a call to `clone` followed by [`Self::try_into_full`], but returns early if
-    /// conversion is not possible.
-    pub fn try_clone_full(&self) -> Option<DataColumnSidecar<E>> {
-        if !self.is_complete() {
-            return None;
-        }
-        Some(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
-            index: self.index,
-            column: ProgressiveVariableList::new(Vec::from(self.sidecar.column.clone())),
-            kzg_proofs: ProgressiveVariableList::new(Vec::from(self.sidecar.kzg_proofs.clone())),
-            slot: self.slot,
-            beacon_block_root: self.block_root,
-        }))
-    }
-
-    pub fn try_into_full(self) -> Option<DataColumnSidecar<E>> {
-        if !self.is_complete() {
-            return None;
-        }
-        Some(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
-            index: self.index,
-            column: ProgressiveVariableList::new(Vec::from(self.sidecar.column)),
-            kzg_proofs: ProgressiveVariableList::new(Vec::from(self.sidecar.kzg_proofs)),
-            slot: self.slot,
-            beacon_block_root: self.block_root,
         }))
     }
 }
@@ -539,7 +493,7 @@ mod tests {
         assert!(!sidecar.is_complete());
     }
 
-    // -- try_clone_full tests (on PartialDataColumn) --
+    // -- try_clone_full tests (on PartialDataColumnFulu) --
 
     fn into_fulu(sidecar: PartialDataColumnSidecar<E>) -> PartialDataColumnSidecarFulu<E> {
         match sidecar {
@@ -552,13 +506,12 @@ mod tests {
     fn try_clone_full_succeeds_when_complete() {
         let sidecar = make_sidecar(3, &[0, 1, 2]);
         let header = make_header(3);
-        let partial: PartialDataColumn<E> = PartialDataColumnFulu {
+        let partial = PartialDataColumnFulu {
             block_root: Hash256::zero(),
             index: 5,
             sidecar: into_fulu(sidecar),
-        }
-        .into();
-        let full = partial.try_clone_full(Some(&header)).unwrap();
+        };
+        let full = partial.try_clone_full(&header).unwrap();
         assert_eq!(*full.index(), 5);
         assert_eq!(full.column().len(), 3);
     }
@@ -567,13 +520,12 @@ mod tests {
     fn try_clone_full_returns_none_when_incomplete() {
         let sidecar = make_sidecar(4, &[0, 2]);
         let header = make_header(4);
-        let partial: PartialDataColumn<E> = PartialDataColumnFulu {
+        let partial = PartialDataColumnFulu {
             block_root: Hash256::zero(),
             index: 0,
             sidecar: into_fulu(sidecar),
-        }
-        .into();
-        assert!(partial.try_clone_full(Some(&header)).is_none());
+        };
+        assert!(partial.try_clone_full(&header).is_none());
     }
 
     // -- get tests --
