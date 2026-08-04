@@ -481,17 +481,32 @@ impl<E: EthSpec> LightClientUpdate<E> {
     // Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md#lightclientupdate
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
-        let fixed_len = match fork_name {
-            ForkName::Base | ForkName::Bellatrix => 0,
-            ForkName::Altair => <LightClientUpdateAltair<E> as Encode>::ssz_fixed_len(),
-            ForkName::Capella => <LightClientUpdateCapella<E> as Encode>::ssz_fixed_len(),
-            ForkName::Deneb => <LightClientUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientUpdateElectra<E> as Encode>::ssz_fixed_len(),
-            ForkName::Fulu => <LightClientUpdateFulu<E> as Encode>::ssz_fixed_len(),
+        let next_sync_committee = Arc::new(SyncCommittee::<E>::temporary());
+        macro_rules! min_len {
+            ($update:ident) => {
+                $update::<E> {
+                    attested_header: Default::default(),
+                    next_sync_committee: next_sync_committee.clone(),
+                    next_sync_committee_branch: Default::default(),
+                    finalized_header: Default::default(),
+                    finality_branch: Default::default(),
+                    sync_aggregate: SyncAggregate::empty(),
+                    signature_slot: Slot::new(0),
+                }
+                .ssz_bytes_len()
+            };
+        }
+        let min_len = match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair | ForkName::Bellatrix => min_len!(LightClientUpdateAltair),
+            ForkName::Capella => min_len!(LightClientUpdateCapella),
+            ForkName::Deneb => min_len!(LightClientUpdateDeneb),
+            ForkName::Electra => min_len!(LightClientUpdateElectra),
+            ForkName::Fulu => min_len!(LightClientUpdateFulu),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas | ForkName::Heze => 0,
         };
-        fixed_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        min_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
 
     pub fn map_with_fork_name<F, R>(&self, func: F) -> R
