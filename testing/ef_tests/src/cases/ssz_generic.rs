@@ -5,14 +5,57 @@ use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use milhouse::Vector;
+use milhouse::{List, ProgressiveList, Vector};
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
+use serde_json::Value as JsonValue;
+use ssz::ProgressiveBitList;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::*;
 use types::ForkName;
+
+/// Helper struct for deserializing compatible unions from `{selector, data}` YAML format.
+///
+/// The data field is captured as a `serde_json::Value` first because the target type is only
+/// known after reading the selector.
+#[derive(Deserialize)]
+struct CompatibleUnionYaml {
+    selector: u8,
+    data: JsonValue,
+}
+
+/// Implements `Deserialize` for a compatible-union type by reading the `{selector, data}` EF-test
+/// YAML and dispatching on the selector to construct the matching variant.
+macro_rules! impl_compatible_union_deserialize {
+    ($type:ty, { $($selector:literal => $variant:ident($inner:ty)),+ $(,)? }) => {
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let yaml = CompatibleUnionYaml::deserialize(deserializer)?;
+                match yaml.selector {
+                    $(
+                        $selector => {
+                            let inner: $inner = serde_json::from_value(yaml.data).map_err(D::Error::custom)?;
+                            Ok(<$type>::$variant(inner))
+                        }
+                    )+
+                    s => Err(D::Error::custom(format!(
+                        "unknown selector {} for {}",
+                        s,
+                        stringify!($type)
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+type U1280 = op!(U128 * U10);
+type U1281 = op!(U1280 + U1);
 
 #[derive(Debug, Clone, Deserialize)]
 #[context_deserialize(ForkName)]
@@ -113,8 +156,15 @@ macro_rules! type_dispatch {
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
             "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
-            // EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
-            "ProgressiveTestStruct" | "ProgressiveBitsStruct" => Err(Error::SkippedKnownFailure),
+            "ProgressiveBitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveBitsStruct>, $($rest)*),
+            "ProgressiveSingleFieldContainerTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveSingleFieldContainerTestStruct>, $($rest)*),
+            "ProgressiveSingleListContainerTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveSingleListContainerTestStruct>, $($rest)*),
+            "ProgressiveVarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveVarTestStruct>, $($rest)*),
+            "ProgressiveComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveComplexTestStruct>, $($rest)*),
+            "ProgressiveTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveTestStruct>, $($rest)*),
+            "CompatibleUnionA" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionA>, $($rest)*),
+            "CompatibleUnionBC" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionBC>, $($rest)*),
+            "CompatibleUnionABCA" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionABCA>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -159,6 +209,17 @@ impl Case for SszGeneric {
                     [length => typenum]
                 )?;
             }
+            "basic_progressive_list" => {
+                let elem_ty = parts[1];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    ProgressiveList,
+                    <>,
+                    [elem_ty => primitive_type]
+                )?;
+            }
             "bitlist" => {
                 let mut limit = parts[1];
 
@@ -186,6 +247,14 @@ impl Case for SszGeneric {
                     [length => typenum]
                 )?;
             }
+            "progressive_bitlist" => {
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    ProgressiveBitList,
+                    <>,
+                )?;
+            }
             "boolean" => {
                 ssz_generic_test::<bool>(&self.path, fork_name)?;
             }
@@ -200,7 +269,7 @@ impl Case for SszGeneric {
                     [type_name.as_str() => primitive_type]
                 )?;
             }
-            "containers" => {
+            "containers" | "progressive_containers" | "compatible_unions" => {
                 let type_name = parts[0];
 
                 type_dispatch!(
@@ -304,6 +373,16 @@ struct ComplexTestStruct {
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 #[context_deserialize(ForkName)]
+struct ProgressiveTestStruct {
+    #[serde(deserialize_with = "progressive_byte_list_from_hex_str")]
+    A: ProgressiveList<u8>,
+    B: ProgressiveList<u64>,
+    C: ProgressiveList<SmallTestStruct>,
+    D: ProgressiveList<ProgressiveList<VarTestStruct>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct BitsStruct {
     A: BitList<U5>,
     B: BitVector<U2>,
@@ -311,6 +390,120 @@ struct BitsStruct {
     D: BitList<U6>,
     E: BitVector<U8>,
 }
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
+struct ProgressiveBitsStruct {
+    A: BitVector<U256>,
+    B: BitList<U256>,
+    C: ProgressiveBitList,
+    D: BitVector<U257>,
+    E: BitList<U257>,
+    F: ProgressiveBitList,
+    G: BitVector<U1280>,
+    H: BitList<U1280>,
+    I: ProgressiveBitList,
+    J: BitVector<U1281>,
+    K: BitList<U1281>,
+    L: ProgressiveBitList,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1))]
+#[context_deserialize(ForkName)]
+struct ProgressiveSingleFieldContainerTestStruct {
+    A: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(0, 0, 0, 0, 1)
+)]
+#[context_deserialize(ForkName)]
+struct ProgressiveSingleListContainerTestStruct {
+    C: ProgressiveBitList,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(1, 0, 1, 0, 1)
+)]
+#[context_deserialize(ForkName)]
+struct ProgressiveVarTestStruct {
+    A: u8,
+    B: List<u16, U123>,
+    C: ProgressiveBitList,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1)
+)]
+#[context_deserialize(ForkName)]
+struct ProgressiveComplexTestStruct {
+    A: u8,
+    B: List<u16, U123>,
+    C: ProgressiveBitList,
+    D: ProgressiveList<u64>,
+    E: ProgressiveList<SmallTestStruct>,
+    F: ProgressiveList<ProgressiveList<VarTestStruct>>,
+    G: List<ProgressiveSingleFieldContainerTestStruct, U10>,
+    H: ProgressiveList<ProgressiveVarTestStruct>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionA {
+    #[ssz(selector = "1")]
+    ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
+}
+
+impl_compatible_union_deserialize!(CompatibleUnionA, {
+    1 => ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
+});
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionBC {
+    #[ssz(selector = "2")]
+    ProgressiveSingleListContainerTestStruct(ProgressiveSingleListContainerTestStruct),
+    #[ssz(selector = "3")]
+    ProgressiveVarTestStruct(ProgressiveVarTestStruct),
+}
+
+impl_compatible_union_deserialize!(CompatibleUnionBC, {
+    2 => ProgressiveSingleListContainerTestStruct(ProgressiveSingleListContainerTestStruct),
+    3 => ProgressiveVarTestStruct(ProgressiveVarTestStruct),
+});
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionABCA {
+    #[ssz(selector = "1")]
+    A1(ProgressiveSingleFieldContainerTestStruct),
+    #[ssz(selector = "2")]
+    B1(ProgressiveSingleListContainerTestStruct),
+    #[ssz(selector = "3")]
+    C1(ProgressiveVarTestStruct),
+    #[ssz(selector = "4")]
+    A2(ProgressiveSingleFieldContainerTestStruct),
+}
+
+impl_compatible_union_deserialize!(CompatibleUnionABCA, {
+    1 => A1(ProgressiveSingleFieldContainerTestStruct),
+    2 => B1(ProgressiveSingleListContainerTestStruct),
+    3 => C1(ProgressiveVarTestStruct),
+    4 => A2(ProgressiveSingleFieldContainerTestStruct),
+});
 
 fn byte_list_from_hex_str<'de, D, N: Unsigned>(
     deserializer: D,
@@ -329,4 +522,16 @@ where
             N::to_usize()
         ))
     })
+}
+
+/// Like `byte_list_from_hex_str`, but for progressive byte lists (which have no length limit).
+fn progressive_byte_list_from_hex_str<'de, D>(
+    deserializer: D,
+) -> Result<ProgressiveList<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = serde::de::Deserialize::deserialize(deserializer)?;
+    let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+    ProgressiveList::new(decoded).map_err(D::Error::custom)
 }

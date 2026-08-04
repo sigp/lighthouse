@@ -333,7 +333,9 @@ impl<E: EthSpec> GossipTester<E> {
         fork_name: ForkName,
     ) -> Result<MessageAcceptance, Error> {
         let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
-        let slashing: AttesterSlashing<E> = if fork_name.electra_enabled() {
+        let slashing: AttesterSlashing<E> = if fork_name.gloas_enabled() {
+            ssz_decode_file(&ssz_path).map(AttesterSlashing::Gloas)?
+        } else if fork_name.electra_enabled() {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Electra)?
         } else {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Base)?

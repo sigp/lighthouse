@@ -301,6 +301,53 @@ impl From<ValidatorId> for String {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
+pub enum BuilderId {
+    PublicKey(PublicKeyBytes),
+    Index(u64),
+}
+
+impl TryFrom<std::borrow::Cow<'_, str>> for BuilderId {
+    type Error = String;
+
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
+    }
+}
+
+impl FromStr for BuilderId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("0x") {
+            PublicKeyBytes::from_str(s)
+                .map(BuilderId::PublicKey)
+                .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
+        } else {
+            u64::from_str(s)
+                .map(BuilderId::Index)
+                .map_err(|e| format!("{} cannot be parsed as a builder index: {}", s, e))
+        }
+    }
+}
+
+impl fmt::Display for BuilderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuilderId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            BuilderId::Index(index) => write!(f, "{}", index),
+        }
+    }
+}
+
+impl From<BuilderId> for String {
+    fn from(id: BuilderId) -> String {
+        id.to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -325,6 +372,38 @@ pub struct ValidatorIdentityData {
     pub index: u64,
     pub pubkey: PublicKeyBytes,
     pub activation_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuilderData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub status: BuilderStatus,
+    pub builder: Builder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuilderStatus {
+    Pending,
+    Active,
+    Exited,
+}
+
+impl BuilderStatus {
+    pub fn from_builder(
+        builder: &Builder,
+        finalized_epoch: Epoch,
+        far_future_epoch: Epoch,
+    ) -> Self {
+        if builder.withdrawable_epoch != far_future_epoch {
+            Self::Exited
+        } else if builder.deposit_epoch < finalized_epoch {
+            Self::Active
+        } else {
+            Self::Pending
+        }
+    }
 }
 
 // Implemented according to what is described here:
@@ -491,6 +570,15 @@ pub struct ValidatorsRequestBody {
     pub ids: Option<Vec<ValidatorId>>,
     #[serde(default)]
     pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildersRequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<BuilderId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<BuilderStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
