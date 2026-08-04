@@ -2061,7 +2061,11 @@ async fn poll_beacon_ptc_attesters_for_epoch<
 async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     duties_service: &Arc<DutiesService<S, T>>,
 ) -> Result<(), Error<S::Error>> {
-    // figure out current time
+    let curren_epoch_timer = validator_metrics::start_timer_vec(
+     &validator_metrics::DUTIES_SERVICE_TIMES,
+     &[validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH],
+    );
+
     let current_slot = duties_service
         .slot_clock
         .now()
@@ -2093,6 +2097,12 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
             "Failed to download IL committee duties"
         );
     }
+    drop(curren_epoch_timer);
+
+    let next_epoch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_IL_DUTIES_NEXT_EPOCH],
+    );
 
     // Poll for next epoch
     let next_epoch = current_epoch + 1;
@@ -2107,6 +2117,7 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
             "Failed to download IL committee duties"
         );
     }
+    drop(next_epoch_timer);
 
     // Prune old IL committee duties
     duties_service
@@ -2133,6 +2144,10 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         return Ok(());
     }
 
+    let fetch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_IL_DUTIES_FETCH],
+    );
     let initial_indices_to_request =
         &local_indices[0..min(INITIAL_IL_DUTIES_QUERY_SIZE, local_indices.len())];
 
@@ -2185,6 +2200,8 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     };
     new_duties.extend(new_initial_duties);
 
+    drop(fetch_timer);
+
     let _store_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
         &[validator_metrics::UPDATE_IL_DUTIES_STORE],
@@ -2202,7 +2219,6 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     match il_duties.entry(epoch) {
         hash_map::Entry::Occupied(mut entry) => {
             // Dependent root must have changed, so we do complete replacement.
-            // We cannot support partial updates for the same dependent_root.
             let (existing_root, _existing_duties) = entry.get();
             debug!(
                 old_root = %existing_root,
