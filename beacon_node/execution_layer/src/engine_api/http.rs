@@ -11,12 +11,12 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use types::ProgressiveTransactions;
 
 use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
-use types::ProgressiveTransactions;
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
