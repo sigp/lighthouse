@@ -62,13 +62,12 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
     "tests/.*/gloas/fast_confirmation/.*",
-    # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
-    "tests/general/phase0/ssz_generic/progressive_bitlist",
-    "tests/general/phase0/ssz_generic/basic_progressive_list",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveBitsStruct.*",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveTestStruct.*",
-    "tests/general/phase0/ssz_generic/progressive_containers/.*",
-    "tests/general/phase0/ssz_generic/compatible_unions/.*",
+    # TODO(alpha.12): these tests are disabled until the v1.7.0-alpha.12 EIP-8282 changes are
+    # implemented.
+    "tests/.*/gloas/fork/.*",
+    "tests/.*/gloas/operations/parent_execution_payload/.*",
+    "tests/.*/gloas/operations/builder_deposit_request/.*",
+    "tests/.*/gloas/operations/builder_exit_request/.*",
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",

@@ -237,7 +237,8 @@ pub fn process_activations<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
-    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
+    let (mut validators, balances, _) =
+        state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
         let validator = validator.into_mut()?;

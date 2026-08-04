@@ -643,13 +643,13 @@ pub fn verify_columns_against_block<E: EthSpec>(
             .message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.blob_kzg_commitments.clone())
+            .map(|bid| bid.message.blob_kzg_commitments.to_vec())
             .map_err(|_| {
                 AvailabilityCheckError::Unexpected(
                     "Gloas block missing signed_execution_payload_bid".to_string(),
                 )
             })?;
-        validate_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
+        validate_data_columns_with_commitments(kzg, columns.iter(), &commitments)
             .map_err(AvailabilityCheckError::InvalidColumn)
     } else {
         verify_kzg_for_data_column_list(columns.iter(), kzg)
@@ -1225,7 +1225,7 @@ mod test {
                                 column: DataColumn::<E>::empty(),
                                 index: *d.index(),
                                 kzg_commitments: d.kzg_commitments().unwrap().clone(),
-                                kzg_proofs: d.kzg_proofs().clone(),
+                                kzg_proofs: d.as_fulu().expect("fulu sidecar").kzg_proofs.clone(),
                                 signed_block_header: d.signed_block_header().unwrap().clone(),
                                 kzg_commitments_inclusion_proof: d
                                     .kzg_commitments_inclusion_proof()

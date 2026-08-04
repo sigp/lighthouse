@@ -323,7 +323,7 @@ mod tests {
     use std::marker::PhantomData;
 
     use bls::Signature;
-    use ssz_types::VariableList;
+    use ssz_types::ProgressiveVariableList;
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionBlockHash,
         ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
@@ -370,16 +370,16 @@ mod tests {
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
-                proposer_slashings: VariableList::empty(),
-                attester_slashings: VariableList::empty(),
-                attestations: VariableList::empty(),
-                deposits: VariableList::empty(),
-                voluntary_exits: VariableList::empty(),
+                proposer_slashings: ProgressiveVariableList::empty(),
+                attester_slashings: ProgressiveVariableList::empty(),
+                attestations: ProgressiveVariableList::empty(),
+                deposits: ProgressiveVariableList::empty(),
+                voluntary_exits: ProgressiveVariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
-                bls_to_execution_changes: VariableList::empty(),
+                bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
-                payload_attestations: VariableList::empty(),
+                payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },
         });
