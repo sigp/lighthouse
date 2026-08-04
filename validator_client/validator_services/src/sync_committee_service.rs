@@ -775,13 +775,12 @@ mod tests {
     /// Resume real time so the service can complete signing and HTTP requests, then pause again.
     async fn wait_for_message_count(harness: &TestHarness, count: usize) {
         tokio::time::resume();
-        for _ in 0..100 {
-            if harness.messages().len() >= count {
-                tokio::time::pause();
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        while harness.messages().len() < count && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+
         tokio::time::pause();
         assert_eq!(harness.messages().len(), count);
     }
