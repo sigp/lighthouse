@@ -27,7 +27,7 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
+    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -182,7 +182,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
      * Inclusion lists (heze+)
      */
     /// The transactions returned by `getInclusionList` for any known block.
-    inclusion_list: Transactions<E>,
+    inclusion_list: ProgressiveTransactions,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -501,14 +501,17 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 
     /// Return the configured inclusion list transactions for the provided block.
-    pub fn get_inclusion_list(&self, block_hash: ExecutionBlockHash) -> Option<Transactions<E>> {
+    pub fn get_inclusion_list(
+        &self,
+        block_hash: ExecutionBlockHash,
+    ) -> Option<ProgressiveTransactions> {
         self.blocks
             .contains_key(&block_hash)
             .then(|| self.inclusion_list.clone())
     }
 
     /// Set the transactions returned by `getInclusionList`.
-    pub fn set_inclusion_list(&mut self, transactions: Transactions<E>) {
+    pub fn set_inclusion_list(&mut self, transactions: ProgressiveTransactions) {
         self.inclusion_list = transactions;
     }
 

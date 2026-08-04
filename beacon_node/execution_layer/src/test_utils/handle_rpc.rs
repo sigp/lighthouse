@@ -577,7 +577,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     )
                 })?;
 
-            Ok(serde_json::to_value(JsonInclusionListV1::<E>(transactions)).unwrap())
+            Ok(serde_json::to_value(JsonInclusionListV1(transactions)).unwrap())
         }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2

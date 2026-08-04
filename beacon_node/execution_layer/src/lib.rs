@@ -48,7 +48,8 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -1779,14 +1780,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_inclusion_list_v1(
         &self,
         block_hash: ExecutionBlockHash,
-    ) -> Result<Transactions<E>, Error> {
+    ) -> Result<ProgressiveTransactions, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_inclusion_list_v1 {
             self.engine()
-                .request(
-                    |engine| async move { engine.api.get_inclusion_list_v1::<E>(block_hash).await },
-                )
+                .request(|engine| async move { engine.api.get_inclusion_list_v1(block_hash).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)

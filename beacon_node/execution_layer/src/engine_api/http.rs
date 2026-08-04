@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
+use types::ProgressiveTransactions;
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -747,13 +748,13 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_inclusion_list_v1<E: EthSpec>(
+    pub async fn get_inclusion_list_v1(
         &self,
         block_hash: ExecutionBlockHash,
-    ) -> Result<Transactions<E>, Error> {
+    ) -> Result<ProgressiveTransactions, Error> {
         let params = json!([block_hash]);
 
-        self.rpc_request::<JsonInclusionListV1<E>>(
+        self.rpc_request::<JsonInclusionListV1>(
             ENGINE_GET_INCLUSION_LIST_V1,
             params,
             ENGINE_GET_INCLUSION_LIST_TIMEOUT * self.execution_timeout_multiplier,
@@ -1554,7 +1555,7 @@ mod test {
     use super::*;
     use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
     use fixed_bytes::FixedBytesExtended;
-    use ssz_types::VariableList;
+    use ssz_types::{ProgressiveVariableList, VariableList};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -1734,6 +1735,15 @@ mod test {
         txs
     }
 
+    fn generate_progressive_transactions(spec: &[usize]) -> ProgressiveTransactions {
+        let mut txs = ProgressiveTransactions::empty();
+        for &num_bytes in spec {
+            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]));
+        }
+
+        txs
+    }
+
     #[test]
     fn transaction_serde() {
         assert_transactions_serde::<MainnetEthSpec>(
@@ -1782,19 +1792,19 @@ mod test {
         );
     }
 
-    fn assert_inclusion_list_serde<E: EthSpec>(
+    fn assert_inclusion_list_serde(
         name: &str,
-        as_obj: Transactions<E>,
+        as_obj: ProgressiveTransactions,
         as_json: serde_json::Value,
     ) {
         assert_eq!(
-            serde_json::to_value(JsonInclusionListV1::<E>(as_obj.clone())).unwrap(),
+            serde_json::to_value(JsonInclusionListV1(as_obj.clone())).unwrap(),
             as_json,
             "encoding for {}",
             name
         );
         assert_eq!(
-            serde_json::from_value::<JsonInclusionListV1<E>>(as_json)
+            serde_json::from_value::<JsonInclusionListV1>(as_json)
                 .unwrap()
                 .0,
             as_obj,
@@ -1805,19 +1815,15 @@ mod test {
 
     #[test]
     fn inclusion_list_serde() {
-        assert_inclusion_list_serde::<MainnetEthSpec>(
-            "empty",
-            generate_transactions::<MainnetEthSpec>(&[]),
-            json!([]),
-        );
-        assert_inclusion_list_serde::<MainnetEthSpec>(
+        assert_inclusion_list_serde("empty", generate_progressive_transactions(&[]), json!([]));
+        assert_inclusion_list_serde(
             "one empty tx",
-            generate_transactions::<MainnetEthSpec>(&[0]),
+            generate_progressive_transactions(&[0]),
             json!(["0x"]),
         );
-        assert_inclusion_list_serde::<MainnetEthSpec>(
+        assert_inclusion_list_serde(
             "mixed bag",
-            generate_transactions::<MainnetEthSpec>(&[0, 1, 3, 0]),
+            generate_progressive_transactions(&[0, 1, 3, 0]),
             json!(["0x", "0x00", "0x000000", "0x"]),
         );
     }
@@ -1882,7 +1888,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .get_inclusion_list_v1::<MainnetEthSpec>(ExecutionBlockHash::repeat_byte(1))
+                        .get_inclusion_list_v1(ExecutionBlockHash::repeat_byte(1))
                         .await;
                 },
                 json!({
@@ -1897,7 +1903,7 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .get_inclusion_list_v1::<MainnetEthSpec>(ExecutionBlockHash::repeat_byte(1))
+                    .get_inclusion_list_v1(ExecutionBlockHash::repeat_byte(1))
                     .await
             })
             .await;
