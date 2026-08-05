@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use crate::{
-    BeaconChain, BeaconChainTypes, CanonicalHead,
-    payload_bid_verification::{PayloadBidError, payload_bid_cache::GossipVerifiedPayloadBidCache},
+    BeaconChain, BeaconChainTypes, CachedHead, CanonicalHead,
+    canonical_head::ForkChoiceReadGuard,
+    payload_bid_verification::{
+        PayloadBidError,
+        payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
+    },
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
 use educe::Educe;
@@ -82,6 +86,77 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     Ok(())
 }
 
+/// Checks if `bid` is compatible with the head branch
+pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
+    cached_head: &CachedHead<T::EthSpec>,
+    fork_choice_read: &ForkChoiceReadGuard<'_, T>,
+    bid: &ExecutionPayloadBid<T::EthSpec>,
+    spec: &ChainSpec,
+) -> Result<bool, PayloadBidError> {
+    let head_block_root = cached_head.head_block_root();
+
+    let head_block = fork_choice_read
+        .get_block(&head_block_root)
+        .ok_or_else(|| {
+            PayloadBidError::InternalError(format!(
+                "head block {head_block_root:?} not found in fork choice"
+            ))
+        })?;
+
+    // TODO(post-gloas) this can be removed after the gloas fork
+    let head_is_pre_gloas = !spec
+        .fork_name_at_slot::<T::EthSpec>(head_block.slot)
+        .gloas_enabled();
+
+    let (head_bid_parent_block_hash, head_bid_block_hash) = if head_is_pre_gloas {
+        let parent_payload_hash = head_block
+            .parent_root
+            .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
+            .and_then(|parent| parent.execution_status.block_hash());
+        (
+            parent_payload_hash,
+            head_block.execution_status.block_hash(),
+        )
+    } else {
+        (
+            head_block.execution_payload_parent_hash,
+            head_block.execution_payload_block_hash,
+        )
+    };
+
+    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
+    let builds_on_parent_payload = Some(bid.parent_block_hash) == head_bid_parent_block_hash;
+
+    if builds_on_parent_block && builds_on_parent_payload {
+        return Ok(true);
+    }
+
+    if bid.parent_block_root != head_block.root {
+        return Ok(false);
+    }
+
+    let builds_on_head_payload = Some(bid.parent_block_hash) == head_bid_block_hash;
+
+    if head_is_pre_gloas {
+        return Ok(builds_on_head_payload);
+    }
+
+    if fork_choice_read
+        .should_build_on_full(
+            &head_block_root,
+            cached_head.head_payload_status(),
+            bid.slot,
+        )
+        .map_err(|e| {
+            PayloadBidError::InternalError(format!("should_build_on_full failed: {e:?}"))
+        })?
+    {
+        return Ok(builds_on_head_payload);
+    }
+
+    Ok(builds_on_parent_payload)
+}
+
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
@@ -107,13 +182,13 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         T: BeaconChainTypes<EthSpec = E>,
     {
         let bid_slot = signed_bid.message.slot;
-        let bid_parent_block_hash = signed_bid.message.parent_block_hash;
+        let bid_parent = BidParent::from_bid(&signed_bid.message);
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
 
         if ctx
             .gossip_verified_payload_bid_cache
-            .seen_builder_index(&bid_slot, signed_bid.message.builder_index)
+            .seen_builder_bid_for_parent(&bid_slot, bid_parent, signed_bid.message.builder_index)
         {
             return Err(PayloadBidError::BuilderAlreadySeen {
                 builder_index: signed_bid.message.builder_index,
@@ -123,11 +198,10 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         // TODO(gloas): Extract into `bid_value_over_threshold` on the bid cache and potentially
         // make this more sophisticate than just a <= check.
-        if let Some(cached_bid) = ctx.gossip_verified_payload_bid_cache.get_highest_bid(
-            bid_slot,
-            bid_parent_block_hash,
-            bid_parent_block_root,
-        ) && bid_value <= cached_bid.message.value
+        if let Some(cached_bid) = ctx
+            .gossip_verified_payload_bid_cache
+            .get_highest_bid(bid_slot, bid_parent)
+            && bid_value <= cached_bid.message.value
         {
             return Err(PayloadBidError::BidValueBelowCached {
                 cached_value: cached_bid.message.value,
@@ -183,10 +257,10 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        // TODO(gloas) reprocess bids whose parent_block_root becomes canonical after a reorg.
-        let head_root = cached_head.head_block_root();
-        if !fork_choice.is_descendant(bid_parent_block_root, head_root) {
-            return Err(PayloadBidError::ParentBlockRootNotCanonical {
+        // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
+        if !is_bid_compatible_with_head(&cached_head, &fork_choice, &signed_bid.message, ctx.spec)?
+        {
+            return Err(PayloadBidError::BidNotCompatibleWithHead {
                 parent_block_root: bid_parent_block_root,
             });
         }
@@ -235,7 +309,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
         ctx.gossip_verified_payload_bid_cache
-            .insert_seen_builder(&gossip_verified_bid);
+            .insert_seen_builder_bid(&gossip_verified_bid);
 
         ctx.gossip_verified_payload_bid_cache
             .insert_highest_bid(gossip_verified_bid.clone());
