@@ -533,16 +533,8 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
-        let envelope = chain_segment[3].execution_envelope.clone().map(|envelope| {
-            let columns = generate_data_column_sidecars_from_block(&mutated_block, &harness.spec);
-            let bid = mutated_block
-                .message()
-                .body()
-                .signed_execution_payload_bid()
-                .unwrap();
-            AvailableEnvelope::new(envelope, columns, bid, &harness.chain.custody_context).unwrap()
-        });
-        RangeSyncBlock::new_gloas(mutated_block, envelope).unwrap()
+        // Fine to pass None to the envelope here because this is testing non linear parent roots and not envelope
+        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
             mutated_block,
