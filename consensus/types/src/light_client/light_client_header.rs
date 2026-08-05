@@ -19,8 +19,8 @@ use crate::{
     },
     fork::ForkName,
     light_client::{
-        ExecutionPayloadProofLen, LightClientError, consts::EXECUTION_PAYLOAD_INDEX,
-        light_client_update::ExecutionBlockHashProofLenGloas,
+        ExecutionBlockHashProofLenGloas, ExecutionPayloadProofLen, LightClientError,
+        consts::{EXECUTION_BLOCK_HASH_INDEX_GLOAS, EXECUTION_PAYLOAD_INDEX},
     },
 };
 
@@ -134,7 +134,6 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Gloas => {
                 LightClientHeader::Gloas(LightClientHeaderGloas::from_ssz_bytes(bytes)?)
             }
-            // TODO(gloas): implement Gloas light client
             ForkName::Base | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
@@ -379,15 +378,12 @@ impl<E: EthSpec> LightClientHeaderGloas<E> {
         })
     }
 
-    /// Proof of inclusion for `signed_execution_payload_bid.message.parent_block_hash` at
-    /// `EXECUTION_BLOCK_HASH_INDEX_GLOAS`.
     fn execution_block_hash_merkle_proof<Payload: AbstractExecPayload<E>>(
-        _beacon_block_body: &BeaconBlockBody<E, Payload>,
+        beacon_block_body: &BeaconBlockBody<E, Payload>,
     ) -> Result<Vec<Hash256>, LightClientError> {
-        // TODO(gloas): blocked on sigp/lighthouse#9450
-        // ProgressiveContainer merkleization is required for nested gindex
-        // EXECUTION_BLOCK_HASH_INDEX_GLOAS.
-        Err(LightClientError::GloasNotImplemented)
+        Ok(beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_BLOCK_HASH_INDEX_GLOAS)?)
     }
 }
 
@@ -414,7 +410,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ))
         };
         Ok(match context {
-            // TODO: implement Heze light client
             ForkName::Base | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
