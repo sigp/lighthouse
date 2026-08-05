@@ -210,6 +210,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         publish_blobs,
                     )
                     .await;
+                } else {
+                    error!(
+                        ?block_root,
+                        slot = %signed_beacon_block.slot(),
+                        "Lookup block is missing components but predates blobs",
+                    )
                 }
             }
             _ => {}

@@ -1380,34 +1380,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 };
 
-                match merge_result.updated_partials {
-                    // Fulu partials are always published with a header, and `verified_header` is
-                    // `Some` for every Fulu partial that reached this point.
-                    UpdatedPartials::Fulu(updated_partials) => {
-                        if !updated_partials.is_empty()
-                            && let Some(verified_header) = verified_header
-                        {
-                            let header = verified_header.into_header();
-                            let messages = updated_partials
-                                .into_iter()
-                                .map(|partial| {
-                                    let column = partial.into_inner();
-                                    let request_cells =
-                                        request_cells(&column.sidecar.cells_present_bitmap);
-                                    PubsubPartialMessage::DataColumnFulu {
-                                        column,
-                                        request_cells,
-                                        header: header.clone(),
-                                    }
-                                })
-                                .collect();
-                            self.send_network_message(NetworkMessage::PublishPartialColumns {
-                                messages,
-                            });
+                if !merge_result.updated_partials.is_empty() {
+                    match merge_result.updated_partials {
+                        // Fulu partials are always published with a header, and `verified_header`
+                        // is `Some` for every Fulu partial that reached this point.
+                        UpdatedPartials::Fulu(updated_partials) => {
+                            if let Some(verified_header) = verified_header {
+                                let header = verified_header.into_header();
+                                let messages = updated_partials
+                                    .into_iter()
+                                    .map(|partial| {
+                                        let column = partial.into_inner();
+                                        let request_cells =
+                                            request_cells(&column.sidecar.cells_present_bitmap);
+                                        PubsubPartialMessage::DataColumnFulu {
+                                            column,
+                                            request_cells,
+                                            header: header.clone(),
+                                        }
+                                    })
+                                    .collect();
+                                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                                    messages,
+                                });
+                            }
                         }
-                    }
-                    UpdatedPartials::Gloas(updated_partials) => {
-                        if !updated_partials.is_empty() {
+                        UpdatedPartials::Gloas(updated_partials) => {
                             let messages = updated_partials
                                 .into_iter()
                                 .map(|column| {

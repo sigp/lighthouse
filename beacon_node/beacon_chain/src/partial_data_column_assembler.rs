@@ -41,6 +41,15 @@ pub enum UpdatedPartials<E: EthSpec> {
     Gloas(Vec<PartialDataColumnGloas<E>>),
 }
 
+impl<E: EthSpec> UpdatedPartials<E> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Fulu(partials) => partials.is_empty(),
+            Self::Gloas(partials) => partials.is_empty(),
+        }
+    }
+}
+
 /// Result of merging a partial column
 pub struct PartialMergeResult<E: EthSpec> {
     /// How many cells were added to the store
