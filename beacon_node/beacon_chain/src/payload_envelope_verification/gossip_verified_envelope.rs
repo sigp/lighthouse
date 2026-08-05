@@ -566,7 +566,6 @@ mod tests {
 
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
-        let bid = make_bid(builder_index, block_hash);
 
         let exit = BuilderExitRequest {
             source_address: Address::ZERO,
@@ -575,6 +574,13 @@ mod tests {
         let max = E::max_builder_exit_requests_per_payload();
         envelope.execution_requests.builder_exits =
             ProgressiveVariableList::new(vec![exit.clone(); max]);
+
+        let bid = ExecutionPayloadBid {
+            builder_index,
+            block_hash,
+            execution_requests_root: envelope.execution_requests.tree_hash_root(),
+            ..ExecutionPayloadBid::default()
+        };
         assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
 
         envelope.execution_requests.builder_exits =
