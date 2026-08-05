@@ -115,7 +115,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
             ForkName::Gloas => Self::Gloas(LightClientBootstrapGloas::from_ssz_bytes(bytes)?),
-            // TODO(gloas): implement Heze light client
             ForkName::Base | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
@@ -138,7 +137,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
             ForkName::Gloas => <LightClientBootstrapGloas<E> as Encode>::ssz_fixed_len(),
-            // TODO(heze): implement Heze light client
             ForkName::Heze => <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
@@ -190,8 +188,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
             }),
-            // TODO: `LightClientHeaderGloas::block_to_light_client_header` currently returns
-            // `Err(GloasNotImplemented)`
             ForkName::Gloas => Self::Gloas(LightClientBootstrapGloas {
                 header: LightClientHeaderGloas::block_to_light_client_header(block)?,
                 current_sync_committee,
@@ -199,7 +195,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
             }),
-            // TODO(gloas): implement Heze light client
             ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
@@ -211,7 +206,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         block: &SignedBlindedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, LightClientError> {
-        // (TODO):Blocked on sigp/lighthouse#9450 as ....
         let current_sync_committee_branch = beacon_state.compute_current_sync_committee_proof()?;
         let current_sync_committee = beacon_state.current_sync_committee()?.clone();
 

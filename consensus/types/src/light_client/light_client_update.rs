@@ -335,8 +335,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            // `LightClientHeaderGloas::block_to_light_client_header` currently returns
-            // `Err(GloasNotImplemented)` (blocked on sigp/lighthouse#9450)
             fork_name @ ForkName::Gloas => {
                 let attested_header =
                     LightClientHeaderGloas::block_to_light_client_header(attested_block)?;
@@ -384,7 +382,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientUpdateFulu::from_ssz_bytes(bytes)?),
             ForkName::Gloas => Self::Gloas(LightClientUpdateGloas::from_ssz_bytes(bytes)?),
-            // TODO(heze): implement Heze light client
             ForkName::Base | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
@@ -558,8 +555,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Deneb => min_len!(LightClientUpdateDeneb),
             ForkName::Electra => min_len!(LightClientUpdateElectra),
             ForkName::Fulu => min_len!(LightClientUpdateFulu),
-            // TODO(gloas): implement Gloas light client
-            ForkName::Gloas | ForkName::Heze => 0,
+            ForkName::Gloas => min_len!(LightClientUpdateGloas),
+            ForkName::Heze => 0,
         };
         min_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
