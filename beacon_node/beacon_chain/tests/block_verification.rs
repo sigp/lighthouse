@@ -3319,3 +3319,73 @@ async fn process_chain_segment_full_and_empty_transitions() {
     // block3 payload is received because it has its own envelope
     assert!(fork_choice.is_payload_received(&block_root3),);
 }
+
+/// Tests that providing an envelope with invalid data columns causes block import to fail
+#[tokio::test]
+async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let block = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope = chain_dump[0].execution_envelope.clone().unwrap();
+
+    let mut columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+    // Make one of the data column data to be invalid
+    // The block import should fail due to invalid data column
+    let mut invalid_column = (*columns[0]).clone();
+    invalid_column.column_mut().get_mut(0).unwrap()[0] ^= 0x42;
+    columns[0] = Arc::new(invalid_column);
+
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope = AvailableEnvelope::new(
+        envelope,
+        columns,
+        bid,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed { error, .. } => {
+            assert!(
+                // The check will fail at: verify_columns_against_block() which is called by process_chain_segment()
+                // When the data column is invalid, the error should contain InvalidColumn
+                error.to_string().contains("InvalidColumn"),
+                "expected InvalidColumn error from KZG verification, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail with invalid column KZG proof"),
+    }
+}
