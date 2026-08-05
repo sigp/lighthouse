@@ -173,16 +173,16 @@ impl HDiffBuffer {
     pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
         // Set state.balances to empty list, and then serialize state as ssz
-        let balances_list = std::mem::take(beacon_state.balances_mut());
-        let inactivity_scores = if let Ok(inactivity_scores) = beacon_state.inactivity_scores_mut()
+        let balances_list = beacon_state.take_balances();
+        let inactivity_scores = if let Ok(inactivity_scores) = beacon_state.take_inactivity_scores()
         {
-            std::mem::take(inactivity_scores).to_vec()
+            inactivity_scores.to_vec()
         } else {
             // If this state is pre-altair consider the list empty. If the target state
             // is post altair, all its items will show up in the diff as is.
             vec![]
         };
-        let validators = std::mem::take(beacon_state.validators_mut()).to_vec();
+        let validators = beacon_state.take_validators().to_vec();
         let historical_roots = std::mem::take(beacon_state.historical_roots_mut()).to_vec();
         let historical_summaries =
             if let Ok(historical_summaries) = beacon_state.historical_summaries_mut() {
@@ -212,15 +212,19 @@ impl HDiffBuffer {
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
 
-        *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
+        state
+            .set_balances_from_iter(self.balances.iter().copied())
             .map_err(|_| Error::InvalidBalancesLength)?;
 
-        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-            *inactivity_scores = List::try_from_iter(self.inactivity_scores.iter().copied())
+        // Pre-altair states have no inactivity scores.
+        if state.fork_name_unchecked().altair_enabled() {
+            state
+                .set_inactivity_scores_from_iter(self.inactivity_scores.iter().copied())
                 .map_err(|_| Error::InvalidBalancesLength)?;
         }
 
-        *state.validators_mut() = List::try_from_iter(self.validators.iter().cloned())
+        state
+            .set_validators_from_iter(self.validators.iter().cloned())
             .map_err(|_| Error::InvalidBalancesLength)?;
 
         *state.historical_roots_mut() = List::try_from_iter(self.historical_roots.iter().copied())

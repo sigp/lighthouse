@@ -6,13 +6,16 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    attestation::{IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef},
+    attestation::{
+        IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
+        IndexedAttestationRef,
+    },
     core::EthSpec,
     fork::ForkName,
 };
 
 #[superstruct(
-    variants(Base, Electra),
+    variants(Base, Electra, Gloas),
     variant_attributes(
         derive(
             Educe,
@@ -61,6 +64,7 @@ pub struct AttesterSlashing<E: EthSpec> {
 pub enum AttesterSlashingOnDisk<E: EthSpec> {
     Base(AttesterSlashingBase<E>),
     Electra(AttesterSlashingElectra<E>),
+    Gloas(AttesterSlashingGloas<E>),
 }
 
 #[derive(Debug, Clone, Encode)]
@@ -68,6 +72,7 @@ pub enum AttesterSlashingOnDisk<E: EthSpec> {
 pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec> {
     Base(&'a AttesterSlashingBase<E>),
     Electra(&'a AttesterSlashingElectra<E>),
+    Gloas(&'a AttesterSlashingGloas<E>),
 }
 
 impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
@@ -75,6 +80,7 @@ impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
         match attester_slashing {
             AttesterSlashing::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashing::Electra(attester_slashing) => Self::Electra(attester_slashing),
+            AttesterSlashing::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
         }
     }
 }
@@ -84,6 +90,7 @@ impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
         match attester_slashing {
             AttesterSlashingOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingOnDisk::Electra(attester_slashing) => Self::Electra(attester_slashing),
+            AttesterSlashingOnDisk::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
         }
     }
 }
@@ -95,6 +102,7 @@ impl<'a, E: EthSpec> From<AttesterSlashingRefOnDisk<'a, E>> for AttesterSlashing
             AttesterSlashingRefOnDisk::Electra(attester_slashing) => {
                 Self::Electra(attester_slashing)
             }
+            AttesterSlashingRefOnDisk::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
         }
     }
 }
@@ -104,6 +112,7 @@ impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnD
         match attester_slashing {
             AttesterSlashingRef::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingRef::Electra(attester_slashing) => Self::Electra(attester_slashing),
+            AttesterSlashingRef::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
         }
     }
 }
@@ -117,6 +126,9 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
             AttesterSlashingRef::Electra(attester_slashing) => {
                 AttesterSlashing::Electra(attester_slashing.clone())
             }
+            AttesterSlashingRef::Gloas(attester_slashing) => {
+                AttesterSlashing::Gloas(attester_slashing.clone())
+            }
         }
     }
 
@@ -128,6 +140,9 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
             AttesterSlashingRef::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
             }
+            AttesterSlashingRef::Gloas(attester_slashing) => {
+                IndexedAttestationRef::Gloas(&attester_slashing.attestation_1)
+            }
         }
     }
 
@@ -138,6 +153,9 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
             }
             AttesterSlashingRef::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
+            }
+            AttesterSlashingRef::Gloas(attester_slashing) => {
+                IndexedAttestationRef::Gloas(&attester_slashing.attestation_2)
             }
         }
     }
@@ -152,6 +170,9 @@ impl<E: EthSpec> AttesterSlashing<E> {
             AttesterSlashing::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
             }
+            AttesterSlashing::Gloas(attester_slashing) => {
+                IndexedAttestationRef::Gloas(&attester_slashing.attestation_1)
+            }
         }
     }
 
@@ -163,31 +184,30 @@ impl<E: EthSpec> AttesterSlashing<E> {
             AttesterSlashing::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
             }
+            AttesterSlashing::Gloas(attester_slashing) => {
+                IndexedAttestationRef::Gloas(&attester_slashing.attestation_2)
+            }
         }
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<AttesterSlashing<E>> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for AttesterSlashing<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        if context.electra_enabled() {
-            <Vec<AttesterSlashingElectra<E>>>::deserialize(deserializer)
+        if context.gloas_enabled() {
+            AttesterSlashingGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
-                .map(|vec| {
-                    vec.into_iter()
-                        .map(AttesterSlashing::Electra)
-                        .collect::<Vec<_>>()
-                })
+                .map(AttesterSlashing::Gloas)
+        } else if context.electra_enabled() {
+            AttesterSlashingElectra::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(AttesterSlashing::Electra)
         } else {
-            <Vec<AttesterSlashingBase<E>>>::deserialize(deserializer)
+            AttesterSlashingBase::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
-                .map(|vec| {
-                    vec.into_iter()
-                        .map(AttesterSlashing::Base)
-                        .collect::<Vec<_>>()
-                })
+                .map(AttesterSlashing::Base)
         }
     }
 }
