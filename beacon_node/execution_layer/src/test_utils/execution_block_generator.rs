@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -26,8 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequests, ForkName, Hash256, KzgProofs,
-    Transaction, Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
+    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -162,6 +162,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub prague_time: Option<u64>,    // electra
     pub osaka_time: Option<u64>,     // fulu
     pub amsterdam_time: Option<u64>, // gloas
+    pub heze_time: Option<u64>,      // heze
     /*
      * deneb stuff
      */
@@ -176,6 +177,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /// If set, the next call to `build_new_execution_payload` will associate these
     /// execution requests with the generated payload ID.
     next_execution_requests: Option<ExecutionRequests<E>>,
+    generate_blobs: bool,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -192,6 +194,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let mut generator = Self {
@@ -211,11 +214,13 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
             execution_requests: <_>::default(),
             next_execution_requests: None,
+            generate_blobs: true,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -262,6 +267,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
         let forks = [
+            (self.heze_time, ForkName::Heze),
             (self.amsterdam_time, ForkName::Gloas),
             (self.osaka_time, ForkName::Fulu),
             (self.prague_time, ForkName::Electra),
@@ -325,6 +331,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn set_min_blob_count(&mut self, count: usize) {
         self.min_blobs_count = count;
+    }
+
+    pub fn set_generate_blobs(&mut self, enabled: bool) {
+        self.generate_blobs = enabled;
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
@@ -791,11 +801,32 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     extra_data: "block gen was here".as_bytes().to_vec().try_into().unwrap(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].try_into().unwrap(),
-                    withdrawals: pa.withdrawals.clone().try_into().unwrap(),
+                    transactions: ProgressiveVariableList::empty(),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
-                    block_access_list: VariableList::empty(),
+                    block_access_list: ProgressiveVariableList::empty(),
+                    slot_number: pa.slot_number.into(),
+                }),
+                ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].try_into().unwrap(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: DEFAULT_GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().try_into().unwrap(),
+                    base_fee_per_gas: Uint256::from(1u64),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: ProgressiveVariableList::empty(),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                    block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
                 _ => unreachable!(),
@@ -809,18 +840,36 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {
-            // get random number between 0 and 1 blobs by default
-            // For tests that need higher blob count, consider adding a `set_max_blob_count` method
-            let mut rng = self.rng.lock();
-            let max_blobs = max(1, self.min_blobs_count);
-            let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
-            let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-            for tx in Vec::from(transactions) {
-                execution_payload
-                    .transactions_mut()
-                    .push(tx)
-                    .map_err(|_| "transactions are full".to_string())?;
-            }
+            let bundle = if self.generate_blobs {
+                // get random number between 0 and 1 blobs by default
+                // For tests that need higher blob count, consider adding a `set_max_blob_count` method
+                let mut rng = self.rng.lock();
+                let max_blobs = max(1, self.min_blobs_count);
+                let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
+                let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
+                match &mut execution_payload {
+                    ExecutionPayload::Gloas(payload) => {
+                        for tx in Vec::from(transactions) {
+                            payload
+                                .transactions
+                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
+                        }
+                    }
+                    _ => {
+                        for tx in Vec::from(transactions) {
+                            execution_payload
+                                .transactions_bounded_mut()
+                                .map_err(|e| format!("invalid payload variant: {e:?}"))?
+                                .push(tx)
+                                .map_err(|_| "transactions are full".to_string())?;
+                        }
+                    }
+                }
+                bundle
+            } else {
+                BlobsBundle::default()
+            };
+
             self.blobs_bundles.insert(id, bundle);
         }
 
@@ -983,6 +1032,14 @@ pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<Execution
         }
         ForkName::Gloas => {
             // TODO(gloas): we are using a Fulu header for now, but this gets fixed up by the
+            // genesis builder anyway which translates it to bid/latest_block_hash.
+            let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
+        }
+        ForkName::Heze => {
+            // TODO(heze): we are using a Fulu header for now, but this gets fixed up by the
             // genesis builder anyway which translates it to bid/latest_block_hash.
             let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();

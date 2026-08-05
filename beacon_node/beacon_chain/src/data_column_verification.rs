@@ -1143,7 +1143,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     let kzg_verified = verify_kzg_for_data_column_with_commitments(
         data_column.clone(),
         cells_to_kzg_verify,
-        kzg_commitments.as_ref(),
+        kzg_commitments,
         kzg,
         seen_timestamp,
     )
@@ -1893,8 +1893,8 @@ mod test {
         if !spec.is_fulu_scheduled() {
             return;
         }
-        // Gloas is not supported yet.
-        if spec.is_gloas_scheduled() {
+        // Gloas and Heze are not supported yet.
+        if spec.is_gloas_scheduled() || spec.is_heze_scheduled() {
             return;
         }
 

@@ -259,6 +259,101 @@ mod test {
         );
     }
 
+    /// Verify the derived `progressive_container` root of a Gloas `BeaconState` against a manual
+    /// computation from its 46 field roots (EIP-7688).
+    ///
+    /// This guards against the `active_fields` attribute silently dropping trailing fields: if
+    /// the derive hashed fewer (or more) fields than listed here, the roots would differ.
+    #[test]
+    fn gloas_state_progressive_container_root() {
+        use tree_hash::TreeHash;
+
+        let validator_count = 16;
+        let genesis_time = 42;
+        let spec = &types::ForkName::Gloas.make_genesis_spec(TestEthSpec::default_spec());
+
+        let keypairs = generate_deterministic_keypairs(validator_count);
+
+        let mut state = interop_genesis_state::<TestEthSpec>(
+            &keypairs,
+            genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
+            spec,
+        )
+        .expect("should build state");
+
+        // Apply pending mutations and compute the root via the derived implementation.
+        let derived_root = state.canonical_root().expect("should compute root");
+
+        let gloas = state.as_gloas().expect("should be a Gloas state");
+
+        // All 46 spec fields, in container order.
+        let field_roots = [
+            gloas.genesis_time.tree_hash_root(),
+            gloas.genesis_validators_root.tree_hash_root(),
+            gloas.slot.tree_hash_root(),
+            gloas.fork.tree_hash_root(),
+            gloas.latest_block_header.tree_hash_root(),
+            gloas.block_roots.tree_hash_root(),
+            gloas.state_roots.tree_hash_root(),
+            gloas.historical_roots.tree_hash_root(),
+            gloas.eth1_data.tree_hash_root(),
+            gloas.eth1_data_votes.tree_hash_root(),
+            gloas.eth1_deposit_index.tree_hash_root(),
+            gloas.validators.tree_hash_root(),
+            gloas.balances.tree_hash_root(),
+            gloas.randao_mixes.tree_hash_root(),
+            gloas.slashings.tree_hash_root(),
+            gloas.previous_epoch_participation.tree_hash_root(),
+            gloas.current_epoch_participation.tree_hash_root(),
+            gloas.justification_bits.tree_hash_root(),
+            gloas.previous_justified_checkpoint.tree_hash_root(),
+            gloas.current_justified_checkpoint.tree_hash_root(),
+            gloas.finalized_checkpoint.tree_hash_root(),
+            gloas.inactivity_scores.tree_hash_root(),
+            gloas.current_sync_committee.tree_hash_root(),
+            gloas.next_sync_committee.tree_hash_root(),
+            gloas.latest_block_hash.tree_hash_root(),
+            gloas.next_withdrawal_index.tree_hash_root(),
+            gloas.next_withdrawal_validator_index.tree_hash_root(),
+            gloas.historical_summaries.tree_hash_root(),
+            gloas.deposit_requests_start_index.tree_hash_root(),
+            gloas.deposit_balance_to_consume.tree_hash_root(),
+            gloas.exit_balance_to_consume.tree_hash_root(),
+            gloas.earliest_exit_epoch.tree_hash_root(),
+            gloas.consolidation_balance_to_consume.tree_hash_root(),
+            gloas.earliest_consolidation_epoch.tree_hash_root(),
+            gloas.pending_deposits.tree_hash_root(),
+            gloas.pending_partial_withdrawals.tree_hash_root(),
+            gloas.pending_consolidations.tree_hash_root(),
+            gloas.proposer_lookahead.tree_hash_root(),
+            gloas.builders.tree_hash_root(),
+            gloas.next_withdrawal_builder_index.tree_hash_root(),
+            gloas.execution_payload_availability.tree_hash_root(),
+            gloas.builder_pending_payments.tree_hash_root(),
+            gloas.builder_pending_withdrawals.tree_hash_root(),
+            gloas.latest_execution_payload_bid.tree_hash_root(),
+            gloas.payload_expected_withdrawals.tree_hash_root(),
+            gloas.ptc_window.tree_hash_root(),
+        ];
+        assert_eq!(field_roots.len(), 46);
+
+        let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
+        for root in &field_roots {
+            hasher.write(root.as_slice()).unwrap();
+        }
+        let container_root = hasher.finish().unwrap();
+
+        // `active_fields = [1] * 46`.
+        let mut active_fields = [0u8; 32];
+        active_fields[..5].fill(0xff);
+        active_fields[5] = 0x3f;
+        let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
+
+        assert_eq!(derived_root, expected);
+    }
+
     #[test]
     fn interop_state_with_eth1() {
         let validator_count = 16;
