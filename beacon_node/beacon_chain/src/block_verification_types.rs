@@ -544,3 +544,33 @@ impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
         self.block_root
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::custody_context::NodeCustodyType;
+    use crate::test_utils::test_custody_context;
+    use bls::Signature;
+    use types::{BeaconBlockGloas, ChainSpec, EmptyBlock, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
+    /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
+    #[test]
+    fn range_sync_block_new_rejects_gloas_block() {
+        let spec = Arc::new(ChainSpec::mainnet());
+        let block = Arc::new(SignedBeaconBlock::from_block(
+            BeaconBlockGloas::empty(&spec).into(),
+            Signature::empty(),
+        ));
+        let custody_context = test_custody_context::<E>(NodeCustodyType::Supernode, spec);
+
+        let result = RangeSyncBlock::new(block, AvailableBlockData::NoData, &custody_context);
+
+        assert!(
+            result.is_err(),
+            "RangeSyncBlock::new should reject a gloas block"
+        );
+    }
+}
