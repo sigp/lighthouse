@@ -3779,6 +3779,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
                     | EnvelopeError::ExecutionPayloadError(_)
+                    | EnvelopeError::OperationListTooLong { .. }
                     | EnvelopeError::EnvelopeProcessingError(_) => {
                         self.propagate_validation_result(
                             message_id,

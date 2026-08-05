@@ -205,6 +205,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 // SSZ bytes but different hash tree roots, so the variant must be
                                 // chosen by fork.
                                 if fork_name.gloas_enabled() {
+                                    if data.len() > E::max_signed_aggregate_and_proof_size() {
+                                        return Err(format!(
+                                            "SignedAggregateAndProof size {} exceeds MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE {}",
+                                            data.len(),
+                                            E::max_signed_aggregate_and_proof_size()
+                                        ));
+                                    }
                                     SignedAggregateAndProof::Gloas(
                                         SignedAggregateAndProofGloas::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -292,6 +299,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
+                                if fork.gloas_enabled()
+                                    && data.len() > E::max_data_column_sidecar_size()
+                                {
+                                    return Err(format!(
+                                        "DataColumnSidecar size {} exceeds MAX_DATA_COLUMN_SIDECAR_SIZE {}",
+                                        data.len(),
+                                        E::max_data_column_sidecar_size()
+                                    ));
+                                }
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes_for_fork(data, *fork)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -324,6 +340,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                             Some(&fork_name) => {
                                 // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
                                 if fork_name.gloas_enabled() {
+                                    if data.len() > E::max_attester_slashing_size() {
+                                        return Err(format!(
+                                            "AttesterSlashing size {} exceeds MAX_ATTESTER_SLASHING_SIZE {}",
+                                            data.len(),
+                                            E::max_attester_slashing_size()
+                                        ));
+                                    }
                                     AttesterSlashing::Gloas(
                                         AttesterSlashingGloas::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -381,6 +404,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
+                        if data.len() > E::max_signed_execution_payload_bid_size() {
+                            return Err(format!(
+                                "SignedExecutionPayloadBid size {} exceeds MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {}",
+                                data.len(),
+                                E::max_signed_execution_payload_bid_size()
+                            ));
+                        }
                         let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
@@ -583,5 +613,83 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 write!(f, "Light CLient Optimistic Update")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
+
+    type E = MainnetEthSpec;
+
+    fn gloas_fork_context() -> ForkContext {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.electra_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let topic_hash = TopicHash::from_raw(String::from(topic));
+        let data = vec![0u8; size];
+        PubsubMessage::decode(&topic_hash, &data, &fork_context)
+    }
+
+    #[test]
+    fn gloas_aggregate_and_proof_size_bound() {
+        let max = E::max_signed_aggregate_and_proof_size();
+        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max + 1).unwrap_err();
+        assert!(err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max).unwrap_err();
+        assert!(
+            !err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn gloas_attester_slashing_size_bound() {
+        let max = E::max_attester_slashing_size();
+        let err = decode_oversized(GossipKind::AttesterSlashing, max + 1).unwrap_err();
+        assert!(err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::AttesterSlashing, max).unwrap_err();
+        assert!(!err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn gloas_data_column_sidecar_size_bound() {
+        let max = E::max_data_column_sidecar_size();
+        let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
+        let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
+        assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+        let err = decode_oversized(kind, max).unwrap_err();
+        assert!(!err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn gloas_execution_payload_bid_size_bound() {
+        let max = E::max_signed_execution_payload_bid_size();
+        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max + 1).unwrap_err();
+        assert!(
+            err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
+        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max).unwrap_err();
+        assert!(
+            !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
     }
 }

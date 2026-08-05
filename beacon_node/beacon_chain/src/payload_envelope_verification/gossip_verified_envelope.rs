@@ -73,6 +73,40 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
+    let requests = &envelope.execution_requests;
+    let length_checks: [(&str, usize, usize); 5] = [
+        (
+            "withdrawal_requests",
+            requests.withdrawals.len(),
+            E::max_withdrawal_requests_per_payload(),
+        ),
+        (
+            "consolidation_requests",
+            requests.consolidations.len(),
+            E::max_consolidation_requests_per_payload(),
+        ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::max_builder_deposit_requests_per_payload(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::max_builder_exit_requests_per_payload(),
+        ),
+        (
+            "withdrawals",
+            envelope.payload.withdrawals.len(),
+            E::max_withdrawals_per_payload(),
+        ),
+    ];
+    for (kind, length, max) in length_checks {
+        if length > max {
+            return Err(EnvelopeError::OperationListTooLong { kind, length, max });
+        }
+    }
+
     Ok(())
 }
 
@@ -311,13 +345,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 mod tests {
     use std::marker::PhantomData;
 
-    use bls::Signature;
+    use bls::{PublicKeyBytes, Signature};
     use ssz_types::ProgressiveVariableList;
     use types::{
-        BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionBlockHash,
-        ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-        ExecutionRequestsGloas, Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock,
-        SignedExecutionPayloadBid, Slot, SyncAggregate,
+        Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderExitRequest, Eth1Data,
+        EthSpec, ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope,
+        ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256, MinimalEthSpec,
+        SignedBeaconBlock, SignedExecutionPayloadBid, Slot, SyncAggregate, Withdrawal,
     };
 
     use super::verify_envelope_consistency;
@@ -455,6 +489,68 @@ mod tests {
         assert!(matches!(
             result,
             Err(EnvelopeError::BlockHashMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_payload_withdrawals_over_limit() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xaa);
+
+        let mut envelope = make_envelope(slot, builder_index, block_hash);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+
+        let withdrawal = Withdrawal {
+            index: 0,
+            validator_index: 0,
+            address: Address::ZERO,
+            amount: 0,
+        };
+        let max = E::max_withdrawals_per_payload();
+        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal.clone(); max]);
+        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+
+        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal; max + 1]);
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::OperationListTooLong {
+                kind: "withdrawals",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_execution_requests_over_limit() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xaa);
+
+        let mut envelope = make_envelope(slot, builder_index, block_hash);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+
+        let exit = BuilderExitRequest {
+            source_address: Address::ZERO,
+            pubkey: PublicKeyBytes::empty(),
+        };
+        let max = E::max_builder_exit_requests_per_payload();
+        envelope.execution_requests.builder_exits =
+            ProgressiveVariableList::new(vec![exit.clone(); max]);
+        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+
+        envelope.execution_requests.builder_exits =
+            ProgressiveVariableList::new(vec![exit; max + 1]);
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::OperationListTooLong {
+                kind: "builder_exit_requests",
+                ..
+            })
         ));
     }
 }
