@@ -11,7 +11,7 @@ mod subnet_service;
 mod sync;
 
 pub use lighthouse_network::NetworkConfig;
-pub use network_beacon_processor::NetworkBeaconProcessor;
+pub use network_beacon_processor::{NetworkBeaconProcessor, ReprocessAllowance};
 pub use service::{
     NetworkMessage, NetworkReceivers, NetworkSenders, NetworkService, ValidatorSubscriptionMessage,
 };
