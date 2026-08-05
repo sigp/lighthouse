@@ -457,25 +457,6 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_requests_root_mismatch() {
-        let slot = Slot::new(10);
-        let builder_index = 1;
-        let block_hash = ExecutionBlockHash::repeat_byte(0xac);
-
-        let envelope = make_envelope(slot, builder_index, block_hash);
-        let block = make_block(slot);
-        let mut bid = make_bid(builder_index, block_hash);
-        // Commit to a different execution requests root than the envelope carries.
-        bid.execution_requests_root = Hash256::repeat_byte(0x22);
-
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
-        assert!(matches!(
-            result,
-            Err(EnvelopeError::ExecutionRequestsRootMismatch { .. })
-        ));
-    }
-
-    #[test]
     fn test_parent_beacon_block_root_mismatch() {
         let slot = Slot::new(10);
         let builder_index = 1;

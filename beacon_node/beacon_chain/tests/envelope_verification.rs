@@ -1,7 +1,7 @@
 use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
-use std::sync::Arc;
 use bls::PublicKeyBytes;
+use std::sync::Arc;
 use types::{Address, MinimalEthSpec, Slot, WithdrawalRequest};
 
 type E = MinimalEthSpec;
