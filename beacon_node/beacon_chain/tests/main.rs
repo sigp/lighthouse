@@ -3,6 +3,7 @@ mod attestation_verification;
 mod blob_verification;
 mod block_verification;
 mod column_verification;
+mod envelope_verification;
 mod events;
 mod op_verification;
 mod payload_invalidation;
