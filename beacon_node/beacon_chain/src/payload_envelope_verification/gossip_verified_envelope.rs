@@ -74,37 +74,40 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     }
 
     let requests = &envelope.execution_requests;
-    let length_checks: [(&str, usize, usize); 5] = [
-        (
-            "withdrawal_requests",
-            requests.withdrawals.len(),
-            E::max_withdrawal_requests_per_payload(),
-        ),
-        (
-            "consolidation_requests",
-            requests.consolidations.len(),
-            E::max_consolidation_requests_per_payload(),
-        ),
-        (
-            "builder_deposit_requests",
-            requests.builder_deposits.len(),
-            E::max_builder_deposit_requests_per_payload(),
-        ),
-        (
-            "builder_exit_requests",
-            requests.builder_exits.len(),
-            E::max_builder_exit_requests_per_payload(),
-        ),
-        (
-            "withdrawals",
-            envelope.payload.withdrawals.len(),
-            E::max_withdrawals_per_payload(),
-        ),
-    ];
-    for (kind, length, max) in length_checks {
-        if length > max {
-            return Err(EnvelopeError::OperationListTooLong { kind, length, max });
-        }
+    if requests.withdrawals.len() > E::max_withdrawal_requests_per_payload() {
+        return Err(EnvelopeError::OperationListTooLong {
+            kind: "withdrawal_requests",
+            length: requests.withdrawals.len(),
+            max: E::max_withdrawal_requests_per_payload(),
+        });
+    }
+    if requests.consolidations.len() > E::max_consolidation_requests_per_payload() {
+        return Err(EnvelopeError::OperationListTooLong {
+            kind: "consolidation_requests",
+            length: requests.consolidations.len(),
+            max: E::max_consolidation_requests_per_payload(),
+        });
+    }
+    if requests.builder_deposits.len() > E::max_builder_deposit_requests_per_payload() {
+        return Err(EnvelopeError::OperationListTooLong {
+            kind: "builder_deposit_requests",
+            length: requests.builder_deposits.len(),
+            max: E::max_builder_deposit_requests_per_payload(),
+        });
+    }
+    if requests.builder_exits.len() > E::max_builder_exit_requests_per_payload() {
+        return Err(EnvelopeError::OperationListTooLong {
+            kind: "builder_exit_requests",
+            length: requests.builder_exits.len(),
+            max: E::max_builder_exit_requests_per_payload(),
+        });
+    }
+    if envelope.payload.withdrawals.len() > E::max_withdrawals_per_payload() {
+        return Err(EnvelopeError::OperationListTooLong {
+            kind: "withdrawals",
+            length: envelope.payload.withdrawals.len(),
+            max: E::max_withdrawals_per_payload(),
+        });
     }
 
     Ok(())

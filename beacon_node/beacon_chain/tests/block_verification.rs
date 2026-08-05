@@ -1550,8 +1550,7 @@ async fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * [New in Gloas:EIP7688] We do not accept blocks whose progressive operation lists exceed
-     * their spec limits.
+     * We do not accept gloas blocks whose progressive operation lists exceed their spec limits.
      */
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block

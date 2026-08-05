@@ -651,7 +651,7 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 pub fn verify_execution_request_list_lengths<E: EthSpec>(
     requests: &ExecutionRequestsGloas<E>,
 ) -> Result<(), BlockProcessingError> {
-    let request_checks: [(&str, usize, usize); 4] = [
+    let checks = [
         (
             "withdrawal_requests",
             requests.withdrawals.len(),
@@ -673,13 +673,12 @@ pub fn verify_execution_request_list_lengths<E: EthSpec>(
             E::MaxBuilderExitRequestsPerPayload::to_usize(),
         ),
     ];
-    for (kind, length, max) in request_checks {
+    for (kind, length, max) in checks {
         block_verify!(
             length <= max,
             BlockProcessingError::OperationListTooLong { kind, length, max }
         );
     }
-
     Ok(())
 }
 
