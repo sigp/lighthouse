@@ -480,7 +480,9 @@ mod tests {
 
         // Not a gossip condition; the sync-only rejection is inlined in
         // `RangeSyncBlock` construction.
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+        assert!(
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
+        );
     }
 
     #[test]
