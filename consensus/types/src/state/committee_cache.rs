@@ -246,11 +246,9 @@ impl CommitteeCache {
             .collect()
     }
 
-    /// Get the inclusion list committee for the given `slot` ([New in Heze:EIP7805]).
+    /// Get the inclusion list committee for the given `slot`. [New in Heze:EIP7805]
     ///
-    /// Concatenates the slot's beacon committees in order and cycles over them
-    /// (`indices[i % len]`) to fill `inclusion_list_committee_size` entries, so a
-    /// validator may appear more than once when the slot holds fewer members.
+    /// Cycles over the slot's beacon committees, so a validator may appear more than once.
     pub fn get_inclusion_list_committee_at_slot(
         &self,
         slot: Slot,

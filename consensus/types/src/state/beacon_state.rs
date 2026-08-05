@@ -1212,10 +1212,9 @@ impl<E: EthSpec> BeaconState<E> {
         cache.get_beacon_committees_at_slot(slot)
     }
 
-    /// Get the inclusion list committee for the given `slot` ([New in Heze:EIP7805]).
+    /// Get the inclusion list committee for the given `slot`. [New in Heze:EIP7805]
     ///
-    /// Utilises the committee cache. Mirrors the spec's
-    /// `Vector[ValidatorIndex, INCLUSION_LIST_COMMITTEE_SIZE]` return type.
+    /// Utilises the committee cache.
     pub fn get_inclusion_list_committee(
         &self,
         slot: Slot,

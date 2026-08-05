@@ -170,8 +170,7 @@ async fn min_randao_epoch_correct() {
     state.get_randao_mix(min_randao_epoch + 1).unwrap();
 }
 
-/// 16 validators over 8 minimal slots gives ~2 members per slot, fewer than
-/// `INCLUSION_LIST_COMMITTEE_SIZE`, so the committee wraps and validators repeat.
+/// 16 validators gives ~2 members per slot, so the committee wraps.
 #[tokio::test]
 async fn inclusion_list_committee_wraps_around_small_committees() {
     let mut state = new_state::<MinimalEthSpec>(16, Slot::new(0)).await;
@@ -203,9 +202,7 @@ async fn inclusion_list_committee_wraps_around_small_committees() {
     }
 }
 
-/// 160 validators over 8 minimal slots gives ~20 members per slot, more than
-/// `INCLUSION_LIST_COMMITTEE_SIZE`, so the committee takes the first `size`
-/// concatenated members without wrapping.
+/// 160 validators gives ~20 members per slot, so the committee truncates to the first 16.
 #[tokio::test]
 async fn inclusion_list_committee_truncates_large_committees() {
     let mut state = new_state::<MinimalEthSpec>(160, Slot::new(0)).await;
