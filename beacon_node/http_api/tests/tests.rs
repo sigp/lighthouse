@@ -893,9 +893,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -990,9 +988,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
 
@@ -2777,6 +2773,9 @@ impl ApiTester {
             AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
+            AttesterSlashing::Gloas(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
         }
 
         self.client
@@ -2799,6 +2798,9 @@ impl ApiTester {
                 slashing.attestation_1.data.slot += 1;
             }
             AttesterSlashing::Electra(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Gloas(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -3223,6 +3225,7 @@ impl ApiTester {
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
             execution_requests_root: Hash256::zero(),
+            _phantom: std::marker::PhantomData,
         };
 
         let signed = SignedExecutionPayloadBid {
@@ -5955,6 +5958,9 @@ impl ApiTester {
             SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
+            SignedAggregateAndProof::Gloas(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
         }
 
         self.client
@@ -5990,6 +5996,9 @@ impl ApiTester {
                 aggregate.message.aggregate.data.slot += 1;
             }
             SignedAggregateAndProof::Electra(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Gloas(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
