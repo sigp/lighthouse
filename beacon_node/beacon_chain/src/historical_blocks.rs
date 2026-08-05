@@ -1,4 +1,6 @@
-use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
+use crate::block_verification_types::RangeSyncBlock;
+use crate::data_availability_checker::AvailableBlockData;
+use crate::payload_envelope_verification::verify_envelope_payload_hash;
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
 use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
@@ -13,7 +15,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, debug_span, instrument};
-use types::{Hash256, Slot};
+use types::{EthSpec, Hash256, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -37,6 +39,18 @@ pub enum HistoricalBlockError {
     IndexOutOfBounds,
     /// Logic error: should never occur.
     MissingOldestBlockRoot { slot: Slot },
+    /// A Gloas block with a revealed payload is missing its envelope. Caller should
+    /// retry/penalize.
+    MissingEnvelope { block_root: Hash256 },
+    /// A Gloas payload envelope failed verification against its block's committed bid
+    /// (e.g. the recomputed execution block hash doesn't match). Caller should retry/penalize.
+    InvalidEnvelope { block_root: Hash256, reason: String },
+    /// The proposer pubkey of a root-chained block is missing from the pubkey cache.
+    /// Logic error: internal inconsistency, do not penalize peers.
+    MissingProposerPubkey {
+        block_root: Hash256,
+        proposer_index: u64,
+    },
     /// Internal store error
     StoreError(StoreError),
 }
@@ -70,7 +84,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
+        mut blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
@@ -80,9 +94,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // This allows for reimport of the blobs/columns for the finalized block after checkpoint
         // sync.
-        let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() <= anchor_info.oldest_block_slot
-        });
+        let num_relevant = blocks
+            .partition_point(|block| block.as_block().slot() <= anchor_info.oldest_block_slot);
 
         let total_blocks = blocks.len();
         blocks.truncate(num_relevant);
@@ -107,13 +120,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
+        // A Gloas block's payload was revealed ("full") if its child's bid `parent_block_hash`
+        // matches its own bid `block_hash`, see `process_parent_execution_payload` in the spec.
+        // We iterate backwards, so track the child's bid hash as we go. Blocks with withheld
+        // payloads never have an envelope, so we don't require one for them.
+        //
+        // Start from the anchor block, the child of the newest block in the batch. If the newest
+        // block is the anchor itself being re-imported it has no child to derive reveal-status
+        // from; seed `None` (indeterminate) so its envelope and columns are stored rather than
+        // dropped by a self-comparison that is always false.
+        let mut child_bid_parent_hash = blocks_to_import
+            .last()
+            .filter(|block| matches!(block, RangeSyncBlock::Gloas { .. }))
+            .and_then(|newest_block| {
+                let anchor_child_root = self
+                    .block_root_at_slot(anchor_info.oldest_block_slot, WhenSlotSkipped::None)
+                    .ok()
+                    .flatten()?;
+                if anchor_child_root == newest_block.block_root() {
+                    return None;
+                }
+                let child_block = self.get_blinded_block(&anchor_child_root).ok().flatten()?;
+                child_block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .ok()
+                    .map(|bid| bid.message.parent_block_hash)
+            });
+
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
+        // Self-built envelopes whose signatures are verified in the batch signature section
+        // below, using the proposer pubkey from the (batch-verified) block.
+        let mut envelopes_to_verify = Vec::new();
 
-        for available_block in blocks_to_import.into_iter().rev() {
-            let (block_root, block, block_data) = available_block.deconstruct();
+        for range_sync_block in blocks_to_import.into_iter().rev() {
+            let (block_root, block, block_data, envelope) = match range_sync_block {
+                RangeSyncBlock::Base(available_block) => {
+                    let (block_root, block, block_data) = available_block.deconstruct();
+                    (block_root, block, block_data, None)
+                }
+                RangeSyncBlock::Gloas { block, envelope } => (
+                    block.canonical_root(),
+                    block,
+                    AvailableBlockData::NoData,
+                    envelope,
+                ),
+            };
 
             if block.slot() == anchor_info.oldest_block_slot {
                 // When reimporting, verify that this is actually the same block (same block root).
@@ -171,6 +227,87 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
+            // Whether this Gloas block's payload was revealed, per the child's bid (see the
+            // comment on `child_bid_parent_hash` above). Tri-state on purpose:
+            // - `Some(true)`: the child's bid proves the payload was revealed.
+            // - `Some(false)`: the child's bid proves the payload was withheld.
+            // - `None`: indeterminate — pre-Gloas block (no bid, no envelope expected) or the
+            //   child's bid is unknown (e.g. the anchor-child lookup failed). In this case we
+            //   neither require nor drop an envelope: dropping on indeterminate data would
+            //   silently lose a legitimate envelope and leave a permanent serving gap.
+            let payload_revealed: Option<bool> = block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .ok()
+                .map(|bid| bid.message.block_hash)
+                .and_then(|bid_hash| {
+                    child_bid_parent_hash.map(|child_parent_hash| bid_hash == child_parent_hash)
+                });
+
+            // Persist the Gloas payload envelope and its data columns, which are carried by the
+            // envelope rather than `block_data`.
+            match envelope {
+                // A withheld payload has no canonical envelope; do not persist whatever the
+                // peer sent for it.
+                Some(_) if payload_revealed == Some(false) => {
+                    debug!(
+                        ?block_root,
+                        slot = %block.slot(),
+                        "Dropping backfilled envelope for withheld payload"
+                    );
+                }
+                Some(envelope) => {
+                    // Recompute the payload's execution block hash against the bid committed in
+                    // the (root-chained) block: the block root has been linked to the anchor at
+                    // the top of this loop, so the bid is canonical even though proposer
+                    // signatures are only batch-verified further below. Batches are only
+                    // accepted from the network here, so a mismatch is attributable to the
+                    // sending peer.
+                    if self.config.verify_envelope_payload_hash_in_backfill {
+                        verify_envelope_payload_hash(envelope.envelope(), &block).map_err(|e| {
+                            HistoricalBlockError::InvalidEnvelope {
+                                block_root,
+                                reason: format!("{e:?}"),
+                            }
+                        })?;
+                    }
+                    if envelope.envelope().message.builder_index == BUILDER_INDEX_SELF_BUILD {
+                        envelopes_to_verify.push((
+                            block_root,
+                            envelope.envelope().clone(),
+                            block.message().proposer_index(),
+                            block.slot().epoch(T::EthSpec::slots_per_epoch()),
+                        ));
+                    }
+                    let (signed_envelope, columns) = envelope.deconstruct();
+                    if !columns.is_empty() {
+                        new_oldest_data_column_slot = Some(block.slot());
+                        if let Some(op) = self.get_blobs_or_columns_store_op(
+                            block_root,
+                            block.slot(),
+                            AvailableBlockData::DataColumns(columns),
+                        ) {
+                            blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
+                        }
+                    }
+                    self.store.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &signed_envelope,
+                        &mut hot_batch,
+                    );
+                }
+                None => {
+                    // Envelopes must be stored for every revealed payload (even with no blobs)
+                    // so we can serve them over RPC and use them for state reconstruction.
+                    // Withheld payloads never have one, and we don't require one when
+                    // revealed-ness is indeterminate.
+                    if payload_revealed == Some(true) {
+                        return Err(HistoricalBlockError::MissingEnvelope { block_root });
+                    }
+                }
+            }
+
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
                 debug!(%slot, ?block_root, "Storing frozen block to root mapping");
@@ -183,6 +320,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
+            // This block is the child of the next (older) block in the iteration.
+            child_bid_parent_hash = block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .ok()
+                .map(|bid| bid.message.parent_block_hash);
             signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
@@ -214,6 +358,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .validator_pubkey_cache
             .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(HistoricalBlockError::ValidatorPubkeyCacheTimeout)?;
+
+        // Verify self-built envelope signatures with the proposer's pubkey. The proposer index
+        // is trusted because the containing block's proposer signature is verified below.
+        // External-builder envelopes cannot be verified historically (the builder registry is
+        // not reconstructible without historical states); their contents are still bound to the
+        // bid via the block hash recompute above.
+        for (envelope_block_root, signed_envelope, proposer_index, epoch) in &envelopes_to_verify {
+            let pubkey = pubkey_cache.get(*proposer_index as usize).ok_or(
+                HistoricalBlockError::MissingProposerPubkey {
+                    block_root: *envelope_block_root,
+                    proposer_index: *proposer_index,
+                },
+            )?;
+            let fork = self.spec.fork_at_epoch(*epoch);
+            if !signed_envelope.verify_signature(
+                pubkey,
+                &fork,
+                self.genesis_validators_root,
+                &self.spec,
+            ) {
+                return Err(HistoricalBlockError::InvalidEnvelope {
+                    block_root: *envelope_block_root,
+                    reason: "invalid self-build envelope signature".to_string(),
+                });
+            }
+        }
         let block_roots = signed_blocks
             .get(1..)
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?

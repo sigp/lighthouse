@@ -1320,3 +1320,49 @@ fn gossip_attester_slashing() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_attester_slashing").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_attester_slashing").run();
 }
+
+#[test]
+fn gossip_voluntary_exit() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_voluntary_exit").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_voluntary_exit").run();
+}
+
+#[test]
+fn gossip_beacon_attestation() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_beacon_attestation").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_beacon_attestation").run();
+}
+
+#[test]
+fn gossip_beacon_aggregate_and_proof() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_beacon_aggregate_and_proof")
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_beacon_aggregate_and_proof")
+        .run();
+}
+
+#[test]
+fn gossip_bls_to_execution_change() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_bls_to_execution_change")
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_bls_to_execution_change")
+        .run();
+}
+
+#[test]
+fn gossip_sync_committee_message() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_sync_committee_message").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_sync_committee_message").run();
+}
+
+#[test]
+fn gossip_sync_committee_contribution_and_proof() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable(
+        "gossip_sync_committee_contribution_and_proof",
+    )
+    .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable(
+        "gossip_sync_committee_contribution_and_proof",
+    )
+    .run();
+}

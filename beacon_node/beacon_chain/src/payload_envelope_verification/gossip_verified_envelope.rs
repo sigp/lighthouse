@@ -5,6 +5,7 @@ use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
 use tracing::debug;
+use tree_hash::TreeHash;
 use types::{
     ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
@@ -107,6 +108,16 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
             kind: "withdrawals",
             length: envelope.payload.withdrawals.len(),
             max: E::max_withdrawals_per_payload(),
+        });
+    }
+
+    // The SSZ root of the envelope's execution requests must match the committed bid, per
+    // `verify_execution_payload_envelope` in the spec.
+    let execution_requests_root = requests.tree_hash_root();
+    if execution_requests_root != execution_bid.execution_requests_root {
+        return Err(EnvelopeError::ExecutionRequestsRootMismatch {
+            committed_bid: execution_bid.execution_requests_root,
+            envelope: execution_requests_root,
         });
     }
 
@@ -359,6 +370,7 @@ mod tests {
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
+    use tree_hash::TreeHash;
 
     type E = MinimalEthSpec;
 
@@ -414,6 +426,8 @@ mod tests {
         ExecutionPayloadBid {
             builder_index,
             block_hash,
+            // Commit to the (default) execution requests carried by `make_envelope`.
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             ..ExecutionPayloadBid::default()
         }
     }
@@ -477,6 +491,24 @@ mod tests {
             result,
             Err(EnvelopeError::BuilderIndexMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn test_parent_beacon_block_root_mismatch() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xab);
+
+        let mut envelope = make_envelope(slot, builder_index, block_hash);
+        // The block's parent root is `Hash256::ZERO`; claim a different parent beacon
+        // block root in the envelope.
+        envelope.parent_beacon_block_root = Hash256::repeat_byte(0x11);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+
+        // Not a gossip condition; the sync-only rejection is inlined in
+        // `RangeSyncBlock` construction.
+        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
     }
 
     #[test]
