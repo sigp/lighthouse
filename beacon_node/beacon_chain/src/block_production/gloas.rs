@@ -10,7 +10,8 @@ use execution_layer::{
     PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
-use ssz::Encode;
+use ssz::{Encode, ProgressiveBitList};
+use ssz_types::ProgressiveVariableList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
@@ -28,13 +29,14 @@ use tracing::{Instrument, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
-    Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BlobsList,
-    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
+    Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
+    BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BlobsList, BuilderIndex,
+    ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -78,8 +80,8 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     eth1_data: Eth1Data,
     graffiti: Graffiti,
     proposer_slashings: Vec<ProposerSlashing>,
-    attester_slashings: Vec<AttesterSlashingElectra<E>>,
-    attestations: Vec<AttestationElectra<E>>,
+    attester_slashings: Vec<AttesterSlashingGloas<E>>,
+    attestations: Vec<AttestationGloas<E>>,
     payload_attestations: Vec<PayloadAttestation<E>>,
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
@@ -497,7 +499,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 AttesterSlashing::Base(_) => None,
-                AttesterSlashing::Electra(a) => Some(a),
+                // Convert Electra slashings left over from before the fork into the Gloas type.
+                // The SSZ bytes are the same, only the hash tree root differs.
+                // TODO(post-gloas): remove this conversion once mainnet has forked to Gloas.
+                AttesterSlashing::Electra(a) => Some(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
+                }),
+                AttesterSlashing::Gloas(a) => Some(a),
             })
             .collect::<Vec<_>>();
 
@@ -505,7 +514,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 Attestation::Base(_) => None,
-                Attestation::Electra(a) => Some(a),
+                // Convert Electra attestations left over from before the fork into the Gloas
+                // type. The SSZ bytes are the same, only the hash tree root differs.
+                // TODO(post-gloas): remove this conversion once mainnet has forked to Gloas.
+                Attestation::Electra(a) => Some(AttestationGloas {
+                    aggregation_bits: ProgressiveBitList::from_bytes(
+                        a.aggregation_bits.into_bytes(),
+                    )
+                    .inspect_err(
+                        |e| warn!(error = ?e, "Dropping attestation with invalid aggregation bits"),
+                    )
+                    .ok()?,
+                    data: a.data,
+                    signature: a.signature,
+                    committee_bits: a.committee_bits,
+                }),
+                Attestation::Gloas(a) => Some(a),
             })
             .collect::<Vec<_>>();
 
@@ -607,30 +631,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     randao_reveal,
                     eth1_data,
                     graffiti,
-                    proposer_slashings: proposer_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attester_slashings: attester_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attestations: attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    deposits: deposits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    voluntary_exits: voluntary_exits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    // The operation list lengths are bounded by the op pool packing limits above.
+                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
+                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
+                    attestations: ProgressiveVariableList::from_iter(attestations),
+                    deposits: ProgressiveVariableList::from_iter(deposits),
+                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
                     sync_aggregate,
-                    bls_to_execution_changes: bls_to_execution_changes
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                        bls_to_execution_changes,
+                    ),
                     parent_execution_requests,
                     signed_execution_payload_bid,
-                    payload_attestations: payload_attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
@@ -873,6 +886,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
             execution_requests_root: execution_requests.tree_hash_root(),
+            _phantom: PhantomData,
         };
 
         // Store payload data for envelope construction after block is created
@@ -1198,7 +1212,7 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::VariableList;
+    use ssz_types::{ProgressiveVariableList, VariableList};
     use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
 
     type TestSpec = MainnetEthSpec;
@@ -1222,11 +1236,12 @@ mod tests {
         consolidations: Vec<ConsolidationRequest>,
     ) -> ExecutionRequestsGloas<TestSpec> {
         ExecutionRequestsGloas {
-            deposits: VariableList::empty(),
-            withdrawals: VariableList::new(withdrawals).unwrap(),
-            consolidations: VariableList::new(consolidations).unwrap(),
-            builder_deposits: VariableList::empty(),
-            builder_exits: VariableList::empty(),
+            deposits: ProgressiveVariableList::empty(),
+            withdrawals: ProgressiveVariableList::new(withdrawals),
+            consolidations: ProgressiveVariableList::new(consolidations),
+            builder_deposits: ProgressiveVariableList::empty(),
+            builder_exits: ProgressiveVariableList::empty(),
+            _phantom: PhantomData,
         }
     }
 
