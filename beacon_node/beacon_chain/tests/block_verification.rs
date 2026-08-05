@@ -3352,7 +3352,11 @@ async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
     // Make one of the data column data to be invalid
     // The block import should fail due to invalid data column
     let mut invalid_column = (*columns[0]).clone();
-    invalid_column.column_mut().get_mut(0).unwrap()[0] ^= 0x42;
+    if let DataColumnSidecar::Gloas(data_column_sidecar) = &mut invalid_column {
+        data_column_sidecar.column.get_mut(0).unwrap()[0] = 0x42;
+    } else {
+        panic!("test expects a Gloas DataColumnSidecar");
+    }
     columns[0] = Arc::new(invalid_column);
 
     let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
