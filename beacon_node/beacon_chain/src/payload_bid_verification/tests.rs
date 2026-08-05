@@ -18,7 +18,7 @@ use types::{
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use types::AttestationShufflingId;
 
 use crate::{
@@ -29,7 +29,7 @@ use crate::{
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
-        payload_bid_cache::GossipVerifiedPayloadBidCache,
+        payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
         gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences,
@@ -143,14 +143,18 @@ impl TestContext {
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
             .expect("should create fork choice store");
-        let fork_choice =
+        let mut fork_choice =
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
+
+        let (_, head_payload_status) = fork_choice
+            .get_head(Slot::new(0), &spec)
+            .expect("should run get_head");
 
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            PayloadStatus::Pending,
+            head_payload_status,
             FastConfirmationMode::Disabled,
             &store,
             &spec,
@@ -358,7 +362,7 @@ fn builder_already_seen_for_slot() {
     let verified = GossipVerifiedPayloadBid {
         signed_bid: bid.clone(),
     };
-    ctx.bid_cache.insert_seen_builder(&verified);
+    ctx.bid_cache.insert_seen_builder_bid(&verified);
 
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
@@ -368,6 +372,46 @@ fn builder_already_seen_for_slot() {
             ..
         })
     ));
+}
+
+#[test]
+fn same_builder_new_parent_tuple_not_blocked() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBid {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBid::default()
+    });
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "first bid should pass: {:?}",
+        result.unwrap_err()
+    );
+
+    // The same builder bids again at the same slot with a different parent tuple.
+    // The seen-builder rule is per (slot, parent_block_hash, parent_block_root),
+    // so this bid gets past that check and fails later on the unknown parent root.
+    let unknown_root = Hash256::repeat_byte(0xff);
+    let bid_2 = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, unknown_root);
+    let result_2 = GossipVerifiedPayloadBid::new(bid_2, &gossip);
+    let err = result_2.expect_err("second bid should fail on the unknown parent root");
+    assert!(
+        matches!(err, PayloadBidError::ParentBlockRootUnknown { .. }),
+        "expected ParentBlockRootUnknown (not BuilderAlreadySeen), got: {err:?}"
+    );
 }
 
 #[test]
@@ -609,8 +653,8 @@ fn parent_block_root_not_canonical() {
     assert!(result.is_err(), "expected error, got Ok");
     let err = result.unwrap_err();
     assert!(
-        matches!(err, PayloadBidError::ParentBlockRootNotCanonical { .. }),
-        "expected ParentBlockRootNotCanonical, got: {err:?}"
+        matches!(err, PayloadBidError::BidNotCompatibleWithHead { .. }),
+        "expected BidNotCompatibleWithHead, got: {err:?}"
     );
 }
 
@@ -703,12 +747,15 @@ fn bad_signature() {
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
-    assert!(!ctx.bid_cache.seen_builder_index(&slot, 0));
+    let bid_parent = BidParent {
+        parent_block_hash: ExecutionBlockHash::zero(),
+        parent_block_root: ctx.genesis_block_root,
+    };
     assert!(
-        ctx.bid_cache
-            .get_highest_bid(slot, ExecutionBlockHash::zero(), ctx.genesis_block_root)
-            .is_none()
+        !ctx.bid_cache
+            .seen_builder_bid_for_parent(&slot, bid_parent, 0)
     );
+    assert!(ctx.bid_cache.get_highest_bid(slot, bid_parent).is_none());
 }
 
 #[test]
@@ -785,12 +832,22 @@ fn two_builders_coexist_in_cache() {
     );
 
     // Both builders should be seen.
-    assert!(ctx.bid_cache.seen_builder_index(&slot, 0));
-    assert!(ctx.bid_cache.seen_builder_index(&slot, 1));
+    let bid_parent = BidParent {
+        parent_block_hash: ExecutionBlockHash::zero(),
+        parent_block_root: ctx.genesis_block_root,
+    };
+    assert!(
+        ctx.bid_cache
+            .seen_builder_bid_for_parent(&slot, bid_parent, 0)
+    );
+    assert!(
+        ctx.bid_cache
+            .seen_builder_bid_for_parent(&slot, bid_parent, 1)
+    );
 
     let highest = ctx
         .bid_cache
-        .get_highest_bid(slot, ExecutionBlockHash::zero(), ctx.genesis_block_root)
+        .get_highest_bid(slot, bid_parent)
         .expect("should have highest bid");
     assert_eq!(highest.message.value, 1);
     assert_eq!(highest.message.builder_index, 1);
