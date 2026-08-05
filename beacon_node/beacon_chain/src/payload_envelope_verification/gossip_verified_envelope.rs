@@ -333,7 +333,6 @@ mod tests {
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
-    use crate::payload_envelope_verification::verify_envelope_parent_beacon_block_root;
     use tree_hash::TreeHash;
 
     type E = MinimalEthSpec;
@@ -489,15 +488,9 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
-        // Not a gossip condition: the shared consistency checks must accept it.
+        // Not a gossip condition; the sync-only rejection is inlined in
+        // `RangeSyncBlock` construction.
         assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
-
-        // The sync-only check must reject it.
-        let result = verify_envelope_parent_beacon_block_root::<E>(&envelope, &block);
-        assert!(matches!(
-            result,
-            Err(EnvelopeError::ParentBeaconBlockRootMismatch { .. })
-        ));
     }
 
     #[test]

@@ -2,9 +2,8 @@ use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
-use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
-use crate::payload_envelope_verification::verify_envelope_parent_beacon_block_root;
+use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
 use crate::{BeaconChainTypes, CustodyContext, PayloadVerificationOutcome};
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
@@ -160,9 +159,18 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 latest_finalized_slot,
             )
             .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
-            // Sync-only check, deliberately not part of gossip validation.
-            verify_envelope_parent_beacon_block_root(envelope.message(), &block)
-                .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
+            // Sync-only check, deliberately not part of gossip validation: needed before
+            // recomputing the execution block hash, which takes this root as input.
+            let parent_beacon_block_root = envelope.message().parent_beacon_block_root;
+            if parent_beacon_block_root != block.message().parent_root() {
+                return Err(format!(
+                    "Inconsistent envelope: {:?}",
+                    EnvelopeError::ParentBeaconBlockRootMismatch {
+                        block: block.message().parent_root(),
+                        envelope: parent_beacon_block_root,
+                    }
+                ));
+            }
         }
 
         Ok(Self::Gloas { block, envelope })
