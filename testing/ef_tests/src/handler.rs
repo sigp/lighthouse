@@ -633,12 +633,6 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
     fn handler_name(&self) -> String {
         "fork".into()
     }
-
-    // TODO(alpha.12): enable Gloas once the fork-upgrade builder-deposit handling matches the
-    // v1.7.0-alpha.12 EIP-8282 behaviour.
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        Self::Case::is_enabled_for_fork(fork_name) && fork_name != ForkName::Gloas
-    }
 }
 
 #[derive(Educe)]
@@ -1056,6 +1050,10 @@ impl<E> GossipValidationHandler<E> {
             supported_forks,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn latest_stable(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::latest_stable()])
     }
 }
 
