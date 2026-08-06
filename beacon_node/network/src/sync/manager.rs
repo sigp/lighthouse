@@ -903,13 +903,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 {
                     self.notified_unknown_payload_roots
                         .insert((peer_id, block_root));
-                    // TODO(gloas): trigger a payload-envelope lookup for `block_root` via
-                    // `ExecutionPayloadEnvelopesByRoot`. Wired up in the gloas lookup-sync PR (#9155).
                     debug!(
                         ?block_root,
                         ?peer_id,
                         "Received unknown payload envelope from attestation"
                     );
+                    self.handle_unknown_payload_envelope(peer_id, block_root);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -1020,6 +1019,54 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             Err(reason) => {
                 debug!(%block_root, reason, "Ignoring unknown block request");
+            }
+        }
+    }
+
+    fn handle_unknown_payload_envelope(&mut self, peer_id: PeerId, block_root: Hash256) {
+        let Some(block) = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+        else {
+            debug!(
+                ?block_root,
+                "Ignoring payload envelope request for block not in fork choice"
+            );
+            return;
+        };
+
+        if block.payload_received {
+            return;
+        }
+
+        let Some(bid_block_hash) = block.execution_payload_block_hash else {
+            debug!(
+                ?block_root,
+                "Ignoring payload envelope request for block without a bid block hash"
+            );
+            return;
+        };
+
+        match self.should_search_for_block(Some(block.slot), &peer_id) {
+            Ok(_) => {
+                if self.block_lookups.search_payload_envelope(
+                    block_root,
+                    bid_block_hash,
+                    &[peer_id],
+                    &mut self.network,
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(
+                        ?block_root,
+                        "No lookup created for unknown payload envelope"
+                    );
+                }
+            }
+            Err(reason) => {
+                debug!(%block_root, reason, "Ignoring unknown payload envelope request");
             }
         }
     }

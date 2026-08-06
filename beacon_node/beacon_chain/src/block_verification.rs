@@ -81,6 +81,9 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::IntoWithIndex;
+use state_processing::per_block_processing::{
+    process_operations::verify_operation_list_lengths, verify_execution_request_list_lengths,
+};
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     VerifyBlockRoot,
@@ -893,6 +896,23 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                     max_blobs_at_epoch,
                     block: blob_kzg_commitments_len,
                 });
+            }
+        }
+
+        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
+            verify_operation_list_lengths(block.message().body())
+                .map_err(BlockError::PerBlockProcessingError)?;
+            verify_execution_request_list_lengths(parent_execution_requests)
+                .map_err(BlockError::PerBlockProcessingError)?;
+            let deposits_len = block.message().body().deposits().len();
+            if deposits_len > 0 {
+                return Err(BlockError::PerBlockProcessingError(
+                    BlockProcessingError::OperationListTooLong {
+                        kind: "deposits",
+                        length: deposits_len,
+                        max: 0,
+                    },
+                ));
             }
         }
 
