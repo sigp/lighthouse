@@ -652,7 +652,7 @@ mod tests {
                 if let Ok(bid) = block
                     .message_mut()
                     .body_mut()
-                    .signed_execution_payload_bid_mut()
+                    .signed_execution_payload_bid_gloas_mut()
                 {
                     bid.message.execution_requests_root =
                         ExecutionRequestsGloas::<E>::default().tree_hash_root();

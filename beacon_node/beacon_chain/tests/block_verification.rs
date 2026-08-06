@@ -3032,12 +3032,13 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
 
     let available_envelope = AvailableEnvelope::new(
         Arc::new(envelope),
         columns,
-        bid,
+        &bid,
         &harness.chain.custody_context,
     )
     .unwrap();
@@ -3097,11 +3098,12 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope1 = AvailableEnvelope::new(
         envelope1,
         columns1,
-        bid1,
+        &bid1,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3125,11 +3127,12 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope2 = AvailableEnvelope::new(
         Arc::new(envelope2),
         columns2,
-        bid2,
+        &bid2,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3221,11 +3224,12 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope2 = AvailableEnvelope::new(
         envelope2,
         columns2,
-        bid2,
+        &bid2,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3316,11 +3320,12 @@ async fn process_chain_segment_full_and_empty_transitions() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope1 = AvailableEnvelope::new(
         envelope1,
         columns1,
-        bid1,
+        &bid1,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3344,11 +3349,12 @@ async fn process_chain_segment_full_and_empty_transitions() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope3 = AvailableEnvelope::new(
         Arc::new(envelope3),
         columns3,
-        bid3,
+        &bid3,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3433,11 +3439,12 @@ async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
         .message()
         .body()
         .signed_execution_payload_bid()
-        .unwrap();
+        .unwrap()
+        .clone_as_signed_execution_payload_bid();
     let available_envelope = AvailableEnvelope::new(
         envelope,
         columns,
-        bid,
+        &bid,
         &import_harness.chain.custody_context,
     )
     .unwrap();
