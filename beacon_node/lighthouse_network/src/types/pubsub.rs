@@ -509,9 +509,29 @@ pub fn decode_partial<E: EthSpec>(
     topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
+    fork_context: &ForkContext,
 ) -> Result<PartialDataColumn<E>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
+            match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
+                Some(fork) if fork.fulu_enabled() => {
+                    if fork.gloas_enabled()
+                        && data.len() > E::max_partial_data_column_sidecar_size()
+                    {
+                        return Err(format!(
+                            "PartialDataColumnSidecar size {} exceeds MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE {}",
+                            data.len(),
+                            E::max_partial_data_column_sidecar_size()
+                        ));
+                    }
+                }
+                Some(_) | None => {
+                    return Err(format!(
+                        "data_column_sidecar topic invalid for given fork digest {:?}",
+                        topic.fork_digest
+                    ));
+                }
+            }
             if group.first() != Some(&0) {
                 return Err(format!("Unknown data column format: {:?}", group.first()));
             }
@@ -676,6 +696,30 @@ mod tests {
         assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
         let err = decode_oversized(kind, max).unwrap_err();
         assert!(!err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn gloas_partial_data_column_sidecar_size_bound() {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0)),
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let group = {
+            let mut group = vec![0u8];
+            group.extend_from_slice(Hash256::ZERO.as_slice());
+            group
+        };
+        let max = E::max_partial_data_column_sidecar_size();
+
+        let data = vec![0u8; max + 1];
+        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        assert!(err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+
+        let data = vec![0u8; max];
+        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        assert!(!err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
     }
 
     #[test]
