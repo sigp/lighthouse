@@ -359,13 +359,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 mod tests {
     use std::marker::PhantomData;
 
-    use bls::{PublicKeyBytes, Signature};
+    use bls::{PublicKeyBytes, Signature, SignatureBytes};
     use ssz_types::ProgressiveVariableList;
     use types::{
-        Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderExitRequest, Eth1Data,
-        EthSpec, ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope,
-        ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256, MinimalEthSpec,
-        SignedBeaconBlock, SignedExecutionPayloadBid, Slot, SyncAggregate, Withdrawal,
+        Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderDepositRequest,
+        BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
+        ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+        ExecutionRequestsGloas, Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock,
+        SignedExecutionPayloadBid, Slot, SyncAggregate, Withdrawal, WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
@@ -558,8 +559,11 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_execution_requests_over_limit() {
+    fn assert_requests_list_bound(
+        kind: &'static str,
+        max: usize,
+        set_len: impl Fn(&mut ExecutionRequestsGloas<E>, usize),
+    ) {
         let slot = Slot::new(10);
         let builder_index = 1;
         let block_hash = ExecutionBlockHash::repeat_byte(0xaa);
@@ -567,31 +571,85 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
 
-        let exit = BuilderExitRequest {
-            source_address: Address::ZERO,
-            pubkey: PublicKeyBytes::empty(),
-        };
-        let max = E::max_builder_exit_requests_per_payload();
-        envelope.execution_requests.builder_exits =
-            ProgressiveVariableList::new(vec![exit.clone(); max]);
-
+        set_len(&mut envelope.execution_requests, max);
         let bid = ExecutionPayloadBid {
             builder_index,
             block_hash,
             execution_requests_root: envelope.execution_requests.tree_hash_root(),
             ..ExecutionPayloadBid::default()
         };
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+        assert!(
+            verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok(),
+            "{kind} at max should be accepted"
+        );
 
-        envelope.execution_requests.builder_exits =
-            ProgressiveVariableList::new(vec![exit; max + 1]);
+        set_len(&mut envelope.execution_requests, max + 1);
         let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
-        assert!(matches!(
-            result,
-            Err(EnvelopeError::OperationListTooLong {
-                kind: "builder_exit_requests",
-                ..
-            })
-        ));
+        assert!(
+            matches!(
+                result,
+                Err(EnvelopeError::OperationListTooLong { kind: k, .. }) if k == kind
+            ),
+            "{kind} over max should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_execution_requests_over_limit() {
+        assert_requests_list_bound(
+            "withdrawal_requests",
+            E::max_withdrawal_requests_per_payload(),
+            |requests, len| {
+                let withdrawal_request = WithdrawalRequest {
+                    source_address: Address::ZERO,
+                    validator_pubkey: PublicKeyBytes::empty(),
+                    amount: 0,
+                };
+                requests.withdrawals =
+                    ProgressiveVariableList::new(vec![withdrawal_request; len]);
+            },
+        );
+
+        assert_requests_list_bound(
+            "consolidation_requests",
+            E::max_consolidation_requests_per_payload(),
+            |requests, len| {
+                let consolidation_request = ConsolidationRequest {
+                    source_address: Address::ZERO,
+                    source_pubkey: PublicKeyBytes::empty(),
+                    target_pubkey: PublicKeyBytes::empty(),
+                };
+                requests.consolidations =
+                    ProgressiveVariableList::new(vec![consolidation_request; len]);
+            },
+        );
+
+        assert_requests_list_bound(
+            "builder_deposit_requests",
+            E::max_builder_deposit_requests_per_payload(),
+            |requests, len| {
+                let builder_deposit_request = BuilderDepositRequest {
+                    pubkey: PublicKeyBytes::empty(),
+                    withdrawal_credentials: Hash256::ZERO,
+                    amount: 0,
+                    signature: SignatureBytes::empty(),
+                };
+                requests.builder_deposits =
+                    ProgressiveVariableList::new(vec![builder_deposit_request; len]);
+            },
+        );
+
+        assert_requests_list_bound(
+            "builder_exit_requests",
+            E::max_builder_exit_requests_per_payload(),
+            |requests, len| {
+                let builder_exit_request = BuilderExitRequest {
+                    source_address: Address::ZERO,
+                    pubkey: PublicKeyBytes::empty(),
+                };
+                requests.builder_exits =
+                    ProgressiveVariableList::new(vec![builder_exit_request; len]);
+            },
+        );
     }
 }
