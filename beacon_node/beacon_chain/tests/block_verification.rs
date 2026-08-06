@@ -1550,6 +1550,48 @@ async fn block_gossip_verification() {
             "should not import a block with higher blob_kzg_commitment length than the max_blobs at epoch"
         );
     }
+
+    /*
+     * This test ensures that:
+     *
+     * We do not accept gloas blocks with a non-empty `deposits` list. Gloas removes legacy
+     * eth1 deposits, so the effective limit for this progressive list is zero.
+     */
+    let (mut block, signature) = chain_segment[block_index]
+        .beacon_block
+        .as_ref()
+        .clone()
+        .deconstruct();
+
+    if let BeaconBlock::Gloas(gloas_block) = &mut block {
+        let deposit = Deposit {
+            proof: ssz_types::FixedVector::default(),
+            data: DepositData {
+                pubkey: bls::PublicKeyBytes::empty(),
+                withdrawal_credentials: Hash256::ZERO,
+                amount: 0,
+                signature: bls::SignatureBytes::empty(),
+            },
+        };
+        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]);
+        assert!(
+            matches!(
+                unwrap_err(
+                    harness
+                        .chain
+                        .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                            block, signature
+                        )))
+                        .await
+                ),
+                BlockError::PerBlockProcessingError(BlockProcessingError::OperationListTooLong {
+                    kind: "deposits",
+                    ..
+                })
+            ),
+            "should not accept a gloas block with a non-empty deposits list"
+        );
+    }
 }
 
 async fn verify_and_process_gossip_data_sidecars(
