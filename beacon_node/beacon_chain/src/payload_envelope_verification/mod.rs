@@ -237,6 +237,12 @@ pub enum EnvelopeError {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
+    /// An envelope list exceeds its spec limit
+    OperationListTooLong {
+        kind: &'static str,
+        length: usize,
+        max: usize,
+    },
     /// Some Beacon Chain Error
     BeaconChainError(Box<BeaconChainError>),
     /// Some Beacon State error
@@ -275,6 +281,7 @@ impl EnvelopeError {
             | EnvelopeError::ExecutionRequestsRootMismatch { .. }
             | EnvelopeError::UnknownValidator { .. }
             | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::OperationListTooLong { .. }
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
