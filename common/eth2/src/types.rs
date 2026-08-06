@@ -902,11 +902,10 @@ pub struct ValidatorInclusionListQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec")]
 #[serde(transparent)]
-pub struct InclusionListTransactions<E: EthSpec> {
-    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<E>,
+pub struct InclusionListTransactions {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

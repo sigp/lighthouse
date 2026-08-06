@@ -2256,7 +2256,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_inclusion_list(
         &self,
         request_slot: Slot,
-    ) -> Result<Transactions<T::EthSpec>, Error> {
+    ) -> Result<ProgressiveTransactions, Error> {
         // Inclusion lists are only produced for the current slot.
         let current_slot = self.slot()?;
         if request_slot != current_slot {

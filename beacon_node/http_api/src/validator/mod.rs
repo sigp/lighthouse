@@ -461,9 +461,8 @@ pub fn get_validator_inclusion_list<T: BeaconChainTypes>(
                                 )),
                             })?;
 
-                    let response = GenericResponse::from(InclusionListTransactions::<T::EthSpec> {
-                        transactions,
-                    });
+                    let response =
+                        GenericResponse::from(InclusionListTransactions { transactions });
                     Ok(warp::reply::json(&response).into_response())
                 })
             },
