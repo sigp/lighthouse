@@ -9,7 +9,7 @@ use crate::{
 };
 use educe::Educe;
 use redb::{ReadableTable, TableDefinition};
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, marker::PhantomData, path::PathBuf};
 
 #[derive(Debug)]
 pub struct Environment {

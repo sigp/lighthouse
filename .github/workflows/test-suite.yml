@@ -241,6 +241,40 @@ jobs:
           bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
+  spec-minimal-tests:
+    name: spec-minimal-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run spec-minimal tests
+      run: make test-spec-minimal
+  spec-gnosis-tests:
+    name: spec-gnosis-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run spec-gnosis tests
+      run: make test-spec-gnosis
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     needs: [check-labels]
@@ -313,7 +347,7 @@ jobs:
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/basic_simulator_logs
     - name: Run a basic beacon chain sim
-      run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
+      run: cargo run --release --features spec-minimal --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v4
@@ -335,7 +369,7 @@ jobs:
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/fallback_simulator_logs
     - name: Run a beacon chain sim which tests VC fallback behaviour
-      run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
+      run: cargo run --release --features spec-minimal --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v4
@@ -383,6 +417,10 @@ jobs:
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it
       run: make check-benches
+    - name: Lint with spec-minimal feature
+      run: make lint-spec-minimal
+    - name: Lint with spec-gnosis feature
+      run: make lint-spec-gnosis
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
     - name: Run cargo audit
@@ -471,7 +509,7 @@ jobs:
         channel: stable
     - uses: taiki-e/install-action@cargo-hack
     - name: Check types feature powerset
-      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features portable,spec-non-mainnet --mutually-exclusive-features spec-minimal,spec-gnosis
     - name: Check eth2 feature powerset
       run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
@@ -504,6 +542,8 @@ jobs:
       'op-pool-tests',
       'network-tests',
       'slasher-tests',
+      'spec-minimal-tests',
+      'spec-gnosis-tests',
       'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',

@@ -1,17 +1,11 @@
+// Integration tests that run under the mainnet spec preset. Minimal-preset tests live in
+// `spec_minimal.rs`.
 mod attestation_production;
 mod attestation_verification;
 mod blob_verification;
 mod block_verification;
 mod column_verification;
-mod envelope_verification;
-mod events;
-mod op_verification;
 mod payload_invalidation;
-mod prepare_payload;
-mod rewards;
 mod schema_stability;
-mod store_tests;
 mod sync_committee_verification;
-mod tests;
-mod unrealized_checkpoints;
 mod validator_monitor;

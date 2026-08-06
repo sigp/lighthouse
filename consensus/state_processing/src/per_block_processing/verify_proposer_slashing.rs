@@ -15,9 +15,9 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.12.1
-pub fn verify_proposer_slashing<E: EthSpec>(
+pub fn verify_proposer_slashing(
     proposer_slashing: &ProposerSlashing,
-    state: &BeaconState<E>,
+    state: &BeaconState,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {

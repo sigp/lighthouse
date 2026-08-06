@@ -25,20 +25,20 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+    BlobSidecar, DataColumnSidecar, ForkContext, PartialDataColumn, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope,
 };
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
     /// Access to the peer db and network information.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    network_globals: Arc<NetworkGlobals>,
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
     /// A channel to the syncing thread.
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    sync_send: mpsc::UnboundedSender<SyncMessage>,
     /// A network context to return and handle RPC requests.
-    network: HandlerNetworkContext<T::EthSpec>,
+    network: HandlerNetworkContext,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     /// Provides de-bounce functionality for logging.
@@ -47,20 +47,20 @@ pub struct Router<T: BeaconChainTypes> {
 
 /// Types of messages the router can receive.
 #[derive(Debug)]
-pub enum RouterMessage<E: EthSpec> {
+pub enum RouterMessage {
     /// Peer has disconnected.
     PeerDisconnected(PeerId),
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request_type: RequestType<E>,
+        request_type: RequestType,
     },
     /// An RPC response has been received.
     RPCResponseReceived {
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        response: Response<E>,
+        response: Response,
     },
     /// An RPC request failed
     RPCFailed {
@@ -71,9 +71,9 @@ pub enum RouterMessage<E: EthSpec> {
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message, the message itself and a bool which indicates if the message should be processed
     /// by the beacon chain after successful verification.
-    PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
+    PubsubMessage(MessageId, PeerId, PubsubMessage, bool),
     /// A partial data column sidecar has been received via gossipsub partial protocol.
-    PartialDataColumnSidecar(PeerId, Box<PartialDataColumn<E>>, GossipTopic),
+    PartialDataColumnSidecar(PeerId, Box<PartialDataColumn>, GossipTopic),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.
@@ -85,19 +85,19 @@ impl<T: BeaconChainTypes> Router<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_globals: Arc<NetworkGlobals>,
+        network_send: mpsc::UnboundedSender<NetworkMessage>,
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
-        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_send: BeaconProcessorSend,
         fork_context: Arc<ForkContext>,
-    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
+    ) -> Result<mpsc::UnboundedSender<RouterMessage>, String> {
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // generate the message channel
-        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage>();
 
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: RouterMessage<T::EthSpec>) {
+    fn handle_message(&mut self, message: RouterMessage) {
         match message {
             // we have initiated a connection to a peer or the peer manager has requested a
             // re-status
@@ -205,7 +205,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
-        request_type: RequestType<T::EthSpec>,
+        request_type: RequestType,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!(%peer_id, request = ?request_type, "Dropping request of disconnected peer");
@@ -321,7 +321,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        response: Response<T::EthSpec>,
+        response: Response,
     ) {
         match response {
             Response::Status(status_message) => {
@@ -376,7 +376,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
-        gossip_message: PubsubMessage<T::EthSpec>,
+        gossip_message: PubsubMessage,
         should_process: bool,
     ) {
         let seen_timestamp = self.chain.slot_clock.now_duration().unwrap_or_default();
@@ -580,7 +580,7 @@ impl<T: BeaconChainTypes> Router<T> {
             .send_processor_request(peer_id, RequestType::Status(status_message));
     }
 
-    fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
+    fn send_to_sync(&mut self, message: SyncMessage) {
         self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
                 error = %e,
@@ -632,7 +632,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_request_id) => match sync_request_id {
@@ -666,7 +666,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobSidecar>>,
     ) {
         trace!(
             %peer_id,
@@ -689,7 +689,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
@@ -722,7 +722,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+        data_column: Option<Arc<DataColumnSidecar>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
@@ -754,7 +754,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+        data_column: Option<Arc<DataColumnSidecar>>,
     ) {
         trace!(
             %peer_id,
@@ -777,7 +777,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
@@ -799,7 +799,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
@@ -818,7 +818,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
     fn handle_beacon_processor_send_result(
         &mut self,
-        result: Result<(), crate::network_beacon_processor::Error<T::EthSpec>>,
+        result: Result<(), crate::network_beacon_processor::Error>,
     ) {
         if let Err(e) = result {
             let work_type = match &e {
@@ -837,25 +837,25 @@ impl<T: BeaconChainTypes> Router<T> {
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
 #[derive(Clone)]
-pub struct HandlerNetworkContext<E: EthSpec> {
+pub struct HandlerNetworkContext {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
 }
 
-impl<E: EthSpec> HandlerNetworkContext<E> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>) -> Self {
+impl HandlerNetworkContext {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>) -> Self {
         Self { network_send }
     }
 
     /// Sends a message to the network task.
-    fn inform_network(&mut self, msg: NetworkMessage<E>) {
+    fn inform_network(&mut self, msg: NetworkMessage) {
         self.network_send
             .send(msg)
             .unwrap_or_else(|e| warn!(error = %e,"Could not send message to the network service"))
     }
 
     /// Sends a request to the network task.
-    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType<E>) {
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
             app_request_id: AppRequestId::Router,
@@ -868,7 +868,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        response: Response<E>,
+        response: Response,
     ) {
         self.inform_network(NetworkMessage::SendResponse {
             peer_id,

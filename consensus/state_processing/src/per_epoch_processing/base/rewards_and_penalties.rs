@@ -7,7 +7,8 @@ use crate::per_epoch_processing::{
     base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
 };
 use safe_arith::SafeArith;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::Spec;
+use types::{BeaconState, ChainSpec, Epoch};
 
 /// Combination of several deltas for different components of an attestation reward.
 ///
@@ -52,12 +53,12 @@ pub enum ProposerRewardCalculation {
 }
 
 /// Apply attester and proposer rewards.
-pub fn process_rewards_and_penalties<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_rewards_and_penalties(
+    state: &mut BeaconState,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == E::genesis_epoch() {
+    if state.current_epoch() == Epoch::new(Spec::genesis_epoch()) {
         return Ok(());
     }
 
@@ -87,8 +88,8 @@ pub fn process_rewards_and_penalties<E: EthSpec>(
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
-pub fn get_attestation_deltas_all<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_attestation_deltas_all(
+    state: &BeaconState,
     validator_statuses: &ValidatorStatuses,
     proposer_reward: ProposerRewardCalculation,
     spec: &ChainSpec,
@@ -98,8 +99,8 @@ pub fn get_attestation_deltas_all<E: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
 /// rewards for a subset of validators.
-pub fn get_attestation_deltas_subset<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_attestation_deltas_subset(
+    state: &BeaconState,
     validator_statuses: &ValidatorStatuses,
     proposer_reward: ProposerRewardCalculation,
     validators_subset: &Vec<usize>,
@@ -126,8 +127,8 @@ pub fn get_attestation_deltas_subset<E: EthSpec>(
 /// returned, otherwise deltas for all validators are returned.
 ///
 /// Returns a vec of validator indices to `AttestationDelta`.
-fn get_attestation_deltas<E: EthSpec>(
-    state: &BeaconState<E>,
+fn get_attestation_deltas(
+    state: &BeaconState,
     validator_statuses: &ValidatorStatuses,
     proposer_reward: ProposerRewardCalculation,
     maybe_validators_subset: Option<&Vec<usize>>,

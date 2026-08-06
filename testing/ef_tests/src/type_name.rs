@@ -20,57 +20,41 @@ macro_rules! type_name {
     };
 }
 
-#[macro_export]
-macro_rules! type_name_generic {
-    ($typ:ident) => {
-        type_name_generic!($typ, stringify!($typ));
-    };
-    ($typ:ident, $name:expr) => {
-        impl<E: EthSpec> TypeName for $typ<E> {
-            fn name() -> &'static str {
-                $name
-            }
-        }
-    };
-}
-
-type_name!(MinimalEthSpec, "minimal");
-type_name!(MainnetEthSpec, "mainnet");
-type_name_generic!(AggregateAndProof);
-type_name_generic!(AggregateAndProofBase, "AggregateAndProof");
-type_name_generic!(AggregateAndProofElectra, "AggregateAndProof");
-type_name_generic!(AggregateAndProofGloas, "AggregateAndProof");
-type_name_generic!(Attestation);
-type_name_generic!(AttestationBase, "Attestation");
-type_name_generic!(AttestationElectra, "Attestation");
-type_name_generic!(AttestationGloas, "Attestation");
+type_name!(AggregateAndProof);
+type_name!(AggregateAndProofBase, "AggregateAndProof");
+type_name!(AggregateAndProofElectra, "AggregateAndProof");
+type_name!(AggregateAndProofGloas, "AggregateAndProof");
+type_name!(Attestation);
+type_name!(AttestationBase, "Attestation");
+type_name!(AttestationElectra, "Attestation");
+type_name!(AttestationGloas, "Attestation");
 type_name!(AttestationData);
-type_name_generic!(AttesterSlashing);
-type_name_generic!(AttesterSlashingBase, "AttesterSlashing");
-type_name_generic!(AttesterSlashingElectra, "AttesterSlashing");
-type_name_generic!(AttesterSlashingGloas, "AttesterSlashing");
-type_name_generic!(BeaconBlock);
-type_name_generic!(BeaconBlockBody);
-type_name_generic!(BeaconBlockBodyBase, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyAltair, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyBellatrix, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyCapella, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyDeneb, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyFulu, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyGloas, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyHeze, "BeaconBlockBody");
+type_name!(AttesterSlashing);
+type_name!(AttesterSlashingBase, "AttesterSlashing");
+type_name!(AttesterSlashingElectra, "AttesterSlashing");
+type_name!(AttesterSlashingGloas, "AttesterSlashing");
+type_name!(BeaconBlock);
+type_name!(BeaconBlockBody);
+type_name!(BeaconBlockBodyBase, "BeaconBlockBody");
+type_name!(BeaconBlockBodyAltair, "BeaconBlockBody");
+type_name!(BeaconBlockBodyBellatrix, "BeaconBlockBody");
+type_name!(BeaconBlockBodyCapella, "BeaconBlockBody");
+type_name!(BeaconBlockBodyDeneb, "BeaconBlockBody");
+type_name!(BeaconBlockBodyElectra, "BeaconBlockBody");
+type_name!(BeaconBlockBodyFulu, "BeaconBlockBody");
+type_name!(BeaconBlockBodyGloas, "BeaconBlockBody");
+type_name!(BeaconBlockBodyHeze, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
-type_name_generic!(BeaconState);
+type_name!(BeaconState);
 type_name!(BlobIdentifier);
-type_name_generic!(DataColumnsByRootIdentifier, "DataColumnsByRootIdentifier");
-type_name_generic!(BlobSidecar);
-type_name_generic!(DataColumnSidecar);
-type_name_generic!(DataColumnSidecarFulu, "DataColumnSidecar");
-type_name_generic!(DataColumnSidecarGloas, "DataColumnSidecar");
+type_name!(DataColumnsByRootIdentifier, "DataColumnsByRootIdentifier");
+type_name!(BlobSidecar);
+type_name!(DataColumnSidecar);
+type_name!(DataColumnSidecarFulu, "DataColumnSidecar");
+type_name!(DataColumnSidecarGloas, "DataColumnSidecar");
 type_name!(Checkpoint);
 type_name!(ConsolidationRequest);
-type_name_generic!(ContributionAndProof);
+type_name!(ContributionAndProof);
 type_name!(Deposit);
 type_name!(DepositData);
 type_name!(DepositMessage);
@@ -82,89 +66,89 @@ type_name!(BuilderExitRequest);
 type_name!(BuilderPendingPayment);
 type_name!(BuilderPendingWithdrawal);
 type_name!(WithdrawalRequest);
-type_name_generic!(ExecutionPayload);
-type_name_generic!(ExecutionPayloadBellatrix, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadCapella, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadDeneb, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadElectra, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadFulu, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadGloas, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadHeze, "ExecutionPayload");
-type_name_generic!(FullPayload, "ExecutionPayload");
-type_name_generic!(ExecutionPayloadHeader);
-type_name_generic!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
-type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
-type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
-type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
-type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
-type_name_generic!(ExecutionPayloadBid);
-type_name_generic!(SignedExecutionPayloadBid);
-type_name_generic!(ExecutionRequestsElectra, "ExecutionRequests");
-type_name_generic!(ExecutionRequestsGloas, "ExecutionRequests");
-type_name_generic!(ExecutionPayloadEnvelope);
-type_name_generic!(SignedExecutionPayloadEnvelope);
-type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
+type_name!(ExecutionPayload);
+type_name!(ExecutionPayloadBellatrix, "ExecutionPayload");
+type_name!(ExecutionPayloadCapella, "ExecutionPayload");
+type_name!(ExecutionPayloadDeneb, "ExecutionPayload");
+type_name!(ExecutionPayloadElectra, "ExecutionPayload");
+type_name!(ExecutionPayloadFulu, "ExecutionPayload");
+type_name!(ExecutionPayloadGloas, "ExecutionPayload");
+type_name!(ExecutionPayloadHeze, "ExecutionPayload");
+type_name!(FullPayload, "ExecutionPayload");
+type_name!(ExecutionPayloadHeader);
+type_name!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
+type_name!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
+type_name!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
+type_name!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
+type_name!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
+type_name!(ExecutionPayloadBid);
+type_name!(SignedExecutionPayloadBid);
+type_name!(ExecutionRequestsElectra, "ExecutionRequests");
+type_name!(ExecutionRequestsGloas, "ExecutionRequests");
+type_name!(ExecutionPayloadEnvelope);
+type_name!(SignedExecutionPayloadEnvelope);
+type_name!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);
-type_name_generic!(HistoricalBatch);
-type_name_generic!(IndexedAttestation);
-type_name_generic!(IndexedAttestationBase, "IndexedAttestation");
-type_name_generic!(IndexedAttestationElectra, "IndexedAttestation");
-type_name_generic!(IndexedAttestationGloas, "IndexedAttestation");
-type_name_generic!(IndexedPayloadAttestation);
-type_name_generic!(LightClientBootstrap);
-type_name_generic!(LightClientBootstrapAltair, "LightClientBootstrap");
-type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
-type_name_generic!(LightClientBootstrapDeneb, "LightClientBootstrap");
-type_name_generic!(LightClientBootstrapElectra, "LightClientBootstrap");
-type_name_generic!(LightClientBootstrapFulu, "LightClientBootstrap");
-type_name_generic!(LightClientFinalityUpdate);
-type_name_generic!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
-type_name_generic!(
+type_name!(HistoricalBatch);
+type_name!(IndexedAttestation);
+type_name!(IndexedAttestationBase, "IndexedAttestation");
+type_name!(IndexedAttestationElectra, "IndexedAttestation");
+type_name!(IndexedAttestationGloas, "IndexedAttestation");
+type_name!(IndexedPayloadAttestation);
+type_name!(LightClientBootstrap);
+type_name!(LightClientBootstrapAltair, "LightClientBootstrap");
+type_name!(LightClientBootstrapCapella, "LightClientBootstrap");
+type_name!(LightClientBootstrapDeneb, "LightClientBootstrap");
+type_name!(LightClientBootstrapElectra, "LightClientBootstrap");
+type_name!(LightClientBootstrapFulu, "LightClientBootstrap");
+type_name!(LightClientFinalityUpdate);
+type_name!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
+type_name!(
     LightClientFinalityUpdateCapella,
     "LightClientFinalityUpdate"
 );
-type_name_generic!(LightClientFinalityUpdateDeneb, "LightClientFinalityUpdate");
-type_name_generic!(
+type_name!(LightClientFinalityUpdateDeneb, "LightClientFinalityUpdate");
+type_name!(
     LightClientFinalityUpdateElectra,
     "LightClientFinalityUpdate"
 );
-type_name_generic!(LightClientFinalityUpdateFulu, "LightClientFinalityUpdate");
-type_name_generic!(LightClientHeader);
-type_name_generic!(LightClientHeaderAltair, "LightClientHeader");
-type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
-type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
-type_name_generic!(LightClientHeaderElectra, "LightClientHeader");
-type_name_generic!(LightClientHeaderFulu, "LightClientHeader");
-type_name_generic!(LightClientOptimisticUpdate);
-type_name_generic!(
+type_name!(LightClientFinalityUpdateFulu, "LightClientFinalityUpdate");
+type_name!(LightClientHeader);
+type_name!(LightClientHeaderAltair, "LightClientHeader");
+type_name!(LightClientHeaderCapella, "LightClientHeader");
+type_name!(LightClientHeaderDeneb, "LightClientHeader");
+type_name!(LightClientHeaderElectra, "LightClientHeader");
+type_name!(LightClientHeaderFulu, "LightClientHeader");
+type_name!(LightClientOptimisticUpdate);
+type_name!(
     LightClientOptimisticUpdateAltair,
     "LightClientOptimisticUpdate"
 );
-type_name_generic!(
+type_name!(
     LightClientOptimisticUpdateCapella,
     "LightClientOptimisticUpdate"
 );
-type_name_generic!(
+type_name!(
     LightClientOptimisticUpdateDeneb,
     "LightClientOptimisticUpdate"
 );
-type_name_generic!(
+type_name!(
     LightClientOptimisticUpdateElectra,
     "LightClientOptimisticUpdate"
 );
-type_name_generic!(
+type_name!(
     LightClientOptimisticUpdateFulu,
     "LightClientOptimisticUpdate"
 );
-type_name_generic!(LightClientUpdate);
-type_name_generic!(LightClientUpdateAltair, "LightClientUpdate");
-type_name_generic!(LightClientUpdateCapella, "LightClientUpdate");
-type_name_generic!(LightClientUpdateDeneb, "LightClientUpdate");
-type_name_generic!(LightClientUpdateElectra, "LightClientUpdate");
-type_name_generic!(LightClientUpdateFulu, "LightClientUpdate");
-type_name_generic!(PendingAttestation);
-type_name_generic!(PayloadAttestation);
+type_name!(LightClientUpdate);
+type_name!(LightClientUpdateAltair, "LightClientUpdate");
+type_name!(LightClientUpdateCapella, "LightClientUpdate");
+type_name!(LightClientUpdateDeneb, "LightClientUpdate");
+type_name!(LightClientUpdateElectra, "LightClientUpdate");
+type_name!(LightClientUpdateFulu, "LightClientUpdate");
+type_name!(PendingAttestation);
+type_name!(PayloadAttestation);
 type_name!(PayloadAttestationData);
 type_name!(PayloadAttestationMessage);
 type_name!(PendingConsolidation);
@@ -173,21 +157,21 @@ type_name!(PendingDeposit);
 type_name!(ProposerSlashing);
 type_name!(ProposerPreferences);
 type_name!(SignedProposerPreferences);
-type_name_generic!(SignedAggregateAndProof);
-type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
-type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
-type_name_generic!(SignedAggregateAndProofGloas, "SignedAggregateAndProof");
-type_name_generic!(SignedBeaconBlock);
+type_name!(SignedAggregateAndProof);
+type_name!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
+type_name!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
+type_name!(SignedAggregateAndProofGloas, "SignedAggregateAndProof");
+type_name!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
-type_name_generic!(SignedContributionAndProof);
+type_name!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);
 type_name!(SingleAttestation);
-type_name_generic!(SyncCommitteeContribution);
+type_name!(SyncCommitteeContribution);
 type_name!(SyncCommitteeMessage);
 type_name!(SyncAggregatorSelectionData);
-type_name_generic!(SyncAggregate);
-type_name_generic!(SyncCommittee);
+type_name!(SyncAggregate);
+type_name!(SyncCommittee);
 type_name!(Validator);
 type_name!(VoluntaryExit);
 type_name!(Withdrawal);

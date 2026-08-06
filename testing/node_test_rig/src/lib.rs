@@ -12,7 +12,6 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
 use tokio::time::timeout;
-use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 
@@ -34,17 +33,17 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalBeaconNode<E: EthSpec> {
-    pub client: ProductionClient<E>,
+pub struct LocalBeaconNode {
+    pub client: ProductionClient,
     pub datadir: TempDir,
 }
 
-impl<E: EthSpec> LocalBeaconNode<E> {
+impl LocalBeaconNode {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
     /// The node created is using the same types as the node we use in production.
     pub async fn production(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
@@ -69,7 +68,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     }
 }
 
-impl<E: EthSpec> LocalBeaconNode<E> {
+impl LocalBeaconNode {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
     pub fn remote_node(&self) -> Result<BeaconNodeHttpClient, String> {
@@ -181,18 +180,18 @@ impl ValidatorFiles {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalValidatorClient<E: EthSpec> {
-    pub client: ProductionValidatorClient<E>,
+pub struct LocalValidatorClient {
+    pub client: ProductionValidatorClient,
     pub files: ValidatorFiles,
 }
 
-impl<E: EthSpec> LocalValidatorClient<E> {
+impl LocalValidatorClient {
     /// Creates a validator client with insecure deterministic keypairs. The validator directories
     /// are created in a temp dir then removed when the process exits.
     ///
     /// The validator created is using the same types as the node we use in production.
     pub async fn production_with_insecure_keypairs(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         config: ValidatorConfig,
         files: ValidatorFiles,
     ) -> Result<Self, String> {
@@ -204,7 +203,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     /// - The validator created is using the same types as the node we use in production.
     /// - It is recommended to use `production_with_insecure_keypairs` for testing.
     pub async fn production(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         config: ValidatorConfig,
     ) -> Result<Self, String> {
         let files = ValidatorFiles::new()?;
@@ -213,7 +212,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     }
 
     async fn new(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         mut config: ValidatorConfig,
         files: ValidatorFiles,
     ) -> Result<Self, String> {
@@ -234,13 +233,13 @@ impl<E: EthSpec> LocalValidatorClient<E> {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalExecutionNode<E: EthSpec> {
-    pub server: MockServer<E>,
+pub struct LocalExecutionNode {
+    pub server: MockServer,
     pub datadir: TempDir,
 }
 
-impl<E: EthSpec> LocalExecutionNode<E> {
-    pub fn new(context: RuntimeContext<E>, config: MockExecutionConfig) -> Self {
+impl LocalExecutionNode {
+    pub fn new(context: RuntimeContext, config: MockExecutionConfig) -> Self {
         let datadir = TempBuilder::new()
             .prefix("lighthouse_node_test_rig_el")
             .tempdir()

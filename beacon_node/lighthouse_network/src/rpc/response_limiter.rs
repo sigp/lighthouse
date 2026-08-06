@@ -13,30 +13,30 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio_util::time::DelayQueue;
 use tracing::debug;
-use types::{EthSpec, ForkContext};
+use types::ForkContext;
 
 /// A response that was rate limited or waiting on rate limited responses for the same peer and
 /// protocol.
 #[derive(Clone)]
-pub(super) struct QueuedResponse<E: EthSpec> {
+pub(super) struct QueuedResponse {
     pub peer_id: PeerId,
     pub connection_id: ConnectionId,
     pub substream_id: SubstreamId,
-    pub response: RpcResponse<E>,
+    pub response: RpcResponse,
     pub protocol: Protocol,
     pub queued_at: Duration,
 }
 
-pub(super) struct ResponseLimiter<E: EthSpec> {
+pub(super) struct ResponseLimiter {
     /// Rate limiter for our responses.
     limiter: RPCRateLimiter,
     /// Responses queued for sending. These responses are stored when the response limiter rejects them.
-    delayed_responses: HashMap<(PeerId, Protocol), VecDeque<QueuedResponse<E>>>,
+    delayed_responses: HashMap<(PeerId, Protocol), VecDeque<QueuedResponse>>,
     /// The delay required to allow a peer's outbound response per protocol.
     next_response: DelayQueue<(PeerId, Protocol)>,
 }
 
-impl<E: EthSpec> ResponseLimiter<E> {
+impl ResponseLimiter {
     /// Creates a new [`ResponseLimiter`] based on configuration values.
     pub fn new(
         config: InboundRateLimiterConfig,
@@ -57,7 +57,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
         protocol: Protocol,
         connection_id: ConnectionId,
         substream_id: SubstreamId,
-        response: RpcResponse<E>,
+        response: RpcResponse,
     ) -> bool {
         // First check that there are not already other responses waiting to be sent.
         if let Some(queue) = self.delayed_responses.get_mut(&(peer_id, protocol)) {
@@ -99,7 +99,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
     fn try_limiter(
         limiter: &mut RPCRateLimiter,
         peer_id: PeerId,
-        response: RpcResponse<E>,
+        response: RpcResponse,
         protocol: Protocol,
     ) -> Result<(), Duration> {
         match limiter.allows(&peer_id, &(response.clone(), protocol)) {
@@ -130,7 +130,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
 
     /// When a peer and protocol are allowed to send a next response, this function checks the
     /// queued responses and attempts marking as ready as many as the limiter allows.
-    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Vec<QueuedResponse<E>>> {
+    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Vec<QueuedResponse>> {
         let mut responses = vec![];
         while let Poll::Ready(Some(expired)) = self.next_response.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();

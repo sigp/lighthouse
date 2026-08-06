@@ -13,14 +13,8 @@ use state_processing::{
 use std::sync::LazyLock;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
-use typenum::Unsigned;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::{
-    Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SyncContributionData, SyncSelectionProof,
-    SyncSubnetId,
-};
-
-pub type E = MainnetEthSpec;
+use types::{Epoch, Hash256, Slot, Spec, SyncContributionData, SyncSelectionProof, SyncSubnetId};
 
 pub const VALIDATOR_COUNT: usize = 256;
 
@@ -32,10 +26,10 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 /// Returns a beacon chain harness.
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let mut spec = E::default_spec();
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType> {
+    let mut spec = Spec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder()
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
@@ -51,7 +45,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 ///
 /// Also returns some info about who created it.
 fn get_valid_sync_committee_message(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType>,
     slot: Slot,
     relative_sync_committee: RelativeSyncCommittee,
     message_index: usize,
@@ -70,7 +64,7 @@ fn get_valid_sync_committee_message(
 ///
 /// Also returns some info about who created it.
 fn get_valid_sync_committee_message_for_block(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType>,
     slot: Slot,
     relative_sync_committee: RelativeSyncCommittee,
     message_index: usize,
@@ -96,9 +90,9 @@ fn get_valid_sync_committee_message_for_block(
 }
 
 fn get_valid_sync_contribution(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType>,
     relative_sync_committee: RelativeSyncCommittee,
-) -> (SignedContributionAndProof<E>, usize, SecretKey) {
+) -> (SignedContributionAndProof, usize, SecretKey) {
     let head_state = harness.chain.head_beacon_state_cloned();
 
     let head_block_root = harness.chain.head_snapshot().beacon_block_root;
@@ -128,11 +122,11 @@ fn get_valid_sync_contribution(
 
 /// Returns a proof and index for a validator that is **not** an aggregator for the current sync period.
 fn get_non_aggregator(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType>,
     slot: Slot,
 ) -> (usize, SecretKey) {
     let state = &harness.chain.head_snapshot().beacon_state;
-    let sync_subcommittee_size = E::sync_committee_size()
+    let sync_subcommittee_size = (Spec::SYNC_COMMITTEE_SIZE)
         .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
         .expect("should determine sync subcommittee size");
     let sync_committee = state
@@ -151,7 +145,7 @@ fn get_non_aggregator(
                     .expect("should get validator index")
                     .expect("pubkey should exist in beacon chain");
 
-                let selection_proof = SyncSelectionProof::new::<E>(
+                let selection_proof = SyncSelectionProof::new(
                     slot,
                     subcommittee_index as u64,
                     &harness.validator_keypairs[validator_index].sk,
@@ -161,7 +155,7 @@ fn get_non_aggregator(
                 );
 
                 if !selection_proof
-                    .is_aggregator::<E>()
+                    .is_aggregator()
                     .expect("should determine aggregator")
                 {
                     Some(validator_index)
@@ -337,10 +331,7 @@ async fn aggregated_gossip_verification() {
                 let proof: SyncSelectionProof = aggregator_sk
                     .sign(Hash256::from_slice(&int_to_bytes32(i)))
                     .into();
-                if proof
-                    .is_aggregator::<E>()
-                    .expect("should determine aggregator")
-                {
+                if proof.is_aggregator().expect("should determine aggregator") {
                     break proof.into();
                 }
             };
@@ -371,7 +362,7 @@ async fn aggregated_gossip_verification() {
         SyncCommitteeError::InvalidSignature
     );
 
-    let too_high_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1;
+    let too_high_index = Spec::validator_registry_limit() + 1;
     assert_invalid!(
         "aggregate with too-high aggregator index",
         {
@@ -490,7 +481,7 @@ async fn aggregated_gossip_verification() {
     // at genesis.
     let state = harness.get_current_state();
     let target_slot = Slot::new(
-        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch()) - 1,
+        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * Spec::slots_per_epoch()) - 1,
     );
 
     harness
@@ -795,7 +786,7 @@ async fn unaggregated_gossip_verification() {
     // at genesis.
     let state = harness.get_current_state();
     let target_slot = Slot::new(
-        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch()) - 1,
+        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * Spec::slots_per_epoch()) - 1,
     );
 
     harness

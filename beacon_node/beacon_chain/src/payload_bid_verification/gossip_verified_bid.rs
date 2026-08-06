@@ -5,7 +5,6 @@ use crate::{
     payload_bid_verification::{PayloadBidError, payload_bid_cache::GossipVerifiedPayloadBidCache},
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
-use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -13,17 +12,17 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    BeaconState, ChainSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
+    SignedProposerPreferences, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 /// Verify that an execution payload bid is consistent with the current chain state
 /// and proposer preferences.
-pub(crate) fn verify_bid_consistency<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+pub(crate) fn verify_bid_consistency(
+    bid: &ExecutionPayloadBid,
     current_slot: Slot,
     proposer_preferences: &SignedProposerPreferences,
-    head_state: &BeaconState<E>,
+    head_state: &BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let bid_slot = bid.slot;
@@ -45,7 +44,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     }
 
     let max_blobs_per_block =
-        spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
+        spec.max_blobs_per_block(bid_slot.epoch(Spec::slots_per_epoch())) as usize;
 
     if bid.blob_kzg_commitments.len() > max_blobs_per_block {
         return Err(PayloadBidError::InvalidBlobKzgCommitments {
@@ -84,7 +83,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
-    pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
+    pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
@@ -92,20 +91,16 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Educe)]
-#[educe(Debug(bound = "E: EthSpec"), Clone(bound = "E: EthSpec"))]
-pub struct GossipVerifiedPayloadBid<E: EthSpec> {
-    pub signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+#[derive(Debug, Clone)]
+pub struct GossipVerifiedPayloadBid {
+    pub signed_bid: Arc<SignedExecutionPayloadBid>,
 }
 
-impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
-    pub fn new<T>(
-        signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+impl GossipVerifiedPayloadBid {
+    pub fn new<T: BeaconChainTypes>(
+        signed_bid: Arc<SignedExecutionPayloadBid>,
         ctx: &GossipVerificationContext<'_, T>,
-    ) -> Result<Self, PayloadBidError>
-    where
-        T: BeaconChainTypes<EthSpec = E>,
-    {
+    ) -> Result<Self, PayloadBidError> {
         let bid_slot = signed_bid.message.slot;
         let bid_parent_block_hash = signed_bid.message.parent_block_hash;
         let bid_parent_block_root = signed_bid.message.parent_block_root;
@@ -144,7 +139,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         // Look up the preferences keyed by the dependent root that is canonical from our head's
         // perspective, so we don't pick up preferences cached for a competing branch's proposer.
-        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
+        let proposal_epoch = bid_slot.epoch(Spec::slots_per_epoch());
         let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
             proposal_epoch,
             cached_head.head_block_root(),
@@ -178,7 +173,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
         if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+            != *head_state.get_randao_mix(current_slot.epoch(Spec::slots_per_epoch()))?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
@@ -265,8 +260,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given bid was invalid, or an error was encountered during verification.
     pub fn verify_payload_bid_for_gossip(
         &self,
-        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-    ) -> Result<GossipVerifiedPayloadBid<T::EthSpec>, PayloadBidError> {
+        bid: Arc<SignedExecutionPayloadBid>,
+    ) -> Result<GossipVerifiedPayloadBid, PayloadBidError> {
         let slot = bid.message.slot;
         let parent_block_root = bid.message.parent_block_root;
         let parent_block_hash = bid.message.parent_block_hash;
@@ -286,7 +281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     event_handler.register(EventKind::ExecutionPayloadBid(Box::new(
                         ForkVersionedResponse {
-                            version: self.spec.fork_name_at_slot::<T::EthSpec>(slot),
+                            version: self.spec.fork_name_at_slot(slot),
                             metadata: Default::default(),
                             data: (*verified.signed_bid).clone(),
                         },
@@ -343,16 +338,14 @@ mod tests {
     use kzg::KzgCommitment;
     use ssz_types::ProgressiveVariableList;
     use types::{
-        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
-        ProposerPreferences, SignedProposerPreferences, Slot,
+        Address, BeaconState, ChainSpec, ExecutionPayloadBid, ProposerPreferences,
+        SignedProposerPreferences, Slot, Spec,
     };
 
     use super::verify_bid_consistency;
     use crate::payload_bid_verification::PayloadBidError;
 
-    type E = MinimalEthSpec;
-
-    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBid<E> {
+    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBid {
         ExecutionPayloadBid {
             slot,
             fee_recipient,
@@ -376,8 +369,8 @@ mod tests {
         }
     }
 
-    fn state_and_spec() -> (BeaconState<E>, ChainSpec) {
-        let spec = E::default_spec();
+    fn state_and_spec() -> (BeaconState, ChainSpec) {
+        let spec = Spec::default_spec();
         let state = BeaconState::new(0, <_>::default(), &spec);
         (state, spec)
     }
@@ -389,7 +382,7 @@ mod tests {
         let bid = make_bid(Slot::new(5), Address::ZERO, 30_000_000);
         let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBidSlot { .. })
@@ -403,7 +396,7 @@ mod tests {
         let bid = make_bid(Slot::new(12), Address::ZERO, 30_000_000);
         let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBidSlot { .. })
@@ -418,7 +411,7 @@ mod tests {
         bid.execution_payment = 42;
         let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::ExecutionPaymentNonZero {
@@ -434,7 +427,7 @@ mod tests {
         let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
         let prefs = make_preferences(Address::repeat_byte(0xaa), 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(result, Err(PayloadBidError::InvalidFeeRecipient)));
     }
 
@@ -445,13 +438,14 @@ mod tests {
         let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
         let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let max_blobs = spec.max_blobs_per_block(current_slot.epoch(E::slots_per_epoch())) as usize;
+        let max_blobs =
+            spec.max_blobs_per_block(current_slot.epoch(Spec::slots_per_epoch())) as usize;
         let commitments: Vec<KzgCommitment> = (0..=max_blobs)
             .map(|_| KzgCommitment::empty_for_testing())
             .collect();
         bid.blob_kzg_commitments = ProgressiveVariableList::new(commitments);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBlobKzgCommitments { .. })

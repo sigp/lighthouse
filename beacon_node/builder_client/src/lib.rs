@@ -4,7 +4,7 @@ pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder::SignedBuilderBid;
 use eth2::types::{
-    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
+    ContentType, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
     SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
@@ -287,10 +287,10 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v1/builder/blinded_blocks` with SSZ serialized request body
-    pub async fn post_builder_blinded_blocks_v1_ssz<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1_ssz(
         &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
+        blinded_block: &SignedBlindedBeaconBlock,
+    ) -> Result<FullPayloadContents, Error> {
         let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
@@ -335,9 +335,9 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v2/builder/blinded_blocks` with SSZ serialized request body
-    pub async fn post_builder_blinded_blocks_v2_ssz<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v2_ssz(
         &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
+        blinded_block: &SignedBlindedBeaconBlock,
     ) -> Result<(), Error> {
         let mut path = self.server.expose_full().clone();
 
@@ -385,10 +385,10 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`
-    pub async fn post_builder_blinded_blocks_v1<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1(
         &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
+        blinded_block: &SignedBlindedBeaconBlock,
+    ) -> Result<ForkVersionedResponse<FullPayloadContents>, Error> {
         let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
@@ -428,9 +428,9 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v2/builder/blinded_blocks`
-    pub async fn post_builder_blinded_blocks_v2<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v2(
         &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
+        blinded_block: &SignedBlindedBeaconBlock,
     ) -> Result<(), Error> {
         let mut path = self.server.expose_full().clone();
 
@@ -476,12 +476,12 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec>(
+    pub async fn get_builder_header(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid>>, Error> {
         let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
@@ -522,7 +522,7 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/status`
-    pub async fn get_builder_status<E: EthSpec>(&self) -> Result<(), Error> {
+    pub async fn get_builder_status(&self) -> Result<(), Error> {
         let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
@@ -542,11 +542,8 @@ mod tests {
     use super::*;
     use arbitrary::Arbitrary;
     use bls::Signature;
-    use eth2::types::MainnetEthSpec;
     use eth2::types::builder::{BuilderBid, BuilderBidFulu};
     use mockito::{Matcher, Server, ServerGuard};
-
-    type E = MainnetEthSpec;
 
     #[test]
     fn test_headers_no_panic() {
@@ -661,7 +658,7 @@ mod tests {
         server: &mut ServerGuard,
         header_version_opt: Option<&str>,
         content_type: ContentType,
-        response_body: ForkVersionedResponse<SignedBuilderBid<E>>,
+        response_body: ForkVersionedResponse<SignedBuilderBid>,
     ) {
         let mut mock = server.mock(
             "GET",
@@ -688,7 +685,7 @@ mod tests {
         mock.with_status(200).create();
     }
 
-    fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid<E>> {
+    fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid> {
         let mut u = types::test_utils::test_unstructured();
         ForkVersionedResponse {
             version: ForkName::Fulu,

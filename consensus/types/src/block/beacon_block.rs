@@ -11,10 +11,9 @@ use ssz_types::{BitList, BitVector, FixedVector, ProgressiveVariableList, Variab
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use typenum::Unsigned;
 
 use crate::{
-    SignedExecutionPayloadBid,
+    SignedExecutionPayloadBid, Spec,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
@@ -22,7 +21,7 @@ use crate::{
         BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
         BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
-    core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
+    core::{ChainSpec, Domain, Epoch, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
         AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
@@ -49,15 +48,15 @@ use crate::{
             TreeHash,
             Educe,
         ),
-        educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
+        educe(PartialEq, Hash(bound(Payload: AbstractExecPayload))),
         serde(
-            bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
+            bound = "Payload: AbstractExecPayload",
             deny_unknown_fields
         ),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
+            arbitrary(bound = "Payload: AbstractExecPayload")
         )
     ),
     ref_attributes(
@@ -70,15 +69,15 @@ use crate::{
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
+    arbitrary(bound = "Payload: AbstractExecPayload")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
+#[educe(PartialEq, Hash)]
 #[serde(untagged)]
-#[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+#[serde(bound = "Payload: AbstractExecPayload")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+pub struct BeaconBlock<Payload: AbstractExecPayload = FullPayload> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -89,29 +88,29 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
     #[superstruct(only(Base), partial_getter(rename = "body_base"))]
-    pub body: BeaconBlockBodyBase<E, Payload>,
+    pub body: BeaconBlockBodyBase<Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
-    pub body: BeaconBlockBodyAltair<E, Payload>,
+    pub body: BeaconBlockBodyAltair<Payload>,
     #[superstruct(only(Bellatrix), partial_getter(rename = "body_bellatrix"))]
-    pub body: BeaconBlockBodyBellatrix<E, Payload>,
+    pub body: BeaconBlockBodyBellatrix<Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
-    pub body: BeaconBlockBodyCapella<E, Payload>,
+    pub body: BeaconBlockBodyCapella<Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "body_deneb"))]
-    pub body: BeaconBlockBodyDeneb<E, Payload>,
+    pub body: BeaconBlockBodyDeneb<Payload>,
     #[superstruct(only(Electra), partial_getter(rename = "body_electra"))]
-    pub body: BeaconBlockBodyElectra<E, Payload>,
+    pub body: BeaconBlockBodyElectra<Payload>,
     #[superstruct(only(Fulu), partial_getter(rename = "body_fulu"))]
-    pub body: BeaconBlockBodyFulu<E, Payload>,
+    pub body: BeaconBlockBodyFulu<Payload>,
     #[superstruct(only(Gloas), partial_getter(rename = "body_gloas"))]
-    pub body: BeaconBlockBodyGloas<E, Payload>,
+    pub body: BeaconBlockBodyGloas<Payload>,
     #[superstruct(only(Heze), partial_getter(rename = "body_heze"))]
-    pub body: BeaconBlockBodyHeze<E, Payload>,
+    pub body: BeaconBlockBodyHeze<Payload>,
 }
 
-pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
+pub type BlindedBeaconBlock = BeaconBlock<BlindedPayload>;
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlock<E, Payload> {}
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlockRef<'_, E, Payload> {}
+impl<Payload: AbstractExecPayload> SignedRoot for BeaconBlock<Payload> {}
+impl<Payload: AbstractExecPayload> SignedRoot for BeaconBlockRef<'_, Payload> {}
 
 /// Empty block trait for each block variant to implement.
 pub trait EmptyBlock {
@@ -119,11 +118,11 @@ pub trait EmptyBlock {
     fn empty(spec: &ChainSpec) -> Self;
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
+impl<Payload: AbstractExecPayload> BeaconBlock<Payload> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         map_fork_name!(
-            spec.fork_name_at_epoch(E::genesis_epoch()),
+            spec.fork_name_at_epoch(Epoch::new(Spec::genesis_epoch())),
             Self,
             EmptyBlock::empty(spec)
         )
@@ -140,7 +139,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
+        let fork_at_slot = spec.fork_name_at_slot(slot);
         Self::from_ssz_bytes_for_fork(bytes, fork_at_slot)
     }
 
@@ -172,18 +171,18 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'_, E, Payload> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'_, Payload> {
         self.to_ref().body()
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRefMut`.
-    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, E, Payload> {
+    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, Payload> {
         self.to_mut().body_mut()
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(E::slots_per_epoch())
+        self.slot().epoch(Spec::slots_per_epoch())
     }
 
     /// Returns the `tree_hash_root` of the block.
@@ -218,7 +217,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedBeaconBlock<E, Payload> {
+    ) -> SignedBeaconBlock<Payload> {
         let domain = spec.get_domain(
             self.epoch(),
             Domain::BeaconProposer,
@@ -231,13 +230,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     }
 }
 
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payload> {
+impl<'a, Payload: AbstractExecPayload> BeaconBlockRef<'a, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
+        let fork_at_slot = spec.fork_name_at_slot(self.slot());
         let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
@@ -268,7 +267,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'a, E, Payload> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'a, Payload> {
         map_beacon_block_ref_into_beacon_block_body_ref!(&'a _, *self, |block, cons| cons(
             &block.body
         ))
@@ -284,7 +283,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
 
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(E::slots_per_epoch())
+        self.slot().epoch(Spec::slots_per_epoch())
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -341,16 +340,16 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
     }
 }
 
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRefMut<'a, E, Payload> {
+impl<'a, Payload: AbstractExecPayload> BeaconBlockRefMut<'a, Payload> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
-    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, E, Payload> {
+    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, Payload> {
         map_beacon_block_ref_mut_into_beacon_block_body_ref_mut!(&'a _, self, |block, cons| cons(
             &mut block.body
         ))
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockBase<Payload> {
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBase {
             slot: spec.genesis_slot,
@@ -376,7 +375,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
+impl<Payload: AbstractExecPayload> BeaconBlockBase<Payload> {
     /// Return a block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let header = BeaconBlockHeader {
@@ -392,11 +391,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             signature: Signature::empty(),
         };
         let indexed_attestation = IndexedAttestationBase {
-            attesting_indices: VariableList::new(vec![
-                0_u64;
-                E::MaxValidatorsPerCommittee::to_usize()
-            ])
-            .unwrap(),
+            attesting_indices: VariableList::new(vec![0_u64; Spec::MAX_VALIDATORS_PER_COMMITTEE])
+                .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
         };
@@ -418,8 +414,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
         };
 
         let attestation = AttestationBase {
-            aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
-                .unwrap(),
+            aggregation_bits: BitList::with_capacity(Spec::MAX_VALIDATORS_PER_COMMITTEE).unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
         };
@@ -439,25 +434,25 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             signature: Signature::empty(),
         };
 
-        let mut block = BeaconBlockBase::<E, Payload>::empty(spec);
-        for _ in 0..E::MaxProposerSlashings::to_usize() {
+        let mut block = BeaconBlockBase::<Payload>::empty(spec);
+        for _ in 0..Spec::MAX_PROPOSER_SLASHINGS {
             block
                 .body
                 .proposer_slashings
                 .push(proposer_slashing.clone())
                 .unwrap();
         }
-        for _ in 0..E::MaxDeposits::to_usize() {
+        for _ in 0..Spec::MAX_DEPOSITS {
             block.body.deposits.push(deposit.clone()).unwrap();
         }
-        for _ in 0..E::MaxVoluntaryExits::to_usize() {
+        for _ in 0..Spec::MAX_VOLUNTARY_EXITS {
             block
                 .body
                 .voluntary_exits
                 .push(signed_voluntary_exit.clone())
                 .unwrap();
         }
-        for _ in 0..E::MaxAttesterSlashings::to_usize() {
+        for _ in 0..Spec::MAX_ATTESTER_SLASHINGS {
             block
                 .body
                 .attester_slashings
@@ -465,21 +460,21 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
                 .unwrap();
         }
 
-        for _ in 0..E::MaxAttestations::to_usize() {
+        for _ in 0..Spec::MAX_ATTESTATIONS {
             block.body.attestations.push(attestation.clone()).unwrap();
         }
         block
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAltair<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockAltair<Payload> {
     /// Returns an empty Altair block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
             slot: spec
                 .altair_fork_epoch
                 .expect("altair enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -503,10 +498,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAlta
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> {
+impl<Payload: AbstractExecPayload> BeaconBlockAltair<Payload> {
     /// Return an Altair block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
-        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+        let base_block: BeaconBlockBase<Payload> = BeaconBlockBase::<Payload>::full(spec);
         let sync_aggregate = SyncAggregate {
             sync_committee_signature: AggregateSignature::empty(),
             sync_committee_bits: BitVector::default(),
@@ -515,7 +510,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
             slot: spec
                 .altair_fork_epoch
                 .expect("altair enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -539,14 +534,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBellatrix<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockBellatrix<Payload> {
     /// Returns an empty Bellatrix block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBellatrix {
             slot: spec
                 .bellatrix_fork_epoch
                 .expect("bellatrix enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -570,14 +565,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBell
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCapella<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockCapella<Payload> {
     /// Returns an empty Capella block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockCapella {
             slot: spec
                 .capella_fork_epoch
                 .expect("capella enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -602,14 +597,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCape
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDeneb<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockDeneb<Payload> {
     /// Returns an empty Deneb block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockDeneb {
             slot: spec
                 .deneb_fork_epoch
                 .expect("deneb enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -635,14 +630,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElectra<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockElectra<Payload> {
     /// Returns an empty Electra block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockElectra {
             slot: spec
                 .electra_fork_epoch
                 .expect("electra enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -669,14 +664,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockFulu<Payload> {
     /// Returns an empty Fulu block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockFulu {
             slot: spec
                 .fulu_fork_epoch
                 .expect("fulu enabled")
-                .start_slot(E::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -703,7 +698,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloas<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockGloas<Payload> {
     /// Returns an empty Gloas block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockGloas {
@@ -735,7 +730,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze<E, Payload> {
+impl<Payload: AbstractExecPayload> EmptyBlock for BeaconBlockHeze<Payload> {
     /// Returns an empty Heze block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockHeze {
@@ -768,13 +763,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
 }
 
 // TODO(EIP-7732) Mark's branch had the following implementation but not sure if it's needed so will just add header below for reference
-// impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload> {
+// impl<Payload: AbstractExecPayload> BeaconBlockEIP7732<Payload> {
 
 // TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
-impl<E: EthSpec> From<BeaconBlockGloas<E, BlindedPayload<E>>>
-    for BeaconBlockGloas<E, FullPayload<E>>
-{
-    fn from(block: BeaconBlockGloas<E, BlindedPayload<E>>) -> Self {
+impl From<BeaconBlockGloas<BlindedPayload>> for BeaconBlockGloas<FullPayload> {
+    fn from(block: BeaconBlockGloas<BlindedPayload>) -> Self {
         let BeaconBlockGloas {
             slot,
             proposer_index,
@@ -794,10 +787,8 @@ impl<E: EthSpec> From<BeaconBlockGloas<E, BlindedPayload<E>>>
 }
 
 // TODO(heze) Look into whether we can remove this in the future since no blinded blocks post-gloas
-impl<E: EthSpec> From<BeaconBlockHeze<E, BlindedPayload<E>>>
-    for BeaconBlockHeze<E, FullPayload<E>>
-{
-    fn from(block: BeaconBlockHeze<E, BlindedPayload<E>>) -> Self {
+impl From<BeaconBlockHeze<BlindedPayload>> for BeaconBlockHeze<FullPayload> {
+    fn from(block: BeaconBlockHeze<BlindedPayload>) -> Self {
         let BeaconBlockHeze {
             slot,
             proposer_index,
@@ -817,10 +808,8 @@ impl<E: EthSpec> From<BeaconBlockHeze<E, BlindedPayload<E>>>
 }
 
 // We can convert pre-Bellatrix blocks without payloads into blocks "with" payloads.
-impl<E: EthSpec> From<BeaconBlockBase<E, BlindedPayload<E>>>
-    for BeaconBlockBase<E, FullPayload<E>>
-{
-    fn from(block: BeaconBlockBase<E, BlindedPayload<E>>) -> Self {
+impl From<BeaconBlockBase<BlindedPayload>> for BeaconBlockBase<FullPayload> {
+    fn from(block: BeaconBlockBase<BlindedPayload>) -> Self {
         let BeaconBlockBase {
             slot,
             proposer_index,
@@ -839,10 +828,8 @@ impl<E: EthSpec> From<BeaconBlockBase<E, BlindedPayload<E>>>
     }
 }
 
-impl<E: EthSpec> From<BeaconBlockAltair<E, BlindedPayload<E>>>
-    for BeaconBlockAltair<E, FullPayload<E>>
-{
-    fn from(block: BeaconBlockAltair<E, BlindedPayload<E>>) -> Self {
+impl From<BeaconBlockAltair<BlindedPayload>> for BeaconBlockAltair<FullPayload> {
+    fn from(block: BeaconBlockAltair<BlindedPayload>) -> Self {
         let BeaconBlockAltair {
             slot,
             proposer_index,
@@ -864,8 +851,8 @@ impl<E: EthSpec> From<BeaconBlockAltair<E, BlindedPayload<E>>>
 // We can convert blocks with payloads to blocks without payloads, and an optional payload.
 macro_rules! impl_from {
     ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>, $body_expr:expr) => {
-        impl<E: EthSpec> From<$ty_name<$($from_params),*>>
-            for ($ty_name<$($to_params),*>, Option<ExecutionPayload<E>>)
+        impl From<$ty_name<$($from_params),*>>
+            for ($ty_name<$($to_params),*>, Option<ExecutionPayload>)
         {
             #[allow(clippy::redundant_closure_call)]
             fn from(block: $ty_name<$($from_params),*>) -> Self {
@@ -891,20 +878,20 @@ macro_rules! impl_from {
     }
 }
 
-impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
-impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
-impl_from!(BeaconBlockBellatrix, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBellatrix<_, _>| body.into());
-impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
-impl_from!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyDeneb<_, _>| body.into());
-impl_from!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyElectra<_, _>| body.into());
-impl_from!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyFulu<_, _>| body.into());
-impl_from!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyGloas<_, _>| body.into());
-impl_from!(BeaconBlockHeze, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyHeze<_, _>| body.into());
+impl_from!(BeaconBlockBase, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyBase<_>| body.into());
+impl_from!(BeaconBlockAltair, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyAltair<_>| body.into());
+impl_from!(BeaconBlockBellatrix, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyBellatrix<_>| body.into());
+impl_from!(BeaconBlockCapella, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyCapella<_>| body.into());
+impl_from!(BeaconBlockDeneb, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyDeneb<_>| body.into());
+impl_from!(BeaconBlockElectra, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyElectra<_>| body.into());
+impl_from!(BeaconBlockFulu, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyFulu<_>| body.into());
+impl_from!(BeaconBlockGloas, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyGloas<_>| body.into());
+impl_from!(BeaconBlockHeze, <FullPayload>, <BlindedPayload>, |body: BeaconBlockBodyHeze<_>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
     ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>) => {
-        impl<E: EthSpec> $ty_name<$($from_params),*>
+        impl $ty_name<$($from_params),*>
         {
             pub fn clone_as_blinded(&self) -> $ty_name<$($to_params),*> {
                 let $ty_name {
@@ -927,47 +914,36 @@ macro_rules! impl_clone_as_blinded {
     }
 }
 
-impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockBellatrix, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockHeze, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockBase, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockAltair, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockBellatrix, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockCapella, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockDeneb, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockElectra, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockFulu, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockGloas, <FullPayload>, <BlindedPayload>);
+impl_clone_as_blinded!(BeaconBlockHeze, <FullPayload>, <BlindedPayload>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
-impl<'a, E: EthSpec> From<BeaconBlockRef<'a, E, FullPayload<E>>>
-    for BeaconBlock<E, BlindedPayload<E>>
-{
-    fn from(
-        full_block: BeaconBlockRef<'a, E, FullPayload<E>>,
-    ) -> BeaconBlock<E, BlindedPayload<E>> {
+impl<'a> From<BeaconBlockRef<'a, FullPayload>> for BeaconBlock<BlindedPayload> {
+    fn from(full_block: BeaconBlockRef<'a, FullPayload>) -> BeaconBlock<BlindedPayload> {
         map_beacon_block_ref_into_beacon_block!(&'a _, full_block, |inner, cons| {
             cons(inner.clone_as_blinded())
         })
     }
 }
 
-impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
-    for (
-        BeaconBlock<E, BlindedPayload<E>>,
-        Option<ExecutionPayload<E>>,
-    )
-{
-    fn from(block: BeaconBlock<E, FullPayload<E>>) -> Self {
+impl From<BeaconBlock<FullPayload>> for (BeaconBlock<BlindedPayload>, Option<ExecutionPayload>) {
+    fn from(block: BeaconBlock<FullPayload>) -> Self {
         map_beacon_block!(block, |inner, cons| {
-            let (block, payload) = inner.into();
+            let (block, payload): (_, Option<ExecutionPayload>) = inner.into();
             (cons(block), payload)
         })
     }
 }
 
-impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, ForkName>
-    for BeaconBlock<E, Payload>
-{
+impl<'de, Payload: AbstractExecPayload> ContextDeserialize<'de, ForkName> for BeaconBlock<Payload> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -1002,18 +978,18 @@ impl fmt::Display for BlockImportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::MainnetEthSpec, test_utils::test_ssz_tree_hash_pair_with};
+    use crate::test_utils::test_ssz_tree_hash_pair_with;
     use arbitrary::Arbitrary;
     use ssz::Encode;
 
-    type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
-    type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
-    type BeaconBlockAltair = super::BeaconBlockAltair<MainnetEthSpec>;
+    type BeaconBlock = super::BeaconBlock;
+    type BeaconBlockBase = super::BeaconBlockBase;
+    type BeaconBlockAltair = super::BeaconBlockAltair;
 
     #[test]
     fn roundtrip_base_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Base.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Base.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockBase::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Base(inner_block.clone());
@@ -1026,7 +1002,7 @@ mod tests {
     #[test]
     fn roundtrip_altair_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Altair.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Altair.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockAltair::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Altair(inner_block.clone());
@@ -1039,7 +1015,7 @@ mod tests {
     #[test]
     fn roundtrip_capella_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Capella.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockCapella::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Capella(inner_block.clone());
@@ -1052,7 +1028,7 @@ mod tests {
     #[test]
     fn roundtrip_deneb_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Deneb.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockDeneb::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Deneb(inner_block.clone());
@@ -1065,7 +1041,7 @@ mod tests {
     #[test]
     fn roundtrip_electra_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Electra.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Electra.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockElectra::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Electra(inner_block.clone());
@@ -1078,7 +1054,7 @@ mod tests {
     #[test]
     fn roundtrip_fulu_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Fulu.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockFulu::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Fulu(inner_block.clone());
@@ -1091,7 +1067,7 @@ mod tests {
     #[test]
     fn roundtrip_heze_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Heze.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockHeze::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Heze(inner_block.clone());
@@ -1104,7 +1080,7 @@ mod tests {
     #[test]
     fn roundtrip_gloas_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Gloas.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockGloas::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Gloas(inner_block.clone());
@@ -1116,29 +1092,29 @@ mod tests {
 
     #[test]
     fn decode_base_and_altair() {
-        type E = MainnetEthSpec;
-        let mut spec = E::default_spec();
+        let mut spec = Spec::default_spec();
+        spec.altair_fork_epoch = spec.altair_fork_epoch.or(Some(Epoch::new(1)));
 
         let mut u = crate::test_utils::test_unstructured();
 
         let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
 
         let base_epoch = altair_fork_epoch.saturating_sub(1_u64);
-        let base_slot = base_epoch.end_slot(E::slots_per_epoch());
+        let base_slot = base_epoch.end_slot(Spec::slots_per_epoch());
         let altair_epoch = altair_fork_epoch;
-        let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
+        let altair_slot = altair_epoch.start_slot(Spec::slots_per_epoch());
         let capella_epoch = altair_fork_epoch + 1;
-        let capella_slot = capella_epoch.start_slot(E::slots_per_epoch());
+        let capella_slot = capella_epoch.start_slot(Spec::slots_per_epoch());
         let deneb_epoch = capella_epoch + 1;
-        let deneb_slot = deneb_epoch.start_slot(E::slots_per_epoch());
+        let deneb_slot = deneb_epoch.start_slot(Spec::slots_per_epoch());
         let electra_epoch = deneb_epoch + 1;
-        let electra_slot = electra_epoch.start_slot(E::slots_per_epoch());
+        let electra_slot = electra_epoch.start_slot(Spec::slots_per_epoch());
         let fulu_epoch = electra_epoch + 1;
-        let fulu_slot = fulu_epoch.start_slot(E::slots_per_epoch());
+        let fulu_slot = fulu_epoch.start_slot(Spec::slots_per_epoch());
         let gloas_epoch = fulu_epoch + 1;
-        let gloas_slot = gloas_epoch.start_slot(E::slots_per_epoch());
+        let gloas_slot = gloas_epoch.start_slot(Spec::slots_per_epoch());
         let heze_epoch = gloas_epoch + 1;
-        let heze_slot = heze_epoch.start_slot(E::slots_per_epoch());
+        let heze_slot = heze_epoch.start_slot(Spec::slots_per_epoch());
 
         spec.altair_fork_epoch = Some(altair_epoch);
         spec.capella_fork_epoch = Some(capella_epoch);

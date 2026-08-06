@@ -1,9 +1,7 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
-use ssz_types::FixedVector;
-use tree_hash::Hash256;
-use typenum::Unsigned;
+use types::Hash256;
 use types::{
     BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
     BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconState, FullPayload,
@@ -24,20 +22,19 @@ pub struct MerkleProof {
 }
 
 #[derive(Debug)]
-pub enum GenericMerkleProofValidity<E: EthSpec> {
-    BeaconState(Box<BeaconStateMerkleProofValidity<E>>),
-    BeaconBlockBody(Box<BeaconBlockBodyMerkleProofValidity<E>>),
+pub enum GenericMerkleProofValidity {
+    BeaconState(Box<BeaconStateMerkleProofValidity>),
+    BeaconBlockBody(Box<BeaconBlockBodyMerkleProofValidity>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct BeaconStateMerkleProofValidity<E: EthSpec> {
+pub struct BeaconStateMerkleProofValidity {
     pub metadata: Option<Metadata>,
-    pub state: BeaconState<E>,
+    pub state: BeaconState,
     pub merkle_proof: MerkleProof,
 }
 
-impl<E: EthSpec> LoadCase for GenericMerkleProofValidity<E> {
+impl LoadCase for GenericMerkleProofValidity {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let path_components = path.iter().collect::<Vec<_>>();
 
@@ -62,7 +59,7 @@ impl<E: EthSpec> LoadCase for GenericMerkleProofValidity<E> {
     }
 }
 
-impl<E: EthSpec> Case for GenericMerkleProofValidity<E> {
+impl Case for GenericMerkleProofValidity {
     fn result(&self, case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         match self {
             Self::BeaconState(test) => test.result(case_index, fork_name),
@@ -71,9 +68,9 @@ impl<E: EthSpec> Case for GenericMerkleProofValidity<E> {
     }
 }
 
-impl<E: EthSpec> LoadCase for BeaconStateMerkleProofValidity<E> {
+impl LoadCase for BeaconStateMerkleProofValidity {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
         let state = ssz_decode_state(&path.join("object.ssz_snappy"), spec)?;
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
         // Metadata does not exist in these tests but it is left like this just in case.
@@ -92,7 +89,7 @@ impl<E: EthSpec> LoadCase for BeaconStateMerkleProofValidity<E> {
     }
 }
 
-impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
+impl Case for BeaconStateMerkleProofValidity {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.state.clone();
         state.update_tree_hash_cache().unwrap();
@@ -143,9 +140,9 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
+pub struct KzgInclusionMerkleProofValidity {
     pub metadata: Option<Metadata>,
-    pub block: BeaconBlockBody<E>,
+    pub block: BeaconBlockBody,
     pub merkle_proof: MerkleProof,
     pub proof_type: KzgInclusionProofType,
 }
@@ -156,9 +153,9 @@ pub enum KzgInclusionProofType {
     List,
 }
 
-impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
+impl LoadCase for KzgInclusionMerkleProofValidity {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let block: BeaconBlockBody<E, FullPayload<E>> = match fork_name {
+        let block: BeaconBlockBody<FullPayload> = match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
@@ -166,20 +163,19 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 )));
             }
             ForkName::Deneb => {
-                ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyDeneb>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Electra => {
-                ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
-                    .into()
+                ssz_decode_file::<BeaconBlockBodyElectra>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Fulu => {
-                ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyFulu>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Gloas => {
-                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyGloas>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Heze => {
-                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyHeze>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
@@ -213,11 +209,8 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
     }
 }
 
-impl<E: EthSpec> KzgInclusionMerkleProofValidity<E> {
-    fn verify_kzg_inclusion_proof<N: Unsigned>(
-        &self,
-        proof: FixedVector<Hash256, N>,
-    ) -> Result<(), Error> {
+impl KzgInclusionMerkleProofValidity {
+    fn verify_kzg_inclusion_proof(&self, proof: &[Hash256]) -> Result<(), Error> {
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {
@@ -241,7 +234,7 @@ impl<E: EthSpec> KzgInclusionMerkleProofValidity<E> {
         Ok(())
     }
 }
-impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
+impl Case for KzgInclusionMerkleProofValidity {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         match self.proof_type {
             KzgInclusionProofType::Single => {
@@ -252,7 +245,7 @@ impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
                     .map_err(|e| {
                         Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
                     })?;
-                self.verify_kzg_inclusion_proof(proof)
+                self.verify_kzg_inclusion_proof(&proof)
             }
             KzgInclusionProofType::List => {
                 let proof = self
@@ -262,23 +255,22 @@ impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
                     .map_err(|e| {
                         Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
                     })?;
-                self.verify_kzg_inclusion_proof(proof)
+                self.verify_kzg_inclusion_proof(&proof)
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct BeaconBlockBodyMerkleProofValidity<E: EthSpec> {
+pub struct BeaconBlockBodyMerkleProofValidity {
     pub metadata: Option<Metadata>,
-    pub block_body: BeaconBlockBody<E, FullPayload<E>>,
+    pub block_body: BeaconBlockBody<FullPayload>,
     pub merkle_proof: MerkleProof,
 }
 
-impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
+impl LoadCase for BeaconBlockBodyMerkleProofValidity {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let block_body: BeaconBlockBody<E, FullPayload<E>> = match fork_name {
+        let block_body: BeaconBlockBody<FullPayload> = match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix => {
                 return Err(Error::InternalError(format!(
                     "Beacon block body merkle proof validity test skipped for {:?}",
@@ -286,24 +278,22 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
                 )));
             }
             ForkName::Capella => {
-                ssz_decode_file::<BeaconBlockBodyCapella<E>>(&path.join("object.ssz_snappy"))?
-                    .into()
+                ssz_decode_file::<BeaconBlockBodyCapella>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Deneb => {
-                ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyDeneb>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Electra => {
-                ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
-                    .into()
+                ssz_decode_file::<BeaconBlockBodyElectra>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Fulu => {
-                ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyFulu>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Gloas => {
-                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyGloas>(&path.join("object.ssz_snappy"))?.into()
             }
             ForkName::Heze => {
-                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?.into()
+                ssz_decode_file::<BeaconBlockBodyHeze>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
@@ -322,7 +312,7 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
     }
 }
 
-impl<E: EthSpec> Case for BeaconBlockBodyMerkleProofValidity<E> {
+impl Case for BeaconBlockBodyMerkleProofValidity {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let binding = self.block_body.clone();
         let block_body = binding.to_ref();

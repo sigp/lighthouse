@@ -10,23 +10,18 @@ use lighthouse_network::{
 };
 use network_utils::enr_ext::EnrExt;
 use tracing::{info, warn};
-use types::EthSpec;
 
-pub async fn run<E: EthSpec>(
+pub async fn run(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
 ) -> Result<(), String> {
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<E> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+    let config: BootNodeConfig = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
 
     // Dump configs if `dump-config` or `dump-chain-config` flags are set
     let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-    clap_utils::check_dump_configs::<_, E>(
-        lh_matches,
-        &config_sz,
-        &eth2_network_config.chain_spec::<E>()?,
-    )?;
+    clap_utils::check_dump_configs(lh_matches, &config_sz, &eth2_network_config.chain_spec()?)?;
 
     if lh_matches.get_flag("immediate-shutdown") {
         return Ok(());

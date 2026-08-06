@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     block::SignedBlindedBeaconBlock,
-    core::{ChainSpec, EthSpec, Hash256, Slot},
+    core::{ChainSpec, Hash256, Slot},
     fork::ForkName,
     light_client::{
         CurrentSyncCommitteeProofLen, CurrentSyncCommitteeProofLenElectra, LightClientError,
@@ -29,39 +29,31 @@ use crate::{
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         context_deserialize(ForkName),
     )
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, TreeHash, Encode, Deserialize, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-#[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientBootstrap<E: EthSpec> {
+#[serde(deny_unknown_fields)]
+pub struct LightClientBootstrap {
     /// The requested beacon block header.
     #[superstruct(only(Altair), partial_getter(rename = "header_altair"))]
-    pub header: LightClientHeaderAltair<E>,
+    pub header: LightClientHeaderAltair,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
-    pub header: LightClientHeaderCapella<E>,
+    pub header: LightClientHeaderCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
-    pub header: LightClientHeaderDeneb<E>,
+    pub header: LightClientHeaderDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
-    pub header: LightClientHeaderElectra<E>,
+    pub header: LightClientHeaderElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
-    pub header: LightClientHeaderFulu<E>,
+    pub header: LightClientHeaderFulu,
     /// The `SyncCommittee` used in the requested period.
-    pub current_sync_committee: Arc<SyncCommittee<E>>,
+    pub current_sync_committee: Arc<SyncCommittee>,
     /// Merkle proof for sync committee
     #[superstruct(
         only(Altair, Capella, Deneb),
@@ -75,7 +67,7 @@ pub struct LightClientBootstrap<E: EthSpec> {
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLenElectra>,
 }
 
-impl<E: EthSpec> LightClientBootstrap<E> {
+impl LightClientBootstrap {
     pub fn map_with_fork_name<F, R>(&self, func: F) -> R
     where
         F: Fn(ForkName) -> R,
@@ -121,23 +113,23 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         let fixed_len = match fork_name {
             ForkName::Base => 0,
             ForkName::Altair | ForkName::Bellatrix => {
-                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+                <LightClientBootstrapAltair as Encode>::ssz_fixed_len()
             }
-            ForkName::Capella => <LightClientBootstrapCapella<E> as Encode>::ssz_fixed_len(),
-            ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
-            ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
+            ForkName::Capella => <LightClientBootstrapCapella as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientBootstrapDeneb as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientBootstrapElectra as Encode>::ssz_fixed_len(),
+            ForkName::Fulu => <LightClientBootstrapFulu as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas | ForkName::Heze => {
-                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+                <LightClientBootstrapAltair as Encode>::ssz_fixed_len()
             }
         };
-        fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        fixed_len + LightClientHeader::ssz_max_var_len_for_fork(fork_name)
     }
 
     pub fn new(
-        block: &SignedBlindedBeaconBlock<E>,
-        current_sync_committee: Arc<SyncCommittee<E>>,
+        block: &SignedBlindedBeaconBlock,
+        current_sync_committee: Arc<SyncCommittee>,
         current_sync_committee_branch: Vec<Hash256>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, LightClientError> {
@@ -190,8 +182,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     }
 
     pub fn from_beacon_state(
-        beacon_state: &mut BeaconState<E>,
-        block: &SignedBlindedBeaconBlock<E>,
+        beacon_state: &mut BeaconState,
+        block: &SignedBlindedBeaconBlock,
         chain_spec: &ChainSpec,
     ) -> Result<Self, LightClientError> {
         let current_sync_committee_branch = beacon_state.compute_current_sync_committee_proof()?;
@@ -246,7 +238,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for LightClientBootstrap {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -295,31 +287,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientBootstrapAltair, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapAltair<MainnetEthSpec>);
+        use crate::LightClientBootstrapAltair;
+        ssz_tests!(LightClientBootstrapAltair);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientBootstrapCapella, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapCapella<MainnetEthSpec>);
+        use crate::LightClientBootstrapCapella;
+        ssz_tests!(LightClientBootstrapCapella);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientBootstrapDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
+        use crate::LightClientBootstrapDeneb;
+        ssz_tests!(LightClientBootstrapDeneb);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientBootstrapElectra, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapElectra<MainnetEthSpec>);
+        use crate::LightClientBootstrapElectra;
+        ssz_tests!(LightClientBootstrapElectra);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientBootstrapFulu, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapFulu<MainnetEthSpec>);
+        use crate::LightClientBootstrapFulu;
+        ssz_tests!(LightClientBootstrapFulu);
     }
 }

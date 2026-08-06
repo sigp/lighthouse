@@ -18,8 +18,7 @@ use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use typenum::Unsigned;
-use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot};
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, Fork, Hash256, Slot, Spec};
 
 /// The number of sets of proposer indices that should be cached.
 const CACHE_SIZE: usize = 16;
@@ -43,7 +42,7 @@ pub struct EpochBlockProposers {
     pub(crate) epoch: Epoch,
     /// The fork that should be used to verify proposer signatures.
     pub(crate) fork: Fork,
-    /// A list of length `T::EthSpec::slots_per_epoch()`, representing the proposers for each slot
+    /// A list of length `Spec::SLOTS_PER_EPOCH`, representing the proposers for each slot
     /// in that epoch.
     ///
     /// E.g., if `self.epoch == 1`, then `self.proposers[0]` contains the proposer for slot `32`.
@@ -59,11 +58,11 @@ impl EpochBlockProposers {
         }
     }
 
-    pub fn get_slot<E: EthSpec>(&self, slot: Slot) -> Result<Proposer, BeaconChainError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+    pub fn get_slot(&self, slot: Slot) -> Result<Proposer, BeaconChainError> {
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         if epoch == self.epoch {
             self.proposers
-                .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
+                .get(slot.as_usize() % Spec::SLOTS_PER_EPOCH)
                 .map(|&index| Proposer {
                     index,
                     fork: self.fork,
@@ -96,15 +95,11 @@ impl Default for BeaconProposerCache {
 impl BeaconProposerCache {
     /// If it is cached, returns the proposer for the block at `slot` where the block has the
     /// ancestor block root of `shuffling_decision_block` at `end_slot(slot.epoch() - 1)`.
-    pub fn get_slot<E: EthSpec>(
-        &mut self,
-        shuffling_decision_block: Hash256,
-        slot: Slot,
-    ) -> Option<Proposer> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+    pub fn get_slot(&mut self, shuffling_decision_block: Hash256, slot: Slot) -> Option<Proposer> {
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
         let cache = self.cache.get(&key)?.get()?;
-        cache.get_slot::<E>(slot).ok()
+        cache.get_slot(slot).ok()
     }
 
     /// As per `Self::get_slot`, but returns all proposers in all slots for the given `epoch`.
@@ -112,7 +107,7 @@ impl BeaconProposerCache {
     /// The nth slot in the returned `SmallVec` will be equal to the nth slot in the given `epoch`.
     /// E.g., if `epoch == 1` then `smallvec[0]` refers to slot 32 (assuming `SLOTS_PER_EPOCH ==
     /// 32`).
-    pub fn get_epoch<E: EthSpec>(
+    pub fn get_epoch(
         &mut self,
         shuffling_decision_block: Hash256,
         epoch: Epoch,
@@ -171,16 +166,15 @@ impl BeaconProposerCache {
 /// `(proposal_epoch, shuffling_decision_block)` key. If the cache entry is missing, the
 /// `state_provider` closure is called to produce a state which is then used to compute and
 /// cache the proposers.
-pub fn with_proposer_cache<Spec, V, Err>(
+pub fn with_proposer_cache<V, Err>(
     beacon_proposer_cache: &Mutex<BeaconProposerCache>,
     shuffling_decision_block: Hash256,
     proposal_epoch: Epoch,
     accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
-    state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    state_provider: impl FnOnce() -> Result<(Hash256, BeaconState), Err>,
     spec: &ChainSpec,
 ) -> Result<V, Err>
 where
-    Spec: EthSpec,
     Err: From<BeaconChainError> + From<BeaconStateError>,
 {
     let cache_entry = beacon_proposer_cache
@@ -313,8 +307,8 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 /// - It must be the case that `state.canonical_root() == state_root`, but this function will not
 ///   check that.
 #[instrument(skip_all, fields(?state_root, %target_epoch, state_slot = %state.slot()), level = "debug")]
-pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn ensure_state_can_determine_proposers_for_epoch(
+    state: &mut BeaconState,
     state_root: Hash256,
     target_epoch: Epoch,
     spec: &ChainSpec,
@@ -322,9 +316,9 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     // The decision slot is the end of an epoch, so we add 1 to reach the first slot of the epoch
     // at which the shuffling is determined.
     let minimum_slot = spec
-        .proposer_shuffling_decision_slot::<E>(target_epoch)
+        .proposer_shuffling_decision_slot(target_epoch)
         .safe_add(1)?;
-    let minimum_epoch = minimum_slot.epoch(E::slots_per_epoch());
+    let minimum_epoch = minimum_slot.epoch(Spec::slots_per_epoch());
 
     // Before and after Fulu, the oldest epoch reachable from a state at epoch N is epoch N itself,
     // i.e. we can never "look back".

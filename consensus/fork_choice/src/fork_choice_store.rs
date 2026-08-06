@@ -1,7 +1,7 @@
 use proto_array::JustifiedBalances;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
-use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
+use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
@@ -19,7 +19,7 @@ use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpe
 /// The primary motivation for defining this as a trait to be implemented upstream rather than a
 /// concrete struct is to allow this crate to be free from "impure" on-disk database logic,
 /// hopefully making auditing easier.
-pub trait ForkChoiceStore<E: EthSpec>: Sized {
+pub trait ForkChoiceStore: Sized {
     type Error: Debug;
 
     /// Returns the last value passed to `Self::set_current_slot`.
@@ -34,11 +34,11 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
 
     /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
     /// choice. Allows the implementer to performing caching or other housekeeping duties.
-    fn on_verified_block<Payload: AbstractExecPayload<E>>(
+    fn on_verified_block<Payload: AbstractExecPayload>(
         &mut self,
-        block: BeaconBlockRef<E, Payload>,
+        block: BeaconBlockRef<Payload>,
         block_root: Hash256,
-        state: &BeaconState<E>,
+        state: &BeaconState,
     ) -> Result<(), Self::Error>;
 
     /// Returns the `justified_checkpoint`.

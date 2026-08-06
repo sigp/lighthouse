@@ -1,13 +1,10 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec, Fork,
+    BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EpochCache, Fork,
 };
 
 /// Transform a `Capella` state into an `Deneb` state.
-pub fn upgrade_to_deneb<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_deneb(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_capella_mut()?;
 

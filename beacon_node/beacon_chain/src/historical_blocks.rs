@@ -15,7 +15,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, debug_span, instrument};
-use types::{EthSpec, Hash256, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD};
+use types::{Hash256, Slot, Spec, consts::gloas::BUILDER_INDEX_SELF_BUILD};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<RangeSyncBlock<T::EthSpec>>,
+        mut blocks: Vec<RangeSyncBlock>,
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
@@ -277,7 +277,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             block_root,
                             envelope.envelope().clone(),
                             block.message().proposer_index(),
-                            block.slot().epoch(T::EthSpec::slots_per_epoch()),
+                            block.slot().epoch(Spec::slots_per_epoch()),
                         ));
                     }
                     let (signed_envelope, columns) = envelope.deconstruct();

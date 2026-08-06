@@ -10,8 +10,8 @@ use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
+use types::DataColumnSidecarList;
 use types::{DataColumnSidecar, Hash256, Slot, data::ColumnIndex};
-use types::{DataColumnSidecarList, EthSpec};
 
 use super::{
     ActiveRequestsPerPeer, LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext,
@@ -24,7 +24,7 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_slot: Slot,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
-    column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
+    column_requests: FnvHashMap<ColumnIndex, ColumnRequest>,
     /// Active requests for 1 or more columns each
     active_batch_columns_requests:
         FnvHashMap<DataColumnsByRootRequestId, ActiveBatchColumnsRequest>,
@@ -57,7 +57,7 @@ struct ActiveBatchColumnsRequest {
     span: Span,
 }
 
-pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSidecarList<E>>>, Error>;
+pub type CustodyRequestResult = Result<Option<DownloadResult<DataColumnSidecarList>>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
@@ -101,9 +101,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         peer_id: PeerId,
         req_id: DataColumnsByRootRequestId,
-        resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
+        resp: RpcResponseResult<DataColumnSidecarList>,
         cx: &mut SyncNetworkContext<T>,
-    ) -> CustodyRequestResult<T::EthSpec> {
+    ) -> CustodyRequestResult {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
                 %req_id,
@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
-    ) -> CustodyRequestResult<T::EthSpec> {
+    ) -> CustodyRequestResult {
         let _guard = self.span.clone().entered();
         let total_requests = self.column_requests.len();
         let completed_requests = self
@@ -397,19 +397,19 @@ const MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS: usize = 3;
 /// Max number of attempts to request custody columns from a single peer.
 const MAX_CUSTODY_PEER_ATTEMPTS: usize = 3;
 
-struct ColumnRequest<E: EthSpec> {
-    status: Status<E>,
+struct ColumnRequest {
+    status: Status,
     download_failures: usize,
 }
 
 #[derive(Debug, Clone)]
-enum Status<E: EthSpec> {
+enum Status {
     NotStarted(Instant),
     Downloading(DataColumnsByRootRequestId),
-    Downloaded(PeerId, Vec<Arc<DataColumnSidecar<E>>>),
+    Downloaded(PeerId, Vec<Arc<DataColumnSidecar>>),
 }
 
-impl<E: EthSpec> ColumnRequest<E> {
+impl ColumnRequest {
     fn new() -> Self {
         Self {
             status: Status::NotStarted(Instant::now()),
@@ -474,7 +474,7 @@ impl<E: EthSpec> ColumnRequest<E> {
         &mut self,
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
-        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        data_columns: Vec<Arc<DataColumnSidecar>>,
     ) -> Result<(), Error> {
         match &self.status {
             Status::Downloading(expected_req_id) => {
@@ -494,7 +494,7 @@ impl<E: EthSpec> ColumnRequest<E> {
     }
 
     #[allow(clippy::type_complexity)]
-    fn complete(self) -> Result<(PeerId, Vec<Arc<DataColumnSidecar<E>>>), Error> {
+    fn complete(self) -> Result<(PeerId, Vec<Arc<DataColumnSidecar>>), Error> {
         match self.status {
             Status::Downloaded(peer_id, data_columns) => Ok((peer_id, data_columns)),
             other => Err(Error::BadState(format!(

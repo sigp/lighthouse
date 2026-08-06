@@ -30,7 +30,7 @@ use store::consts::altair::{
 };
 use tracing::debug;
 use types::consts::altair::WEIGHT_DENOMINATOR;
-use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
+use types::{BeaconState, Epoch, RelativeEpoch, Spec};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Get state
-        let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
+        let state_slot = (epoch + 1).end_slot(Spec::slots_per_epoch());
 
         let state_root = self
             .state_root_at_slot(state_slot)?
@@ -66,7 +66,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn compute_attestation_rewards_base(
         &self,
-        mut state: BeaconState<T::EthSpec>,
+        mut state: BeaconState,
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         let spec = &self.spec;
@@ -142,7 +142,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn compute_attestation_rewards_altair(
         &self,
-        mut state: BeaconState<T::EthSpec>,
+        mut state: BeaconState,
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         let spec = &self.spec;
@@ -340,7 +340,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     fn all_eligible_validator_indices(
-        state: &BeaconState<T::EthSpec>,
+        state: &BeaconState,
         previous_epoch: Epoch,
     ) -> Result<Vec<usize>, BeaconChainError> {
         state
@@ -358,7 +358,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     fn validators_ids_to_indices(
-        state: &mut BeaconState<T::EthSpec>,
+        state: &mut BeaconState,
         validators: Vec<ValidatorId>,
     ) -> Result<Vec<usize>, BeaconChainError> {
         let indices = validators
@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn compute_ideal_rewards_base(
         &self,
-        state: &BeaconState<T::EthSpec>,
+        state: &BeaconState,
         total_balances: &TotalBalances,
     ) -> Result<Vec<IdealAttestationRewards>, BeaconChainError> {
         let spec = &self.spec;

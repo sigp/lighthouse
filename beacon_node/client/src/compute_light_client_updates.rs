@@ -13,8 +13,8 @@ pub(crate) const LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY: usize = 32;
 
 pub async fn compute_light_client_updates<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    mut light_client_server_rv: Receiver<LightClientProducerEvent<T::EthSpec>>,
-    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+    mut light_client_server_rv: Receiver<LightClientProducerEvent>,
+    beacon_processor_send: BeaconProcessorSend,
 ) {
     // Should only receive events for recent blocks, import_block filters by blocks close to clock.
     //

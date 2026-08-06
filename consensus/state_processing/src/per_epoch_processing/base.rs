@@ -8,7 +8,7 @@ use crate::per_epoch_processing::{
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_record_updates::process_participation_record_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
+use types::{BeaconState, ChainSpec, RelativeEpoch};
 pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 
 pub mod justification_and_finalization;
@@ -16,10 +16,10 @@ pub mod participation_record_updates;
 pub mod rewards_and_penalties;
 pub mod validator_statuses;
 
-pub fn process_epoch<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_epoch(
+    state: &mut BeaconState,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<E>, Error> {
+) -> Result<EpochProcessingSummary, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;

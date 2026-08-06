@@ -31,8 +31,8 @@ pub fn is_valid_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) 
 /// otherwise returns `None`.
 ///
 /// Builds the pubkey cache if it is not already built.
-pub fn get_existing_validator_index<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn get_existing_validator_index(
+    state: &mut BeaconState,
     pub_key: &PublicKeyBytes,
 ) -> Result<Option<u64>> {
     let validator_index = state.get_validator_index(pub_key)?;
@@ -45,8 +45,8 @@ pub fn get_existing_validator_index<E: EthSpec>(
 /// before they're due to be processed, and in parallel.
 ///
 /// Spec v0.12.1
-pub fn verify_deposit_merkle_proof<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn verify_deposit_merkle_proof(
+    state: &BeaconState,
     deposit: &Deposit,
     deposit_index: u64,
     spec: &ChainSpec,

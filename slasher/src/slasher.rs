@@ -13,21 +13,21 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use types::{
-    AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
+    AttesterSlashing, ChainSpec, Epoch, IndexedAttestation, ProposerSlashing,
     SignedBeaconBlockHeader,
 };
 
 #[derive(Debug)]
-pub struct Slasher<E: EthSpec> {
-    db: SlasherDB<E>,
-    attestation_queue: AttestationQueue<E>,
+pub struct Slasher {
+    db: SlasherDB,
+    attestation_queue: AttestationQueue,
     block_queue: BlockQueue,
-    attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
+    attester_slashings: Mutex<HashSet<AttesterSlashing>>,
     proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
     config: Arc<Config>,
 }
 
-impl<E: EthSpec> Slasher<E> {
+impl Slasher {
     pub fn open(config: Config, spec: Arc<ChainSpec>) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
@@ -39,7 +39,7 @@ impl<E: EthSpec> Slasher<E> {
     ///
     /// Initialise a slasher database from an existing `db`. The caller must ensure that the
     /// database's config matches the one provided.
-    pub fn from_config_and_db(config: Arc<Config>, db: SlasherDB<E>) -> Result<Self, Error> {
+    pub fn from_config_and_db(config: Arc<Config>, db: SlasherDB) -> Result<Self, Error> {
         config.validate()?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
@@ -55,13 +55,13 @@ impl<E: EthSpec> Slasher<E> {
         })
     }
 
-    pub fn into_reset_db(self) -> Result<SlasherDB<E>, Error> {
+    pub fn into_reset_db(self) -> Result<SlasherDB, Error> {
         self.db.reset()?;
         Ok(self.db)
     }
 
     /// Harvest all attester slashings found, removing them from the slasher.
-    pub fn get_attester_slashings(&self) -> HashSet<AttesterSlashing<E>> {
+    pub fn get_attester_slashings(&self) -> HashSet<AttesterSlashing> {
         std::mem::take(&mut self.attester_slashings.lock())
     }
 
@@ -80,7 +80,7 @@ impl<E: EthSpec> Slasher<E> {
     }
 
     /// Accept an attestation from the network and queue it for processing.
-    pub fn accept_attestation(&self, attestation: IndexedAttestation<E>) {
+    pub fn accept_attestation(&self, attestation: IndexedAttestation) {
         self.attestation_queue.queue(attestation);
     }
 
@@ -209,7 +209,7 @@ impl<E: EthSpec> Slasher<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
-        batch: SimpleBatch<E>,
+        batch: SimpleBatch,
         current_epoch: Epoch,
     ) -> Result<(), Error> {
         // First, check for double votes.
@@ -267,10 +267,10 @@ impl<E: EthSpec> Slasher<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
-        attestation: &IndexedAttestation<E>,
+        attestation: &IndexedAttestation,
         attester_record: &AttesterRecord,
         indexed_attestation_id: IndexedAttestationId,
-    ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
+    ) -> Result<HashSet<AttesterSlashing>, Error> {
         let mut slashings = HashSet::new();
 
         for validator_index in self
@@ -306,9 +306,9 @@ impl<E: EthSpec> Slasher<E> {
     /// Returns `(valid, deferred, num_dropped)`.
     fn validate(
         &self,
-        batch: SimpleBatch<E>,
+        batch: SimpleBatch,
         current_epoch: Epoch,
-    ) -> (SimpleBatch<E>, SimpleBatch<E>, usize) {
+    ) -> (SimpleBatch, SimpleBatch, usize) {
         let mut keep = Vec::with_capacity(batch.len());
         let mut defer = vec![];
         let mut drop_count = 0;

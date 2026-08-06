@@ -28,12 +28,12 @@ impl From<WithdrawalCredentials> for Hash256 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{EthSpec, MainnetEthSpec, test_utils::generate_deterministic_keypair};
+    use crate::{Spec, test_utils::generate_deterministic_keypair};
     use std::str::FromStr;
 
     #[test]
     fn bls_withdrawal_credentials() {
-        let spec = &MainnetEthSpec::default_spec();
+        let spec = &Spec::default_spec();
         let keypair = generate_deterministic_keypair(0);
         let credentials = WithdrawalCredentials::bls(&keypair.pk, spec);
         let manually_generated_credentials =
@@ -45,7 +45,7 @@ mod test {
 
     #[test]
     fn eth1_withdrawal_credentials() {
-        let spec = &MainnetEthSpec::default_spec();
+        let spec = &Spec::default_spec();
         let address = Address::from_str("0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b").unwrap();
         let credentials = WithdrawalCredentials::eth1(address, spec);
         let hash: Hash256 = credentials.into();

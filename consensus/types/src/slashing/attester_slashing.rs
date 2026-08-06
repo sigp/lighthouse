@@ -10,73 +10,54 @@ use crate::{
         IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
         IndexedAttestationRef,
     },
-    core::EthSpec,
     fork::ForkName,
 };
 
 #[superstruct(
     variants(Base, Electra, Gloas),
     variant_attributes(
-        derive(
-            Educe,
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TreeHash,
-        ),
+        derive(Educe, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash,),
         context_deserialize(ForkName),
-        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec"),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec")
-        ),
+        educe(PartialEq, Eq, Hash),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
     ),
     ref_attributes(derive(Debug))
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec", untagged)]
+#[educe(PartialEq, Eq, Hash)]
+#[serde(untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct AttesterSlashing<E: EthSpec> {
+pub struct AttesterSlashing {
     #[superstruct(flatten)]
-    pub attestation_1: IndexedAttestation<E>,
+    pub attestation_1: IndexedAttestation,
     #[superstruct(flatten)]
-    pub attestation_2: IndexedAttestation<E>,
+    pub attestation_2: IndexedAttestation,
 }
 
 /// This is a copy of the `AttesterSlashing` enum but with `Encode` and `Decode` derived
 /// using the `union` behavior for the purposes of persistence on disk. We use a separate
 /// type so that we don't accidentally use this non-spec encoding in consensus objects.
 #[derive(Debug, Clone, Encode, Decode, Educe)]
-#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
+#[educe(PartialEq, Eq, Hash)]
 #[ssz(enum_behaviour = "union")]
-pub enum AttesterSlashingOnDisk<E: EthSpec> {
-    Base(AttesterSlashingBase<E>),
-    Electra(AttesterSlashingElectra<E>),
-    Gloas(AttesterSlashingGloas<E>),
+pub enum AttesterSlashingOnDisk {
+    Base(AttesterSlashingBase),
+    Electra(AttesterSlashingElectra),
+    Gloas(AttesterSlashingGloas),
 }
 
 #[derive(Debug, Clone, Encode)]
 #[ssz(enum_behaviour = "union")]
-pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec> {
-    Base(&'a AttesterSlashingBase<E>),
-    Electra(&'a AttesterSlashingElectra<E>),
-    Gloas(&'a AttesterSlashingGloas<E>),
+pub enum AttesterSlashingRefOnDisk<'a> {
+    Base(&'a AttesterSlashingBase),
+    Electra(&'a AttesterSlashingElectra),
+    Gloas(&'a AttesterSlashingGloas),
 }
 
-impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
-    fn from(attester_slashing: AttesterSlashing<E>) -> Self {
+impl From<AttesterSlashing> for AttesterSlashingOnDisk {
+    fn from(attester_slashing: AttesterSlashing) -> Self {
         match attester_slashing {
             AttesterSlashing::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashing::Electra(attester_slashing) => Self::Electra(attester_slashing),
@@ -85,8 +66,8 @@ impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
     }
 }
 
-impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
-    fn from(attester_slashing: AttesterSlashingOnDisk<E>) -> Self {
+impl From<AttesterSlashingOnDisk> for AttesterSlashing {
+    fn from(attester_slashing: AttesterSlashingOnDisk) -> Self {
         match attester_slashing {
             AttesterSlashingOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingOnDisk::Electra(attester_slashing) => Self::Electra(attester_slashing),
@@ -95,8 +76,8 @@ impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
     }
 }
 
-impl<'a, E: EthSpec> From<AttesterSlashingRefOnDisk<'a, E>> for AttesterSlashingRef<'a, E> {
-    fn from(attester_slashing: AttesterSlashingRefOnDisk<'a, E>) -> Self {
+impl<'a> From<AttesterSlashingRefOnDisk<'a>> for AttesterSlashingRef<'a> {
+    fn from(attester_slashing: AttesterSlashingRefOnDisk<'a>) -> Self {
         match attester_slashing {
             AttesterSlashingRefOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingRefOnDisk::Electra(attester_slashing) => {
@@ -107,8 +88,8 @@ impl<'a, E: EthSpec> From<AttesterSlashingRefOnDisk<'a, E>> for AttesterSlashing
     }
 }
 
-impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnDisk<'a, E> {
-    fn from(attester_slashing: AttesterSlashingRef<'a, E>) -> Self {
+impl<'a> From<AttesterSlashingRef<'a>> for AttesterSlashingRefOnDisk<'a> {
+    fn from(attester_slashing: AttesterSlashingRef<'a>) -> Self {
         match attester_slashing {
             AttesterSlashingRef::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingRef::Electra(attester_slashing) => Self::Electra(attester_slashing),
@@ -117,8 +98,8 @@ impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnD
     }
 }
 
-impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
-    pub fn clone_as_attester_slashing(self) -> AttesterSlashing<E> {
+impl<'a> AttesterSlashingRef<'a> {
+    pub fn clone_as_attester_slashing(self) -> AttesterSlashing {
         match self {
             AttesterSlashingRef::Base(attester_slashing) => {
                 AttesterSlashing::Base(attester_slashing.clone())
@@ -132,7 +113,7 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
         }
     }
 
-    pub fn attestation_1(&self) -> IndexedAttestationRef<'a, E> {
+    pub fn attestation_1(&self) -> IndexedAttestationRef<'a> {
         match self {
             AttesterSlashingRef::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_1)
@@ -146,7 +127,7 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
         }
     }
 
-    pub fn attestation_2(&self) -> IndexedAttestationRef<'a, E> {
+    pub fn attestation_2(&self) -> IndexedAttestationRef<'a> {
         match self {
             AttesterSlashingRef::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_2)
@@ -161,8 +142,8 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> AttesterSlashing<E> {
-    pub fn attestation_1(&self) -> IndexedAttestationRef<'_, E> {
+impl AttesterSlashing {
+    pub fn attestation_1(&self) -> IndexedAttestationRef<'_> {
         match self {
             AttesterSlashing::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_1)
@@ -176,7 +157,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
         }
     }
 
-    pub fn attestation_2(&self) -> IndexedAttestationRef<'_, E> {
+    pub fn attestation_2(&self) -> IndexedAttestationRef<'_> {
         match self {
             AttesterSlashing::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_2)
@@ -191,21 +172,21 @@ impl<E: EthSpec> AttesterSlashing<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for AttesterSlashing<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for AttesterSlashing {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         if context.gloas_enabled() {
-            AttesterSlashingGloas::<E>::deserialize(deserializer)
+            AttesterSlashingGloas::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(AttesterSlashing::Gloas)
         } else if context.electra_enabled() {
-            AttesterSlashingElectra::<E>::deserialize(deserializer)
+            AttesterSlashingElectra::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(AttesterSlashing::Electra)
         } else {
-            AttesterSlashingBase::<E>::deserialize(deserializer)
+            AttesterSlashingBase::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(AttesterSlashing::Base)
         }
@@ -215,13 +196,12 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for AttesterSlashing<E> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::*;
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingBase);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingElectra);
     }
 }

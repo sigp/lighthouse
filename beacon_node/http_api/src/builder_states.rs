@@ -4,7 +4,7 @@ use safe_arith::SafeArith;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
-use types::{BeaconState, EthSpec, Slot, Withdrawals};
+use types::{BeaconState, Slot, Spec, Withdrawals};
 
 const MAX_EPOCH_LOOKAHEAD: u64 = 2;
 
@@ -12,14 +12,14 @@ const MAX_EPOCH_LOOKAHEAD: u64 = 2;
 /// that gets built on the specified state.
 pub fn get_next_withdrawals<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    mut state: BeaconState<T::EthSpec>,
+    mut state: BeaconState,
     state_id: StateId,
     proposal_slot: Slot,
-) -> Result<Withdrawals<T::EthSpec>, warp::Rejection> {
+) -> Result<Withdrawals, warp::Rejection> {
     get_next_withdrawals_sanity_checks(chain, &state, proposal_slot)?;
 
     // advance the state to the epoch of the proposal slot.
-    let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+    let proposal_epoch = proposal_slot.epoch(Spec::slots_per_epoch());
     let (state_root, _, _) = state_id.root(chain)?;
     if proposal_epoch != state.current_epoch()
         && let Err(e) =
@@ -42,7 +42,7 @@ pub fn get_next_withdrawals<T: BeaconChainTypes>(
 
 fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
+    state: &BeaconState,
     proposal_slot: Slot,
 ) -> Result<(), warp::Rejection> {
     if proposal_slot <= state.slot() {
@@ -51,7 +51,7 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
         ));
     }
 
-    let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
+    let fork = chain.spec.fork_name_at_slot(proposal_slot);
 
     if !fork.capella_enabled() {
         return Err(warp_utils::reject::custom_bad_request(
@@ -60,7 +60,7 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
     }
 
     let look_ahead_limit = MAX_EPOCH_LOOKAHEAD
-        .safe_mul(T::EthSpec::slots_per_epoch())
+        .safe_mul(Spec::slots_per_epoch())
         .map_err(warp_utils::reject::arith_error)?;
     if proposal_slot >= state.slot() + look_ahead_limit {
         return Err(warp_utils::reject::custom_bad_request(format!(

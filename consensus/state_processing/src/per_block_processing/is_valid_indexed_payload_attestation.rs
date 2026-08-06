@@ -3,9 +3,9 @@ use super::signature_sets::{get_pubkey_from_state, indexed_payload_attestation_s
 use crate::VerifySignatures;
 use types::*;
 
-pub fn is_valid_indexed_payload_attestation<E: EthSpec>(
-    state: &BeaconState<E>,
-    indexed_payload_attestation: &IndexedPayloadAttestation<E>,
+pub fn is_valid_indexed_payload_attestation(
+    state: &BeaconState,
+    indexed_payload_attestation: &IndexedPayloadAttestation,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<Invalid>> {

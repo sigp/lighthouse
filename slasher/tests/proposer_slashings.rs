@@ -2,23 +2,23 @@
 
 use slasher::{
     Config, Slasher,
-    test_utils::{E, block as test_block, chain_spec},
+    test_utils::{block as test_block, chain_spec},
 };
 use tempfile::tempdir;
-use types::{Epoch, EthSpec};
+use types::{Epoch, Spec};
 
 #[test]
 fn empty_pruning() {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let spec = chain_spec();
-    let slasher = Slasher::<E>::open(config, spec).unwrap();
+    let slasher = Slasher::open(config, spec).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
 #[test]
 fn block_pruning() {
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
 
     let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
@@ -26,7 +26,7 @@ fn block_pruning() {
     config.history_length = 2;
     let spec = chain_spec();
 
-    let slasher = Slasher::<E>::open(config.clone(), spec).unwrap();
+    let slasher = Slasher::open(config.clone(), spec).unwrap();
     let current_epoch = Epoch::from(2 * config.history_length);
 
     // Pruning the empty database should be safe.

@@ -32,7 +32,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use tracing::{debug, error, trace, warn};
-use types::{EthSpec, Hash256, Slot};
+use types::{Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -238,10 +238,10 @@ pub struct QueuedGossipDataColumn {
     pub process_fn: BlockingFn,
 }
 
-impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
-    type Error = WorkEvent<E>;
+impl TryFrom<WorkEvent> for QueuedBackfillBatch {
+    type Error = WorkEvent;
 
-    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
+    fn try_from(event: WorkEvent) -> Result<Self, WorkEvent> {
         match event {
             WorkEvent {
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -252,8 +252,8 @@ impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     }
 }
 
-impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<E> {
+impl From<QueuedBackfillBatch> for WorkEvent {
+    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegmentBackfill(queued_backfill_batch.0),

@@ -12,15 +12,13 @@ use state_processing::{
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use std::marker::PhantomData;
 use std::time::Duration;
 use superstruct::superstruct;
 use tracing::{debug, instrument, warn};
 use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestationRef, IndexedPayloadAttestation, RelativeEpoch, SignedBeaconBlock,
-    Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, ExecPayload, ExecutionBlockHash, Hash256,
+    IndexedAttestationRef, IndexedPayloadAttestation, RelativeEpoch, SignedBeaconBlock, Slot, Spec,
 };
 
 #[derive(Debug)]
@@ -264,10 +262,10 @@ impl PayloadVerificationStatus {
 /// Equivalent to:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#compute_slots_since_epoch_start
-pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
+pub fn compute_slots_since_epoch_start(slot: Slot) -> Slot {
     slot - slot
-        .epoch(E::slots_per_epoch())
-        .start_slot(E::slots_per_epoch())
+        .epoch(Spec::slots_per_epoch())
+        .start_slot(Spec::slots_per_epoch())
 }
 
 /// Calculate the first slot in `epoch`.
@@ -277,8 +275,8 @@ pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
 /// Equivalent to:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
-fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
-    epoch.start_slot(E::slots_per_epoch())
+fn compute_start_slot_at_epoch(epoch: Epoch) -> Slot {
+    epoch.start_slot(Spec::slots_per_epoch())
 }
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
@@ -302,8 +300,8 @@ pub struct QueuedAttestationV28 {
     target_epoch: Epoch,
 }
 
-impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
-    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
+impl<'a> From<IndexedAttestationRef<'a>> for QueuedAttestation {
+    fn from(a: IndexedAttestationRef<'a>) -> Self {
         Self {
             slot: a.data().slot,
             attesting_indices: a.attesting_indices_to_vec(),
@@ -369,7 +367,7 @@ pub struct ForkChoiceView {
 ///
 /// - Management of the justified state and caching of balances.
 /// - Queuing of attestations from the current slot.
-pub struct ForkChoice<T, E> {
+pub struct ForkChoice<T> {
     /// Storage for `ForkChoice`, modelled off the spec `Store` object.
     fc_store: T,
     /// The underlying representation of the block DAG.
@@ -379,13 +377,11 @@ pub struct ForkChoice<T, E> {
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
-    _phantom: PhantomData<E>,
 }
 
-impl<T, E> PartialEq for ForkChoice<T, E>
+impl<T> PartialEq for ForkChoice<T>
 where
-    T: ForkChoiceStore<E> + PartialEq,
-    E: EthSpec,
+    T: ForkChoiceStore + PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.fc_store == other.fc_store
@@ -394,22 +390,21 @@ where
     }
 }
 
-impl<T, E> ForkChoice<T, E>
+impl<T> ForkChoice<T>
 where
-    T: ForkChoiceStore<E>,
-    E: EthSpec,
+    T: ForkChoiceStore,
 {
     /// Instantiates `Self` from an anchor (genesis or another finalized checkpoint).
     pub fn from_anchor(
         fc_store: T,
         anchor_block_root: Hash256,
-        anchor_block: &SignedBeaconBlock<E>,
-        anchor_state: &BeaconState<E>,
+        anchor_block: &SignedBeaconBlock,
+        anchor_state: &BeaconState,
         current_slot: Option<Slot>,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
-        if anchor_state.slot() % E::slots_per_epoch() != 0 {
+        if anchor_state.slot() % Spec::slots_per_epoch() != 0 {
             return Err(Error::InvalidAnchor {
                 block_slot: anchor_block.slot(),
                 state_slot: anchor_state.slot(),
@@ -455,7 +450,7 @@ where
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
-        let proto_array = ProtoArrayForkChoice::new::<E>(
+        let proto_array = ProtoArrayForkChoice::new(
             current_slot,
             finalized_block_slot,
             finalized_block_state_root,
@@ -482,7 +477,6 @@ where
                 // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            _phantom: PhantomData,
         };
 
         // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
@@ -515,11 +509,7 @@ where
         &self,
         block_root: Hash256,
         ancestor_slot: Slot,
-    ) -> Result<Option<Hash256>, Error<T::Error>>
-    where
-        T: ForkChoiceStore<E>,
-        E: EthSpec,
-    {
+    ) -> Result<Option<Hash256>, Error<T::Error>> {
         let block = self
             .proto_array
             .get_block(&block_root)
@@ -548,7 +538,7 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, Error<T::Error>> {
-        let epoch = current_slot.epoch(E::slots_per_epoch());
+        let epoch = current_slot.epoch(Spec::slots_per_epoch());
 
         if epoch <= spec.min_seed_lookahead {
             return Ok(Some(Hash256::zero()));
@@ -556,7 +546,7 @@ where
 
         let dependent_slot = epoch
             .saturating_sub(spec.min_seed_lookahead)
-            .start_slot(E::slots_per_epoch())
+            .start_slot(Spec::slots_per_epoch())
             .saturating_sub(1_u64);
 
         self.get_ancestor(block_root, dependent_slot)
@@ -582,7 +572,7 @@ where
 
         let store = &mut self.fc_store;
 
-        let (head_root, head_payload_status) = self.proto_array.find_head::<E>(
+        let (head_root, head_payload_status) = self.proto_array.find_head(
             *store.justified_checkpoint(),
             *store.finalized_checkpoint(),
             store.justified_balances(),
@@ -668,7 +658,7 @@ where
         }
 
         self.proto_array
-            .get_proposer_head::<E>(
+            .get_proposer_head(
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
@@ -688,7 +678,7 @@ where
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
         self.proto_array
-            .get_proposer_head_info::<E>(
+            .get_proposer_head_info(
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
@@ -751,7 +741,7 @@ where
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation::<E>(op, self.finalized_checkpoint())
+            .process_execution_payload_invalidation(op, self.finalized_checkpoint())
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -780,13 +770,13 @@ where
         fields(
             fork_choice_block_delay = ?block_delay
         ))]
-    pub fn on_block<Payload: AbstractExecPayload<E>>(
+    pub fn on_block<Payload: AbstractExecPayload>(
         &mut self,
         system_time_current_slot: Slot,
-        block: BeaconBlockRef<E, Payload>,
+        block: BeaconBlockRef<Payload>,
         block_root: Hash256,
         block_delay: Duration,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
@@ -844,7 +834,7 @@ where
         // Check that block is later than the finalized epoch slot (optimization to reduce calls to
         // get_ancestor).
         let finalized_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
+            compute_start_slot_at_epoch(self.fc_store.finalized_checkpoint().epoch);
         if block.slot() <= finalized_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
                 finalized_slot,
@@ -870,7 +860,7 @@ where
             }));
         }
 
-        let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
+        let attestation_threshold = spec.get_attestation_due(block.slot());
 
         // Add proposer score boost if the block is the first timely block for this slot and it
         // shares the same dependent root as the canonical chain head (per spec
@@ -905,7 +895,7 @@ where
         )?;
 
         // Update unrealized justified/finalized checkpoints.
-        let block_epoch = block.slot().epoch(E::slots_per_epoch());
+        let block_epoch = block.slot().epoch(Spec::slots_per_epoch());
 
         // If the block has no slashings and the parent checkpoints are already at the same epoch as
         // the block being imported, it's impossible for the unrealized checkpoints to differ from
@@ -986,7 +976,8 @@ where
         }
 
         // If block is from past epochs, try to update store's justified & finalized checkpoints right away
-        if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
+        if block.slot().epoch(Spec::slots_per_epoch()) < current_slot.epoch(Spec::slots_per_epoch())
+        {
             self.pull_up_store_checkpoints(
                 unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint,
@@ -1002,8 +993,8 @@ where
 
         let target_slot = block
             .slot()
-            .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch());
+            .epoch(Spec::slots_per_epoch())
+            .start_slot(Spec::slots_per_epoch());
         let target_root = if block.slot() == target_slot {
             block_root
         } else {
@@ -1057,7 +1048,7 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block::<E>(
+        self.proto_array.process_block(
             ProtoBlock {
                 slot: block.slot(),
                 root: block_root,
@@ -1130,7 +1121,7 @@ where
         target_epoch: Epoch,
     ) -> Result<(), InvalidAttestation> {
         let slot_now = self.fc_store.get_current_slot();
-        let epoch_now = slot_now.epoch(E::slots_per_epoch());
+        let epoch_now = slot_now.epoch(Spec::slots_per_epoch());
 
         // Attestation must be from the current or previous epoch.
         if target_epoch > epoch_now {
@@ -1156,7 +1147,7 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
-        indexed_attestation: IndexedAttestationRef<E>,
+        indexed_attestation: IndexedAttestationRef,
         is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), InvalidAttestation> {
@@ -1175,7 +1166,12 @@ where
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
-        if target.epoch != indexed_attestation.data().slot.epoch(E::slots_per_epoch()) {
+        if target.epoch
+            != indexed_attestation
+                .data()
+                .slot
+                .epoch(Spec::slots_per_epoch())
+        {
             return Err(InvalidAttestation::BadTargetEpoch {
                 target: target.epoch,
                 slot: indexed_attestation.data().slot,
@@ -1209,7 +1205,7 @@ where
         // then all slots between the block and attestation must be skipped. Therefore if the block
         // is from a prior epoch to the attestation, then the target root must be equal to the root
         // of the block that is being attested to.
-        let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
+        let expected_target = if target.epoch > block.slot.epoch(Spec::slots_per_epoch()) {
             indexed_attestation.data().beacon_block_root
         } else {
             block.target_root
@@ -1232,7 +1228,7 @@ where
         }
 
         if spec
-            .fork_name_at_slot::<E>(indexed_attestation.data().slot)
+            .fork_name_at_slot(indexed_attestation.data().slot)
             .gloas_enabled()
         {
             let index = indexed_attestation.data().index;
@@ -1268,7 +1264,7 @@ where
     /// Validates a payload attestation for application to fork choice.
     fn validate_on_payload_attestation(
         &self,
-        indexed_payload_attestation: &IndexedPayloadAttestation<E>,
+        indexed_payload_attestation: &IndexedPayloadAttestation,
     ) -> Result<(), InvalidPayloadAttestation> {
         // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
         // avoid wasting time on junk attestations.
@@ -1317,7 +1313,7 @@ where
     pub fn on_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: IndexedAttestationRef<E>,
+        attestation: IndexedAttestationRef,
         is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
@@ -1346,7 +1342,7 @@ where
 
         // Per Gloas spec: `payload_present = attestation.data.index == 1`.
         let payload_present = spec
-            .fork_name_at_slot::<E>(attestation.data().slot)
+            .fork_name_at_slot(attestation.data().slot)
             .gloas_enabled()
             && attestation.data().index == 1;
 
@@ -1384,7 +1380,7 @@ where
     pub fn on_payload_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        payload_attestation: &IndexedPayloadAttestation<E>,
+        payload_attestation: &IndexedPayloadAttestation,
         is_from_block: AttestationFromBlock,
         ptc: &[usize],
     ) -> Result<(), Error<T::Error>> {
@@ -1467,10 +1463,10 @@ where
     /// Apply an attester slashing to fork choice.
     ///
     /// We assume that the attester slashing provided to this function has already been verified.
-    pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_, E>) {
+    pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_>) {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTER_SLASHING_TIMES);
 
-        let attesting_indices_set = |att: IndexedAttestationRef<'_, E>| {
+        let attesting_indices_set = |att: IndexedAttestationRef<'_>| {
             att.attesting_indices_iter()
                 .copied()
                 .collect::<BTreeSet<_>>()
@@ -1526,9 +1522,7 @@ where
         }
 
         // Not a new epoch, return.
-        if !(current_slot > previous_slot
-            && compute_slots_since_epoch_start::<E>(current_slot) == 0)
-        {
+        if !(current_slot > previous_slot && compute_slots_since_epoch_start(current_slot) == 0) {
             return Ok(());
         }
 
@@ -1605,7 +1599,7 @@ where
 
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
     /// parent's payload is imported too). See [`Self::get_parent_import_status`].
-    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock) -> bool {
         matches!(
             self.get_parent_import_status(block),
             ParentImportStatus::Imported(_)
@@ -1616,7 +1610,7 @@ where
     ///
     /// A post-Gloas FULL child also requires the parent's payload (committed to by the child's bid)
     /// to have been received by fork choice.
-    pub fn get_parent_import_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportStatus {
+    pub fn get_parent_import_status(&self, block: &SignedBeaconBlock) -> ParentImportStatus {
         if let Some(parent_block) = self.get_block(&block.parent_root()) {
             let Some(parent_block_hash) = parent_block.execution_payload_block_hash else {
                 // Pre-Gloas parent: payload is embedded in the block, so treat as imported.
@@ -1642,7 +1636,7 @@ where
         current_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status, current_slot)
+            .should_build_on_full(block_root, parent_payload_status, current_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 
@@ -1651,7 +1645,7 @@ where
         let current_slot = self.fc_store.get_current_slot();
         let proposer_boost_root = self.fc_store.proposer_boost_root();
         self.proto_array
-            .should_extend_payload::<E>(block_root, current_slot, proposer_boost_root)
+            .should_extend_payload(block_root, current_slot, proposer_boost_root)
             .map_err(Error::ProtoArrayStringError)
     }
 
@@ -1675,12 +1669,7 @@ where
             let current_slot = self.fc_store.get_current_slot();
             let proposer_boost_root = self.fc_store.proposer_boost_root();
             self.proto_array
-                .get_canonical_payload_status::<E>(
-                    block_root,
-                    current_slot,
-                    proposer_boost_root,
-                    spec,
-                )
+                .get_canonical_payload_status(block_root, current_slot, proposer_boost_root, spec)
                 .map_err(Error::ProtoArrayError)
         } else {
             Err(Error::DoesNotDescendFromFinalizedCheckpoint)
@@ -1718,7 +1707,7 @@ where
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
     pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_or_descendant::<E>(block_root, self.finalized_checkpoint())
+            .is_finalized_checkpoint_or_descendant(block_root, self.finalized_checkpoint())
     }
 
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
@@ -1868,7 +1857,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic() {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1914,7 +1903,6 @@ where
                 // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            _phantom: PhantomData,
         };
 
         // If a call to `get_head` fails, the only known cause is because the only head with viable
@@ -1929,9 +1917,7 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
-            fork_choice
-                .proto_array
-                .set_all_blocks_to_optimistic::<E>()?;
+            fork_choice.proto_array.set_all_blocks_to_optimistic()?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
@@ -1992,18 +1978,16 @@ impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
 
 #[cfg(test)]
 mod tests {
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     use super::*;
-
-    type E = MainnetEthSpec;
 
     #[test]
     fn slots_since_epoch_start() {
         for epoch in 0..3 {
-            for slot in 0..E::slots_per_epoch() {
-                let input = epoch * E::slots_per_epoch() + slot;
-                assert_eq!(compute_slots_since_epoch_start::<E>(Slot::new(input)), slot)
+            for slot in 0..(Spec::slots_per_epoch()) {
+                let input = epoch * (Spec::slots_per_epoch()) + slot;
+                assert_eq!(compute_slots_since_epoch_start(Slot::new(input)), slot)
             }
         }
     }
@@ -2012,8 +1996,8 @@ mod tests {
     fn start_slot_at_epoch() {
         for epoch in 0..3 {
             assert_eq!(
-                compute_start_slot_at_epoch::<E>(Epoch::new(epoch)),
-                epoch * E::slots_per_epoch()
+                compute_start_slot_at_epoch(Epoch::new(epoch)),
+                epoch * (Spec::slots_per_epoch())
             )
         }
     }

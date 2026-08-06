@@ -34,7 +34,7 @@ use zeroize::Zeroizing;
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 
-type E = MainnetEthSpec;
+use types::Spec;
 
 pub struct HdValidatorScenario {
     pub count: usize,
@@ -56,7 +56,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -75,7 +75,7 @@ impl ApiTester {
         let slot_clock =
             TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
         let genesis_validators_root = Hash256::repeat_byte(42);
-        let spec = Arc::new(E::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         Self::new_with_options(http_config, slot_clock, genesis_validators_root, spec).await
     }
 
@@ -132,7 +132,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
+            block_service: None::<BlockService<LighthouseValidatorStore<_>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -149,7 +149,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).await.unwrap();
+        let (listening_socket, server) = super::serve(ctx, server_shutdown).await.unwrap();
 
         tokio::spawn(server);
 
@@ -267,7 +267,7 @@ impl ApiTester {
                 .map(|res| ConfigAndPreset::Gloas(res.data))
         }
         .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
+        let expected = ConfigAndPreset::from_chain_spec(&self.spec);
 
         assert_eq!(result, expected);
 
@@ -331,7 +331,7 @@ impl ApiTester {
                 builder_proposals: None,
                 builder_boost_factor: None,
                 prefer_builder_proposals: None,
-                deposit_gwei: E::default_spec().max_effective_balance,
+                deposit_gwei: Spec::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
 
@@ -415,7 +415,7 @@ impl ApiTester {
             let deposit_bytes = serde_utils::hex::decode(&item.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
-                decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
+                decode_eth1_tx_data(&deposit_bytes, Spec::default_spec().max_effective_balance)
                     .unwrap();
 
             assert_eq!(
@@ -428,14 +428,14 @@ impl ApiTester {
                 deposit_data.withdrawal_credentials,
                 Hash256::from_slice(&bls::get_withdrawal_credentials(
                     &withdrawal_keypair.pk,
-                    E::default_spec().bls_withdrawal_prefix_byte
+                    Spec::default_spec().bls_withdrawal_prefix_byte
                 )),
                 "the locally generated withdrawal creds should match the deposit data"
             );
 
             assert_eq!(
                 deposit_data.signature,
-                deposit_data.create_signature(&voting_keypair.sk, &E::default_spec()),
+                deposit_data.create_signature(&voting_keypair.sk, &Spec::default_spec()),
                 "the locally-generated deposit sig should create the same deposit sig"
             );
         }

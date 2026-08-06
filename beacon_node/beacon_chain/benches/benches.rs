@@ -8,28 +8,28 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
-    BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
-    MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
+    BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, KzgProofs,
+    SignedBeaconBlock, Spec, kzg_ext::KzgCommitments,
 };
 
-fn create_test_block_and_blobs<E: EthSpec>(
+fn create_test_block_and_blobs(
     num_of_blobs: usize,
     spec: &ChainSpec,
-) -> (SignedBeaconBlock<E>, BlobsList<E>, KzgProofs<E>) {
+) -> (SignedBeaconBlock, BlobsList, KzgProofs) {
     let mut block = BeaconBlock::Fulu(BeaconBlockFulu::empty(spec));
     let mut body = block.body_mut();
     let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
     *blob_kzg_commitments =
-        KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs]).unwrap();
+        KzgCommitments::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs]).unwrap();
 
     let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
 
     let blobs = (0..num_of_blobs)
-        .map(|_| Blob::<E>::default())
+        .map(|_| Blob::default())
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()]
+    let proofs = vec![KzgProof::empty(); num_of_blobs * Spec::NUMBER_OF_COLUMNS]
         .try_into()
         .unwrap();
 
@@ -37,12 +37,11 @@ fn create_test_block_and_blobs<E: EthSpec>(
 }
 
 fn all_benches(c: &mut Criterion) {
-    type E = MainnetEthSpec;
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(Spec::default_spec());
 
     let kzg = get_kzg(&spec);
     for blob_count in [1, 2, 3, 6] {
-        let (signed_block, blobs, proofs) = create_test_block_and_blobs::<E>(blob_count, &spec);
+        let (signed_block, blobs, proofs) = create_test_block_and_blobs(blob_count, &spec);
 
         let column_sidecars = blobs_to_data_column_sidecars(
             &blobs.iter().collect::<Vec<_>>(),

@@ -1,13 +1,13 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
 };
 
 macro_rules! impl_store_item {
     ($ty_name:ident) => {
-        impl<E: EthSpec> StoreItem for $ty_name<E> {
+        impl StoreItem for $ty_name {
             fn db_column() -> DBColumn {
                 DBColumn::ExecPayload
             }
@@ -33,7 +33,7 @@ impl_store_item!(ExecutionPayloadGloas);
 ///
 /// It is very inefficient at reading, and decoding the desired fork-specific variant is recommended
 /// instead.
-impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
+impl StoreItem for ExecutionPayload {
     fn db_column() -> DBColumn {
         DBColumn::ExecPayload
     }

@@ -4,12 +4,12 @@ use crate::per_epoch_processing::{
     single_pass::{SinglePassConfig, process_epoch_single_pass},
 };
 use safe_arith::{SafeArith, SafeArithIter};
-use typenum::Unsigned;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::Spec;
+use types::{BeaconState, ChainSpec};
 
 /// Process slashings.
-pub fn process_slashings<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_slashings(
+    state: &mut BeaconState,
     total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -22,7 +22,7 @@ pub fn process_slashings<E: EthSpec>(
     );
 
     let target_withdrawable_epoch =
-        epoch.safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
+        epoch.safe_add((Spec::epochs_per_slashings_vector()).safe_div(2)?)?;
     let indices = state
         .validators()
         .iter()
@@ -48,10 +48,7 @@ pub fn process_slashings<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_slashings_slow<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn process_slashings_slow(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     process_epoch_single_pass(
         state,
         spec,

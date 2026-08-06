@@ -15,13 +15,13 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// to `state`. Otherwise, returns a descriptive `Err`.
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
-pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
-    state: &BeaconState<E>,
-    attestation: AttestationRef<'ctxt, E>,
-    ctxt: &'ctxt mut ConsensusContext<E>,
+pub fn verify_attestation_for_block_inclusion<'ctxt>(
+    state: &BeaconState,
+    attestation: AttestationRef<'ctxt>,
+    ctxt: &'ctxt mut ConsensusContext,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<IndexedAttestationRef<'ctxt, E>> {
+) -> Result<IndexedAttestationRef<'ctxt>> {
     let data = attestation.data();
 
     verify!(
@@ -36,7 +36,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
         // [Modified in Deneb:EIP7045]
     } else {
         verify!(
-            state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
+            state.slot() <= data.slot.safe_add(Spec::slots_per_epoch())?,
             Invalid::IncludedTooLate {
                 state: state.slot(),
                 attestation: data.slot,
@@ -52,13 +52,13 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 ///
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the
 /// prior blocks in `state`.
-pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
-    state: &BeaconState<E>,
-    attestation: AttestationRef<'ctxt, E>,
-    ctxt: &'ctxt mut ConsensusContext<E>,
+pub fn verify_attestation_for_state<'ctxt>(
+    state: &BeaconState,
+    attestation: AttestationRef<'ctxt>,
+    ctxt: &'ctxt mut ConsensusContext,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<IndexedAttestationRef<'ctxt, E>> {
+) -> Result<IndexedAttestationRef<'ctxt>> {
     let data = attestation.data();
 
     // NOTE: choosing a validation based on the attestation's fork
@@ -72,7 +72,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             );
         }
         AttestationRef::Electra(_) => {
-            let fork_at_attestation_slot = spec.fork_name_at_slot::<E>(data.slot);
+            let fork_at_attestation_slot = spec.fork_name_at_slot(data.slot);
             if fork_at_attestation_slot.gloas_enabled() {
                 verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
             } else {
@@ -96,16 +96,13 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 }
 
 /// Check target epoch and source checkpoint.
-fn verify_casper_ffg_vote<E: EthSpec>(
-    attestation: AttestationRef<E>,
-    state: &BeaconState<E>,
-) -> Result<()> {
+fn verify_casper_ffg_vote(attestation: AttestationRef, state: &BeaconState) -> Result<()> {
     let data = attestation.data();
     verify!(
-        data.target.epoch == data.slot.epoch(E::slots_per_epoch()),
+        data.target.epoch == data.slot.epoch(Spec::slots_per_epoch()),
         Invalid::TargetEpochSlotMismatch {
             target_epoch: data.target.epoch,
-            slot_epoch: data.slot.epoch(E::slots_per_epoch()),
+            slot_epoch: data.slot.epoch(Spec::slots_per_epoch()),
         }
     );
     if data.target.epoch == state.current_epoch() {

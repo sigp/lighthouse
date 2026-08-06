@@ -12,20 +12,18 @@ use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
-    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
+    Address, ChainSpec, Epoch, Hash256, Slot, Spec,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
-type E = MinimalEthSpec;
-
 fn altair_spec(altair_fork_epoch: Epoch) -> ChainSpec {
-    let mut spec = E::default_spec();
+    let mut spec = Spec::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
     spec
 }
 
 fn capella_spec(capella_fork_epoch: Epoch) -> ChainSpec {
-    let mut spec = E::default_spec();
+    let mut spec = Spec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(capella_fork_epoch);
@@ -34,10 +32,10 @@ fn capella_spec(capella_fork_epoch: Epoch) -> ChainSpec {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_committee_duties_across_fork() {
-    let validator_count = E::sync_committee_size();
+    let validator_count = Spec::SYNC_COMMITTEE_SIZE;
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
@@ -56,7 +54,7 @@ async fn sync_committee_duties_across_fork() {
 
     // If there's a skip slot at the fork slot, the endpoint should return duties, even
     // though the head state hasn't transitioned yet.
-    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
     let genesis_state = harness.get_current_state();
     let (_, state) = harness
         .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
@@ -71,7 +69,7 @@ async fn sync_committee_duties_across_fork() {
         .await
         .unwrap()
         .data;
-    assert_eq!(sync_duties.len(), E::sync_committee_size());
+    assert_eq!(sync_duties.len(), Spec::SYNC_COMMITTEE_SIZE);
 
     // After applying a block at the fork slot the duties should remain unchanged.
     harness
@@ -97,7 +95,7 @@ async fn sync_committee_duties_across_fork() {
         .await
         .unwrap()
         .data;
-    assert_eq!(next_period_duties.len(), E::sync_committee_size());
+    assert_eq!(next_period_duties.len(), Spec::SYNC_COMMITTEE_SIZE);
 
     // Sync duties should *not* be available for the period after the next period.
     // We expect a 400 (bad request) response.
@@ -115,16 +113,16 @@ async fn sync_committee_duties_across_fork() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attestations_across_fork_with_skip_slots() {
-    let validator_count = E::sync_committee_size();
+    let validator_count = Spec::SYNC_COMMITTEE_SIZE;
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
     let all_validators = harness.get_all_validators();
 
-    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
     let mut fork_state = harness
         .chain
         .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
@@ -178,9 +176,9 @@ async fn attestations_across_fork_with_skip_slots() {
         .collect::<Vec<_>>();
 
     assert!(!unaggregated_attestations.is_empty());
-    let fork_name = harness.spec.fork_name_at_slot::<E>(fork_slot);
+    let fork_name = harness.spec.fork_name_at_slot(fork_slot);
     client
-        .post_beacon_pool_attestations_v2::<E>(unaggregated_attestations, fork_name)
+        .post_beacon_pool_attestations_v2(unaggregated_attestations, fork_name)
         .await
         .unwrap();
 
@@ -202,14 +200,14 @@ async fn attestations_across_fork_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_contributions_across_fork_with_skip_slots() {
-    let validator_count = E::sync_committee_size();
+    let validator_count = Spec::SYNC_COMMITTEE_SIZE;
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
-    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
     let fork_state = harness
         .chain
         .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
@@ -249,10 +247,10 @@ async fn sync_contributions_across_fork_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_committee_indices_across_fork() {
-    let validator_count = E::sync_committee_size();
+    let validator_count = Spec::SYNC_COMMITTEE_SIZE;
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
@@ -288,7 +286,7 @@ async fn sync_committee_indices_across_fork() {
 
     // If there's a skip slot at the fork slot, the endpoint will return a 400 until a block is
     // applied.
-    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
     let genesis_state = harness.get_current_state();
     let (_, state) = harness
         .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
@@ -344,7 +342,7 @@ async fn sync_committee_indices_across_fork() {
             .await
             .unwrap()
             .data;
-        assert_eq!(committee.validators.len(), E::sync_committee_size());
+        assert_eq!(committee.validators.len(), Spec::SYNC_COMMITTEE_SIZE);
 
         assert_eq!(
             committee.validators,
@@ -371,7 +369,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     const VALIDATOR_COUNT: usize = 128;
     let fork_epoch = Epoch::new(2);
     let spec = capella_spec(fork_epoch);
-    let max_bls_to_execution_changes = E::max_bls_to_execution_changes();
+    let max_bls_to_execution_changes = Spec::MAX_BLS_TO_EXECUTION_CHANGES;
 
     // Use a genesis state with entirely BLS withdrawal credentials.
     // Offset keypairs by `VALIDATOR_COUNT` to create keys distinct from the signing keys.
@@ -405,7 +403,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         )
         .unwrap();
 
-    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+    let tester = InteractiveTester::new_with_initializer_and_mutator(
         Some(spec.clone()),
         VALIDATOR_COUNT,
         Some(Box::new(|harness_builder| {
@@ -504,7 +502,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     assert_server_indexed_error(error, 400, all_validators.clone());
 
     // Advance to right before Capella.
-    let capella_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let capella_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
     harness.extend_to_slot(capella_slot - 1).await;
     assert_eq!(harness.head_slot(), capella_slot - 1);
 

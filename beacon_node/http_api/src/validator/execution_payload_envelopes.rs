@@ -16,7 +16,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
     not_while_syncing_filter: NotWhileSyncingFilter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("validator"))
@@ -41,7 +41,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
              beacon_block_root: Hash256,
              accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     debug!(?slot, ?beacon_block_root, "Execution payload envelope request from HTTP API");
@@ -61,7 +61,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                             ))
                         })?;
 
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+                    let fork_name = chain.spec.fork_name_at_slot(slot);
 
                     match accept_header {
                         Some(Accept::Ssz) => Builder::new()

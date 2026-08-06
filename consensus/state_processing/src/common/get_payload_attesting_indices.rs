@@ -3,15 +3,14 @@ use crate::per_block_processing::errors::{
 };
 use ssz_types::VariableList;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, IndexedPayloadAttestation,
-    PayloadAttestation,
+    BeaconState, BeaconStateError, ChainSpec, IndexedPayloadAttestation, PayloadAttestation,
 };
 
-pub fn get_indexed_payload_attestation<E: EthSpec>(
-    state: &BeaconState<E>,
-    payload_attestation: &PayloadAttestation<E>,
+pub fn get_indexed_payload_attestation(
+    state: &BeaconState,
+    payload_attestation: &PayloadAttestation,
     spec: &ChainSpec,
-) -> Result<IndexedPayloadAttestation<E>, BlockOperationError<Invalid>> {
+) -> Result<IndexedPayloadAttestation, BlockOperationError<Invalid>> {
     let attesting_indices = get_payload_attesting_indices(state, payload_attestation, spec)?;
 
     Ok(IndexedPayloadAttestation {
@@ -21,9 +20,9 @@ pub fn get_indexed_payload_attestation<E: EthSpec>(
     })
 }
 
-pub fn get_payload_attesting_indices<E: EthSpec>(
-    state: &BeaconState<E>,
-    payload_attestation: &PayloadAttestation<E>,
+pub fn get_payload_attesting_indices(
+    state: &BeaconState,
+    payload_attestation: &PayloadAttestation,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>, BeaconStateError> {
     let slot = payload_attestation.data.slot;

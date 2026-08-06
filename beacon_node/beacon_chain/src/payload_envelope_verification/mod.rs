@@ -29,7 +29,7 @@ use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
-    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
+    BeaconState, BeaconStateError, DataColumnSidecarList, ExecutionBlockHash,
     ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     Slot,
 };
@@ -42,12 +42,12 @@ mod payload_notifier;
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(Debug, Clone)]
-pub struct AvailableEnvelope<E: EthSpec> {
-    envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    pub columns: DataColumnSidecarList<E>,
+pub struct AvailableEnvelope {
+    envelope: Arc<SignedExecutionPayloadEnvelope>,
+    pub columns: DataColumnSidecarList,
 }
 
-impl<E: EthSpec> AvailableEnvelope<E> {
+impl AvailableEnvelope {
     /// Constructs an `AvailableEnvelope` from an envelope and custody column data.
     ///
     /// This function validates that:
@@ -59,13 +59,13 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     /// Returns `AvailabilityCheckError` if:
     /// - `MissingCustodyColumns`: Required custody columns are missing or incomplete
     pub fn new<T>(
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-        columns: DataColumnSidecarList<E>,
-        bid: &SignedExecutionPayloadBid<E>,
+        envelope: Arc<SignedExecutionPayloadEnvelope>,
+        columns: DataColumnSidecarList,
+        bid: &SignedExecutionPayloadBid,
         custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         if custody_context.data_columns_required_for_bid(bid) {
             let columns_expected = custody_context.num_of_data_columns_to_sample(bid.epoch());
@@ -120,21 +120,16 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         }
     }
 
-    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope> {
         &self.envelope
     }
 
-    pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
+    pub fn message(&self) -> &ExecutionPayloadEnvelope {
         &self.envelope.message
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Arc<SignedExecutionPayloadEnvelope<E>>,
-        DataColumnSidecarList<E>,
-    ) {
+    pub fn deconstruct(self) -> (Arc<SignedExecutionPayloadEnvelope>, DataColumnSidecarList) {
         let AvailableEnvelope {
             envelope, columns, ..
         } = self;
@@ -144,9 +139,9 @@ impl<E: EthSpec> AvailableEnvelope<E> {
 
 /// This snapshot is to be used for verifying a payload envelope.
 #[derive(Debug, Clone)]
-pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
+pub struct EnvelopeProcessingSnapshot {
     /// This state is equivalent to the `self.beacon_block.state_root()` before applying the envelope.
-    pub pre_state: BeaconState<E>,
+    pub pre_state: BeaconState,
     pub state_root: Hash256,
     pub beacon_block_root: Hash256,
 }
@@ -154,15 +149,15 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 /// A payload envelope that has completed all envelope processing checks, verification
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
-pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
-    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+pub struct AvailabilityPendingExecutedEnvelope {
+    pub envelope: Arc<SignedExecutionPayloadEnvelope>,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
+impl AvailabilityPendingExecutedEnvelope {
     pub fn new(
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        envelope: Arc<SignedExecutionPayloadEnvelope>,
         block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
@@ -176,15 +171,15 @@ impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
 
 /// A payload envelope that has completed all payload processing checks including verification
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
-pub struct AvailableExecutedEnvelope<E: EthSpec> {
-    pub envelope: AvailableEnvelope<E>,
+pub struct AvailableExecutedEnvelope {
+    pub envelope: AvailableEnvelope,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> AvailableExecutedEnvelope<E> {
+impl AvailableExecutedEnvelope {
     pub fn new(
-        envelope: AvailableEnvelope<E>,
+        envelope: AvailableEnvelope,
         block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
@@ -360,7 +355,7 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
     beacon_block_root: Hash256,
     block_state_root: Hash256,
     store: &BeaconStore<T>,
-) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
+) -> Result<EnvelopeProcessingSnapshot, EnvelopeError> {
     // TODO(EIP-7732): add metrics here
 
     // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
@@ -387,10 +382,10 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
 /// The versioned hashes are derived from the bid's `blob_kzg_commitments` (inside the
 /// proposer-signed block), so a subsequent `perform_optimistic_sync_verifications` binds the
 /// payload's blob transactions to the committed commitments.
-pub fn build_new_payload_request<'a, E: EthSpec>(
-    envelope: &'a SignedExecutionPayloadEnvelope<E>,
-    block: &'a types::SignedBeaconBlock<E>,
-) -> Result<execution_layer::NewPayloadRequest<'a, E>, EnvelopeError> {
+pub fn build_new_payload_request<'a>(
+    envelope: &'a SignedExecutionPayloadEnvelope,
+    block: &'a types::SignedBeaconBlock,
+) -> Result<execution_layer::NewPayloadRequest<'a>, EnvelopeError> {
     let bid = &block
         .message()
         .body()
@@ -420,9 +415,9 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
 /// This is the CL-side substitute for the `is_valid_block_hash` portion of the spec's
 /// `verify_and_notify_new_payload`, used where the execution layer cannot be consulted
 /// (historical backfill).
-pub fn verify_envelope_payload_hash<E: EthSpec>(
-    envelope: &SignedExecutionPayloadEnvelope<E>,
-    block: &types::SignedBeaconBlock<E>,
+pub fn verify_envelope_payload_hash(
+    envelope: &SignedExecutionPayloadEnvelope,
+    block: &types::SignedBeaconBlock,
 ) -> Result<(), EnvelopeError> {
     build_new_payload_request(envelope, block)?
         .perform_optimistic_sync_verifications()
@@ -439,13 +434,11 @@ mod payload_hash_tests {
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
         ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid,
+        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
         SignedExecutionPayloadEnvelope, Slot, SyncAggregate,
     };
 
-    type E = MinimalEthSpec;
-
-    fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
+    fn make_block(slot: Slot) -> SignedBeaconBlock {
         let block = BeaconBlock::Gloas(BeaconBlockGloas {
             slot,
             proposer_index: 0,
@@ -476,14 +469,14 @@ mod payload_hash_tests {
     }
 
     /// Envelope whose payload's `block_hash` is the genuinely recomputed execution block hash.
-    fn make_consistent_envelope(slot: Slot) -> SignedExecutionPayloadEnvelope<E> {
-        let mut payload = ExecutionPayloadGloas::<E> {
+    fn make_consistent_envelope(slot: Slot) -> SignedExecutionPayloadEnvelope {
+        let mut payload = ExecutionPayloadGloas {
             slot_number: slot,
             ..ExecutionPayloadGloas::default()
         };
         let requests = ExecutionRequestsGloas::default();
         let parent_beacon_block_root = Hash256::ZERO;
-        let (block_hash, _) = calculate_execution_block_hash::<E>(
+        let (block_hash, _) = calculate_execution_block_hash(
             ExecutionPayloadRef::Gloas(&payload),
             Some(parent_beacon_block_root),
             Some(ExecutionRequestsRef::Gloas(&requests)),
@@ -507,7 +500,7 @@ mod payload_hash_tests {
         let slot = Slot::new(10);
         let block = make_block(slot);
         let envelope = make_consistent_envelope(slot);
-        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_ok());
+        assert!(verify_envelope_payload_hash(&envelope, &block).is_ok());
     }
 
     #[test]
@@ -517,6 +510,6 @@ mod payload_hash_tests {
         let mut envelope = make_consistent_envelope(slot);
         // Tamper a field that only the hash recompute can catch.
         envelope.message.payload.timestamp += 1;
-        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_err());
+        assert!(verify_envelope_payload_hash(&envelope, &block).is_err());
     }
 }

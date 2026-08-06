@@ -9,16 +9,14 @@ use beacon_chain::{
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
 use reqwest::StatusCode;
-use types::{EthSpec, ExecPayload, MinimalEthSpec, Slot, Uint256};
-
-type E = MinimalEthSpec;
+use types::{ExecPayload, Slot, Spec, Uint256};
 
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
-async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
-    let mut spec = test_spec::<E>();
+async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester {
+    let mut spec = test_spec();
     spec.terminal_total_difficulty = Uint256::from(1);
 
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;
+    let tester = InteractiveTester::new(Some(spec), validator_count as usize).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
 
@@ -41,8 +39,8 @@ async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> Interactiv
 /// Check `syncing` endpoint when the EL is syncing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_syncing_then_synced() {
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
@@ -69,8 +67,8 @@ async fn el_syncing_then_synced() {
 /// Check `syncing` endpoint when the EL is offline (errors on upcheck).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_offline() {
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
@@ -94,8 +92,8 @@ async fn el_error_on_new_payload() {
         return;
     }
 
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
@@ -154,8 +152,8 @@ async fn el_error_on_new_payload() {
 /// Check `node health` endpoint when the EL is offline.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_health_el_offline() {
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
@@ -178,8 +176,8 @@ async fn node_health_el_offline() {
 /// Check `node health` endpoint when the EL is online and synced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_health_el_online_and_synced() {
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
@@ -209,8 +207,8 @@ async fn node_health_el_online_and_not_synced() {
         return;
     }
 
-    let num_blocks = E::slots_per_epoch() / 2;
-    let num_validators = E::slots_per_epoch();
+    let num_blocks = Spec::slots_per_epoch() / 2;
+    let num_validators = Spec::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();

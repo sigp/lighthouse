@@ -65,7 +65,7 @@ use task_executor::{RayonPoolType, TaskExecutor};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
-use types::{EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
+use types::{Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
     QueuedAggregate, QueuedLightClientUpdate, QueuedPayloadAttestation, QueuedRpcBlock,
@@ -137,12 +137,12 @@ impl Default for BeaconProcessorConfig {
 }
 
 // The channels necessary to instantiate a `BeaconProcessor`.
-pub struct BeaconProcessorChannels<E: EthSpec> {
-    pub beacon_processor_tx: BeaconProcessorSend<E>,
-    pub beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
+pub struct BeaconProcessorChannels {
+    pub beacon_processor_tx: BeaconProcessorSend,
+    pub beacon_processor_rx: mpsc::Receiver<WorkEvent>,
 }
 
-impl<E: EthSpec> BeaconProcessorChannels<E> {
+impl BeaconProcessorChannels {
     pub fn new(config: &BeaconProcessorConfig) -> Self {
         let (beacon_processor_tx, beacon_processor_rx) =
             mpsc::channel(config.max_work_event_queue_len);
@@ -154,7 +154,7 @@ impl<E: EthSpec> BeaconProcessorChannels<E> {
     }
 }
 
-impl<E: EthSpec> Default for BeaconProcessorChannels<E> {
+impl Default for BeaconProcessorChannels {
     fn default() -> Self {
         Self::new(&BeaconProcessorConfig::default())
     }
@@ -211,12 +211,12 @@ impl DuplicateCache {
 
 /// An event to be processed by the manager task.
 #[derive(Debug)]
-pub struct WorkEvent<E: EthSpec> {
+pub struct WorkEvent {
     pub drop_during_sync: bool,
-    pub work: Work<E>,
+    pub work: Work,
 }
 
-impl<E: EthSpec> WorkEvent<E> {
+impl WorkEvent {
     /// Get a representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> WorkType {
         self.work.to_type()
@@ -228,7 +228,7 @@ impl<E: EthSpec> WorkEvent<E> {
     }
 }
 
-impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
+impl From<ReadyWork> for WorkEvent {
     fn from(ready_work: ReadyWork) -> Self {
         match ready_work {
             ReadyWork::Block(QueuedGossipBlock {
@@ -332,19 +332,19 @@ pub struct GossipAttestationPackage<T> {
 
 /// Items required to verify a batch of aggregated gossip attestations.
 #[derive(Debug)]
-pub struct GossipAggregatePackage<E: EthSpec> {
+pub struct GossipAggregatePackage {
     pub message_id: MessageId,
     pub peer_id: PeerId,
-    pub aggregate: Box<SignedAggregateAndProof<E>>,
+    pub aggregate: Box<SignedAggregateAndProof>,
     pub beacon_block_root: Hash256,
     pub seen_timestamp: Duration,
 }
 
 #[derive(Clone)]
-pub struct BeaconProcessorSend<E: EthSpec>(pub mpsc::Sender<WorkEvent<E>>);
+pub struct BeaconProcessorSend(pub mpsc::Sender<WorkEvent>);
 
-impl<E: EthSpec> BeaconProcessorSend<E> {
-    pub fn try_send(&self, message: WorkEvent<E>) -> Result<(), TrySendError<WorkEvent<E>>> {
+impl BeaconProcessorSend {
+    pub fn try_send(&self, message: WorkEvent) -> Result<(), TrySendError<WorkEvent>> {
         let work_type = message.work_type();
         match self.0.try_send(message) {
             Ok(res) => Ok(res),
@@ -370,7 +370,7 @@ pub type GossipAttestationBatch = Vec<GossipAttestationPackage<SingleAttestation
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
-pub enum Work<E: EthSpec> {
+pub enum Work {
     GossipAttestation {
         attestation: Box<GossipAttestationPackage<SingleAttestation>>,
         process_individual:
@@ -388,9 +388,9 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: Box<GossipAggregatePackage<E>>,
-        process_individual: Box<dyn FnOnce(GossipAggregatePackage<E>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
+        aggregate: Box<GossipAggregatePackage>,
+        process_individual: Box<dyn FnOnce(GossipAggregatePackage) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage>) + Send + Sync>,
     },
     UnknownBlockAggregate {
         process_fn: BlockingFn,
@@ -403,8 +403,8 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     GossipAggregateBatch {
-        aggregates: Vec<GossipAggregatePackage<E>>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
+        aggregates: Vec<GossipAggregatePackage>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
@@ -469,7 +469,7 @@ pub enum Work<E: EthSpec> {
     Reprocess(ReprocessQueueMessage),
 }
 
-impl<E: EthSpec> fmt::Debug for Work<E> {
+impl fmt::Debug for Work {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(self.to_type()))
     }
@@ -531,7 +531,7 @@ pub enum WorkType {
     Reprocess,
 }
 
-impl<E: EthSpec> Work<E> {
+impl Work {
     pub fn str_id(&self) -> &'static str {
         self.to_type().into()
     }
@@ -601,30 +601,30 @@ impl<E: EthSpec> Work<E> {
 }
 
 /// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<E: EthSpec> {
+enum InboundEvent {
     /// A worker has completed a task and is free.
     WorkerIdle,
     /// There is new work to be done.
-    WorkEvent((WorkEvent<E>, Instant)),
+    WorkEvent((WorkEvent, Instant)),
     /// A work event that was queued for re-processing has become ready.
-    ReprocessingWork((WorkEvent<E>, Instant)),
+    ReprocessingWork((WorkEvent, Instant)),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
 ///
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
-struct InboundEvents<E: EthSpec> {
+struct InboundEvents {
     /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<WorkType>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<E>>,
+    event_rx: mpsc::Receiver<WorkEvent>,
     /// Used internally for queuing work ready to be re-processed.
     ready_work_rx: mpsc::Receiver<ReadyWork>,
 }
 
-impl<E: EthSpec> Stream for InboundEvents<E> {
-    type Item = InboundEvent<E>;
+impl Stream for InboundEvents {
+    type Item = InboundEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
@@ -672,14 +672,14 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 /// that need to be processed by the `BeaconChain`
 ///
 /// See module level documentation for more information.
-pub struct BeaconProcessor<E: EthSpec> {
-    pub network_globals: Arc<NetworkGlobals<E>>,
+pub struct BeaconProcessor {
+    pub network_globals: Arc<NetworkGlobals>,
     pub executor: TaskExecutor,
     pub current_workers: usize,
     pub config: BeaconProcessorConfig,
 }
 
-impl<E: EthSpec> BeaconProcessor<E> {
+impl BeaconProcessor {
     /// Spawns the "manager" task which checks the receiver end of the returned `Sender` for
     /// messages which contain some new work which will be:
     ///
@@ -694,7 +694,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
-        event_rx: mpsc::Receiver<WorkEvent<E>>,
+        event_rx: mpsc::Receiver<WorkEvent>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
         maximum_gossip_clock_disparity: Duration,
@@ -704,7 +704,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let (idle_tx, idle_rx) = mpsc::channel::<WorkType>(MAX_IDLE_QUEUE_LEN);
 
         // Initialize the worker queues.
-        let mut work_queues: WorkQueues<E> = WorkQueues::new(queue_lengths);
+        let mut work_queues: WorkQueues = WorkQueues::new(queue_lengths);
 
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
@@ -833,7 +833,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     None if can_spawn => {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
-                        let work_event: Option<Work<E>> = if let Some(item) =
+                        let work_event: Option<Work> = if let Some(item) =
                             work_queues.chain_segment_queue.pop()
                         {
                             Some(item)
@@ -1454,7 +1454,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(
         &mut self,
-        work: Work<E>,
+        work: Work,
         created_timestamp: Instant,
         idle_tx: mpsc::Sender<WorkType>,
     ) {

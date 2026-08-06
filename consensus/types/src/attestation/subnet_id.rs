@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     attestation::{AttestationRef, CommitteeIndex, SingleAttestation},
-    core::{ChainSpec, EthSpec, Slot},
+    core::{ChainSpec, Slot, Spec},
 };
 
 const MAX_SUBNET_ID: usize = 64;
@@ -50,14 +50,14 @@ impl SubnetId {
 
     /// Compute the subnet for an attestation where each slot in the
     /// attestation epoch contains `committee_count_per_slot` committees.
-    pub fn compute_subnet_for_attestation<E: EthSpec>(
-        attestation: AttestationRef<E>,
+    pub fn compute_subnet_for_attestation(
+        attestation: AttestationRef<'_>,
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
         let committee_index = attestation.committee_index().ok_or(ArithError::Overflow)?;
 
-        Self::compute_subnet::<E>(
+        Self::compute_subnet(
             attestation.data().slot,
             committee_index,
             committee_count_per_slot,
@@ -67,12 +67,12 @@ impl SubnetId {
 
     /// Compute the subnet for an attestation where each slot in the
     /// attestation epoch contains `committee_count_per_slot` committees.
-    pub fn compute_subnet_for_single_attestation<E: EthSpec>(
+    pub fn compute_subnet_for_single_attestation(
         attestation: &SingleAttestation,
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        Self::compute_subnet::<E>(
+        Self::compute_subnet(
             attestation.data.slot,
             attestation.committee_index,
             committee_count_per_slot,
@@ -83,13 +83,13 @@ impl SubnetId {
     /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
     /// `attestation.data.index == committee_index` where each slot in the attestation epoch
     /// contains `committee_count_at_slot` committees.
-    pub fn compute_subnet<E: EthSpec>(
+    pub fn compute_subnet(
         slot: Slot,
         committee_index: CommitteeIndex,
         committee_count_at_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(E::slots_per_epoch())?;
+        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(Spec::slots_per_epoch())?;
 
         let committees_since_epoch_start =
             committee_count_at_slot.safe_mul(slots_since_epoch_start)?;

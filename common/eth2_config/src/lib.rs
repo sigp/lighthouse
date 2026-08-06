@@ -8,7 +8,7 @@
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpecId};
+use types::{ChainSpec, Spec, SpecId};
 
 pub use paste::paste;
 
@@ -63,35 +63,43 @@ const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url 
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone)]
 pub struct Eth2Config {
-    pub eth_spec_id: EthSpecId,
+    pub spec_id: SpecId,
     pub spec: Arc<ChainSpec>,
 }
 
 impl Default for Eth2Config {
     fn default() -> Self {
-        Self::minimal()
+        Self::from_spec_id(Spec::SPEC_ID)
     }
 }
 
 impl Eth2Config {
     pub fn mainnet() -> Self {
         Self {
-            eth_spec_id: EthSpecId::Mainnet,
+            spec_id: SpecId::Mainnet,
             spec: Arc::new(ChainSpec::mainnet()),
         }
     }
 
     pub fn minimal() -> Self {
         Self {
-            eth_spec_id: EthSpecId::Minimal,
+            spec_id: SpecId::Minimal,
             spec: Arc::new(ChainSpec::minimal()),
         }
     }
 
     pub fn gnosis() -> Self {
         Self {
-            eth_spec_id: EthSpecId::Gnosis,
+            spec_id: SpecId::Gnosis,
             spec: Arc::new(ChainSpec::gnosis()),
+        }
+    }
+
+    pub fn from_spec_id(spec_id: SpecId) -> Self {
+        match spec_id {
+            SpecId::Mainnet => Self::mainnet(),
+            SpecId::Minimal => Self::minimal(),
+            SpecId::Gnosis => Self::gnosis(),
         }
     }
 }
@@ -109,7 +117,7 @@ pub enum GenesisStateSource {
         /// URLs to try to download the file from, in order.
         urls: &'static [&'static str],
         /// The SHA256 of the genesis state bytes. This is *not* a hash tree
-        /// root to simplify the types (i.e., to avoid getting EthSpec
+        /// root to simplify the types (i.e., to avoid getting Spec
         /// involved).
         ///
         /// The format should be 0x-prefixed ASCII bytes.

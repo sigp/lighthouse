@@ -27,7 +27,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     // a string that can be returned via HTTP.
 
     if let Some(beacon_chain) = ctx.chain.as_ref() {
-        slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
+        slot_clock::scrape_for_metrics::<T::SlotClock>(&beacon_chain.slot_clock);
         beacon_chain::scrape_for_metrics(beacon_chain);
     }
 

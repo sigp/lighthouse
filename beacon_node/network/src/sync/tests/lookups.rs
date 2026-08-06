@@ -39,12 +39,11 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
-    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// Extract the Gloas payload envelope (if any) carried by a stored `RangeSyncBlock`.
-fn envelope_of(block: &RangeSyncBlock<E>) -> Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
+fn envelope_of(block: &RangeSyncBlock) -> Option<Arc<SignedExecutionPayloadEnvelope>> {
     match block {
         RangeSyncBlock::Gloas {
             envelope: Some(envelope),
@@ -230,7 +229,7 @@ impl SimulateConfig {
 }
 
 fn genesis_fork() -> ForkName {
-    test_spec::<E>().fork_name_at_slot::<E>(Slot::new(0))
+    test_spec().fork_name_at_slot(Slot::new(0))
 }
 
 pub(crate) struct TestRigConfig {
@@ -243,14 +242,14 @@ struct FullEmptyFork {
     a: Hash256,
     b: Hash256,
     c: Hash256,
-    b_block: Arc<SignedBeaconBlock<E>>,
-    c_block: Arc<SignedBeaconBlock<E>>,
+    b_block: Arc<SignedBeaconBlock>,
+    c_block: Arc<SignedBeaconBlock>,
 }
 
 impl TestRig {
     pub(crate) fn new(test_rig_config: TestRigConfig) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
-        let spec = Arc::new(test_spec::<E>());
+        let spec = Arc::new(test_spec());
         let clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
@@ -258,7 +257,7 @@ impl TestRig {
         );
 
         // Gloas genesis needs enough validators for proposer lookahead.
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+        let harness = BeaconChainHarness::<EphemeralHarnessType>::builder()
             .spec(spec.clone())
             .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -272,14 +271,14 @@ impl TestRig {
             .build();
 
         let chain = harness.chain.clone();
-        let fork_context = Arc::new(ForkContext::new::<E>(
+        let fork_context = Arc::new(ForkContext::new(
             Slot::new(0),
             chain.genesis_validators_root,
             &chain.spec,
         ));
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage>();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
         let network_config = Arc::new(NetworkConfig::default());
@@ -306,7 +305,7 @@ impl TestRig {
             executor: harness.runtime.task_executor.clone(),
         };
 
-        let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
+        let fork_name = chain.spec.fork_name_at_slot(chain.slot().unwrap());
 
         // All current tests expect synced and EL online state
         beacon_processor
@@ -541,7 +540,7 @@ impl TestRig {
     fn simulate_on_request(
         &mut self,
         peer_id: PeerId,
-        request: RequestType<E>,
+        request: RequestType,
         app_req_id: AppRequestId,
     ) {
         self.requests.push((request.clone(), app_req_id));
@@ -872,7 +871,7 @@ impl TestRig {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blocks: &[Arc<SignedBeaconBlock<E>>],
+        blocks: &[Arc<SignedBeaconBlock>],
     ) {
         let slots = blocks.iter().map(|block| block.slot()).collect::<Vec<_>>();
         self.log(&format!(
@@ -897,7 +896,7 @@ impl TestRig {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blobs: &[Arc<BlobSidecar<E>>],
+        blobs: &[Arc<BlobSidecar>],
     ) {
         let slots = blobs
             .iter()
@@ -926,7 +925,7 @@ impl TestRig {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        columns: &[Arc<DataColumnSidecar<E>>],
+        columns: &[Arc<DataColumnSidecar>],
     ) {
         let slots = columns
             .iter()
@@ -960,7 +959,7 @@ impl TestRig {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
     ) {
         self.log(&format!(
             "Completing request {sync_request_id:?} to {peer_id} with envelope {:?}",
@@ -984,7 +983,7 @@ impl TestRig {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        envelopes: &[Arc<SignedExecutionPayloadEnvelope<E>>],
+        envelopes: &[Arc<SignedExecutionPayloadEnvelope>],
     ) {
         let slots = envelopes.iter().map(|e| e.slot()).collect::<Vec<_>>();
         self.log(&format!(
@@ -1013,9 +1012,9 @@ impl TestRig {
 
     // Preparation steps
 
-    fn get_external_harness_with_genesis(&mut self) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    fn get_external_harness_with_genesis(&mut self) -> BeaconChainHarness<EphemeralHarnessType> {
         // Initialise a new beacon chain
-        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+        let external_harness = BeaconChainHarness::<EphemeralHarnessType>::builder()
             .spec(self.harness.spec.clone())
             .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -1075,6 +1074,7 @@ impl TestRig {
     /// G (full) -> A (full) -> B (FULL:  bid.parent_block_hash == A.block_hash)
     ///             A        -> C (EMPTY: bid.parent_block_hash == G.block_hash)
     /// ```
+    #[allow(clippy::large_stack_frames)]
     pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
         // Initialise a new beacon chain (mirrors `build_chain`).
         let external_harness = self.get_external_harness_with_genesis();
@@ -1194,7 +1194,7 @@ impl TestRig {
         Some((r, fork))
     }
 
-    fn insert_external_block(&mut self, block: RangeSyncBlock<E>) {
+    fn insert_external_block(&mut self, block: RangeSyncBlock) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
         self.network_blocks_by_root
@@ -1261,7 +1261,7 @@ impl TestRig {
         self.upsert_block(block, blobs, Some(columns));
     }
 
-    fn get_last_block(&self) -> &RangeSyncBlock<E> {
+    fn get_last_block(&self) -> &RangeSyncBlock {
         let (_, last_block) = self
             .network_blocks_by_root
             .iter()
@@ -1272,9 +1272,9 @@ impl TestRig {
 
     fn re_insert_block(
         &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<types::BlobSidecarList<E>>,
-        columns: Option<types::DataColumnSidecarList<E>>,
+        block: Arc<SignedBeaconBlock>,
+        blobs: Option<types::BlobSidecarList>,
+        columns: Option<types::DataColumnSidecarList>,
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
@@ -1283,9 +1283,9 @@ impl TestRig {
 
     fn upsert_block(
         &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<types::BlobSidecarList<E>>,
-        columns: Option<types::DataColumnSidecarList<E>>,
+        block: Arc<SignedBeaconBlock>,
+        blobs: Option<types::BlobSidecarList>,
+        columns: Option<types::DataColumnSidecarList>,
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
@@ -1335,7 +1335,7 @@ impl TestRig {
         self.trigger_unknown_block_from_attestation(last_block, peer_id);
     }
 
-    fn block_at_slot(&self, slot: u64) -> Arc<SignedBeaconBlock<E>> {
+    fn block_at_slot(&self, slot: u64) -> Arc<SignedBeaconBlock> {
         self.network_blocks_by_slot
             .get(&Slot::new(slot))
             .unwrap_or_else(|| panic!("No block for slot {slot}"))
@@ -1512,7 +1512,7 @@ impl TestRig {
                 .iter()
                 .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
                 .collect::<Vec<_>>(),
-            Vec::<&(RequestType<E>, AppRequestId)>::new(),
+            Vec::<&(RequestType, AppRequestId)>::new(),
             "There should be no block requests"
         );
     }
@@ -1664,10 +1664,7 @@ impl TestRig {
         self.fork_name.fulu_enabled()
     }
 
-    fn trigger_unknown_parent_blocks_from_all_peers(
-        &mut self,
-        blocks: &[Arc<SignedBeaconBlock<E>>],
-    ) {
+    fn trigger_unknown_parent_blocks_from_all_peers(&mut self, blocks: &[Arc<SignedBeaconBlock>]) {
         for peer in self.new_connected_peers_for_peerdas() {
             for block in blocks {
                 self.trigger_unknown_parent_block(peer, block.clone());
@@ -1698,7 +1695,7 @@ impl TestRig {
         }
     }
 
-    fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
+    fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock>) {
         let block_root = block.canonical_root();
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
     }
@@ -1706,7 +1703,7 @@ impl TestRig {
     fn trigger_unknown_parent_data_column(
         &mut self,
         peer_id: PeerId,
-        data_column: Arc<DataColumnSidecar<E>>,
+        data_column: Arc<DataColumnSidecar>,
     ) {
         let DataColumnSidecar::Fulu(col) = data_column.as_ref() else {
             self.log(&format!(
@@ -1728,23 +1725,23 @@ impl TestRig {
         ));
     }
 
-    fn rand_block(&mut self) -> SignedBeaconBlock<E> {
+    fn rand_block(&mut self) -> SignedBeaconBlock {
         self.rand_block_and_blobs(NumBlobs::None).0
     }
 
     fn rand_block_and_blobs(
         &mut self,
         num_blobs: NumBlobs,
-    ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
+    ) -> (SignedBeaconBlock, Vec<BlobSidecar>) {
         let fork_name = self.fork_name;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, &mut self.unstructured).unwrap()
+        generate_rand_block_and_blobs(fork_name, num_blobs, &mut self.unstructured).unwrap()
     }
 
-    pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage) {
         self.sync_manager.handle_message(sync_message);
     }
 
-    pub fn push_sync_message(&mut self, sync_message: SyncMessage<E>) {
+    pub fn push_sync_message(&mut self, sync_message: SyncMessage) {
         self.sync_manager.send_sync_message(sync_message);
     }
 
@@ -1921,7 +1918,7 @@ impl TestRig {
         }
     }
 
-    pub fn pop_received_network_event<T, F: Fn(&NetworkMessage<E>) -> Option<T>>(
+    pub fn pop_received_network_event<T, F: Fn(&NetworkMessage) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -1942,7 +1939,7 @@ impl TestRig {
     }
 
     #[allow(dead_code)]
-    pub fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
+    pub fn pop_received_processor_event<T, F: Fn(&WorkEvent) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -1990,7 +1987,7 @@ impl TestRig {
 
     async fn import_block_to_da_checker(
         &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
+        block: Arc<SignedBeaconBlock>,
     ) -> AvailabilityProcessingStatus {
         // Simulate importing block from another source. Don't use GossipVerified as it checks with
         // the clock, which does not match the timestamp in the payload.
@@ -2010,7 +2007,7 @@ impl TestRig {
 
     async fn insert_block_to_da_chain_and_assert_missing_componens(
         &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
+        block: Arc<SignedBeaconBlock>,
     ) {
         match self.import_block_to_da_checker(block).await {
             AvailabilityProcessingStatus::Imported(..) => {
@@ -2033,11 +2030,11 @@ impl TestRig {
     }
 }
 
+#[cfg(feature = "fake_crypto")]
 #[test]
 fn stable_arbitrary() {
     let mut u = types::test_utils::test_unstructured();
-    let (block, _) =
-        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut u).unwrap();
+    let (block, _) = generate_rand_block_and_blobs(ForkName::Base, NumBlobs::None, &mut u).unwrap();
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(

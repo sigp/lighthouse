@@ -21,7 +21,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
 use tracing_subscriber::filter::LevelFilter;
-use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::SpecId;
 
 #[cfg(target_family = "unix")]
 use {
@@ -100,15 +100,14 @@ fn default_logfile_debug_level() -> LevelFilter {
 /// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a
 /// `Runtime`, instead it only has access to a `Runtime`.
 #[derive(Clone)]
-pub struct RuntimeContext<E: EthSpec> {
+pub struct RuntimeContext {
     pub executor: TaskExecutor,
-    pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
     pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
-impl<E: EthSpec> RuntimeContext<E> {
+impl RuntimeContext {
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
@@ -116,54 +115,53 @@ impl<E: EthSpec> RuntimeContext<E> {
 }
 
 /// Builds an `Environment`.
-pub struct EnvironmentBuilder<E: EthSpec> {
+pub struct EnvironmentBuilder {
     runtime: Option<Arc<Runtime>>,
     sse_logging_components: Option<SSELoggingComponents>,
-    eth_spec_instance: E,
     eth2_config: Eth2Config,
     eth2_network_config: Option<Eth2NetworkConfig>,
 }
 
-impl EnvironmentBuilder<MinimalEthSpec> {
+impl EnvironmentBuilder {
     /// Creates a new builder using the `minimal` eth2 specification.
     pub fn minimal() -> Self {
         Self {
             runtime: None,
             sse_logging_components: None,
-            eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
             eth2_network_config: None,
         }
     }
-}
 
-impl EnvironmentBuilder<MainnetEthSpec> {
     /// Creates a new builder using the `mainnet` eth2 specification.
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
             sse_logging_components: None,
-            eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
             eth2_network_config: None,
         }
     }
-}
 
-impl EnvironmentBuilder<GnosisEthSpec> {
     /// Creates a new builder using the `gnosis` eth2 specification.
     pub fn gnosis() -> Self {
         Self {
             runtime: None,
             sse_logging_components: None,
-            eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
             eth2_network_config: None,
         }
     }
-}
 
-impl<E: EthSpec> EnvironmentBuilder<E> {
+    /// Creates a new builder from a `SpecId`.
+    pub fn from_spec_id(spec_id: SpecId) -> Self {
+        match spec_id {
+            SpecId::Mainnet => Self::mainnet(),
+            SpecId::Minimal => Self::minimal(),
+            SpecId::Gnosis => Self::gnosis(),
+        }
+    }
+
     /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
     ///
     /// The `Runtime` used is just the standard tokio runtime.
@@ -278,14 +276,14 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?.into();
+        self.eth2_config.spec = eth2_network_config.chain_spec()?.into();
         self.eth2_network_config = Some(eth2_network_config);
 
         Ok(self)
     }
 
     /// Consumes the builder, returning an `Environment`.
-    pub fn build(self) -> Result<Environment<E>, String> {
+    pub fn build(self) -> Result<Environment, String> {
         let (signal, exit) = async_channel::bounded(1);
         let (signal_tx, signal_rx) = channel(1);
         Ok(Environment {
@@ -297,7 +295,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal: Some(signal),
             exit,
             sse_logging_components: self.sse_logging_components,
-            eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             eth2_network_config: self.eth2_network_config.map(Arc::new),
         })
@@ -306,7 +303,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
-pub struct Environment<E: EthSpec> {
+pub struct Environment {
     runtime: Arc<Runtime>,
     /// Receiver side of an internal shutdown signal.
     signal_rx: Option<Receiver<ShutdownReason>>,
@@ -315,12 +312,11 @@ pub struct Environment<E: EthSpec> {
     signal: Option<async_channel::Sender<()>>,
     exit: async_channel::Receiver<()>,
     sse_logging_components: Option<SSELoggingComponents>,
-    eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
 }
 
-impl<E: EthSpec> Environment<E> {
+impl Environment {
     /// Returns a mutable reference to the `tokio` runtime.
     ///
     /// Useful in the rare scenarios where it's necessary to block the current thread until a task
@@ -330,14 +326,13 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where a "core" service has been added to the logger output.
-    pub fn core_context(&self) -> RuntimeContext<E> {
+    pub fn core_context(&self) -> RuntimeContext {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
             ),
-            eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
             sse_logging_components: self.sse_logging_components.clone(),
@@ -466,10 +461,6 @@ impl<E: EthSpec> Environment<E> {
         if let Some(signal) = self.signal.take() {
             drop(signal);
         }
-    }
-
-    pub fn eth_spec_instance(&self) -> &E {
-        &self.eth_spec_instance
     }
 
     pub fn eth2_config(&self) -> &Eth2Config {

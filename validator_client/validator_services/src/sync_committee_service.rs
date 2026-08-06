@@ -14,7 +14,7 @@ use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
-    ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
+    ChainSpec, Hash256, Slot, Spec, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
     SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{ContributionToSign, SyncMessageToSign, ValidatorStore};
@@ -81,7 +81,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .spec
             .altair_fork_epoch
             .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(S::E::slots_per_epoch());
+                let current_epoch = self.slot_clock.now()?.epoch(Spec::slots_per_epoch());
                 Some(current_epoch >= fork_epoch)
             })
             .unwrap_or(false)
@@ -161,7 +161,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let Some(slot_duties) = self
             .duties_service
             .sync_duties
-            .get_duties_for_slot::<S::E>(slot, &self.duties_service.spec)
+            .get_duties_for_slot(slot, &self.duties_service.spec)
         else {
             debug!("No duties known for slot {}", slot);
             return Ok(());
@@ -453,10 +453,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // At the start of every epoch during the current period, re-post the subscriptions
         // to the beacon node. This covers the case where the BN has forgotten the subscriptions
         // due to a restart, or where the VC has switched to a fallback BN.
-        let current_period = sync_period_of_slot::<S::E>(slot, spec)?;
+        let current_period = sync_period_of_slot(slot, spec)?;
 
         if !self.first_subscription_done.load(Ordering::Relaxed)
-            || slot.as_u64() % S::E::slots_per_epoch() == 0
+            || slot.as_u64() % Spec::slots_per_epoch() == 0
         {
             duty_slots.push((slot, current_period));
         }
@@ -464,9 +464,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // Near the end of the current period, push subscriptions for the next period to the
         // beacon node. We aggressively push every slot in the lead-up, as this is the main way
         // that we want to ensure that the BN is subscribed (well in advance).
-        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * S::E::slots_per_epoch();
+        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * Spec::slots_per_epoch();
 
-        let lookahead_period = sync_period_of_slot::<S::E>(lookahead_slot, spec)?;
+        let lookahead_period = sync_period_of_slot(lookahead_slot, spec)?;
 
         if lookahead_period > current_period {
             duty_slots.push((lookahead_slot, lookahead_period));
@@ -484,7 +484,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             match self
                 .duties_service
                 .sync_duties
-                .get_duties_for_slot::<S::E>(duty_slot, spec)
+                .get_duties_for_slot(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(
                     duties.duties,
@@ -548,8 +548,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 }
 
-fn sync_period_of_slot<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, String> {
-    slot.epoch(E::slots_per_epoch())
+fn sync_period_of_slot(slot: Slot, spec: &ChainSpec) -> Result<u64, String> {
+    slot.epoch(Spec::slots_per_epoch())
         .sync_committee_period(spec)
         .map_err(|e| format!("Error computing sync period: {:?}", e))
 }

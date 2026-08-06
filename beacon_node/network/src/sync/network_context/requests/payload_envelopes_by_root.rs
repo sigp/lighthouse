@@ -1,6 +1,6 @@
 use lighthouse_network::rpc::methods::PayloadEnvelopesByRootRequest;
 use std::sync::Arc;
-use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelope};
+use types::{ForkContext, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -18,12 +18,12 @@ impl PayloadEnvelopesByRootSingleRequest {
     }
 }
 
-pub struct PayloadEnvelopesByRootRequestItems<E: EthSpec> {
+pub struct PayloadEnvelopesByRootRequestItems {
     request: PayloadEnvelopesByRootSingleRequest,
-    items: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    items: Vec<Arc<SignedExecutionPayloadEnvelope>>,
 }
 
-impl<E: EthSpec> PayloadEnvelopesByRootRequestItems<E> {
+impl PayloadEnvelopesByRootRequestItems {
     pub fn new(request: PayloadEnvelopesByRootSingleRequest) -> Self {
         Self {
             request,
@@ -32,8 +32,8 @@ impl<E: EthSpec> PayloadEnvelopesByRootRequestItems<E> {
     }
 }
 
-impl<E: EthSpec> ActiveRequestItems for PayloadEnvelopesByRootRequestItems<E> {
-    type Item = Arc<SignedExecutionPayloadEnvelope<E>>;
+impl ActiveRequestItems for PayloadEnvelopesByRootRequestItems {
+    type Item = Arc<SignedExecutionPayloadEnvelope>;
 
     /// Append a response to the single chunk request. We expect exactly one envelope per
     /// block root. Returns `true` when the single expected item has been received.

@@ -11,13 +11,12 @@ use lighthouse_version::{client_name, version};
 use network_utils::enr_ext::CombinedKeyExt;
 use network_utils::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use ssz::{Decode, Encode};
-use ssz_types::BitVector;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
 use tracing::{debug, warn};
-use types::{ChainSpec, EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId};
 
 /// The ENR field specifying the fork id.
 pub const ETH2_ENR_KEY: &str = "eth2";
@@ -33,15 +32,13 @@ pub const PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY: &str = "cgc";
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
     /// The attestation subnet bitfield associated with the ENR.
-    fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str>;
+    fn attestation_bitfield(&self) -> Result<EnrAttestationBitfield, &'static str>;
 
     /// The sync committee subnet bitfield associated with the ENR.
-    fn sync_committee_bitfield<E: EthSpec>(
-        &self,
-    ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
+    fn sync_committee_bitfield(&self) -> Result<EnrSyncCommitteeBitfield, &'static str>;
 
     /// The peerdas custody group count associated with the ENR.
-    fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
+    fn custody_group_count(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
 
     /// The next fork digest associated with the ENR.
     fn next_fork_digest(&self) -> Result<[u8; 4], &'static str>;
@@ -50,29 +47,27 @@ pub trait Eth2Enr {
 }
 
 impl Eth2Enr for Enr {
-    fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str> {
+    fn attestation_bitfield(&self) -> Result<EnrAttestationBitfield, &'static str> {
         let bitfield_bytes: Bytes = self
             .get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
             .ok_or("ENR attestation bitfield non-existent")?
             .map_err(|_| "Invalid RLP Encoding")?;
 
-        BitVector::<E::SubnetBitfieldLength>::from_ssz_bytes(&bitfield_bytes)
+        EnrAttestationBitfield::from_ssz_bytes(&bitfield_bytes)
             .map_err(|_| "Could not decode the ENR attnets bitfield")
     }
 
-    fn sync_committee_bitfield<E: EthSpec>(
-        &self,
-    ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str> {
+    fn sync_committee_bitfield(&self) -> Result<EnrSyncCommitteeBitfield, &'static str> {
         let bitfield_bytes: Bytes = self
             .get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
             .ok_or("ENR sync committee bitfield non-existent")?
             .map_err(|_| "Invalid RLP Encoding")?;
 
-        BitVector::<E::SyncCommitteeSubnetCount>::from_ssz_bytes(&bitfield_bytes)
+        EnrSyncCommitteeBitfield::from_ssz_bytes(&bitfield_bytes)
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
-    fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str> {
+    fn custody_group_count(&self, spec: &ChainSpec) -> Result<u64, &'static str> {
         let cgc = self
             .get_decodable::<u64>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
             .ok_or("ENR custody group count non-existent")?
@@ -155,7 +150,7 @@ pub fn use_or_load_enr(
 ///
 /// If an ENR exists, with the same NodeId, this function checks to see if the loaded ENR from
 /// disk is suitable to use, otherwise we increment our newly generated ENR's sequence number.
-pub fn build_or_load_enr<E: EthSpec>(
+pub fn build_or_load_enr(
     local_key: Keypair,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
@@ -167,7 +162,7 @@ pub fn build_or_load_enr<E: EthSpec>(
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
     let enr_key = CombinedKey::from_libp2p(local_key)?;
-    let mut local_enr = build_enr::<E>(
+    let mut local_enr = build_enr(
         &enr_key,
         config,
         enr_fork_id,
@@ -181,7 +176,7 @@ pub fn build_or_load_enr<E: EthSpec>(
 }
 
 /// Builds a lighthouse ENR given a `NetworkConfig`.
-pub fn build_enr<E: EthSpec>(
+pub fn build_enr(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
@@ -275,7 +270,7 @@ pub fn build_enr<E: EthSpec>(
     builder.add_value::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into());
 
     // set the "attnets" field on our ENR
-    let bitfield = BitVector::<E::SubnetBitfieldLength>::new();
+    let bitfield = EnrAttestationBitfield::new();
 
     builder.add_value::<Bytes>(
         ATTESTATION_BITFIELD_ENR_KEY,
@@ -283,7 +278,7 @@ pub fn build_enr<E: EthSpec>(
     );
 
     // set the "syncnets" field on our ENR
-    let bitfield = BitVector::<E::SyncCommitteeSubnetCount>::new();
+    let bitfield = EnrSyncCommitteeBitfield::new();
 
     builder.add_value::<Bytes>(
         SYNC_COMMITTEE_BITFIELD_ENR_KEY,
@@ -364,13 +359,12 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr) {
 mod test {
     use super::*;
     use crate::config::Config as NetworkConfig;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, Spec};
 
-    type E = MainnetEthSpec;
     const TEST_NFD: [u8; 4] = [0x01, 0x02, 0x03, 0x04];
 
     fn make_fulu_spec() -> ChainSpec {
-        let mut spec = E::default_spec();
+        let mut spec = Spec::default_spec();
         spec.fulu_fork_epoch = Some(Epoch::new(10));
         spec
     }
@@ -383,7 +377,7 @@ mod test {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key = CombinedKey::from_secp256k1(&keypair);
         let enr_fork_id = EnrForkId::default();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, cgc, TEST_NFD, spec).unwrap();
+        let enr = build_enr(&enr_key, &config, &enr_fork_id, cgc, TEST_NFD, spec).unwrap();
         (enr, enr_key)
     }
 
@@ -401,16 +395,16 @@ mod test {
         let spec = make_fulu_spec();
         let enr = build_enr_with_config(config, 42, &spec).0;
 
-        assert_eq!(enr.custody_group_count::<E>(&spec).unwrap(), 42);
+        assert_eq!(enr.custody_group_count(&spec).unwrap(), 42);
     }
 
     #[test]
     fn test_encode_decode_eth2_enr() {
-        let (enr, _key) = build_enr_with_config(NetworkConfig::default(), 4, &E::default_spec());
+        let (enr, _key) = build_enr_with_config(NetworkConfig::default(), 4, &Spec::default_spec());
         // Check all Eth2 Mappings are decodeable
         enr.eth2().unwrap();
-        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
-        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
+        enr.attestation_bitfield().unwrap();
+        enr.sync_committee_bitfield().unwrap();
     }
 
     #[test]
@@ -419,7 +413,7 @@ mod test {
         //let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
         let enr = Enr::from_str(enr_str).unwrap();
         enr.eth2().unwrap();
-        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
-        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
+        enr.attestation_bitfield().unwrap();
+        enr.sync_committee_bitfield().unwrap();
     }
 }

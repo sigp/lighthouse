@@ -9,8 +9,6 @@ use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
 use types::{data::FixedBlobSidecarList, *};
 
-type E = MainnetEthSpec;
-
 // Should ideally be divisible by 3.
 const VALIDATOR_COUNT: usize = 24;
 
@@ -21,9 +19,9 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 fn get_harness(
     validator_count: usize,
     spec: Arc<ChainSpec>,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+) -> BeaconChainHarness<EphemeralHarnessType> {
     create_test_tracing_subscriber();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder()
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -42,7 +40,7 @@ fn get_harness(
 // Regression test for https://github.com/sigp/lighthouse/issues/7650
 #[tokio::test]
 async fn rpc_blobs_with_invalid_header_signature() {
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(test_spec());
 
     // Only run this test if blobs are enabled and columns are disabled.
     if spec.deneb_fork_epoch.is_none() || spec.is_fulu_scheduled() {
@@ -51,7 +49,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
 
     let harness = get_harness(VALIDATOR_COUNT, spec);
 
-    let num_blocks = E::slots_per_epoch() as usize;
+    let num_blocks = Spec::SLOTS_PER_EPOCH;
 
     // Add some chain depth.
     harness
@@ -82,7 +80,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
     let max_len = harness
         .chain
         .spec
-        .max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
+        .max_blobs_per_block(slot.epoch(Spec::slots_per_epoch())) as usize;
     let mut blob_sidecars = FixedBlobSidecarList::new(vec![None; max_len]);
     for (i, (kzg_proof, blob)) in kzg_proofs.into_iter().zip(blobs).enumerate() {
         let blob_sidecar = BlobSidecar::new(i, blob, &corrupt_block, kzg_proof).unwrap();

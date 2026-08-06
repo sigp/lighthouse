@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::str::from_utf8;
 use tempfile::TempDir;
-use types::{ChainSpec, Config, EthSpec};
+use types::{ChainSpec, Config};
 
 pub trait CommandLineTestExec {
     type Config: DeserializeOwned;
@@ -144,8 +144,8 @@ impl<C> CompletedTest<C> {
         func(&self.config, &self.dir);
     }
 
-    pub fn with_config_and_spec<E: EthSpec, F: Fn(&C, ChainSpec)>(self, func: F) {
-        let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
+    pub fn with_config_and_spec<F: Fn(&C, ChainSpec)>(self, func: F) {
+        let spec = ChainSpec::from_config(&self.chain_config).unwrap();
         func(&self.config, spec);
     }
 }

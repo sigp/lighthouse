@@ -12,20 +12,20 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::{EthSpec, ForkContext};
+use types::ForkContext;
 /* Outbound request */
 
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone)]
-pub struct OutboundRequestContainer<E: EthSpec> {
-    pub req: RequestType<E>,
+pub struct OutboundRequestContainer {
+    pub req: RequestType,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
 }
 
-impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
+impl UpgradeInfo for OutboundRequestContainer {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -39,14 +39,13 @@ impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, SSZSnappyOutboundCodec<E>>;
+pub type OutboundFramed<TSocket> = Framed<Compat<TSocket>, SSZSnappyOutboundCodec>;
 
-impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
+impl<TSocket> OutboundUpgrade<TSocket> for OutboundRequestContainer
 where
-    E: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = OutboundFramed<TSocket, E>;
+    type Output = OutboundFramed<TSocket>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 

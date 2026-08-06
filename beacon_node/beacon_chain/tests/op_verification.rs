@@ -25,12 +25,11 @@ pub const VALIDATOR_COUNT: usize = 24;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-type E = MinimalEthSpec;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
-type HotColdDB = store::HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>;
+type TestHarness = BeaconChainHarness<DiskHarnessType>;
+type HotColdDB = store::HotColdDB<BeaconNodeBackend, BeaconNodeBackend>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(test_spec());
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let blobs_path = db_path.path().join("blobs_db");
@@ -47,7 +46,7 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
 }
 
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -66,7 +65,7 @@ async fn voluntary_exit() {
 
     harness
         .extend_chain(
-            (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
+            (Spec::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -130,7 +129,7 @@ async fn voluntary_exit_duplicate_in_state() {
 
     harness
         .extend_chain(
-            (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
+            (Spec::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )

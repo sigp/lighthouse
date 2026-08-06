@@ -13,17 +13,16 @@ pub struct Metadata {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct SanitySlots<E: EthSpec> {
+pub struct SanitySlots {
     pub metadata: Metadata,
-    pub pre: BeaconState<E>,
+    pub pre: BeaconState,
     pub slots: u64,
-    pub post: Option<BeaconState<E>>,
+    pub post: Option<BeaconState>,
 }
 
-impl<E: EthSpec> LoadCase for SanitySlots<E> {
+impl LoadCase for SanitySlots {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -48,7 +47,7 @@ impl<E: EthSpec> LoadCase for SanitySlots<E> {
     }
 }
 
-impl<E: EthSpec> Case for SanitySlots<E> {
+impl Case for SanitySlots {
     fn description(&self) -> String {
         self.metadata.description.clone().unwrap_or_default()
     }
@@ -58,7 +57,7 @@ impl<E: EthSpec> Case for SanitySlots<E> {
 
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
 
         // Processing requires the epoch cache.
         state.build_caches(spec).unwrap();

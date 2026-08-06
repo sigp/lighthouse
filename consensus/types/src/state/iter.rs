@@ -1,5 +1,5 @@
 use crate::{
-    core::{EthSpec, Hash256, Slot},
+    core::{Hash256, Slot},
     state::{BeaconState, BeaconStateError},
 };
 
@@ -11,17 +11,17 @@ use crate::{
 /// - Will not return slots prior to the genesis_slot.
 /// - Each call to next will result in a slot one less than the prior one (or `None`).
 /// - Skipped slots will contain the block root from the prior non-skipped slot.
-pub struct BlockRootsIter<'a, E: EthSpec> {
-    state: &'a BeaconState<E>,
+pub struct BlockRootsIter<'a> {
+    state: &'a BeaconState,
     genesis_slot: Slot,
     prev: Slot,
 }
 
-impl<'a, E: EthSpec> BlockRootsIter<'a, E> {
+impl<'a> BlockRootsIter<'a> {
     /// Instantiates a new iterator, returning roots for slots earlier that `state.slot`.
     ///
     /// See the struct-level documentation for more details.
-    pub fn new(state: &'a BeaconState<E>, genesis_slot: Slot) -> Self {
+    pub fn new(state: &'a BeaconState, genesis_slot: Slot) -> Self {
         Self {
             state,
             genesis_slot,
@@ -30,7 +30,7 @@ impl<'a, E: EthSpec> BlockRootsIter<'a, E> {
     }
 }
 
-impl<E: EthSpec> Iterator for BlockRootsIter<'_, E> {
+impl Iterator for BlockRootsIter<'_> {
     type Item = Result<(Slot, Hash256), BeaconStateError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -58,13 +58,11 @@ mod test {
     use crate::*;
     use fixed_bytes::FixedBytesExtended;
 
-    type E = MinimalEthSpec;
-
     fn root_slot(i: usize) -> (Slot, Hash256) {
         (Slot::from(i), Hash256::from_low_u64_be(i as u64))
     }
 
-    fn all_roots(state: &BeaconState<E>, spec: &ChainSpec) -> Vec<(Slot, Hash256)> {
+    fn all_roots(state: &BeaconState, spec: &ChainSpec) -> Vec<(Slot, Hash256)> {
         state
             .rev_iter_block_roots(spec)
             .collect::<Result<_, _>>()
@@ -73,9 +71,9 @@ mod test {
 
     #[test]
     fn block_roots_iter() {
-        let spec = E::default_spec();
+        let spec = Spec::default_spec();
 
-        let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
+        let mut state: BeaconState = BeaconState::new(0, <_>::default(), &spec);
 
         for i in 0..state.block_roots().len() {
             *state.block_roots_mut().get_mut(i).unwrap() = root_slot(i).1;
@@ -120,10 +118,10 @@ mod test {
 
     #[test]
     fn block_roots_iter_non_zero_genesis() {
-        let mut spec = E::default_spec();
+        let mut spec = Spec::default_spec();
         spec.genesis_slot = Slot::new(4);
 
-        let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
+        let mut state: BeaconState = BeaconState::new(0, <_>::default(), &spec);
 
         for i in 0..state.block_roots().len() {
             *state.block_roots_mut().get_mut(i).unwrap() = root_slot(i).1;

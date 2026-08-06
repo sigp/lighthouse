@@ -8,9 +8,10 @@ use std::{borrow::Cow, fmt::Debug, hash::Hash};
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use typenum::U;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
+    core::{Address, ExecutionBlockHash, Hash256, Spec},
     execution::{
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
@@ -31,11 +32,11 @@ pub enum BlockType {
 
 /// A trait representing behavior of an `ExecutionPayload` that either has a full list of transactions
 /// or a transaction hash in it's place.
-pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash + Send {
+pub trait ExecPayload: Debug + Clone + PartialEq + Hash + TreeHash + Send {
     fn block_type() -> BlockType;
 
     /// Convert the payload into a payload header.
-    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<E>;
+    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader;
 
     /// We provide a subset of field accessors, for the fields used in `consensus`.
     ///
@@ -44,11 +45,11 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn prev_randao(&self) -> Hash256;
     fn block_number(&self) -> u64;
     fn timestamp(&self) -> u64;
-    fn extra_data(&self) -> VariableList<u8, E::MaxExtraDataBytes>;
+    fn extra_data(&self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>>;
     fn block_hash(&self) -> ExecutionBlockHash;
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
-    fn transactions(&self) -> Option<&Transactions<E>>;
+    fn transactions(&self) -> Option<&Transactions>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, BeaconStateError>;
     fn blob_gas_used(&self) -> Result<u64, BeaconStateError>;
@@ -62,8 +63,8 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
 
 /// `ExecPayload` functionality the requires ownership.
 #[cfg(feature = "arbitrary")]
-pub trait OwnedExecPayload<E: EthSpec>:
-    ExecPayload<E>
+pub trait OwnedExecPayload:
+    ExecPayload
     + Default
     + Serialize
     + DeserializeOwned
@@ -74,8 +75,8 @@ pub trait OwnedExecPayload<E: EthSpec>:
 {
 }
 #[cfg(feature = "arbitrary")]
-impl<E: EthSpec, P> OwnedExecPayload<E> for P where
-    P: ExecPayload<E>
+impl<P> OwnedExecPayload for P where
+    P: ExecPayload
         + Default
         + Serialize
         + DeserializeOwned
@@ -88,21 +89,21 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
 
 /// `ExecPayload` functionality the requires ownership.
 #[cfg(not(feature = "arbitrary"))]
-pub trait OwnedExecPayload<E: EthSpec>:
-    ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
+pub trait OwnedExecPayload:
+    ExecPayload + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
 {
 }
 #[cfg(not(feature = "arbitrary"))]
-impl<E: EthSpec, P> OwnedExecPayload<E> for P where
-    P: ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
+impl<P> OwnedExecPayload for P where
+    P: ExecPayload + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
 {
 }
 
-pub trait AbstractExecPayload<E: EthSpec>:
-    ExecPayload<E>
+pub trait AbstractExecPayload:
+    ExecPayload
     + Sized
-    + From<ExecutionPayload<E>>
-    + TryFrom<ExecutionPayloadHeader<E>>
+    + From<ExecutionPayload>
+    + TryFrom<ExecutionPayloadHeader>
     + TryInto<Self::Bellatrix>
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
@@ -110,7 +111,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
     + TryInto<Self::Fulu>
     + Sync
 {
-    type Ref<'a>: ExecPayload<E>
+    type Ref<'a>: ExecPayload
         + Copy
         + From<&'a Self::Bellatrix>
         + From<&'a Self::Capella>
@@ -118,58 +119,45 @@ pub trait AbstractExecPayload<E: EthSpec>:
         + From<&'a Self::Electra>
         + From<&'a Self::Fulu>;
 
-    type Bellatrix: OwnedExecPayload<E>
+    type Bellatrix: OwnedExecPayload
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadBellatrix<E>>>
-        + TryFrom<ExecutionPayloadHeaderBellatrix<E>>
+        + for<'a> From<Cow<'a, ExecutionPayloadBellatrix>>
+        + TryFrom<ExecutionPayloadHeaderBellatrix>
         + Sync;
-    type Capella: OwnedExecPayload<E>
+    type Capella: OwnedExecPayload
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadCapella<E>>>
-        + TryFrom<ExecutionPayloadHeaderCapella<E>>
+        + for<'a> From<Cow<'a, ExecutionPayloadCapella>>
+        + TryFrom<ExecutionPayloadHeaderCapella>
         + Sync;
-    type Deneb: OwnedExecPayload<E>
+    type Deneb: OwnedExecPayload
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadDeneb<E>>>
-        + TryFrom<ExecutionPayloadHeaderDeneb<E>>
+        + for<'a> From<Cow<'a, ExecutionPayloadDeneb>>
+        + TryFrom<ExecutionPayloadHeaderDeneb>
         + Sync;
-    type Electra: OwnedExecPayload<E>
+    type Electra: OwnedExecPayload
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadElectra<E>>>
-        + TryFrom<ExecutionPayloadHeaderElectra<E>>
+        + for<'a> From<Cow<'a, ExecutionPayloadElectra>>
+        + TryFrom<ExecutionPayloadHeaderElectra>
         + Sync;
-    type Fulu: OwnedExecPayload<E>
+    type Fulu: OwnedExecPayload
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadFulu<E>>>
-        + TryFrom<ExecutionPayloadHeaderFulu<E>>
+        + for<'a> From<Cow<'a, ExecutionPayloadFulu>>
+        + TryFrom<ExecutionPayloadHeaderFulu>
         + Sync;
 }
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TreeHash,
-            Educe,
-        ),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe,),
+        educe(PartialEq, Hash),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
         derive(Debug, Educe, TreeHash),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
+        educe(PartialEq, Hash),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayload),
@@ -183,41 +171,36 @@ pub trait AbstractExecPayload<E: EthSpec>:
         expr = "BeaconStateError::IncorrectStateVariant"
     )
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec")]
+#[educe(PartialEq, Hash)]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct FullPayload<E: EthSpec> {
+pub struct FullPayload {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
     )]
-    pub execution_payload: ExecutionPayloadBellatrix<E>,
+    pub execution_payload: ExecutionPayloadBellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<E>,
+    pub execution_payload: ExecutionPayloadCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<E>,
+    pub execution_payload: ExecutionPayloadDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
-    pub execution_payload: ExecutionPayloadElectra<E>,
+    pub execution_payload: ExecutionPayloadElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
-    pub execution_payload: ExecutionPayloadFulu<E>,
+    pub execution_payload: ExecutionPayloadFulu,
 }
 
-impl<E: EthSpec> From<FullPayload<E>> for ExecutionPayload<E> {
-    fn from(full_payload: FullPayload<E>) -> Self {
+impl From<FullPayload> for ExecutionPayload {
+    fn from(full_payload: FullPayload) -> Self {
         map_full_payload_into_execution_payload!(full_payload, move |payload, cons| {
             cons(payload.execution_payload)
         })
     }
 }
 
-impl<'a, E: EthSpec> From<FullPayloadRef<'a, E>> for ExecutionPayload<E> {
-    fn from(full_payload_ref: FullPayloadRef<'a, E>) -> Self {
+impl<'a> From<FullPayloadRef<'a>> for ExecutionPayload {
+    fn from(full_payload_ref: FullPayloadRef<'a>) -> Self {
         map_full_payload_ref!(&'a _, full_payload_ref, move |payload, cons| {
             cons(payload);
             payload.execution_payload.clone().into()
@@ -225,8 +208,8 @@ impl<'a, E: EthSpec> From<FullPayloadRef<'a, E>> for ExecutionPayload<E> {
     }
 }
 
-impl<'a, E: EthSpec> From<FullPayloadRef<'a, E>> for FullPayload<E> {
-    fn from(full_payload_ref: FullPayloadRef<'a, E>) -> Self {
+impl<'a> From<FullPayloadRef<'a>> for FullPayload {
+    fn from(full_payload_ref: FullPayloadRef<'a>) -> Self {
         map_full_payload_ref!(&'a _, full_payload_ref, move |payload, cons| {
             cons(payload);
             payload.clone().into()
@@ -234,15 +217,15 @@ impl<'a, E: EthSpec> From<FullPayloadRef<'a, E>> for FullPayload<E> {
     }
 }
 
-impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
+impl ExecPayload for FullPayload {
     fn block_type() -> BlockType {
         BlockType::Full
     }
 
-    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<E> {
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader {
         map_full_payload_ref!(&'a _, self.to_ref(), move |inner, cons| {
             cons(inner);
-            let exec_payload_ref: ExecutionPayloadRef<'a, E> = From::from(&inner.execution_payload);
+            let exec_payload_ref: ExecutionPayloadRef<'a> = From::from(&inner.execution_payload);
             ExecutionPayloadHeader::from(exec_payload_ref)
         })
     }
@@ -275,7 +258,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         })
     }
 
-    fn extra_data<'a>(&'a self) -> VariableList<u8, E::MaxExtraDataBytes> {
+    fn extra_data<'a>(&'a self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             payload.execution_payload.extra_data.clone()
@@ -303,7 +286,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&'a Transactions<E>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions> {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
@@ -344,8 +327,8 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
     }
 }
 
-impl<E: EthSpec> FullPayload<E> {
-    pub fn execution_payload(self) -> ExecutionPayload<E> {
+impl FullPayload {
+    pub fn execution_payload(self) -> ExecutionPayload {
         map_full_payload_into_execution_payload!(self, |inner, cons| {
             cons(inner.execution_payload)
         })
@@ -364,20 +347,20 @@ impl<E: EthSpec> FullPayload<E> {
     }
 }
 
-impl<'a, E: EthSpec> FullPayloadRef<'a, E> {
-    pub fn execution_payload_ref(self) -> ExecutionPayloadRef<'a, E> {
+impl<'a> FullPayloadRef<'a> {
+    pub fn execution_payload_ref(self) -> ExecutionPayloadRef<'a> {
         map_full_payload_ref_into_execution_payload_ref!(&'a _, self, |inner, cons| {
             cons(&inner.execution_payload)
         })
     }
 }
 
-impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
+impl ExecPayload for FullPayloadRef<'_> {
     fn block_type() -> BlockType {
         BlockType::Full
     }
 
-    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<E> {
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.to_execution_payload_header()
@@ -412,7 +395,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
         })
     }
 
-    fn extra_data<'a>(&'a self) -> VariableList<u8, E::MaxExtraDataBytes> {
+    fn extra_data<'a>(&'a self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload.extra_data.clone()
@@ -440,7 +423,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&'a Transactions<E>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
@@ -487,26 +470,26 @@ impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
     }
 }
 
-impl<E: EthSpec> AbstractExecPayload<E> for FullPayload<E> {
-    type Ref<'a> = FullPayloadRef<'a, E>;
-    type Bellatrix = FullPayloadBellatrix<E>;
-    type Capella = FullPayloadCapella<E>;
-    type Deneb = FullPayloadDeneb<E>;
-    type Electra = FullPayloadElectra<E>;
-    type Fulu = FullPayloadFulu<E>;
+impl AbstractExecPayload for FullPayload {
+    type Ref<'a> = FullPayloadRef<'a>;
+    type Bellatrix = FullPayloadBellatrix;
+    type Capella = FullPayloadCapella;
+    type Deneb = FullPayloadDeneb;
+    type Electra = FullPayloadElectra;
+    type Fulu = FullPayloadFulu;
 }
 
-impl<E: EthSpec> From<ExecutionPayload<E>> for FullPayload<E> {
-    fn from(execution_payload: ExecutionPayload<E>) -> Self {
+impl From<ExecutionPayload> for FullPayload {
+    fn from(execution_payload: ExecutionPayload) -> Self {
         map_execution_payload_into_full_payload!(execution_payload, |inner, cons| {
             cons(inner.into())
         })
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
+impl TryFrom<ExecutionPayloadHeader> for FullPayload {
     type Error = ();
-    fn try_from(_: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(_: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         Err(())
     }
 }
@@ -514,28 +497,15 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TreeHash,
-            Educe,
-        ),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe,),
+        educe(PartialEq, Hash),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
         derive(Debug, Educe, TreeHash),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
+        educe(PartialEq, Hash),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayloadHeader),
@@ -548,33 +518,28 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
         expr = "BeaconStateError::IncorrectStateVariant"
     )
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec")]
+#[educe(PartialEq, Hash)]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BlindedPayload<E: EthSpec> {
+pub struct BlindedPayload {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
     )]
-    pub execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
+    pub execution_payload_header: ExecutionPayloadHeaderBellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload_header: ExecutionPayloadHeaderCapella<E>,
+    pub execution_payload_header: ExecutionPayloadHeaderCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
+    pub execution_payload_header: ExecutionPayloadHeaderDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
-    pub execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    pub execution_payload_header: ExecutionPayloadHeaderElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
-    pub execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    pub execution_payload_header: ExecutionPayloadHeaderFulu,
 }
 
-impl<'a, E: EthSpec> From<BlindedPayloadRef<'a, E>> for BlindedPayload<E> {
-    fn from(blinded_payload_ref: BlindedPayloadRef<'a, E>) -> Self {
+impl<'a> From<BlindedPayloadRef<'a>> for BlindedPayload {
+    fn from(blinded_payload_ref: BlindedPayloadRef<'a>) -> Self {
         map_blinded_payload_ref!(&'a _, blinded_payload_ref, move |payload, cons| {
             cons(payload);
             payload.clone().into()
@@ -582,12 +547,12 @@ impl<'a, E: EthSpec> From<BlindedPayloadRef<'a, E>> for BlindedPayload<E> {
     }
 }
 
-impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
+impl ExecPayload for BlindedPayload {
     fn block_type() -> BlockType {
         BlockType::Blinded
     }
 
-    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<E> {
+    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader {
         map_blinded_payload_into_execution_payload_header!(self.clone(), |inner, cons| {
             cons(inner.execution_payload_header)
         })
@@ -621,7 +586,7 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
         })
     }
 
-    fn extra_data<'a>(&'a self) -> VariableList<u8, <E as EthSpec>::MaxExtraDataBytes> {
+    fn extra_data<'a>(&'a self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
         map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             payload.execution_payload_header.extra_data.clone()
@@ -649,7 +614,7 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
         })
     }
 
-    fn transactions(&self) -> Option<&Transactions<E>> {
+    fn transactions(&self) -> Option<&Transactions> {
         None
     }
 
@@ -687,12 +652,12 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
     }
 }
 
-impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
+impl<'b> ExecPayload for BlindedPayloadRef<'b> {
     fn block_type() -> BlockType {
         BlockType::Blinded
     }
 
-    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<E> {
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader {
         map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.to_execution_payload_header()
@@ -727,7 +692,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
         })
     }
 
-    fn extra_data<'a>(&'a self) -> VariableList<u8, <E as EthSpec>::MaxExtraDataBytes> {
+    fn extra_data<'a>(&'a self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
         map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload_header.extra_data.clone()
@@ -755,7 +720,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
         })
     }
 
-    fn transactions(&self) -> Option<&Transactions<E>> {
+    fn transactions(&self) -> Option<&Transactions> {
         None
     }
 
@@ -811,12 +776,12 @@ macro_rules! impl_exec_payload_common {
      $f:block,
      $g:block,
      $h:block) => {
-        impl<E: EthSpec> ExecPayload<E> for $wrapper_type<E> {
+        impl ExecPayload for $wrapper_type {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
             }
 
-            fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<E> {
+            fn to_execution_payload_header(&self) -> ExecutionPayloadHeader {
                 ExecutionPayloadHeader::$fork_variant($wrapped_type_header::from(
                     &self.$wrapped_field,
                 ))
@@ -838,7 +803,7 @@ macro_rules! impl_exec_payload_common {
                 self.$wrapped_field.timestamp
             }
 
-            fn extra_data(&self) -> VariableList<u8, E::MaxExtraDataBytes> {
+            fn extra_data(&self) -> VariableList<u8, U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
                 self.$wrapped_field.extra_data.clone()
             }
 
@@ -863,7 +828,7 @@ macro_rules! impl_exec_payload_common {
                 f(self)
             }
 
-            fn transactions(&self) -> Option<&Transactions<E>> {
+            fn transactions(&self) -> Option<&Transactions> {
                 let f = $f;
                 f(self)
             }
@@ -879,8 +844,8 @@ macro_rules! impl_exec_payload_common {
             }
         }
 
-        impl<E: EthSpec> From<$wrapped_type<E>> for $wrapper_type<E> {
-            fn from($wrapped_field: $wrapped_type<E>) -> Self {
+        impl From<$wrapped_type> for $wrapper_type {
+            fn from($wrapped_field: $wrapped_type) -> Self {
                 Self { $wrapped_field }
             }
         }
@@ -901,24 +866,23 @@ macro_rules! impl_exec_payload_for_fork {
             $fork_variant, // Bellatrix
             Blinded,
             {
-                |wrapper: &$wrapper_type_header<E>| {
+                |wrapper: &$wrapper_type_header| {
                     wrapper.execution_payload_header
                         == $wrapped_type_header::from(&$wrapped_type_full::default())
                 }
             },
             { |_| { None } },
             {
-                let c: for<'a> fn(
-                    &'a $wrapper_type_header<E>,
-                ) -> Result<Hash256, BeaconStateError> = |payload: &$wrapper_type_header<E>| {
-                    let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
-                    wrapper_ref_type.withdrawals_root()
-                };
+                let c: for<'a> fn(&'a $wrapper_type_header) -> Result<Hash256, BeaconStateError> =
+                    |payload: &$wrapper_type_header| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.withdrawals_root()
+                    };
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_header<E>) -> Result<u64, BeaconStateError> =
-                    |payload: &$wrapper_type_header<E>| {
+                let c: for<'a> fn(&'a $wrapper_type_header) -> Result<u64, BeaconStateError> =
+                    |payload: &$wrapper_type_header| {
                         let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.blob_gas_used()
                     };
@@ -926,10 +890,10 @@ macro_rules! impl_exec_payload_for_fork {
             }
         );
 
-        impl<E: EthSpec> TryInto<$wrapper_type_header<E>> for BlindedPayload<E> {
+        impl TryInto<$wrapper_type_header> for BlindedPayload {
             type Error = BeaconStateError;
 
-            fn try_into(self) -> Result<$wrapper_type_header<E>, Self::Error> {
+            fn try_into(self) -> Result<$wrapper_type_header, Self::Error> {
                 match self {
                     BlindedPayload::$fork_variant(payload) => Ok(payload),
                     _ => Err(BeaconStateError::IncorrectStateVariant),
@@ -944,7 +908,7 @@ macro_rules! impl_exec_payload_for_fork {
         // The default `BlindedPayload` is therefore the payload header that results from blinding the
         // default `ExecutionPayload`, which differs from the default `ExecutionPayloadHeader` in that
         // its `transactions_root` is the hash of the empty list rather than 0x0.
-        impl<E: EthSpec> Default for $wrapper_type_header<E> {
+        impl Default for $wrapper_type_header {
             fn default() -> Self {
                 Self {
                     execution_payload_header: $wrapped_type_header::from(
@@ -954,9 +918,9 @@ macro_rules! impl_exec_payload_for_fork {
             }
         }
 
-        impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for $wrapper_type_header<E> {
+        impl TryFrom<ExecutionPayloadHeader> for $wrapper_type_header {
             type Error = BeaconStateError;
-            fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+            fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
                 match header {
                     ExecutionPayloadHeader::$fork_variant(execution_payload_header) => {
                         Ok(execution_payload_header.into())
@@ -967,8 +931,8 @@ macro_rules! impl_exec_payload_for_fork {
         }
 
         // BlindedPayload* from CoW reference to ExecutionPayload* (hopefully just a reference).
-        impl<'a, E: EthSpec> From<Cow<'a, $wrapped_type_full<E>>> for $wrapper_type_header<E> {
-            fn from(execution_payload: Cow<'a, $wrapped_type_full<E>>) -> Self {
+        impl<'a> From<Cow<'a, $wrapped_type_full>> for $wrapper_type_header {
+            fn from(execution_payload: Cow<'a, $wrapped_type_full>) -> Self {
                 Self {
                     execution_payload_header: $wrapped_type_header::from(&*execution_payload),
                 }
@@ -986,26 +950,26 @@ macro_rules! impl_exec_payload_for_fork {
             $fork_variant, // Bellatrix
             Full,
             {
-                |wrapper: &$wrapper_type_full<E>| {
+                |wrapper: &$wrapper_type_full| {
                     wrapper.execution_payload == $wrapped_type_full::default()
                 }
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_full<E>) -> Option<&'a Transactions<E>> =
-                    |payload: &$wrapper_type_full<E>| Some(&payload.execution_payload.transactions);
+                let c: for<'a> fn(&'a $wrapper_type_full) -> Option<&'a Transactions> =
+                    |payload: &$wrapper_type_full| Some(&payload.execution_payload.transactions);
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_full<E>) -> Result<Hash256, BeaconStateError> =
-                    |payload: &$wrapper_type_full<E>| {
+                let c: for<'a> fn(&'a $wrapper_type_full) -> Result<Hash256, BeaconStateError> =
+                    |payload: &$wrapper_type_full| {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.withdrawals_root()
                     };
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_full<E>) -> Result<u64, BeaconStateError> =
-                    |payload: &$wrapper_type_full<E>| {
+                let c: for<'a> fn(&'a $wrapper_type_full) -> Result<u64, BeaconStateError> =
+                    |payload: &$wrapper_type_full| {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.blob_gas_used()
                     };
@@ -1013,7 +977,7 @@ macro_rules! impl_exec_payload_for_fork {
             }
         );
 
-        impl<E: EthSpec> Default for $wrapper_type_full<E> {
+        impl Default for $wrapper_type_full {
             fn default() -> Self {
                 Self {
                     execution_payload: $wrapped_type_full::default(),
@@ -1022,32 +986,32 @@ macro_rules! impl_exec_payload_for_fork {
         }
 
         // FullPayload * from CoW reference to ExecutionPayload* (hopefully already owned).
-        impl<'a, E: EthSpec> From<Cow<'a, $wrapped_type_full<E>>> for $wrapper_type_full<E> {
-            fn from(execution_payload: Cow<'a, $wrapped_type_full<E>>) -> Self {
+        impl<'a> From<Cow<'a, $wrapped_type_full>> for $wrapper_type_full {
+            fn from(execution_payload: Cow<'a, $wrapped_type_full>) -> Self {
                 Self {
                     execution_payload: $wrapped_type_full::from(execution_payload.into_owned()),
                 }
             }
         }
 
-        impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for $wrapper_type_full<E> {
+        impl TryFrom<ExecutionPayloadHeader> for $wrapper_type_full {
             type Error = BeaconStateError;
-            fn try_from(_: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+            fn try_from(_: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
                 Err(BeaconStateError::PayloadConversionLogicFlaw)
             }
         }
 
-        impl<E: EthSpec> TryFrom<$wrapped_type_header<E>> for $wrapper_type_full<E> {
+        impl TryFrom<$wrapped_type_header> for $wrapper_type_full {
             type Error = BeaconStateError;
-            fn try_from(_: $wrapped_type_header<E>) -> Result<Self, Self::Error> {
+            fn try_from(_: $wrapped_type_header) -> Result<Self, Self::Error> {
                 Err(BeaconStateError::PayloadConversionLogicFlaw)
             }
         }
 
-        impl<E: EthSpec> TryInto<$wrapper_type_full<E>> for FullPayload<E> {
+        impl TryInto<$wrapper_type_full> for FullPayload {
             type Error = BeaconStateError;
 
-            fn try_into(self) -> Result<$wrapper_type_full<E>, Self::Error> {
+            fn try_into(self) -> Result<$wrapper_type_full, Self::Error> {
                 match self {
                     FullPayload::$fork_variant(payload) => Ok(payload),
                     _ => Err(BeaconStateError::PayloadConversionLogicFlaw),
@@ -1093,17 +1057,17 @@ impl_exec_payload_for_fork!(
     Fulu
 );
 
-impl<E: EthSpec> AbstractExecPayload<E> for BlindedPayload<E> {
-    type Ref<'a> = BlindedPayloadRef<'a, E>;
-    type Bellatrix = BlindedPayloadBellatrix<E>;
-    type Capella = BlindedPayloadCapella<E>;
-    type Deneb = BlindedPayloadDeneb<E>;
-    type Electra = BlindedPayloadElectra<E>;
-    type Fulu = BlindedPayloadFulu<E>;
+impl AbstractExecPayload for BlindedPayload {
+    type Ref<'a> = BlindedPayloadRef<'a>;
+    type Bellatrix = BlindedPayloadBellatrix;
+    type Capella = BlindedPayloadCapella;
+    type Deneb = BlindedPayloadDeneb;
+    type Electra = BlindedPayloadElectra;
+    type Fulu = BlindedPayloadFulu;
 }
 
-impl<E: EthSpec> From<ExecutionPayload<E>> for BlindedPayload<E> {
-    fn from(payload: ExecutionPayload<E>) -> Self {
+impl From<ExecutionPayload> for BlindedPayload {
+    fn from(payload: ExecutionPayload) -> Self {
         // This implementation is a bit wasteful in that it discards the payload body.
         // Required by the top-level constraint on AbstractExecPayload but could maybe be loosened
         // in future.
@@ -1113,8 +1077,8 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for BlindedPayload<E> {
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
-    fn from(execution_payload_header: ExecutionPayloadHeader<E>) -> Self {
+impl From<ExecutionPayloadHeader> for BlindedPayload {
+    fn from(execution_payload_header: ExecutionPayloadHeader) -> Self {
         match execution_payload_header {
             ExecutionPayloadHeader::Bellatrix(execution_payload_header) => {
                 Self::Bellatrix(BlindedPayloadBellatrix {
@@ -1145,8 +1109,8 @@ impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
     }
 }
 
-impl<E: EthSpec> From<BlindedPayload<E>> for ExecutionPayloadHeader<E> {
-    fn from(blinded: BlindedPayload<E>) -> Self {
+impl From<BlindedPayload> for ExecutionPayloadHeader {
+    fn from(blinded: BlindedPayload) -> Self {
         match blinded {
             BlindedPayload::Bellatrix(blinded_payload) => {
                 ExecutionPayloadHeader::Bellatrix(blinded_payload.execution_payload_header)

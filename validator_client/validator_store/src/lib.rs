@@ -6,12 +6,12 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, ExecutionPayloadEnvelope,
+    Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences,
+    SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedValidatorRegistrationData,
+    SingleAttestation, Slot, SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof,
+    SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,10 +42,10 @@ pub struct AttestationToSign {
 }
 
 /// Input for batch aggregate signing
-pub struct AggregateToSign<E: EthSpec> {
+pub struct AggregateToSign {
     pub pubkey: PublicKeyBytes,
     pub aggregator_index: u64,
-    pub aggregate: Attestation<E>,
+    pub aggregate: Attestation,
     pub selection_proof: SelectionProof,
 }
 
@@ -58,10 +58,10 @@ pub struct SyncMessageToSign {
 }
 
 /// Input for batch sync committee contribution signing
-pub struct ContributionToSign<E: EthSpec> {
+pub struct ContributionToSign {
     pub aggregator_index: u64,
     pub aggregator_pubkey: PublicKeyBytes,
-    pub contribution: SyncCommitteeContribution<E>,
+    pub contribution: SyncCommitteeContribution,
     pub selection_proof: SyncSelectionProof,
 }
 
@@ -75,7 +75,6 @@ pub struct ProposalData {
 
 pub trait ValidatorStore: Send + Sync {
     type Error: Debug + Send + Sync;
-    type E: EthSpec;
 
     /// Attempts to resolve the pubkey to a validator index.
     ///
@@ -133,9 +132,9 @@ pub trait ValidatorStore: Send + Sync {
     fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: UnsignedBlock<Self::E>,
+        block: UnsignedBlock,
         current_slot: Slot,
-    ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<SignedBlock, Error<Self::Error>>> + Send;
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
     ///
@@ -170,8 +169,8 @@ pub trait ValidatorStore: Send + Sync {
     /// Sign a batch of aggregate and proofs and return results as a stream of batches.
     fn sign_aggregate_and_proofs(
         self: &Arc<Self>,
-        aggregates: Vec<AggregateToSign<Self::E>>,
-    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof<Self::E>>, Error<Self::Error>>> + Send;
+        aggregates: Vec<AggregateToSign>,
+    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof>, Error<Self::Error>>> + Send;
 
     /// Sign a batch of sync committee messages and return results as a stream of batches.
     fn sign_sync_committee_signatures(
@@ -182,8 +181,8 @@ pub trait ValidatorStore: Send + Sync {
     /// Sign a batch of sync committee contributions and return results as a stream of batches.
     fn sign_sync_committee_contributions(
         self: &Arc<Self>,
-        contributions: Vec<ContributionToSign<Self::E>>,
-    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof<Self::E>>, Error<Self::Error>>> + Send;
+        contributions: Vec<ContributionToSign>,
+    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof>, Error<Self::Error>>> + Send;
 
     /// Prune the slashing protection database so that it remains performant.
     ///
@@ -196,8 +195,8 @@ pub trait ValidatorStore: Send + Sync {
     fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
-        envelope: ExecutionPayloadEnvelope<Self::E>,
-    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelope<Self::E>, Error<Self::Error>>> + Send;
+        envelope: ExecutionPayloadEnvelope,
+    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelope, Error<Self::Error>>> + Send;
 
     /// Sign a `PayloadAttestationData` for the PTC.
     fn sign_payload_attestation(
@@ -220,12 +219,12 @@ pub trait ValidatorStore: Send + Sync {
 }
 
 #[derive(Debug)]
-pub enum UnsignedBlock<E: EthSpec> {
-    Full(FullBlockContents<E>),
-    Blinded(BlindedBeaconBlock<E>),
+pub enum UnsignedBlock {
+    Full(FullBlockContents),
+    Blinded(BlindedBeaconBlock),
 }
 
-impl<E: EthSpec> UnsignedBlock<E> {
+impl UnsignedBlock {
     /// The canonical root of this beacon block (identical for the full and blinded forms).
     ///
     /// This is the root of the block *this node produced*, which the local beacon node keys its
@@ -240,9 +239,9 @@ impl<E: EthSpec> UnsignedBlock<E> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum SignedBlock<E: EthSpec> {
-    Full(PublishBlockRequest<E>),
-    Blinded(Arc<SignedBlindedBeaconBlock<E>>),
+pub enum SignedBlock {
+    Full(PublishBlockRequest),
+    Blinded(Arc<SignedBlindedBeaconBlock>),
 }
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator

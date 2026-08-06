@@ -6,7 +6,7 @@ use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, Spec};
 
 use crate::exit_validators::get_current_epoch;
 use crate::{DumpConfig, common::vc_http_client};
@@ -103,20 +103,17 @@ impl ListConfig {
     }
 }
 
-pub async fn cli_run<E: EthSpec>(
-    matches: &ArgMatches,
-    dump_config: DumpConfig,
-) -> Result<(), String> {
+pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
     let config = ListConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        run::<E>(config).await?;
+        run(config).await?;
         Ok(())
     }
 }
 
-async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreResponse>, String> {
+async fn run(config: ListConfig) -> Result<Vec<SingleKeystoreResponse>, String> {
     let ListConfig {
         vc_url,
         vc_token_path,
@@ -165,10 +162,10 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
                         .map_err(|e| format!("Failed to get config spec: {}", e))?
                         .data;
 
-                    let spec = ChainSpec::from_config::<E>(config_and_preset.config())
+                    let spec = ChainSpec::from_config(config_and_preset.config())
                         .ok_or("Failed to create chain spec")?;
 
-                    let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, &spec)
+                    let current_epoch = get_current_epoch(genesis_data.genesis_time, &spec)
                         .ok_or("Failed to get current epoch. Please check your system time")?;
 
                     eprintln!(
@@ -187,7 +184,7 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
                         "Exit epoch in approximately {} secs",
                         (exit_epoch - current_epoch)
                             * spec.get_slot_duration().as_secs()
-                            * E::slots_per_epoch()
+                            * Spec::slots_per_epoch()
                     );
                 }
                 ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {
@@ -225,9 +222,7 @@ mod test {
     use crate::{
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
-    use types::MainnetEthSpec;
     use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
-    type E = MainnetEthSpec;
 
     struct TestBuilder {
         list_config: Option<ListConfig>,
@@ -294,7 +289,7 @@ mod test {
                 .write_all(self.vc_token.clone().unwrap().as_bytes())
                 .unwrap();
 
-            let result = run::<E>(self.list_config.clone().unwrap()).await;
+            let result = run(self.list_config.clone().unwrap()).await;
 
             if let Ok(result_ref) = &result {
                 for local_validator in &self.validators {

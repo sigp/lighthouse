@@ -31,11 +31,10 @@ use std::collections::{
     btree_map::{BTreeMap, Entry},
 };
 use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
-use types::{Epoch, EthSpec};
+use types::{Epoch, Spec};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -55,18 +54,16 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
 
-type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
+type RpcBlocks = Vec<RangeSyncBlock>;
 
-type BackFillBatchInfo<E> = BatchInfo<E, BackFillBatchConfig<E>, RpcBlocks<E>>;
+type BackFillBatchInfo = BatchInfo<BackFillBatchConfig, RpcBlocks>;
 
-type BackFillSyncBatches<E> = BTreeMap<BatchId, BackFillBatchInfo<E>>;
+type BackFillSyncBatches = BTreeMap<BatchId, BackFillBatchInfo>;
 
 /// Custom configuration for the batch object.
-struct BackFillBatchConfig<E: EthSpec> {
-    marker: PhantomData<E>,
-}
+struct BackFillBatchConfig {}
 
-impl<E: EthSpec> BatchConfig for BackFillBatchConfig<E> {
+impl BatchConfig for BackFillBatchConfig {
     fn max_batch_download_attempts() -> u8 {
         MAX_BATCH_DOWNLOAD_ATTEMPTS
     }
@@ -133,7 +130,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     last_batch_downloaded: bool,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BackFillSyncBatches<T::EthSpec>,
+    batches: BackFillSyncBatches,
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
@@ -156,14 +153,11 @@ pub struct BackFillSync<T: BeaconChainTypes> {
 
     /// Reference to the network globals in order to obtain valid peers to backfill blocks from
     /// (i.e synced peers).
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    network_globals: Arc<NetworkGlobals>,
 }
 
 impl<T: BeaconChainTypes> BackFillSync<T> {
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    ) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, network_globals: Arc<NetworkGlobals>) -> Self {
         // Determine if backfill is enabled or not.
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
@@ -174,9 +168,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             } else {
                 (
                     BackFillState::Paused,
-                    anchor_info
-                        .oldest_block_slot
-                        .epoch(T::EthSpec::slots_per_epoch()),
+                    anchor_info.oldest_block_slot.epoch(Spec::slots_per_epoch()),
                 )
             };
 
@@ -276,10 +268,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         Ok(SyncStart::Syncing {
             completed: (self.validated_batches
                 * BACKFILL_EPOCHS_PER_BATCH
-                * T::EthSpec::slots_per_epoch()) as usize,
+                * Spec::slots_per_epoch()) as usize,
             remaining: self
                 .current_start
-                .start_slot(T::EthSpec::slots_per_epoch())
+                .start_slot(Spec::slots_per_epoch())
                 .saturating_sub(self.beacon_chain.genesis_backfill_slot)
                 .as_usize(),
         })
@@ -373,7 +365,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
@@ -589,7 +581,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 if self.check_completed() {
                     // chain is completed
                     info!(
-                        blocks_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
+                        blocks_processed = self.validated_batches * Spec::slots_per_epoch(),
                         "Backfill sync completed"
                     );
                     self.set_state(BackFillState::Completed);
@@ -998,7 +990,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BackFillBatchInfo<T::EthSpec>| {
+        let in_buffer = |batch: &BackFillBatchInfo| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
@@ -1088,9 +1080,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
             Err(ResetEpochError::SyncCompleted)
         } else {
-            self.current_start = anchor_info
-                .oldest_block_slot
-                .epoch(T::EthSpec::slots_per_epoch());
+            self.current_start = anchor_info.oldest_block_slot.epoch(Spec::slots_per_epoch());
             Ok(())
         }
     }
@@ -1116,7 +1106,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             <= self
                 .beacon_chain
                 .genesis_backfill_slot
-                .epoch(T::EthSpec::slots_per_epoch())
+                .epoch(Spec::slots_per_epoch())
     }
 
     pub fn register_metrics(&self) {
@@ -1150,7 +1140,7 @@ enum ResetEpochError {
     SyncCompleted,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 mod tests {
     use super::*;
     use beacon_chain::test_utils::BeaconChainHarness;
@@ -1158,18 +1148,18 @@ mod tests {
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
     use rand_08::SeedableRng;
     use rand_08::prelude::StdRng;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
     #[test]
     fn request_batches_should_not_loop_infinitely() {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder()
             .default_spec()
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 
         let beacon_chain = harness.chain.clone();
-        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+        let slots_per_epoch = Spec::slots_per_epoch();
 
         let network_globals = Arc::new(NetworkGlobals::new_test_globals(
             vec![],

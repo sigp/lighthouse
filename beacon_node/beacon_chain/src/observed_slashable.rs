@@ -4,9 +4,7 @@
 use crate::observed_block_producers::Error;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use typenum::Unsigned;
-use types::{EthSpec, Hash256, Slot};
+use types::{Hash256, Slot, Spec};
 
 #[derive(Eq, Hash, PartialEq, Debug, Default)]
 pub struct ProposalKey {
@@ -25,24 +23,22 @@ pub struct ProposalKey {
 /// blocks reduces the theoretical maximum size of this cache to `slots_since_finality *
 /// active_validator_count`, however in reality that is more like `slots_since_finality *
 /// known_distinct_shufflings` which is much smaller.
-pub struct ObservedSlashable<E: EthSpec> {
+pub struct ObservedSlashable {
     finalized_slot: Slot,
     items: HashMap<ProposalKey, HashSet<Hash256>>,
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Default for ObservedSlashable<E> {
+impl Default for ObservedSlashable {
     /// Instantiates `Self` with `finalized_slot == 0`.
     fn default() -> Self {
         Self {
             finalized_slot: Slot::new(0),
             items: HashMap::new(),
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<E: EthSpec> ObservedSlashable<E> {
+impl ObservedSlashable {
     /// Observe that the `header` was produced by `header.proposer_index` at `header.slot`. This will
     /// update `self` so future calls to it indicate that this block is known.
     ///
@@ -114,7 +110,7 @@ impl<E: EthSpec> ObservedSlashable<E> {
 
     /// Returns `Ok(())` if the given `header` is sane.
     fn sanitize_header(&self, slot: Slot, proposer_index: u64) -> Result<(), Error> {
-        if proposer_index >= E::ValidatorRegistryLimit::to_u64() {
+        if proposer_index >= Spec::validator_registry_limit() {
             return Err(Error::ValidatorIndexTooHigh(proposer_index));
         }
 
@@ -148,12 +144,10 @@ impl<E: EthSpec> ObservedSlashable<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconBlock, Graffiti, MainnetEthSpec};
+    use types::{BeaconBlock, Graffiti};
 
-    type E = MainnetEthSpec;
-
-    fn get_block(slot: u64, proposer: u64) -> BeaconBlock<E> {
-        let mut block = BeaconBlock::empty(&E::default_spec());
+    fn get_block(slot: u64, proposer: u64) -> BeaconBlock {
+        let mut block = BeaconBlock::empty(&Spec::default_spec());
         *block.slot_mut() = slot.into();
         *block.proposer_index_mut() = proposer;
         block
@@ -161,7 +155,7 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let mut cache = ObservedSlashable::<E>::default();
+        let mut cache = ObservedSlashable::default();
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 0, "no slots should be present");
@@ -217,10 +211,10 @@ mod tests {
         /*
          * Check that a prune empties the cache
          */
-        cache.prune(E::slots_per_epoch().into());
+        cache.prune((Spec::slots_per_epoch()).into());
         assert_eq!(
             cache.finalized_slot,
-            Slot::from(E::slots_per_epoch()),
+            Slot::from(Spec::slots_per_epoch()),
             "finalized slot is updated"
         );
         assert_eq!(cache.items.len(), 0, "no items left");
@@ -229,14 +223,14 @@ mod tests {
          * Check that we can't insert a finalized block
          */
         // First slot of finalized epoch, proposer 0
-        let block_b = get_block(E::slots_per_epoch(), 0);
+        let block_b = get_block(Spec::slots_per_epoch(), 0);
         let block_root_b = block_b.canonical_root();
 
         assert_eq!(
             cache.observe_slashable(block_b.slot(), block_b.proposer_index(), block_root_b),
             Err(Error::FinalizedBlock {
-                slot: E::slots_per_epoch().into(),
-                finalized_slot: E::slots_per_epoch().into(),
+                slot: (Spec::slots_per_epoch()).into(),
+                finalized_slot: (Spec::slots_per_epoch()).into(),
             }),
             "cant insert finalized block"
         );
@@ -246,7 +240,7 @@ mod tests {
         /*
          * Check that we _can_ insert a non-finalized block
          */
-        let three_epochs = E::slots_per_epoch() * 3;
+        let three_epochs = Spec::slots_per_epoch() * 3;
 
         // First slot of finalized epoch, proposer 0
         let block_b = get_block(three_epochs, 0);
@@ -274,7 +268,7 @@ mod tests {
         /*
          * Check that a prune doesnt wipe later blocks
          */
-        let two_epochs = E::slots_per_epoch() * 2;
+        let two_epochs = Spec::slots_per_epoch() * 2;
         cache.prune(two_epochs.into());
 
         assert_eq!(
@@ -300,7 +294,7 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let mut cache = ObservedSlashable::<E>::default();
+        let mut cache = ObservedSlashable::default();
 
         // Slot 0, proposer 0
         let block_a = get_block(0, 0);

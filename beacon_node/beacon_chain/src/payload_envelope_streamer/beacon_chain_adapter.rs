@@ -25,7 +25,7 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
     pub(crate) fn get_payload_envelope(
         &self,
         root: &Hash256,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, store::Error> {
+    ) -> Result<Option<SignedExecutionPayloadEnvelope>, store::Error> {
         self.chain.store.get_payload_envelope(root)
     }
 

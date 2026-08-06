@@ -4,18 +4,18 @@ use lighthouse_validator_store::LighthouseValidatorStore;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tracing::info;
-use types::{Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
+use types::{Epoch, SignedVoluntaryExit, Spec, VoluntaryExit};
 use validator_store::ValidatorStore;
 
-pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone>(
     pubkey: PublicKey,
     maybe_epoch: Option<Epoch>,
-    validator_store: Arc<LighthouseValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T>>,
     slot_clock: T,
 ) -> Result<GenericResponse<SignedVoluntaryExit>, warp::Rejection> {
     let epoch = match maybe_epoch {
         Some(epoch) => epoch,
-        None => get_current_epoch::<T, E>(slot_clock).ok_or_else(|| {
+        None => get_current_epoch::<T>(slot_clock).ok_or_else(|| {
             warp_utils::reject::custom_server_error("Unable to determine current epoch".to_string())
         })?,
     };
@@ -64,6 +64,6 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
 }
 
 /// Calculates the current epoch from the genesis time and current time.
-fn get_current_epoch<T: 'static + SlotClock + Clone, E: EthSpec>(slot_clock: T) -> Option<Epoch> {
-    slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
+fn get_current_epoch<T: 'static + SlotClock + Clone>(slot_clock: T) -> Option<Epoch> {
+    slot_clock.now().map(|s| s.epoch(Spec::slots_per_epoch()))
 }

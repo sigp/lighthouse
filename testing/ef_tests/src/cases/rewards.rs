@@ -48,10 +48,10 @@ pub struct Metadata {
 }
 
 #[derive(Debug, Clone)]
-pub struct RewardsTest<E: EthSpec> {
+pub struct RewardsTest {
     pub path: PathBuf,
     pub metadata: Metadata,
-    pub pre: BeaconState<E>,
+    pub pre: BeaconState,
     pub deltas: AllDeltas,
 }
 
@@ -67,9 +67,9 @@ fn load_optional_deltas_file(path: &Path) -> Result<Option<Deltas>, Error> {
     Ok(deltas)
 }
 
-impl<E: EthSpec> LoadCase for RewardsTest<E> {
+impl LoadCase for RewardsTest {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -102,14 +102,14 @@ impl<E: EthSpec> LoadCase for RewardsTest<E> {
     }
 }
 
-impl<E: EthSpec> Case for RewardsTest<E> {
+impl Case for RewardsTest {
     fn description(&self) -> String {
         self.metadata.description.clone().unwrap_or_default()
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.pre.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
 
         // Single-pass epoch processing doesn't compute rewards in the genesis epoch because that's
         // what the spec for `process_rewards_and_penalties` says to do. We skip these tests for now.
@@ -204,8 +204,8 @@ fn all_deltas_to_total_deltas(d: &AllDeltas) -> TotalDeltas {
     TotalDeltas { deltas }
 }
 
-fn compute_altair_deltas<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn compute_altair_deltas(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<TotalDeltas, EpochProcessingError> {
     // Initialise deltas to pre-state balances.

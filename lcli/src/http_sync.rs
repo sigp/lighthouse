@@ -13,13 +13,12 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use types::EthSpec;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3600);
 const DEFAULT_CACHE_DIR: &str = "./cache";
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run(
+    env: Environment,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
@@ -27,14 +26,14 @@ pub fn run<T: EthSpec>(
     executor
         .handle()
         .ok_or("shutdown in progress")?
-        .block_on(async move { run_async::<T>(network_config, matches).await })
+        .block_on(async move { run_async(network_config, matches).await })
 }
 
-pub async fn run_async<T: EthSpec>(
+pub async fn run_async(
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec()?;
     let source_url: SensitiveUrl = parse_required(matches, "source-url")?;
     let target_url: SensitiveUrl = parse_required(matches, "target-url")?;
     let start_block: BlockId = parse_required(matches, "start-block")?;
@@ -58,7 +57,7 @@ pub async fn run_async<T: EthSpec>(
         println!("downloading {next_block_id:?}");
 
         let publish_block_req =
-            get_block_from_source::<T>(&source, next_block_id, spec, &cache_dir_path).await;
+            get_block_from_source(&source, next_block_id, spec, &cache_dir_path).await;
         let block = publish_block_req.signed_block();
 
         next_block_id = BlockId::Root(block.parent_root());
@@ -72,7 +71,7 @@ pub async fn run_async<T: EthSpec>(
         }
 
         let block_exists_in_target = target
-            .get_beacon_blocks_ssz::<T>(next_block_id, spec)
+            .get_beacon_blocks_ssz(next_block_id, spec)
             .await
             .unwrap()
             .is_some();
@@ -104,12 +103,12 @@ pub async fn run_async<T: EthSpec>(
     Ok(())
 }
 
-async fn get_block_from_source<T: EthSpec>(
+async fn get_block_from_source(
     source: &BeaconNodeHttpClient,
     block_id: BlockId,
     spec: &ChainSpec,
     cache_dir_path: &Path,
-) -> PublishBlockRequest<T> {
+) -> PublishBlockRequest {
     let mut cache_path = cache_dir_path.join(format!("block_{block_id}"));
 
     if cache_path.exists() {
@@ -119,12 +118,12 @@ async fn get_block_from_source<T: EthSpec>(
         PublishBlockRequest::from_ssz_bytes(&bytes, ForkName::Deneb).unwrap()
     } else {
         let block_from_source = source
-            .get_beacon_blocks_ssz::<T>(block_id, spec)
+            .get_beacon_blocks_ssz(block_id, spec)
             .await
             .unwrap()
             .unwrap();
         let blobs_from_source = source
-            .get_blob_sidecars::<T>(block_id, None, spec)
+            .get_blob_sidecars(block_id, None, spec)
             .await
             .unwrap()
             .unwrap()

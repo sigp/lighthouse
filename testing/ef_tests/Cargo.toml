@@ -10,6 +10,7 @@ ef_tests = []
 disable_rayon = []
 fake_crypto = ["bls/fake_crypto"]
 portable = ["beacon_chain/portable"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 alloy-primitives = { workspace = true }

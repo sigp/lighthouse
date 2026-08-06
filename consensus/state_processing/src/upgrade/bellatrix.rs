@@ -1,14 +1,11 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateBellatrix, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    BeaconState, BeaconStateBellatrix, BeaconStateError as Error, ChainSpec, EpochCache,
     ExecutionPayloadHeaderBellatrix, Fork,
 };
 
 /// Transform a `Altair` state into an `Bellatrix` state.
-pub fn upgrade_to_bellatrix<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_bellatrix(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_altair_mut()?;
 
@@ -57,7 +54,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: <ExecutionPayloadHeaderBellatrix<E>>::default(),
+        latest_execution_payload_header: <ExecutionPayloadHeaderBellatrix>::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

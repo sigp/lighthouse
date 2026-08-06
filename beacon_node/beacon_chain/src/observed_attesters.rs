@@ -19,9 +19,8 @@ use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use typenum::Unsigned;
 use types::SlotData;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, Hash256, Slot, Spec};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.
 ///
@@ -36,14 +35,13 @@ use types::{Epoch, EthSpec, Hash256, Slot};
 /// at least one slot in the epoch prior to the previous epoch.
 pub const MAX_CACHED_EPOCHS: u64 = 4;
 
-pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
-pub type ObservedSyncContributors<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, Hash256, SyncContributorSlotHashSet<E>, E>;
-pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
-pub type ObservedSyncAggregators<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
-pub type ObservedPayloadAttesters<E> =
-    AutoPruningSlotContainer<Slot, (), PayloadAttesterSlotHashSet<E>, E>;
+pub type ObservedAttesters = AutoPruningEpochContainer<EpochBitfield>;
+pub type ObservedSyncContributors =
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, Hash256, SyncContributorSlotHashSet>;
+pub type ObservedAggregators = AutoPruningEpochContainer<EpochHashSet>;
+pub type ObservedSyncAggregators =
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet>;
+pub type ObservedPayloadAttesters = AutoPruningSlotContainer<Slot, (), PayloadAttesterSlotHashSet>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -179,22 +177,20 @@ impl Item<()> for EpochHashSet {
 
 /// Stores a `HashSet` of which validator indices have created a sync aggregate during a
 /// slot.
-pub struct SyncContributorSlotHashSet<E> {
+pub struct SyncContributorSlotHashSet {
     map: HashMap<usize, Hash256>,
-    phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Item<Hash256> for SyncContributorSlotHashSet<E> {
+impl Item<Hash256> for SyncContributorSlotHashSet {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             map: HashMap::with_capacity(capacity),
-            phantom: PhantomData,
         }
     }
 
     /// Defaults to the `SYNC_SUBCOMMITTEE_SIZE`.
     fn default_capacity() -> usize {
-        E::sync_subcommittee_size()
+        Spec::SYNC_SUBCOMMITTEE_SIZE
     }
 
     fn len(&self) -> usize {
@@ -259,22 +255,20 @@ impl Item<()> for SyncAggregatorSlotHashSet {
 
 /// Stores a `HashSet` of validator indices that have sent a payload attestation gossip
 /// message during a slot.
-pub struct PayloadAttesterSlotHashSet<E> {
+pub struct PayloadAttesterSlotHashSet {
     set: HashSet<usize>,
-    phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Item<()> for PayloadAttesterSlotHashSet<E> {
+impl Item<()> for PayloadAttesterSlotHashSet {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
-            phantom: PhantomData,
         }
     }
 
     /// Defaults to `PTC_SIZE`, the maximum number of payload attesters per slot.
     fn default_capacity() -> usize {
-        E::ptc_size()
+        Spec::PTC_SIZE
     }
 
     fn len(&self) -> usize {
@@ -305,23 +299,21 @@ impl<E: EthSpec> Item<()> for PayloadAttesterSlotHashSet<E> {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-pub struct AutoPruningEpochContainer<T, E: EthSpec> {
+pub struct AutoPruningEpochContainer<T> {
     lowest_permissible_epoch: Epoch,
     items: HashMap<Epoch, T>,
-    _phantom: PhantomData<E>,
 }
 
-impl<T, E: EthSpec> Default for AutoPruningEpochContainer<T, E> {
+impl<T> Default for AutoPruningEpochContainer<T> {
     fn default() -> Self {
         Self {
             lowest_permissible_epoch: Epoch::new(0),
             items: HashMap::new(),
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<T: Item<()>, E: EthSpec> AutoPruningEpochContainer<T, E> {
+impl<T: Item<()>> AutoPruningEpochContainer<T> {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
     ///
@@ -391,7 +383,7 @@ impl<T: Item<()>, E: EthSpec> AutoPruningEpochContainer<T, E> {
     }
 
     fn sanitize_request(&self, epoch: Epoch, validator_index: usize) -> Result<(), Error> {
-        if validator_index > E::ValidatorRegistryLimit::to_usize() {
+        if validator_index > Spec::VALIDATOR_REGISTRY_LIMIT {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
@@ -451,27 +443,23 @@ impl<T: Item<()>, E: EthSpec> AutoPruningEpochContainer<T, E> {
 /// sync contributions with an epoch prior to `data.slot - 3` will be cleared from the cache.
 ///
 /// `V` should be set to a `SyncAggregatorSlotHashSet` or a `SyncContributorSlotHashSet`.
-pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, S, V, E: EthSpec> {
+pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, S, V> {
     lowest_permissible_slot: Slot,
     items: HashMap<K, V>,
-    _phantom_e: PhantomData<E>,
     _phantom_s: PhantomData<S>,
 }
 
-impl<K: SlotData + Eq + Hash, S, V, E: EthSpec> Default for AutoPruningSlotContainer<K, S, V, E> {
+impl<K: SlotData + Eq + Hash, S, V> Default for AutoPruningSlotContainer<K, S, V> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
             items: HashMap::new(),
-            _phantom_e: PhantomData,
             _phantom_s: PhantomData,
         }
     }
 }
 
-impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
-    AutoPruningSlotContainer<K, S, V, E>
-{
+impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>> AutoPruningSlotContainer<K, S, V> {
     /// Observes the given `value` for the given `validator_index`.
     ///
     /// The `override_observation` function is supplied `previous_observation`
@@ -591,7 +579,7 @@ impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
     }
 
     fn sanitize_request(&self, slot: Slot, validator_index: usize) -> Result<(), Error> {
-        if validator_index > E::ValidatorRegistryLimit::to_usize() {
+        if validator_index > Spec::VALIDATOR_REGISTRY_LIMIT {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
@@ -664,11 +652,9 @@ mod tests {
     use super::*;
     use fixed_bytes::FixedBytesExtended;
 
-    type E = types::MainnetEthSpec;
-
     #[test]
     fn value_storage() {
-        type Container = AutoPruningSlotContainer<Slot, Hash256, SyncContributorSlotHashSet<E>, E>;
+        type Container = AutoPruningSlotContainer<Slot, Hash256, SyncContributorSlotHashSet>;
 
         let mut store: Container = <_>::default();
         let key = Slot::new(0);
@@ -790,7 +776,7 @@ mod tests {
             mod $mod_name {
                 use super::*;
 
-                fn single_period_test(store: &mut $type<E>, period: Epoch) {
+                fn single_period_test(store: &mut $type, period: Epoch) {
                     let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
 
                     for &i in &validator_indices {
@@ -950,7 +936,7 @@ mod tests {
             mod $mod_name {
                 use super::*;
 
-                fn single_period_test(store: &mut $type<E>, key: SlotSubcommitteeIndex) {
+                fn single_period_test(store: &mut $type, key: SlotSubcommitteeIndex) {
                     let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
 
                     for &i in &validator_indices {

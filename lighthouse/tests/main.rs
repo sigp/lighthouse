@@ -1,4 +1,5 @@
 #![cfg(not(debug_assertions))]
+#![cfg(not(feature = "spec-non-mainnet"))]
 
 mod account_manager;
 mod beacon_node;

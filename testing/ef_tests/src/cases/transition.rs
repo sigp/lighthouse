@@ -7,7 +7,7 @@ use state_processing::{
     state_advance::complete_state_advance,
 };
 use std::str::FromStr;
-use types::{BeaconState, Epoch, SignedBeaconBlock};
+use types::{BeaconState, Epoch, SignedBeaconBlock, Spec};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
@@ -18,21 +18,21 @@ pub struct Metadata {
 }
 
 #[derive(Debug)]
-pub struct TransitionTest<E: EthSpec> {
+pub struct TransitionTest {
     pub metadata: Metadata,
-    pub pre: BeaconState<E>,
-    pub blocks: Vec<SignedBeaconBlock<E>>,
-    pub post: BeaconState<E>,
+    pub pre: BeaconState,
+    pub blocks: Vec<SignedBeaconBlock>,
+    pub post: BeaconState,
     pub spec: ChainSpec,
 }
 
-impl<E: EthSpec> LoadCase for TransitionTest<E> {
+impl LoadCase for TransitionTest {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         assert_eq!(ForkName::from_str(&metadata.post_fork).unwrap(), fork_name);
 
         // Make spec with appropriate fork block.
-        let mut spec = E::default_spec();
+        let mut spec = Spec::default_spec();
         match fork_name {
             ForkName::Base => panic!("cannot fork to base/phase0"),
             ForkName::Altair => {
@@ -115,7 +115,7 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
     }
 }
 
-impl<E: EthSpec> Case for TransitionTest<E> {
+impl Case for TransitionTest {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Transition tests also need BLS.

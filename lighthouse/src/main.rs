@@ -13,7 +13,7 @@ use cli::LighthouseSubcommands;
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, supported_hardcoded_net_names};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
@@ -31,7 +31,7 @@ use task_executor::ShutdownReason;
 use tracing::{Level, info};
 use tracing_samplers::PrefixBasedSampler;
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{EthSpec, EthSpecId};
+use types::{Spec, SpecId};
 use validator_client::ProductionValidatorClient;
 
 pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
@@ -43,15 +43,14 @@ pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
-         Specs: mainnet (true), minimal ({}), gnosis ({})",
+         Spec: {}",
         SHORT_VERSION.as_str(),
         bls_library_name(),
         bls_hardware_acceleration(),
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
-        cfg!(feature = "spec-minimal"),
-        cfg!(feature = "gnosis"),
+        Spec::SPEC_ID,
     )
 });
 
@@ -327,7 +326,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .value_parser(HARDCODED_NET_NAMES.to_vec())
+                .value_parser(supported_hardcoded_net_names().to_vec())
                 .conflicts_with("testnet-dir")
                 .action(ArgAction::Set)
                 .global(true)
@@ -450,23 +449,17 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(
-                &matches,
-                bootnode_matches,
-                eth_spec_id,
-                &eth2_network_config,
-                debug_info,
-            );
+            boot_node::run(&matches, bootnode_matches, &eth2_network_config, debug_info);
 
             return Ok(());
         }
 
         match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
+            SpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
             #[cfg(feature = "gnosis")]
-            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
+            SpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
+            SpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
             #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
                 eprintln!(
@@ -493,8 +486,8 @@ fn main() {
     }
 }
 
-fn run<E: EthSpec>(
-    environment_builder: EnvironmentBuilder<E>,
+fn run(
+    environment_builder: EnvironmentBuilder,
     matches: &ArgMatches,
     eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
@@ -766,7 +759,7 @@ fn run<E: EthSpec>(
     let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
+        (None, None) => clap_utils::default_network_name().to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
@@ -783,7 +776,7 @@ fn run<E: EthSpec>(
         eprintln!("Running validator manager for {} network", network_name);
 
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        validator_manager::run::<E>(sub_matches, environment)?;
+        validator_manager::run(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
@@ -801,7 +794,7 @@ fn run<E: EthSpec>(
             let config = validator_client::Config::from_cli(matches, &validator_client_config)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
-            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
+            clap_utils::check_dump_configs(matches, &config, &context.eth2_config.spec)?;
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
@@ -836,10 +829,10 @@ fn run<E: EthSpec>(
         Some(("beacon_node", matches)) => {
             let context = environment.core_context();
             let executor = context.executor.clone();
-            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            let mut config = beacon_node::get_config(matches, &context)?;
             config.logger_config = logger_config;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
-            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
+            clap_utils::check_dump_configs(matches, &config, &context.eth2_config.spec)?;
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {

@@ -32,18 +32,18 @@ use tracing::error;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
 };
-use types::{EthSpec, IndexedAttestation, ProposerSlashing};
+use types::{IndexedAttestation, ProposerSlashing};
 
 #[derive(Debug, PartialEq)]
-pub enum AttesterSlashingStatus<E: EthSpec> {
+pub enum AttesterSlashingStatus {
     NotSlashable,
     /// A weird outcome that can occur when we go to lookup an attestation by its target
     /// epoch for a surround slashing, but find a different attestation -- indicating that
     /// the validator has already been caught double voting.
     AlreadyDoubleVoted,
-    DoubleVote(Box<IndexedAttestation<E>>),
-    SurroundsExisting(Box<IndexedAttestation<E>>),
-    SurroundedByExisting(Box<IndexedAttestation<E>>),
+    DoubleVote(Box<IndexedAttestation>),
+    SurroundsExisting(Box<IndexedAttestation>),
+    SurroundedByExisting(Box<IndexedAttestation>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -52,11 +52,8 @@ pub enum ProposerSlashingStatus {
     DoubleVote(Box<ProposerSlashing>),
 }
 
-impl<E: EthSpec> AttesterSlashingStatus<E> {
-    pub fn into_slashing(
-        self,
-        new_attestation: &IndexedAttestation<E>,
-    ) -> Option<AttesterSlashing<E>> {
+impl AttesterSlashingStatus {
+    pub fn into_slashing(self, new_attestation: &IndexedAttestation) -> Option<AttesterSlashing> {
         use AttesterSlashingStatus::*;
 
         // The surrounding attestation must be in `attestation_1` to be valid.
@@ -109,11 +106,11 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
 ///
 /// Conversion failure should be unreachable: `to_electra` can only fail for Gloas attestations,
 /// which `into_slashing` handles before reaching this function.
-fn electra_slashing<E: EthSpec>(
-    attestation_1: &IndexedAttestation<E>,
-    attestation_2: &IndexedAttestation<E>,
-) -> Option<AttesterSlashing<E>> {
-    let to_electra = |attestation: &IndexedAttestation<E>| {
+fn electra_slashing(
+    attestation_1: &IndexedAttestation,
+    attestation_2: &IndexedAttestation,
+) -> Option<AttesterSlashing> {
+    let to_electra = |attestation: &IndexedAttestation| {
         attestation
             .clone()
             .to_electra()

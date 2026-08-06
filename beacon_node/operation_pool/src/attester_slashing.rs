@@ -1,19 +1,19 @@
 use crate::max_cover::MaxCover;
 use state_processing::per_block_processing::get_slashable_indices_modular;
 use std::collections::{HashMap, HashSet};
-use types::{AttesterSlashing, AttesterSlashingRef, BeaconState, EthSpec};
+use types::{AttesterSlashing, AttesterSlashingRef, BeaconState};
 
 #[derive(Debug, Clone)]
-pub struct AttesterSlashingMaxCover<'a, E: EthSpec> {
-    slashing: AttesterSlashingRef<'a, E>,
+pub struct AttesterSlashingMaxCover<'a> {
+    slashing: AttesterSlashingRef<'a>,
     effective_balances: HashMap<u64, u64>,
 }
 
-impl<'a, E: EthSpec> AttesterSlashingMaxCover<'a, E> {
+impl<'a> AttesterSlashingMaxCover<'a> {
     pub fn new(
-        slashing: AttesterSlashingRef<'a, E>,
+        slashing: AttesterSlashingRef<'a>,
         proposer_slashing_indices: &HashSet<u64>,
-        state: &BeaconState<E>,
+        state: &BeaconState,
     ) -> Option<Self> {
         let mut effective_balances: HashMap<u64, u64> = HashMap::new();
         let epoch = state.current_epoch();
@@ -36,18 +36,18 @@ impl<'a, E: EthSpec> AttesterSlashingMaxCover<'a, E> {
     }
 }
 
-impl<'a, E: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, E> {
+impl<'a> MaxCover for AttesterSlashingMaxCover<'a> {
     /// The result type, of which we would eventually like a collection of maximal quality.
-    type Object = AttesterSlashing<E>;
-    type Intermediate = AttesterSlashingRef<'a, E>;
+    type Object = AttesterSlashing;
+    type Intermediate = AttesterSlashingRef<'a>;
     /// The type used to represent sets.
     type Set = HashMap<u64, u64>;
 
-    fn intermediate(&self) -> &AttesterSlashingRef<'a, E> {
+    fn intermediate(&self) -> &AttesterSlashingRef<'a> {
         &self.slashing
     }
 
-    fn convert_to_object(slashing: &AttesterSlashingRef<'a, E>) -> AttesterSlashing<E> {
+    fn convert_to_object(slashing: &AttesterSlashingRef<'a>) -> AttesterSlashing {
         slashing.clone_as_attester_slashing()
     }
 
@@ -58,7 +58,7 @@ impl<'a, E: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, E> {
     /// Update the set of items covered, for the inclusion of some object in the solution.
     fn update_covering_set(
         &mut self,
-        _best_slashing: &AttesterSlashingRef<'a, E>,
+        _best_slashing: &AttesterSlashingRef<'a>,
         covered_validator_indices: &HashMap<u64, u64>,
     ) {
         self.effective_balances

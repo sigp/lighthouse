@@ -5,6 +5,7 @@ use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
+use types::Spec;
 use types::data::BlobsList;
 use types::execution::{
     BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
@@ -71,21 +72,21 @@ pub struct JsonPayloadIdResponse {
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
-        serde(bound = "E: EthSpec", rename_all = "camelCase"),
+        serde(rename_all = "camelCase"),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
-pub struct JsonExecutionPayload<E: EthSpec> {
+#[serde(rename_all = "camelCase", untagged)]
+pub struct JsonExecutionPayload {
     pub parent_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
-    pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
+    pub logs_bloom: FixedVector<u8, typenum::U<{ Spec::BYTES_PER_LOGS_BLOOM }>>,
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
@@ -96,7 +97,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
+    pub extra_data: VariableList<u8, typenum::U<{ Spec::MAX_EXTRA_DATA_BYTES }>>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
 
@@ -106,7 +107,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
         partial_getter(rename = "transactions_bounded")
     )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<E>,
+    pub transactions: Transactions,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "transactions_progressive"))]
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
@@ -114,7 +115,8 @@ pub struct JsonExecutionPayload<E: EthSpec> {
         only(Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "withdrawals_bounded")
     )]
-    pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
+    pub withdrawals:
+        VariableList<JsonWithdrawal, typenum::U<{ Spec::MAX_WITHDRAWALS_PER_PAYLOAD }>>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
     pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
@@ -131,8 +133,8 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub slot_number: u64,
 }
 
-impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBellatrix<E> {
-    fn from(payload: ExecutionPayloadBellatrix<E>) -> Self {
+impl From<ExecutionPayloadBellatrix> for JsonExecutionPayloadBellatrix {
+    fn from(payload: ExecutionPayloadBellatrix) -> Self {
         JsonExecutionPayloadBellatrix {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -151,10 +153,10 @@ impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBell
         }
     }
 }
-impl<E: EthSpec> TryFrom<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapella<E> {
+impl TryFrom<ExecutionPayloadCapella> for JsonExecutionPayloadCapella {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadCapella<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadCapella) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -174,10 +176,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCap
         })
     }
 }
-impl<E: EthSpec> TryFrom<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E> {
+impl TryFrom<ExecutionPayloadDeneb> for JsonExecutionPayloadDeneb {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadDeneb<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadDeneb) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -200,10 +202,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectra<E> {
+impl TryFrom<ExecutionPayloadElectra> for JsonExecutionPayloadElectra {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadElectra<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadElectra) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -226,10 +228,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadElectra<E>> for JsonExecutionPayloadEle
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
+impl TryFrom<ExecutionPayloadFulu> for JsonExecutionPayloadFulu {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadFulu<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadFulu) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadFulu {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -252,10 +254,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E> {
+impl TryFrom<ExecutionPayloadGloas> for JsonExecutionPayloadGloas {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadGloas<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadGloas) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -280,10 +282,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E> {
+impl TryFrom<ExecutionPayloadHeze> for JsonExecutionPayloadHeze {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: ExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: ExecutionPayloadHeze) -> Result<Self, Self::Error> {
         Ok(JsonExecutionPayloadHeze {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -308,10 +310,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
+impl TryFrom<ExecutionPayload> for JsonExecutionPayload {
     type Error = ssz_types::Error;
 
-    fn try_from(execution_payload: ExecutionPayload<E>) -> Result<Self, Self::Error> {
+    fn try_from(execution_payload: ExecutionPayload) -> Result<Self, Self::Error> {
         match execution_payload {
             ExecutionPayload::Bellatrix(payload) => {
                 Ok(JsonExecutionPayload::Bellatrix(payload.into()))
@@ -334,8 +336,8 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadBellatrix<E>> for ExecutionPayloadBellatrix<E> {
-    fn from(payload: JsonExecutionPayloadBellatrix<E>) -> Self {
+impl From<JsonExecutionPayloadBellatrix> for ExecutionPayloadBellatrix {
+    fn from(payload: JsonExecutionPayloadBellatrix) -> Self {
         ExecutionPayloadBellatrix {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -354,10 +356,10 @@ impl<E: EthSpec> From<JsonExecutionPayloadBellatrix<E>> for ExecutionPayloadBell
         }
     }
 }
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapella<E> {
+impl TryFrom<JsonExecutionPayloadCapella> for ExecutionPayloadCapella {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadCapella<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadCapella) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -378,10 +380,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCap
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E> {
+impl TryFrom<JsonExecutionPayloadDeneb> for ExecutionPayloadDeneb {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadDeneb<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadDeneb) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -404,10 +406,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectra<E> {
+impl TryFrom<JsonExecutionPayloadElectra> for ExecutionPayloadElectra {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadElectra<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadElectra) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -430,10 +432,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadElectra<E>> for ExecutionPayloadEle
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
+impl TryFrom<JsonExecutionPayloadFulu> for ExecutionPayloadFulu {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadFulu<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadFulu) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadFulu {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -456,10 +458,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E> {
+impl TryFrom<JsonExecutionPayloadGloas> for ExecutionPayloadGloas {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadGloas<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadGloas) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -484,10 +486,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E> {
+impl TryFrom<JsonExecutionPayloadHeze> for ExecutionPayloadHeze {
     type Error = ssz_types::Error;
 
-    fn try_from(payload: JsonExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+    fn try_from(payload: JsonExecutionPayloadHeze) -> Result<Self, Self::Error> {
         Ok(ExecutionPayloadHeze {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -512,10 +514,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
+impl TryFrom<JsonExecutionPayload> for ExecutionPayload {
     type Error = ssz_types::Error;
 
-    fn try_from(json_execution_payload: JsonExecutionPayload<E>) -> Result<Self, Self::Error> {
+    fn try_from(json_execution_payload: JsonExecutionPayload) -> Result<Self, Self::Error> {
         match json_execution_payload {
             JsonExecutionPayload::Bellatrix(payload) => {
                 Ok(ExecutionPayload::Bellatrix(payload.into()))
@@ -556,8 +558,8 @@ pub enum RequestsError {
 #[serde(transparent)]
 pub struct JsonExecutionRequests(pub Vec<String>);
 
-impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
-    fn from(requests: ExecutionRequests<E>) -> Self {
+impl From<ExecutionRequests> for JsonExecutionRequests {
+    fn from(requests: ExecutionRequests) -> Self {
         // Each element is a `RequestType`-prefixed, SSZ-encoded request list.
         let result = requests
             .get_execution_requests_list()
@@ -573,23 +575,23 @@ impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
 /// Returns the deposit, withdrawal, consolidation, builder deposit and builder exit lists.
 /// Builder lists are empty pre-gloas or post-gloas when no builder requests are present.
 #[allow(clippy::type_complexity)]
-fn parse_execution_requests<E: EthSpec>(
+fn parse_execution_requests(
     value: JsonExecutionRequests,
 ) -> Result<
     (
-        DepositRequests<E>,
-        WithdrawalRequests<E>,
-        ConsolidationRequests<E>,
-        BuilderDepositRequests<E>,
-        BuilderExitRequests<E>,
+        DepositRequests,
+        WithdrawalRequests,
+        ConsolidationRequests,
+        BuilderDepositRequests,
+        BuilderExitRequests,
     ),
     RequestsError,
 > {
-    let mut deposits = DepositRequests::<E>::default();
-    let mut withdrawals = WithdrawalRequests::<E>::default();
-    let mut consolidations = ConsolidationRequests::<E>::default();
-    let mut builder_deposits = BuilderDepositRequests::<E>::default();
-    let mut builder_exits = BuilderExitRequests::<E>::default();
+    let mut deposits = DepositRequests::default();
+    let mut withdrawals = WithdrawalRequests::default();
+    let mut consolidations = ConsolidationRequests::default();
+    let mut builder_deposits = BuilderDepositRequests::default();
+    let mut builder_exits = BuilderExitRequests::default();
     let mut prev_prefix: Option<RequestType> = None;
     for (i, request) in value.0.into_iter().enumerate() {
         // hex string
@@ -616,7 +618,7 @@ fn parse_execution_requests<E: EthSpec>(
 
         match current_prefix {
             RequestType::Deposit => {
-                deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
+                deposits = DepositRequests::from_ssz_bytes(request_bytes).map_err(|e| {
                     RequestsError::DecodeError(format!(
                         "Failed to decode DepositRequest from EL: {:?}",
                         e
@@ -624,17 +626,16 @@ fn parse_execution_requests<E: EthSpec>(
                 })?;
             }
             RequestType::Withdrawal => {
-                withdrawals =
-                    WithdrawalRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
+                withdrawals = WithdrawalRequests::from_ssz_bytes(request_bytes).map_err(|e| {
+                    RequestsError::DecodeError(format!(
+                        "Failed to decode WithdrawalRequest from EL: {:?}",
+                        e
+                    ))
+                })?;
             }
             RequestType::Consolidation => {
-                consolidations = ConsolidationRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
+                consolidations =
+                    ConsolidationRequests::from_ssz_bytes(request_bytes).map_err(|e| {
                         RequestsError::DecodeError(format!(
                             "Failed to decode ConsolidationRequest from EL: {:?}",
                             e
@@ -642,8 +643,8 @@ fn parse_execution_requests<E: EthSpec>(
                     })?;
             }
             RequestType::BuilderDeposit => {
-                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
+                builder_deposits =
+                    BuilderDepositRequests::from_ssz_bytes(request_bytes).map_err(|e| {
                         RequestsError::DecodeError(format!(
                             "Failed to decode BuilderDepositRequest from EL: {:?}",
                             e
@@ -652,7 +653,7 @@ fn parse_execution_requests<E: EthSpec>(
             }
             RequestType::BuilderExit => {
                 builder_exits =
-                    BuilderExitRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
+                    BuilderExitRequests::from_ssz_bytes(request_bytes).map_err(|e| {
                         RequestsError::DecodeError(format!(
                             "Failed to decode BuilderExitRequest from EL: {:?}",
                             e
@@ -671,12 +672,12 @@ fn parse_execution_requests<E: EthSpec>(
     ))
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> {
+impl TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
+            parse_execution_requests(value)?;
         // Builder requests are not valid pre-Gloas.
         if !builder_deposits.is_empty() || !builder_exits.is_empty() {
             return Err(RequestsError::VariantMismatch);
@@ -689,12 +690,12 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> 
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
+impl TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
+            parse_execution_requests(value)?;
         // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
         // re-type the parsed bounded lists.
         Ok(ExecutionRequestsGloas {
@@ -703,7 +704,6 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
             consolidations: consolidations.iter().cloned().collect(),
             builder_deposits: builder_deposits.iter().cloned().collect(),
             builder_exits: builder_exits.iter().cloned().collect(),
-            _phantom: std::marker::PhantomData,
         })
     }
 }
@@ -712,44 +712,44 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
-        serde(bound = "E: EthSpec", rename_all = "camelCase")
+        serde(rename_all = "camelCase")
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub struct JsonGetPayloadResponse<E: EthSpec> {
+pub struct JsonGetPayloadResponse {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
     )]
-    pub execution_payload: JsonExecutionPayloadBellatrix<E>,
+    pub execution_payload: JsonExecutionPayloadBellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: JsonExecutionPayloadCapella<E>,
+    pub execution_payload: JsonExecutionPayloadCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: JsonExecutionPayloadDeneb<E>,
+    pub execution_payload: JsonExecutionPayloadDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
-    pub execution_payload: JsonExecutionPayloadElectra<E>,
+    pub execution_payload: JsonExecutionPayloadElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
-    pub execution_payload: JsonExecutionPayloadFulu<E>,
+    pub execution_payload: JsonExecutionPayloadFulu,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
-    pub execution_payload: JsonExecutionPayloadGloas<E>,
+    pub execution_payload: JsonExecutionPayloadGloas,
     #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
-    pub execution_payload: JsonExecutionPayloadHeze<E>,
+    pub execution_payload: JsonExecutionPayloadHeze,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
-    pub blobs_bundle: JsonBlobsBundleV1<E>,
+    pub blobs_bundle: JsonBlobsBundleV1,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub should_override_builder: bool,
     #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: JsonExecutionRequests,
 }
 
-impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
+impl TryFrom<JsonGetPayloadResponse> for GetPayloadResponse {
     type Error = String;
-    fn try_from(json_get_payload_response: JsonGetPayloadResponse<E>) -> Result<Self, Self::Error> {
+    fn try_from(json_get_payload_response: JsonGetPayloadResponse) -> Result<Self, Self::Error> {
         match json_get_payload_response {
             JsonGetPayloadResponse::Bellatrix(response) => {
                 Ok(GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
@@ -1002,16 +1002,16 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
-pub struct JsonBlobsBundleV1<E: EthSpec> {
-    pub commitments: KzgCommitments<E>,
-    pub proofs: KzgProofs<E>,
+#[serde(rename_all = "camelCase")]
+pub struct JsonBlobsBundleV1 {
+    pub commitments: KzgCommitments,
+    pub proofs: KzgProofs,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: BlobsList<E>,
+    pub blobs: BlobsList,
 }
 
-impl<E: EthSpec> From<BlobsBundle<E>> for JsonBlobsBundleV1<E> {
-    fn from(blobs_bundle: BlobsBundle<E>) -> Self {
+impl From<BlobsBundle> for JsonBlobsBundleV1 {
+    fn from(blobs_bundle: BlobsBundle) -> Self {
         Self {
             commitments: blobs_bundle.commitments,
             proofs: blobs_bundle.proofs,
@@ -1019,8 +1019,8 @@ impl<E: EthSpec> From<BlobsBundle<E>> for JsonBlobsBundleV1<E> {
         }
     }
 }
-impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
-    fn from(json_blobs_bundle: JsonBlobsBundleV1<E>) -> Self {
+impl From<JsonBlobsBundleV1> for BlobsBundle {
+    fn from(json_blobs_bundle: JsonBlobsBundleV1) -> Self {
         Self {
             commitments: json_blobs_bundle.commitments,
             proofs: json_blobs_bundle.proofs,
@@ -1033,23 +1033,23 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
     variants(V1, V2),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
-        serde(bound = "E: EthSpec", rename_all = "camelCase")
+        serde(rename_all = "camelCase")
     )
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlobAndProof<E: EthSpec> {
+pub struct BlobAndProof {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub blob: Blob<E>,
+    pub blob: Blob,
     /// KZG proof for the blob (Deneb)
     #[superstruct(only(V1))]
     pub proof: KzgProof,
     /// KZG cell proofs for the extended blob (PeerDAS)
     #[superstruct(only(V2))]
-    pub proofs: KzgProofs<E>,
+    pub proofs: KzgProofs,
 }
 
 /// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
-pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
+pub type BlobAndProofV3 = Option<BlobAndProofV2>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1208,17 +1208,17 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+pub struct JsonExecutionPayloadBodyV1 {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<E>,
-    pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    pub transactions: Transactions,
+    pub withdrawals:
+        Option<VariableList<JsonWithdrawal, typenum::U<{ Spec::MAX_WITHDRAWALS_PER_PAYLOAD }>>>,
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
+impl TryFrom<JsonExecutionPayloadBodyV1> for ExecutionPayloadBodyV1 {
     type Error = ssz_types::Error;
 
-    fn try_from(value: JsonExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: JsonExecutionPayloadBodyV1) -> Result<Self, Self::Error> {
         Ok(Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(withdrawals_from_json).transpose()?,
@@ -1226,10 +1226,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBody
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
+impl TryFrom<ExecutionPayloadBodyV1> for JsonExecutionPayloadBodyV1 {
     type Error = ssz_types::Error;
 
-    fn try_from(value: ExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: ExecutionPayloadBodyV1) -> Result<Self, Self::Error> {
         Ok(Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(withdrawals_to_json).transpose()?,
@@ -1319,7 +1319,7 @@ mod tests {
     use ssz::Encode;
     use types::{
         BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
-        MainnetEthSpec, RequestType, WithdrawalRequest,
+        RequestType, WithdrawalRequest,
     };
 
     use super::*;
@@ -1372,7 +1372,7 @@ mod tests {
 
         // First check a valid request with all requests
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
@@ -1387,9 +1387,10 @@ mod tests {
 
         // Single requests
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
-            ]))
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::Deposit.to_u8(),
+                &deposit_request
+            ),]))
             .unwrap(),
             ExecutionRequestsElectra {
                 deposits: singleton_list(&deposit_request),
@@ -1399,9 +1400,10 @@ mod tests {
         );
 
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
-            ]))
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::Withdrawal.to_u8(),
+                &withdrawal_request
+            ),]))
             .unwrap(),
             ExecutionRequestsElectra {
                 deposits: Default::default(),
@@ -1411,9 +1413,10 @@ mod tests {
         );
 
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
-            ]))
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::Consolidation.to_u8(),
+                &consolidation_request
+            ),]))
             .unwrap(),
             ExecutionRequestsElectra {
                 deposits: Default::default(),
@@ -1424,7 +1427,7 @@ mod tests {
 
         // Out of order
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1433,7 +1436,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
             ]))
@@ -1442,7 +1445,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1452,7 +1455,7 @@ mod tests {
 
         // Multiple requests of same type
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1462,16 +1465,17 @@ mod tests {
 
         // Invalid prefix
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(42, &deposit_request),
-            ]))
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![create_request_string(
+                42,
+                &deposit_request
+            ),]))
             .unwrap_err(),
             RequestsError::InvalidPrefix(42)
         ));
 
         // Prefix followed by no data
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(
                     RequestType::Consolidation.to_u8(),
@@ -1483,7 +1487,7 @@ mod tests {
         ));
         // Empty request
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 "0x".to_string()
             ]))
@@ -1499,12 +1503,10 @@ mod tests {
             signature: SignatureBytes::empty(),
         };
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(
-                    RequestType::BuilderDeposit.to_u8(),
-                    &builder_deposit_request
-                ),
-            ]))
+            ExecutionRequestsElectra::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::BuilderDeposit.to_u8(),
+                &builder_deposit_request
+            ),]))
             .unwrap_err(),
             RequestsError::VariantMismatch
         ));
@@ -1546,7 +1548,7 @@ mod tests {
 
         // Valid request with all five request types, in ascending prefix order.
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
@@ -1563,15 +1565,15 @@ mod tests {
                 consolidations: singleton_progressive_list(&consolidation_request),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
         // A builder-less list is a valid Gloas value (builder lists are simply empty).
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
-            ]))
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::Deposit.to_u8(),
+                &deposit_request
+            ),]))
             .unwrap(),
             ExecutionRequestsGloas {
                 deposits: singleton_progressive_list(&deposit_request),
@@ -1579,13 +1581,12 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
-                _phantom: std::marker::PhantomData,
             }
         );
 
         // Only builder requests.
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &builder_deposit_request
@@ -1599,13 +1600,12 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
         // Out of order: builder exit must come after a builder deposit.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::BuilderExit.to_u8(), &builder_exit_request),
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
@@ -1618,7 +1618,7 @@ mod tests {
 
         // Duplicate builder request type.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &builder_deposit_request
@@ -1634,12 +1634,10 @@ mod tests {
 
         // Empty builder request data.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
-                create_request_string(
-                    RequestType::BuilderDeposit.to_u8(),
-                    &Vec::<BuilderDepositRequest>::new()
-                ),
-            ]))
+            ExecutionRequestsGloas::try_from(JsonExecutionRequests(vec![create_request_string(
+                RequestType::BuilderDeposit.to_u8(),
+                &Vec::<BuilderDepositRequest>::new()
+            ),]))
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));

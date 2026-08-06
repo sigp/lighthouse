@@ -30,7 +30,7 @@ use tokio::{
     time::sleep,
 };
 use tracing::{debug, error, warn};
-use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
+use types::{ChainSpec, Config as ConfigSpec, Slot};
 use validator_metrics::{ENDPOINT_ERRORS, ENDPOINT_REQUESTS, inc_counter_vec};
 
 /// Message emitted when the VC detects the BN is using a different spec.
@@ -66,7 +66,7 @@ pub struct LatencyMeasurement {
 /// Starts a service that will routinely try and update the status of the provided `beacon_nodes`.
 ///
 /// See `SLOT_LOOKAHEAD` for information about when this should run.
-pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
+pub fn start_fallback_updater_service<T: SlotClock + 'static>(
     executor: TaskExecutor,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), &'static str> {
@@ -82,7 +82,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         let head_monitor_future = async move {
             loop {
                 if let Err(error) =
-                    poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
+                    poll_head_event_from_beacon_nodes::<T>(beacon_nodes_ref.clone()).await
                 {
                     warn!(error, "Head service failed retrying starting next slot");
 
@@ -101,7 +101,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
     let future = async move {
         loop {
-            beacon_nodes.update_all_candidates::<E>().await;
+            beacon_nodes.update_all_candidates().await;
 
             let sleep_time = beacon_nodes
                 .slot_clock
@@ -248,13 +248,13 @@ impl CandidateBeaconNode {
         *self.health.read().await
     }
 
-    pub async fn refresh_health<E: EthSpec, T: SlotClock>(
+    pub async fn refresh_health<T: SlotClock>(
         &self,
         distance_tiers: &BeaconNodeSyncDistanceTiers,
         slot_clock: Option<&T>,
         spec: &ChainSpec,
     ) -> Result<(), CandidateError> {
-        if let Err(e) = self.is_compatible::<E>(spec).await {
+        if let Err(e) = self.is_compatible(spec).await {
             *self.health.write().await = Err(e);
             return Err(e);
         }
@@ -318,7 +318,7 @@ impl CandidateBeaconNode {
     }
 
     /// Checks if the node has the correct specification.
-    async fn is_compatible<E: EthSpec>(&self, spec: &ChainSpec) -> Result<(), CandidateError> {
+    async fn is_compatible(&self, spec: &ChainSpec) -> Result<(), CandidateError> {
         let config = self
             .beacon_node
             .get_config_spec::<ConfigSpec>()
@@ -333,7 +333,7 @@ impl CandidateBeaconNode {
             })?
             .data;
 
-        let beacon_node_spec = ChainSpec::from_config::<E>(&config).ok_or_else(|| {
+        let beacon_node_spec = ChainSpec::from_config(&config).ok_or_else(|| {
             error!(
                 endpoint = %self.beacon_node,
                 "The minimal/mainnet spec type of the beacon node does not match the validator \
@@ -559,7 +559,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// It is possible for a node to return an unsynced status while continuing to serve
     /// low quality responses. To route around this it's best to poll all connected beacon nodes.
     /// A previous implementation of this function polled only the unavailable BNs.
-    pub async fn update_all_candidates<E: EthSpec>(&self) {
+    pub async fn update_all_candidates(&self) {
         // Clone the vec, so we release the read lock immediately.
         // `candidate.health` is behind an Arc<RwLock>, so this would still allow us to mutate the values.
         let candidates = self.candidates.read().await.clone();
@@ -567,7 +567,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         let mut nodes = Vec::with_capacity(candidates.len());
 
         for candidate in candidates.iter() {
-            futures.push(candidate.refresh_health::<E, T>(
+            futures.push(candidate.refresh_health::<T>(
                 &self.distance_tiers,
                 self.slot_clock.as_ref(),
                 &self.spec,
@@ -862,11 +862,9 @@ mod tests {
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
-    use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
+    use types::{BeaconBlockDeneb, ForkName, Spec};
     use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
-
-    type E = MainnetEthSpec;
 
     #[test]
     fn api_topic_all() {
@@ -997,8 +995,8 @@ mod tests {
     async fn new_mock_beacon_node(
         index: usize,
         spec: &ChainSpec,
-    ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
-        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+    ) -> (MockBeaconNode, CandidateBeaconNode) {
+        let mut mock_beacon_node = MockBeaconNode::new().await;
         mock_beacon_node.mock_get_config_spec(spec);
 
         let beacon_node =
@@ -1026,7 +1024,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_all_candidates_should_update_sync_status() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1067,7 +1065,7 @@ mod tests {
             sync_distance: Slot::new(0),
         });
 
-        beacon_node_fallback.update_all_candidates::<E>().await;
+        beacon_node_fallback.update_all_candidates().await;
 
         let candidates = beacon_node_fallback.candidates.read().await;
         assert_eq!(
@@ -1078,7 +1076,7 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(Spec::default_spec()));
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
 
@@ -1091,7 +1089,7 @@ mod tests {
         mock_beacon_node_1.mock_post_beacon_blinded_blocks_v2_ssz(Duration::from_secs(0));
         mock_beacon_node_2.mock_post_beacon_blinded_blocks_v2_ssz(Duration::from_secs(0));
 
-        let signed_block = SignedBlindedBeaconBlock::<E>::Deneb(SignedBeaconBlockDeneb {
+        let signed_block = SignedBlindedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             message: BeaconBlockDeneb::empty(&spec),
             signature: Signature::empty(),
         });
@@ -1118,7 +1116,7 @@ mod tests {
 
     #[tokio::test]
     async fn first_success_should_try_nodes_in_order() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1160,7 +1158,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_on_candidate_index_success() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
@@ -1190,7 +1188,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_on_candidate_index_error() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;

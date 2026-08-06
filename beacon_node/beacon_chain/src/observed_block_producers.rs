@@ -3,9 +3,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use typenum::Unsigned;
-use types::{BeaconBlockRef, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconBlockRef, Epoch, Hash256, Slot, Spec};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -39,19 +37,17 @@ impl ProposalKey {
 /// blocks reduces the theoretical maximum size of this cache to `slots_since_finality *
 /// active_validator_count`, however in reality that is more like `slots_since_finality *
 /// known_distinct_shufflings` which is much smaller.
-pub struct ObservedBlockProducers<E: EthSpec> {
+pub struct ObservedBlockProducers {
     finalized_slot: Slot,
     items: HashMap<ProposalKey, HashSet<Hash256>>,
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Default for ObservedBlockProducers<E> {
+impl Default for ObservedBlockProducers {
     /// Instantiates `Self` with `finalized_slot == 0`.
     fn default() -> Self {
         Self {
             finalized_slot: Slot::new(0),
             items: HashMap::new(),
-            _phantom: PhantomData,
         }
     }
 }
@@ -74,7 +70,7 @@ impl SeenBlock {
     }
 }
 
-impl<E: EthSpec> ObservedBlockProducers<E> {
+impl ObservedBlockProducers {
     /// Observe that the `block` was produced by `block.proposer_index` at `block.slot`. This will
     /// update `self` so future calls to it indicate that this block is known.
     ///
@@ -87,7 +83,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     pub fn observe_proposal(
         &mut self,
         block_root: Hash256,
-        block: BeaconBlockRef<'_, E>,
+        block: BeaconBlockRef<'_>,
     ) -> Result<SeenBlock, Error> {
         self.sanitize_block(block)?;
 
@@ -134,7 +130,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
     pub fn proposer_has_been_observed(
         &self,
-        block: BeaconBlockRef<'_, E>,
+        block: BeaconBlockRef<'_>,
         block_root: Hash256,
     ) -> Result<SeenBlock, Error> {
         self.sanitize_block(block)?;
@@ -162,8 +158,8 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
-    fn sanitize_block(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
-        if block.proposer_index() >= E::ValidatorRegistryLimit::to_u64() {
+    fn sanitize_block(&self, block: BeaconBlockRef<'_>) -> Result<(), Error> {
+        if block.proposer_index() >= Spec::validator_registry_limit() {
             return Err(Error::ValidatorIndexTooHigh(block.proposer_index()));
         }
 
@@ -198,7 +194,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     /// This is useful for doppelganger detection.
     pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
         self.items.iter().any(|(key, _)| {
-            key.slot.epoch(E::slots_per_epoch()) == epoch && key.proposer == validator_index
+            key.slot.epoch(Spec::slots_per_epoch()) == epoch && key.proposer == validator_index
         })
     }
 }
@@ -206,12 +202,10 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconBlock, MainnetEthSpec};
+    use types::BeaconBlock;
 
-    type E = MainnetEthSpec;
-
-    fn get_block(slot: u64, proposer: u64) -> BeaconBlock<E> {
-        let mut block = BeaconBlock::empty(&E::default_spec());
+    fn get_block(slot: u64, proposer: u64) -> BeaconBlock {
+        let mut block = BeaconBlock::empty(&Spec::default_spec());
         *block.slot_mut() = slot.into();
         *block.proposer_index_mut() = proposer;
         block
@@ -280,10 +274,10 @@ mod tests {
          * Check that a prune empties the cache
          */
 
-        cache.prune(E::slots_per_epoch().into());
+        cache.prune((Spec::slots_per_epoch()).into());
         assert_eq!(
             cache.finalized_slot,
-            Slot::from(E::slots_per_epoch()),
+            Slot::from(Spec::slots_per_epoch()),
             "finalized slot is updated"
         );
         assert_eq!(cache.items.len(), 0, "no items left");
@@ -293,7 +287,7 @@ mod tests {
          */
 
         // First slot of finalized epoch, proposer 0
-        let block_b = get_block(E::slots_per_epoch(), 0);
+        let block_b = get_block(Spec::slots_per_epoch(), 0);
         let block_root_b = block_b.canonical_root();
 
         assert_eq!(
@@ -301,8 +295,8 @@ mod tests {
                 .observe_proposal(block_root_b, block_b.to_ref())
                 .map(SeenBlock::proposer_previously_observed),
             Err(Error::FinalizedBlock {
-                slot: E::slots_per_epoch().into(),
-                finalized_slot: E::slots_per_epoch().into(),
+                slot: (Spec::slots_per_epoch()).into(),
+                finalized_slot: (Spec::slots_per_epoch()).into(),
             }),
             "cant insert finalized block"
         );
@@ -313,7 +307,7 @@ mod tests {
          * Check that we _can_ insert a non-finalized block
          */
 
-        let three_epochs = E::slots_per_epoch() * 3;
+        let three_epochs = Spec::slots_per_epoch() * 3;
 
         // First slot of finalized epoch, proposer 0
         let block_b = get_block(three_epochs, 0);
@@ -344,7 +338,7 @@ mod tests {
          * Check that a prune doesnt wipe later blocks
          */
 
-        let two_epochs = E::slots_per_epoch() * 2;
+        let two_epochs = Spec::slots_per_epoch() * 2;
         cache.prune(two_epochs.into());
 
         assert_eq!(

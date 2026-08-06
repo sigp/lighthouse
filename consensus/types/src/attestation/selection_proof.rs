@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use ssz::Encode;
 
 use crate::{
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot},
+    core::{ChainSpec, Domain, Hash256, SignedRoot, Slot, Spec},
     fork::Fork,
 };
 
@@ -17,7 +17,7 @@ use crate::{
 pub struct SelectionProof(Signature);
 
 impl SelectionProof {
-    pub fn new<E: EthSpec>(
+    pub fn new(
         slot: Slot,
         secret_key: &SecretKey,
         fork: &Fork,
@@ -25,7 +25,7 @@ impl SelectionProof {
         spec: &ChainSpec,
     ) -> Self {
         let domain = spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             Domain::SelectionProof,
             fork,
             genesis_validators_root,
@@ -64,7 +64,7 @@ impl SelectionProof {
         signature_hash_int.safe_rem(modulo).map(|rem| rem == 0)
     }
 
-    pub fn verify<E: EthSpec>(
+    pub fn verify(
         &self,
         slot: Slot,
         pubkey: &PublicKey,
@@ -73,7 +73,7 @@ impl SelectionProof {
         spec: &ChainSpec,
     ) -> bool {
         let domain = spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             Domain::SelectionProof,
             fork,
             genesis_validators_root,

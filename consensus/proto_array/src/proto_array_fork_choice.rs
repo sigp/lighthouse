@@ -16,8 +16,7 @@ use std::{
     time::Duration,
 };
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot, Spec,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -478,7 +477,7 @@ pub struct ProtoArrayForkChoice {
 
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<E: EthSpec>(
+    pub fn new(
         current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
@@ -521,7 +520,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(
+            .on_block(
                 block,
                 current_slot,
                 spec,
@@ -562,13 +561,13 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
-    pub fn process_execution_payload_invalidation<E: EthSpec>(
+    pub fn process_execution_payload_invalidation(
         &mut self,
         op: &InvalidationOperation,
         finalized_checkpoint: Checkpoint,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation::<E>(op, finalized_checkpoint)
+            .propagate_execution_payload_invalidation(op, finalized_checkpoint)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -631,7 +630,7 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block<E: EthSpec>(
+    pub fn process_block(
         &mut self,
         block: Block,
         current_slot: Slot,
@@ -643,12 +642,12 @@ impl ProtoArrayForkChoice {
         }
 
         self.proto_array
-            .on_block::<E>(block, current_slot, spec, time_into_slot)
+            .on_block(block, current_slot, spec, time_into_slot)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn find_head<E: EthSpec>(
+    pub fn find_head(
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
@@ -678,13 +677,13 @@ impl ProtoArrayForkChoice {
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         self.proto_array
-            .apply_score_changes::<E>(deltas)
+            .apply_score_changes(deltas)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.clone();
 
         self.proto_array
-            .find_head::<E>(
+            .find_head(
                 &justified_checkpoint.root,
                 current_slot,
                 justified_checkpoint,
@@ -700,7 +699,7 @@ impl ProtoArrayForkChoice {
     ///
     /// This function returns a *definitive* result which should be acted on.
     #[allow(clippy::too_many_arguments)]
-    pub fn get_proposer_head<E: EthSpec>(
+    pub fn get_proposer_head(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
@@ -709,7 +708,7 @@ impl ProtoArrayForkChoice {
         re_org_parent_threshold: ReOrgThreshold,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
-        let info = self.get_proposer_head_info::<E>(
+        let info = self.get_proposer_head_info(
             current_slot,
             canonical_head,
             justified_balances,
@@ -757,7 +756,7 @@ impl ProtoArrayForkChoice {
     ///
     /// This function returns a *partial* result which must be processed further.
     #[allow(clippy::too_many_arguments)]
-    pub fn get_proposer_head_info<E: EthSpec>(
+    pub fn get_proposer_head_info(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
@@ -781,7 +780,7 @@ impl ProtoArrayForkChoice {
         let re_org_block_slot = head_slot.saturating_add(1_u64);
 
         // Check finalization distance.
-        let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
+        let proposal_epoch = re_org_block_slot.epoch(Spec::slots_per_epoch());
         let finalized_epoch = head_node
             .unrealized_finalized_checkpoint()
             .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
@@ -813,11 +812,11 @@ impl ProtoArrayForkChoice {
 
         // Compute re-org weight thresholds for head and parent.
         let re_org_head_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_head_threshold.0)
+            calculate_committee_fraction(justified_balances, re_org_head_threshold.0)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
         let re_org_parent_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_parent_threshold.0)
+            calculate_committee_fraction(justified_balances, re_org_parent_threshold.0)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
         Ok(ProposerHeadInfo {
@@ -844,7 +843,7 @@ impl ProtoArrayForkChoice {
     /// status to be optimistic.
     ///
     /// In practice this means forgetting any `VALID` or `INVALID` statuses.
-    pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
+    pub fn set_all_blocks_to_optimistic(&mut self) -> Result<(), String> {
         // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
         // required to do this process in reverse, it seems natural when we consider how LMD votes
         // are counted.
@@ -980,7 +979,7 @@ impl ProtoArrayForkChoice {
 
     /// Called by the proposer to decide whether to build on the full or empty
     /// parent. Returns false if the PTC has voted the data as unavailable.
-    pub fn should_build_on_full<E: EthSpec>(
+    pub fn should_build_on_full(
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
@@ -1002,14 +1001,14 @@ impl ProtoArrayForkChoice {
             payload_status: parent_payload_status,
         };
         self.proto_array
-            .should_build_on_full::<E>(&fc_node, proto_node, current_slot)
+            .should_build_on_full(&fc_node, proto_node, current_slot)
             .map_err(|e| format!("{e:?}"))
     }
 
     /// Returns whether the proposer should extend the parent's execution payload chain.
     ///
     /// This checks timeliness, data availability, and proposer boost conditions per the spec.
-    pub fn should_extend_payload<E: EthSpec>(
+    pub fn should_extend_payload(
         &self,
         block_root: &Hash256,
         current_slot: Slot,
@@ -1031,7 +1030,7 @@ impl ProtoArrayForkChoice {
             payload_status: proto_node.get_parent_payload_status(),
         };
         self.proto_array
-            .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
+            .should_extend_payload(&fc_node, proto_node, current_slot, proposer_boost_root)
             .map_err(|e| format!("{e:?}"))
     }
 
@@ -1056,14 +1055,14 @@ impl ProtoArrayForkChoice {
 
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
-    pub fn get_canonical_payload_status<E: EthSpec>(
+    pub fn get_canonical_payload_status(
         &self,
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
-        self.proto_array.get_canonical_payload_status::<E>(
+        self.proto_array.get_canonical_payload_status(
             *block_root,
             current_slot,
             proposer_boost_root,
@@ -1090,13 +1089,13 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray` documentation.
-    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
+    pub fn is_finalized_checkpoint_or_descendant(
         &self,
         descendant_root: Hash256,
         best_finalized_checkpoint: Checkpoint,
     ) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_or_descendant::<E>(descendant_root, best_finalized_checkpoint)
+            .is_finalized_checkpoint_or_descendant(descendant_root, best_finalized_checkpoint)
     }
 
     /// NOTE: only used in tests.
@@ -1174,12 +1173,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
-    pub fn heads_descended_from_finalization<E: EthSpec>(
+    pub fn heads_descended_from_finalization(
         &self,
         best_finalized_checkpoint: Checkpoint,
     ) -> Vec<&ProtoNode> {
         self.proto_array
-            .heads_descended_from_finalization::<E>(best_finalized_checkpoint)
+            .heads_descended_from_finalization(best_finalized_checkpoint)
     }
 }
 
@@ -1337,7 +1336,6 @@ fn compute_deltas(
 mod test_compute_deltas {
     use super::*;
     use fixed_bytes::FixedBytesExtended;
-    use types::MainnetEthSpec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -1350,7 +1348,7 @@ mod test_compute_deltas {
 
     #[test]
     fn finalized_descendant() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
 
@@ -1372,7 +1370,7 @@ mod test_compute_deltas {
             root: Hash256::repeat_byte(42),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
             genesis_slot,
             state_root,
@@ -1390,7 +1388,7 @@ mod test_compute_deltas {
 
         // Add block that is a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block(
                 Block {
                     slot: genesis_slot + 1,
                     root: finalized_desc,
@@ -1417,7 +1415,7 @@ mod test_compute_deltas {
 
         // Add block that is *not* a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block(
                 Block {
                     slot: genesis_slot + 1,
                     root: not_finalized_desc,
@@ -1454,24 +1452,10 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_root,
-            genesis_checkpoint
-        ));
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_desc,
-            genesis_checkpoint
-        ));
-        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            not_finalized_desc,
-            genesis_checkpoint
-        ));
-        assert!(
-            !fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                unknown,
-                genesis_checkpoint
-            )
-        );
+        assert!(fc.is_finalized_checkpoint_or_descendant(finalized_root, genesis_checkpoint));
+        assert!(fc.is_finalized_checkpoint_or_descendant(finalized_desc, genesis_checkpoint));
+        assert!(!fc.is_finalized_checkpoint_or_descendant(not_finalized_desc, genesis_checkpoint));
+        assert!(!fc.is_finalized_checkpoint_or_descendant(unknown, genesis_checkpoint));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1516,7 +1500,7 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
         let junk_state_root = Hash256::zero();
@@ -1529,7 +1513,7 @@ mod test_compute_deltas {
             root: get_block_root(0),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
             genesis_slot,
             junk_state_root,
@@ -1553,7 +1537,7 @@ mod test_compute_deltas {
 
         let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
             fc.proto_array
-                .on_block::<MainnetEthSpec>(
+                .on_block(
                     Block {
                         slot: Slot::from(block.slot),
                         root: get_block_root(block.root),
@@ -1588,7 +1572,7 @@ mod test_compute_deltas {
 
         // Produce the 0th epoch of blocks. They should all form a chain from
         // the genesis block.
-        for i in 1..MainnetEthSpec::slots_per_epoch() {
+        for i in 1..Spec::slots_per_epoch() {
             insert_block(
                 &mut fc,
                 TestBlock {
@@ -1599,7 +1583,7 @@ mod test_compute_deltas {
             )
         }
 
-        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+        let last_slot_of_epoch_0 = Spec::slots_per_epoch() - 1;
 
         // Produce a block that descends from the last block of epoch -.
         //
@@ -1639,27 +1623,22 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                    finalized_root,
-                    finalized_checkpoint
-                ),
+                .is_finalized_checkpoint_or_descendant(finalized_root, finalized_checkpoint),
             "the finalized checkpoint is the finalized checkpoint"
         );
 
         assert!(
-            fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                    get_block_root(canonical_slot),
-                    finalized_checkpoint
-                ),
+            fc.proto_array.is_finalized_checkpoint_or_descendant(
+                get_block_root(canonical_slot),
+                finalized_checkpoint
+            ),
             "the canonical block is a descendant of the finalized checkpoint"
         );
         assert!(
-            !fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                    get_block_root(non_canonical_slot),
-                    finalized_checkpoint
-                ),
+            !fc.proto_array.is_finalized_checkpoint_or_descendant(
+                get_block_root(non_canonical_slot),
+                finalized_checkpoint
+            ),
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
         );

@@ -9,8 +9,8 @@ use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, Hash256, ProposerPreferences,
+    SignedBeaconBlock, SignedProposerPreferences, Slot, Spec,
 };
 
 use crate::{
@@ -30,8 +30,7 @@ use crate::{
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
-type E = MinimalEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralHarnessType;
 
 const NUM_VALIDATORS: usize = 64;
 
@@ -40,16 +39,16 @@ struct TestContext {
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     spec: ChainSpec,
-    store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
+    store: Arc<HotColdDB<MemoryStore, MemoryStore>>,
     head_block_root: Hash256,
     beacon_proposer_cache: Mutex<BeaconProposerCache>,
-    validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
+    validator_pubkey_cache: RwLock<ValidatorPubkeyCache>,
     genesis_validators_root: Hash256,
 }
 
 impl TestContext {
     fn new() -> Self {
-        let spec = test_spec::<E>();
+        let spec = test_spec();
         let store = Arc::new(
             HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
                 .expect("should open ephemeral store"),
@@ -58,7 +57,7 @@ impl TestContext {
         let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
 
         let mut state =
-            interop_genesis_state::<E>(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
+            interop_genesis_state(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
                 .expect("should build genesis state");
 
         *state.finalized_checkpoint_mut() = Checkpoint {
@@ -151,11 +150,11 @@ impl TestContext {
         let lookahead = state
             .proposer_lookahead()
             .expect("Gloas state has lookahead");
-        let slot_in_epoch = slot.as_usize() % E::slots_per_epoch() as usize;
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let current_epoch = state.slot().epoch(E::slots_per_epoch());
+        let slot_in_epoch = slot.as_usize() % Spec::slots_per_epoch() as usize;
+        let epoch = slot.epoch(Spec::slots_per_epoch());
+        let current_epoch = state.slot().epoch(Spec::slots_per_epoch());
         let index = if epoch == current_epoch.saturating_add(self.spec.min_seed_lookahead) {
-            E::slots_per_epoch() as usize + slot_in_epoch
+            Spec::slots_per_epoch() as usize + slot_in_epoch
         } else {
             slot_in_epoch
         };
@@ -213,7 +212,7 @@ fn invalid_epoch_too_far_ahead() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
-    let far_slot = Slot::new(3 * E::slots_per_epoch());
+    let far_slot = Slot::new(3 * Spec::slots_per_epoch());
     let prefs = make_signed_preferences(far_slot, 0, Hash256::ZERO);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
@@ -362,7 +361,7 @@ fn invalid_epoch_too_old() {
     }
     let ctx = TestContext::new();
     // Advance the clock so that epoch 0 slots are too old.
-    ctx.slot_clock.set_slot(3 * E::slots_per_epoch());
+    ctx.slot_clock.set_slot(3 * Spec::slots_per_epoch());
     let gossip = ctx.gossip_ctx();
 
     let old_slot = Slot::new(1);
@@ -385,7 +384,7 @@ fn preferences_for_next_epoch_slot() {
     let gossip = ctx.gossip_ctx();
 
     // Head is at slot 0 (epoch 0). Pick a slot in epoch 1.
-    let next_epoch_slot = Slot::new(E::slots_per_epoch() + 1);
+    let next_epoch_slot = Slot::new(Spec::slots_per_epoch() + 1);
     let actual_proposer = ctx.proposer_at_slot(next_epoch_slot);
 
     let prefs = make_signed_preferences(next_epoch_slot, actual_proposer, ctx.head_block_root);

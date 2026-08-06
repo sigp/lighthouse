@@ -6,7 +6,7 @@ use ssz_types::BitVector;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{EthSpec, Hash256, SignedRoot, Slot, SlotData},
+    core::{Hash256, SignedRoot, Slot, SlotData, Spec},
     fork::ForkName,
     sync_committee::SyncCommitteeMessage,
 };
@@ -19,24 +19,19 @@ pub enum Error {
 }
 
 /// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
-#[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SyncCommitteeContribution<E: EthSpec> {
+pub struct SyncCommitteeContribution {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
-    pub aggregation_bits: BitVector<E::SyncSubcommitteeSize>,
+    pub aggregation_bits: BitVector<typenum::U<{ Spec::SYNC_SUBCOMMITTEE_SIZE }>>,
     pub signature: AggregateSignature,
 }
 
-impl<E: EthSpec> SyncCommitteeContribution<E> {
+impl SyncCommitteeContribution {
     /// Create a `SyncCommitteeContribution` from:
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
@@ -85,7 +80,7 @@ pub struct SyncContributionData {
 }
 
 impl SyncContributionData {
-    pub fn from_contribution<E: EthSpec>(signing_data: &SyncCommitteeContribution<E>) -> Self {
+    pub fn from_contribution(signing_data: &SyncCommitteeContribution) -> Self {
         Self {
             slot: signing_data.slot,
             beacon_block_root: signing_data.beacon_block_root,
@@ -94,13 +89,13 @@ impl SyncContributionData {
     }
 }
 
-impl<E: EthSpec> SlotData for SyncCommitteeContribution<E> {
+impl SlotData for SyncCommitteeContribution {
     fn get_slot(&self) -> Slot {
         self.slot
     }
 }
 
-impl<E: EthSpec> SlotData for &SyncCommitteeContribution<E> {
+impl SlotData for &SyncCommitteeContribution {
     fn get_slot(&self) -> Slot {
         self.slot
     }
@@ -115,7 +110,6 @@ impl SlotData for SyncContributionData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::*;
 
-    ssz_and_tree_hash_tests!(SyncCommitteeContribution<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SyncCommitteeContribution);
 }

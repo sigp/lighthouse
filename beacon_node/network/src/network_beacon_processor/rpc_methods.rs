@@ -19,7 +19,7 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
-use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, Epoch, Hash256, Slot, Spec};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -37,7 +37,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        response: Response<T::EthSpec>,
+        response: Response,
     ) {
         self.send_network_message(NetworkMessage::SendResponse {
             peer_id,
@@ -70,7 +70,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         remote: &StatusMessage,
     ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
-        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let start_slot = |epoch: Epoch| epoch.start_slot(Spec::slots_per_epoch());
 
         let irrelevant_reason = if local.fork_digest() != remote.fork_digest() {
             // The node is on a different network/fork
@@ -655,7 +655,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .spec
             .fulu_fork_epoch
-            .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
+            .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
 
         let mut blob_list_results = HashMap::new();
 
@@ -677,7 +677,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect();
 
-        for id in request.blob_ids.as_slice() {
+        for id in request.blob_ids.iter() {
             let BlobIdentifier {
                 block_root: root,
                 index,
@@ -759,7 +759,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest<T::EthSpec>,
+        request: DataColumnsByRootRequest,
     ) {
         let requested_columns = request
             .data_column_ids
@@ -787,13 +787,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest<T::EthSpec>,
+        request: DataColumnsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
         let available_columns = self.chain.custody_context.custody_columns_for_epoch(None);
 
-        for data_column_ids_by_root in request.data_column_ids.as_slice() {
+        for data_column_ids_by_root in request.data_column_ids.iter() {
             let indices_to_retrieve = data_column_ids_by_root
                 .columns
                 .iter()
@@ -1230,7 +1230,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .cached_head()
             .finalized_checkpoint()
             .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         let (block_roots_and_slots, source) = if req_start_slot >= finalized_slot.as_u64() {
             // If the entire requested range is after finalization, use fork_choice
@@ -1406,10 +1406,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         let request_start_slot = Slot::from(req_start_slot);
-        let fork_name = self
-            .chain
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(request_start_slot);
+        let fork_name = self.chain.spec.fork_name_at_slot(request_start_slot);
 
         if !fork_name.gloas_enabled() {
             return Err((
@@ -1584,7 +1581,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         let request_start_slot = Slot::from(req.start_slot);
-        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let request_start_epoch = request_start_slot.epoch(Spec::slots_per_epoch());
         let fork_name = self.chain.spec.fork_name_at_epoch(request_start_epoch);
         // Should not send more than max request blob sidecars
         if req.max_blobs_requested(request_start_epoch, &self.chain.spec)
@@ -1597,7 +1594,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let effective_count = if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
-            let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let fulu_start_slot = fulu_epoch.start_slot(Spec::slots_per_epoch());
             let request_end_slot = request_start_slot.saturating_add(req.count) - 1;
 
             // If the request_start_slot is at or after a Fulu slot, return an empty response
@@ -1615,7 +1612,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let data_availability_boundary_slot =
             match self.chain.custody_context.data_availability_boundary() {
-                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                Some(boundary) => boundary.start_slot(Spec::slots_per_epoch()),
                 None => {
                     debug!("Deneb fork is disabled");
                     return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
@@ -1724,7 +1721,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
-        let epoch = Slot::new(req.start_slot).epoch(T::EthSpec::slots_per_epoch());
+        let epoch = Slot::new(req.start_slot).epoch(Spec::slots_per_epoch());
         self.record_data_column_request_in_span(
             &peer_id,
             &req.columns,
@@ -1755,7 +1752,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request data columns
-        if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
+        if req.max_requested() > self.chain.spec.max_request_data_column_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_DATA_COLUMN_SIDECARS`",
@@ -1769,7 +1766,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .custody_context
             .column_data_availability_boundary()
         {
-            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            Some(boundary) => boundary.start_slot(Spec::slots_per_epoch()),
             None => {
                 debug!("Fulu fork is disabled");
                 return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
@@ -1780,7 +1777,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.earliest_custodied_data_column_epoch() {
                 Some(earliest_custodied_epoch) => {
                     let earliest_custodied_slot =
-                        earliest_custodied_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                        earliest_custodied_epoch.start_slot(Spec::slots_per_epoch());
                     // Ensure the earliest columns we serve are within the data availability window
                     if earliest_custodied_slot < column_data_availability_boundary_slot {
                         column_data_availability_boundary_slot
@@ -1817,7 +1814,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut data_columns_sent = 0;
 
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let request_start_epoch = request_start_slot.epoch(Spec::slots_per_epoch());
         let available_columns = self
             .chain
             .custody_context
@@ -1831,7 +1828,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .collect::<Vec<_>>();
 
         for (root, slot) in block_roots_and_slots {
-            let fork_name = self.chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+            let fork_name = self.chain.spec.fork_name_at_slot(slot);
             for index in &indices_to_retrieve {
                 match self.chain.get_data_column(&root, index, fork_name) {
                     Ok(Some(data_column_sidecar)) => {
@@ -1887,7 +1884,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Helper function to ensure single item protocol always end with either a single chunk or an
     /// error
-    fn terminate_response_single_item<R, F: Fn(R) -> Response<T::EthSpec>>(
+    fn terminate_response_single_item<R, F: Fn(R) -> Response>(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -1910,7 +1907,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Helper function to ensure streamed protocols with multiple responses always end with either
     /// a stream termination or an error
-    fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response<T::EthSpec>>(
+    fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response>(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,

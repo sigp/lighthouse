@@ -17,12 +17,11 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
-use types::{EthSpec, ExecutionBlockHash, Uint256};
+use types::{ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::EngineCapabilities;
@@ -103,14 +102,14 @@ impl Default for MockExecutionConfig {
     }
 }
 
-pub struct MockServer<E: EthSpec> {
+pub struct MockServer {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
     last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub ctx: Arc<Context<E>>,
+    pub ctx: Arc<Context>,
 }
 
-impl<E: EthSpec> MockServer<E> {
+impl MockServer {
     pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
@@ -153,7 +152,7 @@ impl<E: EthSpec> MockServer<E> {
             kzg,
         );
 
-        let ctx: Arc<Context<E>> = Arc::new(Context {
+        let ctx: Arc<Context> = Arc::new(Context {
             config: server_config,
             jwt_key,
             last_echo_request: last_echo_request.clone(),
@@ -168,7 +167,6 @@ impl<E: EthSpec> MockServer<E> {
             fcu_payload_statuses: <_>::default(),
             syncing_response: Arc::new(Mutex::new(Ok(false))),
             engine_capabilities: Arc::new(RwLock::new(DEFAULT_ENGINE_CAPABILITIES)),
-            _phantom: PhantomData,
         });
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -230,7 +228,7 @@ impl<E: EthSpec> MockServer<E> {
         )
     }
 
-    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
+    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator> {
         self.ctx.execution_block_generator.write()
     }
 
@@ -442,7 +440,7 @@ impl<E: EthSpec> MockServer<E> {
             .insert_block_without_checks(block);
     }
 
-    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<E>> {
+    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block> {
         self.ctx
             .execution_block_generator
             .read()
@@ -526,12 +524,12 @@ impl warp::reject::Reject for AuthError {}
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<E: EthSpec> {
+pub struct Context {
     pub config: Config,
     pub jwt_key: JwtKey,
 
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
+    pub execution_block_generator: RwLock<ExecutionBlockGenerator>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
@@ -550,10 +548,9 @@ pub struct Context<E: EthSpec> {
     pub syncing_response: Arc<Mutex<Result<bool, String>>>,
 
     pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
-    pub _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Context<E> {
+impl Context {
     pub fn get_new_payload_status(
         &self,
         block_hash: &ExecutionBlockHash,
@@ -662,8 +659,8 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<E: EthSpec>(
-    ctx: Arc<Context<E>>,
+pub fn serve(
+    ctx: Arc<Context>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -677,7 +674,7 @@ pub fn serve<E: EthSpec>(
     let root = warp::path::end()
         .and(warp::body::json())
         .and(ctx_filter.clone())
-        .and_then(|body: serde_json::Value, ctx: Arc<Context<E>>| async move {
+        .and_then(|body: serde_json::Value, ctx: Arc<Context>| async move {
             let id = body
                 .get("id")
                 .and_then(serde_json::Value::as_u64)
@@ -724,7 +721,7 @@ pub fn serve<E: EthSpec>(
     let echo = warp::path("echo")
         .and(warp::body::bytes())
         .and(ctx_filter)
-        .and_then(|bytes: Bytes, ctx: Arc<Context<E>>| async move {
+        .and_then(|bytes: Bytes, ctx: Arc<Context>| async move {
             *ctx.last_echo_request.write() = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
                 warp::http::Response::builder().status(200).body(bytes),

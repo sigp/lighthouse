@@ -23,7 +23,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, Hash256};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
@@ -2342,7 +2342,7 @@ fn ensure_panic_on_failed_launch() {
 fn enable_proposer_re_orgs_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config_and_spec::<MainnetEthSpec, _>(|config, spec| {
+        .with_config_and_spec(|config, spec| {
             assert!(!config.chain.disable_proposer_reorg);
             assert_eq!(spec.reorg_head_weight_threshold, 20);
             assert_eq!(spec.reorg_parent_weight_threshold, 160);

@@ -13,21 +13,20 @@ use slashing_protection::{
     CheckSlashability, InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
 };
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
-    BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit, graffiti::GraffitiString,
+    BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, ExecutionPayloadEnvelope, Fork,
+    FullPayload, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, SingleAttestation, Slot,
+    Spec, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -63,7 +62,7 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 /// https://ethpandaops.io/posts/gaslimit-scaling/.
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 
-pub struct LighthouseValidatorStore<T, E> {
+pub struct LighthouseValidatorStore<T> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
@@ -78,10 +77,9 @@ pub struct LighthouseValidatorStore<T, E> {
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
-    _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
+impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     // All arguments are different types. Making the fields `pub` is undesired. A builder seems
     // unnecessary.
     #[allow(clippy::too_many_arguments)]
@@ -110,7 +108,6 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
-            _phantom: PhantomData,
         }
     }
 
@@ -124,7 +121,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 doppelganger_service.register_new_validator(
                     *pubkey,
                     &self.slot_clock,
-                    E::slots_per_epoch(),
+                    Spec::slots_per_epoch(),
                 )?
             }
         }
@@ -204,7 +201,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             doppelganger_service.register_new_validator(
                 validator_pubkey,
                 &self.slot_clock,
-                E::slots_per_epoch(),
+                Spec::slots_per_epoch(),
             )?;
         }
 
@@ -442,12 +439,12 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })
     }
 
-    async fn sign_abstract_block<Payload: AbstractExecPayload<E>>(
+    async fn sign_abstract_block<Payload: AbstractExecPayload>(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E, Payload>,
+        block: BeaconBlock<Payload>,
         current_slot: Slot,
-    ) -> Result<SignedBeaconBlock<E, Payload>, Error> {
+    ) -> Result<SignedBeaconBlock<Payload>, Error> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
@@ -542,7 +539,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::VoluntaryExit(&voluntary_exit),
                 signing_context,
                 &self.spec,
@@ -581,7 +578,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::AttestationData(data),
                 signing_context,
                 &self.spec,
@@ -699,9 +696,9 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
-        aggregate: Attestation<E>,
+        aggregate: Attestation,
         selection_proof: SelectionProof,
-    ) -> Result<SignedAggregateAndProof<E>, Error> {
+    ) -> Result<SignedAggregateAndProof, Error> {
         let signing_epoch = aggregate.data().target.epoch;
         let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
 
@@ -710,7 +707,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::SignedAggregateAndProof(message.to_ref()),
                 signing_context,
                 &self.spec,
@@ -735,14 +732,14 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         validator_index: u64,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<SyncCommitteeMessage, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(Spec::slots_per_epoch());
         let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::SyncCommitteeSignature {
                     beacon_block_root,
                     slot,
@@ -771,10 +768,10 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         &self,
         aggregator_index: u64,
         aggregator_pubkey: PublicKeyBytes,
-        contribution: SyncCommitteeContribution<E>,
+        contribution: SyncCommitteeContribution,
         selection_proof: SyncSelectionProof,
-    ) -> Result<SignedContributionAndProof<E>, Error> {
-        let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
+    ) -> Result<SignedContributionAndProof, Error> {
+        let signing_epoch = contribution.slot.epoch(Spec::slots_per_epoch());
         let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
@@ -787,7 +784,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
                 &self.spec,
@@ -805,9 +802,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorStore<T, E> {
+impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
     type Error = SigningError;
-    type E = E;
 
     /// Attempts to resolve the pubkey to a validator index.
     ///
@@ -952,7 +948,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
                 &self.spec,
@@ -972,9 +968,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     async fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: UnsignedBlock<E>,
+        block: UnsignedBlock,
         current_slot: Slot,
-    ) -> Result<SignedBlock<E>, Error> {
+    ) -> Result<SignedBlock, Error> {
         match block {
             UnsignedBlock::Full(block) => {
                 let (block, blobs) = block.deconstruct();
@@ -1075,7 +1071,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let signing_method =
             self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
         let signature = signing_method
-            .get_signature_from_root::<E, BlindedPayload<E>>(
+            .get_signature_from_root::<BlindedPayload>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),
                 signing_root,
                 &self.task_executor,
@@ -1101,7 +1097,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(Spec::slots_per_epoch());
         let signing_context = self.signing_context(Domain::SelectionProof, signing_epoch);
 
         // Bypass the `with_validator_signing_method` function.
@@ -1114,7 +1110,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::SelectionProof(slot),
                 signing_context,
                 &self.spec,
@@ -1138,7 +1134,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         slot: Slot,
         subnet_id: SyncSubnetId,
     ) -> Result<SyncSelectionProof, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(Spec::slots_per_epoch());
         let signing_context =
             self.signing_context(Domain::SyncCommitteeSelectionProof, signing_epoch);
 
@@ -1156,7 +1152,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         };
 
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature::<BlindedPayload>(
                 SignableMessage::SyncSelectionProof(&message),
                 signing_context,
                 &self.spec,
@@ -1170,8 +1166,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     fn sign_aggregate_and_proofs(
         self: &Arc<Self>,
-        aggregates: Vec<AggregateToSign<E>>,
-    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof<E>>, Error>> + Send {
+        aggregates: Vec<AggregateToSign>,
+    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof>, Error>> + Send {
         let store = self.clone();
         let count = aggregates.len();
         stream::once(async move {
@@ -1282,8 +1278,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     fn sign_sync_committee_contributions(
         self: &Arc<Self>,
-        contributions: Vec<ContributionToSign<E>>,
-    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof<E>>, Error>> + Send {
+        contributions: Vec<ContributionToSign>,
+    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof>, Error>> + Send {
         let store = self.clone();
         let count = contributions.len();
         stream::once(async move {
@@ -1365,7 +1361,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             validator_metrics::start_timer(&validator_metrics::SLASHING_PROTECTION_PRUNE_TIMES);
 
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
-        let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
+        let new_min_slot = new_min_target_epoch.start_slot(Spec::slots_per_epoch());
 
         let all_pubkeys: Vec<_> = self.voting_pubkeys(DoppelgangerStatus::ignored);
 
@@ -1418,8 +1414,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
     ) -> Result<PayloadAttestationMessage, Error> {
-        let signing_context =
-            self.signing_context(Domain::PTCAttester, data.slot.epoch(E::slots_per_epoch()));
+        let signing_context = self.signing_context(
+            Domain::PTCAttester,
+            data.slot.epoch(Spec::slots_per_epoch()),
+        );
 
         let validator_index = self
             .validator_index(&validator_pubkey)
@@ -1428,7 +1426,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, FullPayload<E>>(
+            .get_signature::<FullPayload>(
                 SignableMessage::PayloadAttestationData(&data),
                 signing_context,
                 &self.spec,
@@ -1449,18 +1447,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     async fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
-        envelope: ExecutionPayloadEnvelope<E>,
-    ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
+        envelope: ExecutionPayloadEnvelope,
+    ) -> Result<SignedExecutionPayloadEnvelope, Error> {
         let signing_context = self.signing_context(
             Domain::BeaconBuilder,
-            envelope.slot().epoch(E::slots_per_epoch()),
+            envelope.slot().epoch(Spec::slots_per_epoch()),
         );
 
         // Execution payload envelope signing is not slashable, bypass doppelganger protection.
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, FullPayload<E>>(
+            .get_signature::<FullPayload>(
                 SignableMessage::ExecutionPayloadEnvelope(&envelope),
                 signing_context,
                 &self.spec,
@@ -1482,13 +1480,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     ) -> Result<SignedProposerPreferences, Error> {
         let signing_context = self.signing_context(
             Domain::ProposerPreferences,
-            preferences.proposal_slot.epoch(E::slots_per_epoch()),
+            preferences.proposal_slot.epoch(Spec::slots_per_epoch()),
         );
 
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, FullPayload<E>>(
+            .get_signature::<FullPayload>(
                 SignableMessage::ProposerPreferences(&preferences),
                 signing_context,
                 &self.spec,

@@ -7,7 +7,7 @@ use state_processing::common::{
 };
 use std::collections::HashMap;
 use types::{
-    Attestation, BeaconState, ChainSpec, EthSpec,
+    Attestation, BeaconState, ChainSpec, Spec,
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     state::BeaconStateBase,
 };
@@ -16,17 +16,17 @@ pub const PROPOSER_REWARD_DENOMINATOR: u64 =
     (WEIGHT_DENOMINATOR - PROPOSER_WEIGHT) * WEIGHT_DENOMINATOR / PROPOSER_WEIGHT;
 
 #[derive(Debug, Clone)]
-pub struct AttMaxCover<'a, E: EthSpec> {
+pub struct AttMaxCover<'a> {
     /// Underlying attestation.
-    pub att: CompactAttestationRef<'a, E>,
+    pub att: CompactAttestationRef<'a>,
     /// Mapping of validator indices and their reward *numerators*.
     pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
-impl<'a, E: EthSpec> AttMaxCover<'a, E> {
+impl<'a> AttMaxCover<'a> {
     pub fn new(
-        att: CompactAttestationRef<'a, E>,
-        state: &BeaconState<E>,
+        att: CompactAttestationRef<'a>,
+        state: &BeaconState,
         reward_cache: &'a RewardCache,
         total_active_balance: u64,
         spec: &ChainSpec,
@@ -40,9 +40,9 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
     /// Initialise an attestation cover object for base/phase0 hard fork.
     pub fn new_for_base(
-        att: CompactAttestationRef<'a, E>,
-        state: &BeaconState<E>,
-        base_state: &BeaconStateBase<E>,
+        att: CompactAttestationRef<'a>,
+        state: &BeaconState,
+        base_state: &BeaconStateBase,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
@@ -50,7 +50,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
-        let indices = get_attesting_indices::<E>(committee.committee, &fresh_validators).ok()?;
+        let indices = get_attesting_indices(committee.committee, &fresh_validators).ok()?;
         let sqrt_total_active_balance = base::SqrtTotalActiveBalance::new(total_active_balance);
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
@@ -73,8 +73,8 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
     /// Initialise an attestation cover object for Altair or later.
     pub fn new_for_altair_or_later(
-        att: CompactAttestationRef<'a, E>,
-        state: &BeaconState<E>,
+        att: CompactAttestationRef<'a>,
+        state: &BeaconState,
         reward_cache: &'a RewardCache,
         spec: &ChainSpec,
     ) -> Option<Self> {
@@ -118,16 +118,16 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
     }
 }
 
-impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
-    type Object = Attestation<E>;
-    type Intermediate = CompactAttestationRef<'a, E>;
+impl<'a> MaxCover for AttMaxCover<'a> {
+    type Object = Attestation;
+    type Intermediate = CompactAttestationRef<'a>;
     type Set = HashMap<u64, u64>;
 
-    fn intermediate(&self) -> &CompactAttestationRef<'a, E> {
+    fn intermediate(&self) -> &CompactAttestationRef<'a> {
         &self.att
     }
 
-    fn convert_to_object(att_ref: &CompactAttestationRef<'a, E>) -> Attestation<E> {
+    fn convert_to_object(att_ref: &CompactAttestationRef<'a>) -> Attestation {
         att_ref.clone_as_attestation()
     }
 
@@ -154,7 +154,7 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
     /// executing the `retain` when the `committee_bits` of the two attestations intersect.
     fn update_covering_set(
         &mut self,
-        best_att: &CompactAttestationRef<'a, E>,
+        best_att: &CompactAttestationRef<'a>,
         covered_validators: &HashMap<u64, u64>,
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
@@ -177,11 +177,11 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
 /// removed from the `aggregation_bits` before returning it.
 ///
 /// This isn't optimal, but with the Altair fork this code is obsolete and not worth upgrading.
-pub fn earliest_attestation_validators<E: EthSpec>(
-    attestation: &CompactAttestationRef<E>,
-    state: &BeaconState<E>,
-    base_state: &BeaconStateBase<E>,
-) -> BitList<E::MaxValidatorsPerCommittee> {
+pub fn earliest_attestation_validators(
+    attestation: &CompactAttestationRef,
+    state: &BeaconState,
+    base_state: &BeaconStateBase,
+) -> BitList<typenum::U<{ Spec::MAX_VALIDATORS_PER_COMMITTEE }>> {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = match attestation.indexed {
         CompactIndexedAttestation::Base(indexed_att) => indexed_att.aggregation_bits.clone(),

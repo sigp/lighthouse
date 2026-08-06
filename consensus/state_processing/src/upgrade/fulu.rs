@@ -1,13 +1,10 @@
 use milhouse::Vector;
 use safe_arith::SafeArith;
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateFulu, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateError as Error, BeaconStateFulu, ChainSpec, Fork, Spec};
 
 /// Transform a `Electra` state into an `Fulu` state.
-pub fn upgrade_to_fulu<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_fulu(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let _epoch = pre_state.current_epoch();
 
     let post = upgrade_state_to_fulu(pre_state, spec)?;
@@ -17,12 +14,12 @@ pub fn upgrade_to_fulu<E: EthSpec>(
     Ok(())
 }
 
-fn initialize_proposer_lookahead<E: EthSpec>(
-    state: &BeaconState<E>,
+fn initialize_proposer_lookahead(
+    state: &BeaconState,
     spec: &ChainSpec,
-) -> Result<Vector<u64, E::ProposerLookaheadSlots>, Error> {
+) -> Result<Vector<u64, typenum::U<{ Spec::PROPOSER_LOOKAHEAD_SLOTS }>>, Error> {
     let current_epoch = state.current_epoch();
-    let mut lookahead = Vec::with_capacity(E::proposer_lookahead_slots());
+    let mut lookahead = Vec::with_capacity(Spec::PROPOSER_LOOKAHEAD_SLOTS);
     for i in 0..(spec.min_seed_lookahead.safe_add(1)?.as_u64()) {
         let target_epoch = current_epoch.safe_add(i)?;
         lookahead.extend(
@@ -35,10 +32,10 @@ fn initialize_proposer_lookahead<E: EthSpec>(
     Vector::new(lookahead).map_err(|e| e.into())
 }
 
-pub fn upgrade_state_to_fulu<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
+pub fn upgrade_state_to_fulu(
+    pre_state: &mut BeaconState,
     spec: &ChainSpec,
-) -> Result<BeaconState<E>, Error> {
+) -> Result<BeaconState, Error> {
     let epoch = pre_state.current_epoch();
     let proposer_lookahead = initialize_proposer_lookahead(pre_state, spec)?;
     let pre = pre_state.as_electra_mut()?;

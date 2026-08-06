@@ -1,6 +1,5 @@
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
-use educe::Educe;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -8,7 +7,7 @@ use ssz_types::BitVector;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
+    core::{Spec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
     fork::ForkName,
     sync_committee::SyncCommitteeContribution,
 };
@@ -25,21 +24,15 @@ impl From<ArithError> for Error {
         Error::ArithError(e)
     }
 }
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec")]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
-pub struct SyncAggregate<E: EthSpec> {
-    pub sync_committee_bits: BitVector<E::SyncCommitteeSize>,
+pub struct SyncAggregate {
+    pub sync_committee_bits: BitVector<typenum::U<{ Spec::SYNC_COMMITTEE_SIZE }>>,
     pub sync_committee_signature: AggregateSignature,
 }
 
-impl<E: EthSpec> SyncAggregate<E> {
+impl SyncAggregate {
     /// New aggregate to be used as the seed for aggregating other signatures.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -53,11 +46,11 @@ impl<E: EthSpec> SyncAggregate<E> {
     ///
     /// Equivalent to `process_sync_committee_contributions` from the spec.
     pub fn from_contributions(
-        contributions: &[SyncCommitteeContribution<E>],
-    ) -> Result<SyncAggregate<E>, Error> {
+        contributions: &[SyncCommitteeContribution],
+    ) -> Result<SyncAggregate, Error> {
         let mut sync_aggregate = Self::new();
         let sync_subcommittee_size =
-            E::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
+            Spec::SYNC_COMMITTEE_SIZE.safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
         for contribution in contributions {
             for (index, participated) in contribution.aggregation_bits.iter().enumerate() {
                 if participated {

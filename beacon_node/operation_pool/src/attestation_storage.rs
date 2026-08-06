@@ -4,9 +4,9 @@ use itertools::Itertools;
 use ssz::{BitList, BitVector, ProgressiveBitList};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use superstruct::superstruct;
-use typenum::Unsigned;
+use typenum::{U, Unsigned};
 use types::{
-    Attestation, AttestationData, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    Attestation, AttestationData, BeaconState, Checkpoint, Epoch, Hash256, Slot, Spec,
     attestation::{AttestationBase, AttestationElectra, AttestationGloas},
 };
 
@@ -29,45 +29,45 @@ pub struct CompactAttestationData {
     variant_attributes(derive(Debug, PartialEq,))
 )]
 #[derive(Debug, PartialEq)]
-pub struct CompactIndexedAttestation<E: EthSpec> {
+pub struct CompactIndexedAttestation {
     pub attesting_indices: Vec<u64>,
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitList<U<{ Spec::MAX_VALIDATORS_PER_COMMITTEE }>>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
+    pub aggregation_bits: BitList<U<{ Spec::MAX_VALIDATORS_PER_SLOT }>>,
     #[superstruct(only(Gloas), partial_getter(rename = "aggregation_bits_gloas"))]
     pub aggregation_bits: ProgressiveBitList,
     pub signature: AggregateSignature,
     #[superstruct(only(Electra, Gloas))]
-    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
+    pub committee_bits: BitVector<U<{ Spec::MAX_COMMITTEES_PER_SLOT }>>,
 }
 
 #[derive(Debug)]
-pub struct SplitAttestation<E: EthSpec> {
+pub struct SplitAttestation {
     pub checkpoint: CheckpointKey,
     pub data: CompactAttestationData,
-    pub indexed: CompactIndexedAttestation<E>,
+    pub indexed: CompactIndexedAttestation,
 }
 
 #[derive(Debug, Clone)]
-pub struct CompactAttestationRef<'a, E: EthSpec> {
+pub struct CompactAttestationRef<'a> {
     pub checkpoint: &'a CheckpointKey,
     pub data: &'a CompactAttestationData,
-    pub indexed: &'a CompactIndexedAttestation<E>,
+    pub indexed: &'a CompactIndexedAttestation,
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct AttestationMap<E: EthSpec> {
-    checkpoint_map: HashMap<CheckpointKey, AttestationDataMap<E>>,
+pub struct AttestationMap {
+    checkpoint_map: HashMap<CheckpointKey, AttestationDataMap>,
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct AttestationDataMap<E: EthSpec> {
-    attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<E>>>,
+pub struct AttestationDataMap {
+    attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation>>,
 }
 
-impl<E: EthSpec> SplitAttestation<E> {
-    pub fn new(attestation: Attestation<E>, attesting_indices: Vec<u64>) -> Self {
+impl SplitAttestation {
+    pub fn new(attestation: Attestation, attesting_indices: Vec<u64>) -> Self {
         let checkpoint = CheckpointKey {
             source: attestation.data().source,
             target_epoch: attestation.data().target.epoch,
@@ -112,7 +112,7 @@ impl<E: EthSpec> SplitAttestation<E> {
         }
     }
 
-    pub fn as_ref(&self) -> CompactAttestationRef<'_, E> {
+    pub fn as_ref(&self) -> CompactAttestationRef<'_> {
         CompactAttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
@@ -121,7 +121,7 @@ impl<E: EthSpec> SplitAttestation<E> {
     }
 }
 
-impl<E: EthSpec> CompactAttestationRef<'_, E> {
+impl CompactAttestationRef<'_> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
             slot: self.data.slot,
@@ -153,7 +153,7 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
         }
     }
 
-    pub fn clone_as_attestation(&self) -> Attestation<E> {
+    pub fn clone_as_attestation(&self) -> Attestation {
         match self.indexed {
             CompactIndexedAttestation::Base(indexed_att) => Attestation::Base(AttestationBase {
                 aggregation_bits: indexed_att.aggregation_bits.clone(),
@@ -181,7 +181,7 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
 impl CheckpointKey {
     /// Return two checkpoint keys: `(previous, current)` for the previous and current epochs of
     /// the `state`.
-    pub fn keys_for_state<E: EthSpec>(state: &BeaconState<E>) -> (Self, Self) {
+    pub fn keys_for_state(state: &BeaconState) -> (Self, Self) {
         (
             CheckpointKey {
                 source: state.previous_justified_checkpoint(),
@@ -195,7 +195,7 @@ impl CheckpointKey {
     }
 }
 
-impl<E: EthSpec> CompactIndexedAttestation<E> {
+impl CompactIndexedAttestation {
     pub fn should_aggregate(&self, other: &Self) -> bool {
         match (self, other) {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
@@ -231,7 +231,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
     }
 }
 
-impl<E: EthSpec> CompactIndexedAttestationBase<E> {
+impl CompactIndexedAttestationBase {
     pub fn should_aggregate(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
@@ -250,7 +250,7 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
     }
 }
 
-impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
+impl CompactIndexedAttestationElectra {
     pub fn should_aggregate(&self, other: &Self) -> bool {
         // For Electra, only aggregate attestations in the same committee.
         self.committee_bits == other.committee_bits
@@ -330,7 +330,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 }
 
-impl<E: EthSpec> CompactIndexedAttestationGloas<E> {
+impl CompactIndexedAttestationGloas {
     pub fn should_aggregate(&self, other: &Self) -> bool {
         // Only aggregate attestations in the same committee.
         self.committee_bits == other.committee_bits
@@ -453,8 +453,8 @@ fn progressive_bitlist_extend(
     Some(list)
 }
 
-impl<E: EthSpec> AttestationMap<E> {
-    pub fn insert(&mut self, attestation: Attestation<E>, attesting_indices: Vec<u64>) {
+impl AttestationMap {
+    pub fn insert(&mut self, attestation: Attestation, attesting_indices: Vec<u64>) {
         let SplitAttestation {
             checkpoint,
             data,
@@ -492,16 +492,16 @@ impl<E: EthSpec> AttestationMap<E> {
         };
         for compact_indexed_attestations in attestation_map.attestations.values_mut() {
             let unaggregated_attestations = std::mem::take(compact_indexed_attestations);
-            let mut aggregated_attestations: Vec<CompactIndexedAttestation<E>> = vec![];
+            let mut aggregated_attestations: Vec<CompactIndexedAttestation> = vec![];
 
             // Aggregate the best attestations for each committee and leave the rest.
             let mut best_attestations_by_committee: BTreeMap<
                 u64,
-                CompactIndexedAttestationElectra<E>,
+                CompactIndexedAttestationElectra,
             > = BTreeMap::new();
             let mut best_gloas_attestations_by_committee: BTreeMap<
                 u64,
-                CompactIndexedAttestationGloas<E>,
+                CompactIndexedAttestationGloas,
             > = BTreeMap::new();
 
             for committee_attestation in unaggregated_attestations {
@@ -591,8 +591,8 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     pub fn compute_on_chain_aggregate(
-        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationElectra<E>>,
-    ) -> Option<CompactIndexedAttestationElectra<E>> {
+        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationElectra>,
+    ) -> Option<CompactIndexedAttestationElectra> {
         let (_, mut on_chain_aggregate) = attestations_by_committee.pop_first()?;
         for (_, attestation) in attestations_by_committee {
             on_chain_aggregate.aggregate_with_disjoint_committees(&attestation);
@@ -601,8 +601,8 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     pub fn compute_on_chain_aggregate_gloas(
-        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationGloas<E>>,
-    ) -> Option<CompactIndexedAttestationGloas<E>> {
+        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationGloas>,
+    ) -> Option<CompactIndexedAttestationGloas> {
         let (_, mut on_chain_aggregate) = attestations_by_committee.pop_first()?;
         for (_, attestation) in attestations_by_committee {
             on_chain_aggregate.aggregate_with_disjoint_committees(&attestation);
@@ -614,7 +614,7 @@ impl<E: EthSpec> AttestationMap<E> {
     pub fn get_attestations<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = CompactAttestationRef<'a, E>> + 'a {
+    ) -> impl Iterator<Item = CompactAttestationRef<'a>> + 'a {
         self.checkpoint_map
             .get(checkpoint_key)
             .into_iter()
@@ -622,7 +622,7 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<'_, E>> {
+    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<'_>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))
@@ -649,11 +649,11 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 }
 
-impl<E: EthSpec> AttestationDataMap<E> {
+impl AttestationDataMap {
     pub fn iter<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = CompactAttestationRef<'a, E>> + 'a {
+    ) -> impl Iterator<Item = CompactAttestationRef<'a>> + 'a {
         self.attestations.iter().flat_map(|(data, vec_indexed)| {
             vec_indexed.iter().map(|indexed| CompactAttestationRef {
                 checkpoint: checkpoint_key,

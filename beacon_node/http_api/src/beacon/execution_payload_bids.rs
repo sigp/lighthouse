@@ -20,9 +20,9 @@ use warp::{
 // POST /eth/v1/beacon/execution_payload_bids (SSZ)
 pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
-    network_tx_filter: NetworkTxFilter<T>,
+    network_tx_filter: NetworkTxFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -34,12 +34,12 @@ pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
         .and(network_tx_filter)
         .then(
             |body_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
-                    let bid = SignedExecutionPayloadBid::<T::EthSpec>::from_ssz_bytes(&body_bytes)
-                        .map_err(|e| {
+                    let bid =
+                        SignedExecutionPayloadBid::from_ssz_bytes(&body_bytes).map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                         })?;
                     publish_execution_payload_bid(bid, &chain, &network_tx)
@@ -52,9 +52,9 @@ pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
 // POST /eth/v1/beacon/execution_payload_bids
 pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
-    network_tx_filter: NetworkTxFilter<T>,
+    network_tx_filter: NetworkTxFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -65,10 +65,10 @@ pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |bid: SignedExecutionPayloadBid<T::EthSpec>,
-             task_spawner: TaskSpawner<T::EthSpec>,
+            |bid: SignedExecutionPayloadBid,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     publish_execution_payload_bid(bid, &chain, &network_tx)
                 })
@@ -78,9 +78,9 @@ pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
 }
 
 pub fn publish_execution_payload_bid<T: BeaconChainTypes>(
-    bid: SignedExecutionPayloadBid<T::EthSpec>,
+    bid: SignedExecutionPayloadBid,
     chain: &Arc<BeaconChain<T>>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage>,
 ) -> Result<Response, Rejection> {
     let slot = bid.slot();
     let builder_index = bid.message.builder_index;

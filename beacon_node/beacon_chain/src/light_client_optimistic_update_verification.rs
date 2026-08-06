@@ -1,5 +1,4 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -49,19 +48,19 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
-#[derive(Educe)]
-#[educe(Clone(bound(T: BeaconChainTypes)))]
-pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
-    light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct VerifiedLightClientOptimisticUpdate {
+    light_client_optimistic_update: LightClientOptimisticUpdate,
     pub parent_root: Hash256,
     seen_timestamp: Duration,
 }
 
-impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
+impl VerifiedLightClientOptimisticUpdate {
     /// Returns `Ok(Self)` if the `light_client_optimistic_update` is valid to be (re)published on the gossip
     /// network.
-    pub fn verify(
-        rcv_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+    pub fn verify<T: BeaconChainTypes>(
+        rcv_optimistic_update: LightClientOptimisticUpdate,
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {

@@ -7,17 +7,16 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MinimalEthSpec,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-type E = MinimalEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralHarnessType;
 
 struct SlotEntry {
     block_root: Hash256,
     slot: Slot,
-    envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+    envelope: Option<SignedExecutionPayloadEnvelope>,
     non_canonical_envelope: bool,
 }
 
@@ -100,7 +99,7 @@ fn mock_adapter() -> (MockEnvelopeStreamerBeaconAdapter<T>, TestRuntime) {
 
 /// Configure `get_payload_envelope` to return envelopes from chain data.
 fn mock_envelopes(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &[SlotEntry]) {
-    let envelope_map: HashMap<Hash256, Option<SignedExecutionPayloadEnvelope<E>>> = chain
+    let envelope_map: HashMap<Hash256, Option<SignedExecutionPayloadEnvelope>> = chain
         .iter()
         .map(|entry| (entry.block_root, entry.envelope.clone()))
         .collect();
@@ -120,8 +119,8 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
 }
 
 fn unwrap_result(
-    result: &Arc<PayloadEnvelopeResult<E>>,
-) -> &Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
+    result: &Arc<PayloadEnvelopeResult>,
+) -> &Option<Arc<SignedExecutionPayloadEnvelope>> {
     result
         .as_ref()
         .as_ref()
@@ -129,7 +128,7 @@ fn unwrap_result(
 }
 
 async fn assert_stream_matches(
-    stream: &mut (impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<E>>)> + Unpin),
+    stream: &mut (impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult>)> + Unpin),
     chain: &[SlotEntry],
     split_slot: Option<Slot>,
 ) {

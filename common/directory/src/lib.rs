@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,18 +14,22 @@ pub const DEFAULT_TRACING_DIR: &str = "tracing";
 /// Base directory name for unnamed testnets passed through the --testnet-dir flag
 pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
+pub fn default_network_dir_name() -> &'static str {
+    clap_utils::default_network_name()
+}
+
 /// Gets the network directory name
 ///
 /// Tries to get the name first from the "network" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
-/// If neither flags are present, returns the default hardcoded network name.
+/// If neither flag is present, returns the compiled spec's default network name.
 pub fn get_network_dir(matches: &ArgMatches) -> String {
     if let Some(network_name) = matches.get_one::<String>("network") {
         network_name.to_string()
     } else if matches.get_one::<String>("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
-        eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()
+        default_network_dir_name().to_string()
     }
 }
 

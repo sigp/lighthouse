@@ -4,7 +4,6 @@ use beacon_chain::kzg_utils::validate_blob;
 use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof};
 use serde::Deserialize;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use types::Blob;
@@ -69,11 +68,11 @@ pub fn parse_commitment(commitment: &str) -> Result<KzgCommitment, Error> {
         .map(KzgCommitment)
 }
 
-pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
+pub fn parse_blob(blob: &str) -> Result<Blob, Error> {
     hex::decode(strip_0x(blob)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         .and_then(|bytes| {
-            Blob::<E>::new(bytes)
+            Blob::new(bytes)
                 .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         })
 }
@@ -94,36 +93,35 @@ pub struct KZGVerifyBlobKZGProofInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct KZGVerifyBlobKZGProof<E: EthSpec> {
+#[serde(deny_unknown_fields)]
+pub struct KZGVerifyBlobKZGProof {
     pub input: KZGVerifyBlobKZGProofInput,
     pub output: Option<bool>,
-    #[serde(skip)]
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> LoadCase for KZGVerifyBlobKZGProof<E> {
+impl LoadCase for KZGVerifyBlobKZGProof {
     fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         decode::yaml_decode_file(path.join("data.yaml").as_path())
     }
 }
 
-impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
+impl Case for KZGVerifyBlobKZGProof {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         fork_name == ForkName::Deneb
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let parse_input = |input: &KZGVerifyBlobKZGProofInput| -> Result<(Blob<E>, KzgCommitment, KzgProof), Error> {
-            let blob = parse_blob::<E>(&input.blob)?;
-            let commitment = parse_commitment(&input.commitment)?;
-            let proof = parse_proof(&input.proof)?;
-            Ok((blob, commitment, proof))
-        };
+        let parse_input =
+            |input: &KZGVerifyBlobKZGProofInput| -> Result<(Blob, KzgCommitment, KzgProof), Error> {
+                let blob = parse_blob(&input.blob)?;
+                let commitment = parse_commitment(&input.commitment)?;
+                let proof = parse_proof(&input.proof)?;
+                Ok((blob, commitment, proof))
+            };
 
         let kzg = get_kzg();
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
-            match validate_blob::<E>(&kzg, &blob, commitment, proof) {
+            match validate_blob(&kzg, &blob, commitment, proof) {
                 Ok(_) => Ok(true),
                 Err(KzgError::KzgVerificationFailed) => Ok(false),
                 Err(e) => Err(Error::InternalError(format!(

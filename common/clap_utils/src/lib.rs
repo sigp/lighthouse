@@ -2,11 +2,13 @@
 
 use clap::ArgMatches;
 use clap::builder::styling::*;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
+use eth2_network_config::{
+    Eth2NetworkConfig, default_hardcoded_network_for_preset, supported_hardcoded_net_names,
+};
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{ChainSpec, Config, EthSpec};
+use types::{ChainSpec, Config, Spec};
 
 pub mod flags;
 
@@ -17,16 +19,31 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 
 pub const FLAG_HEADER: &str = "Flags";
 
+/// The default network name for paths and user-facing output.
+pub fn default_network_name() -> &'static str {
+    Spec::PRESET_BASE
+}
+
+/// The default hardcoded network to load when no network flags are supplied.
+pub const fn default_hardcoded_network() -> Option<&'static str> {
+    default_hardcoded_network_for_preset(Spec::SPEC_ID)
+}
+
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
+/// Returns the compiled spec's default hardcoded network if neither flag is set and one exists.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.contains_id("network") {
         parse_hardcoded_network(cli_args, "network")?
     } else if cli_args.contains_id("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+        // If neither is present, assume the default hardcoded network for this compiled spec.
+        let network_name = default_hardcoded_network().ok_or_else(|| {
+            "This binary was compiled for the minimal spec, which has no default hardcoded \
+             network. Please specify --network or --testnet-dir."
+                .to_string()
+        })?;
+        Eth2NetworkConfig::constant(network_name)?
     };
 
     let eth2_network_config =
@@ -54,6 +71,20 @@ pub fn parse_hardcoded_network(
     name: &str,
 ) -> Result<Option<Eth2NetworkConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
+    let supported_networks = supported_hardcoded_net_names();
+    if !supported_networks.contains(&network_name.as_str()) {
+        let supported_networks = if supported_networks.is_empty() {
+            "none".to_string()
+        } else {
+            supported_networks.join(", ")
+        };
+        return Err(format!(
+            "Network `{}` is not supported by this binary's `{}` preset. Supported networks: {}.",
+            network_name,
+            Spec::PRESET_BASE,
+            supported_networks
+        ));
+    }
     Eth2NetworkConfig::constant(network_name.as_str())
 }
 
@@ -140,14 +171,13 @@ pub fn parse_ssz_optional<T: Decode>(
 }
 
 /// Writes configs to file if `dump-config` or `dump-chain-config` flags are set
-pub fn check_dump_configs<S, E>(
+pub fn check_dump_configs<S>(
     matches: &ArgMatches,
     config: S,
     spec: &ChainSpec,
 ) -> Result<(), String>
 where
     S: serde::Serialize,
-    E: EthSpec,
 {
     if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-config")? {
         let mut file = std::fs::File::create(dump_path)
@@ -156,7 +186,7 @@ where
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
     if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-chain-config")? {
-        let chain_config = Config::from_chain_spec::<E>(spec);
+        let chain_config = Config::from_chain_spec(spec);
         let mut file = std::fs::File::create(dump_path)
             .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;
         yaml_serde::to_writer(&mut file, &chain_config)

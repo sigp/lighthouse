@@ -5,11 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::{
-    core::{EthSpec, Hash256},
-    fork::ForkName,
-    state::BeaconState,
-};
+use crate::{core::Hash256, fork::ForkName, state::BeaconState};
 
 /// `HistoricalSummary` matches the components of the phase0 `HistoricalBatch`
 /// making the two hash_tree_root-compatible. This struct is introduced into the beacon state
@@ -38,7 +34,7 @@ pub struct HistoricalSummary {
 }
 
 impl HistoricalSummary {
-    pub fn new<E: EthSpec>(state: &BeaconState<E>) -> Self {
+    pub fn new(state: &BeaconState) -> Self {
         Self {
             block_summary_root: state.block_roots().tree_hash_root(),
             state_summary_root: state.state_roots().tree_hash_root(),

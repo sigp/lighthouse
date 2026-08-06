@@ -5,11 +5,10 @@ use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
-use typenum::Unsigned;
 
 use crate::{
     core::{
-        ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot,
+        ChainSpec, Domain, Hash256, SignedRoot, Slot, Spec,
         consts::altair::{SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE},
     },
     fork::Fork,
@@ -22,7 +21,7 @@ use crate::{
 pub struct SyncSelectionProof(Signature);
 
 impl SyncSelectionProof {
-    pub fn new<E: EthSpec>(
+    pub fn new(
         slot: Slot,
         subcommittee_index: u64,
         secret_key: &SecretKey,
@@ -31,7 +30,7 @@ impl SyncSelectionProof {
         spec: &ChainSpec,
     ) -> Self {
         let domain = spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
@@ -46,17 +45,17 @@ impl SyncSelectionProof {
     }
 
     /// Returns the "modulo" used for determining if a `SyncSelectionProof` elects an aggregator.
-    pub fn modulo<E: EthSpec>() -> Result<u64, ArithError> {
+    pub fn modulo() -> Result<u64, ArithError> {
         Ok(cmp::max(
             1,
-            (E::SyncCommitteeSize::to_u64())
+            (Spec::sync_committee_size())
                 .safe_div(SYNC_COMMITTEE_SUBNET_COUNT)?
                 .safe_div(TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE)?,
         ))
     }
 
-    pub fn is_aggregator<E: EthSpec>(&self) -> Result<bool, ArithError> {
-        self.is_aggregator_from_modulo(Self::modulo::<E>()?)
+    pub fn is_aggregator(&self) -> Result<bool, ArithError> {
+        self.is_aggregator_from_modulo(Self::modulo()?)
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
@@ -72,7 +71,7 @@ impl SyncSelectionProof {
         signature_hash_int.safe_rem(modulo).map(|rem| rem == 0)
     }
 
-    pub fn verify<E: EthSpec>(
+    pub fn verify(
         &self,
         slot: Slot,
         subcommittee_index: u64,
@@ -82,7 +81,7 @@ impl SyncSelectionProof {
         spec: &ChainSpec,
     ) -> bool {
         let domain = spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
@@ -112,7 +111,6 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
     use eth2_interop_keypairs::keypair;
     use fixed_bytes::FixedBytesExtended;
 
@@ -123,9 +121,9 @@ mod test {
         let key = keypair(1);
         let fork = &Fork::default();
         let genesis_validators_root = Hash256::zero();
-        let spec = &ChainSpec::mainnet();
+        let spec = &Spec::default_spec();
 
-        let proof = SyncSelectionProof::new::<MainnetEthSpec>(
+        let proof = SyncSelectionProof::new(
             slot,
             subcommittee_index,
             &key.sk,
@@ -133,7 +131,7 @@ mod test {
             genesis_validators_root,
             spec,
         );
-        assert!(proof.verify::<MainnetEthSpec>(
+        assert!(proof.verify(
             slot,
             subcommittee_index,
             &key.pk,

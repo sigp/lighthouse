@@ -4,13 +4,13 @@ use crate::{VerifySignatures, signature_sets::sync_aggregate_signature_set};
 use bls::PublicKeyBytes;
 use safe_arith::SafeArith;
 use std::borrow::Cow;
-use typenum::Unsigned;
+use types::Spec;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, SyncAggregate};
+use types::{BeaconState, BeaconStateError, ChainSpec, SyncAggregate};
 
-pub fn process_sync_aggregate<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    aggregate: &SyncAggregate<E>,
+pub fn process_sync_aggregate(
+    state: &mut BeaconState,
+    aggregate: &SyncAggregate,
     proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -83,8 +83,8 @@ pub fn process_sync_aggregate<E: EthSpec>(
 /// Compute the `(participant_reward, proposer_reward)` for a sync aggregate.
 ///
 /// The `state` should be the pre-state from the same slot as the block containing the aggregate.
-pub fn compute_sync_aggregate_rewards<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn compute_sync_aggregate_rewards(
+    state: &BeaconState,
     spec: &ChainSpec,
 ) -> Result<(u64, u64), BlockProcessingError> {
     let total_active_balance = state.get_total_active_balance()?;
@@ -96,8 +96,8 @@ pub fn compute_sync_aggregate_rewards<E: EthSpec>(
     let max_participant_rewards = total_base_rewards
         .safe_mul(SYNC_REWARD_WEIGHT)?
         .safe_div(WEIGHT_DENOMINATOR)?
-        .safe_div(E::slots_per_epoch())?;
-    let participant_reward = max_participant_rewards.safe_div(E::SyncCommitteeSize::to_u64())?;
+        .safe_div(Spec::slots_per_epoch())?;
+    let participant_reward = max_participant_rewards.safe_div(Spec::sync_committee_size())?;
     let proposer_reward = participant_reward
         .safe_mul(PROPOSER_WEIGHT)?
         .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;

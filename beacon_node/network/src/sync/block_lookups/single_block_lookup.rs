@@ -14,14 +14,15 @@ use educe::Educe;
 use lighthouse_network::service::api_types::{CustodyRequester, Id, SingleLookupReqId};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::{
-    DataColumnSidecarList, EthSpec, ExecutionBlockHash, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    DataColumnSidecarList, ExecutionBlockHash, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    Slot, Spec,
 };
 
 // Dedicated enum for LookupResult to force its usage
@@ -87,11 +88,11 @@ impl AwaitingParent {
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
 
 #[derive(Debug)]
-struct BlockRequest<E: EthSpec> {
-    state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
+struct BlockRequest {
+    state: SingleLookupRequestState<Arc<SignedBeaconBlock>>,
 }
 
-impl<E: EthSpec> BlockRequest<E> {
+impl BlockRequest {
     fn new() -> Self {
         Self {
             state: SingleLookupRequestState::new(),
@@ -104,19 +105,19 @@ impl<E: EthSpec> BlockRequest<E> {
 }
 
 #[derive(Debug)]
-enum DataRequest<E: EthSpec> {
+enum DataRequest {
     WaitingForBlock,
     Request {
         slot: Slot,
         /// Peers to fetch the data columns from. Pre-Gloas this is the lookup's `peers`; for FULL
         /// Gloas blocks this is the `gloas_child_peers` set proven to hold the columns.
         peers: PeerSet,
-        state: SingleLookupRequestState<DataColumnSidecarList<E>>,
+        state: SingleLookupRequestState<DataColumnSidecarList>,
     },
     NoData,
 }
 
-impl<E: EthSpec> DataRequest<E> {
+impl DataRequest {
     fn is_complete(&self) -> bool {
         match &self {
             DataRequest::WaitingForBlock => false,
@@ -130,7 +131,7 @@ impl<E: EthSpec> DataRequest<E> {
 /// execution payload arrives as a separate `SignedExecutionPayloadEnvelope`, mirroring the way data
 /// columns are fetched and processed by `DataRequest`.
 #[derive(Debug)]
-enum PayloadRequest<E: EthSpec> {
+enum PayloadRequest {
     /// Block not yet downloaded, can't tell if a payload is needed.
     WaitingForBlock,
     /// Post-Gloas block: an execution payload envelope must be fetched and processed *if* the block
@@ -138,13 +139,13 @@ enum PayloadRequest<E: EthSpec> {
     /// proves a payload was published, which is signalled by `peers` becoming non-empty.
     Request {
         peers: PeerSet,
-        state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope>>,
     },
     /// Pre-Gloas block: no payload envelope exists, nothing to fetch.
     PreGloas,
 }
 
-impl<E: EthSpec> PayloadRequest<E> {
+impl PayloadRequest {
     fn is_complete(&self) -> bool {
         match &self {
             PayloadRequest::WaitingForBlock => false,
@@ -188,9 +189,9 @@ pub enum ImportedParent {
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     block_root: Hash256,
-    block_request: BlockRequest<T::EthSpec>,
-    data_request: DataRequest<T::EthSpec>,
-    payload_request: PayloadRequest<T::EthSpec>,
+    block_request: BlockRequest,
+    data_request: DataRequest,
+    payload_request: PayloadRequest,
     /// Peers that claim to have imported this set of block components. This state is shared with
     /// the custody request to have an updated view of the peers that claim to have imported the
     /// block associated with this lookup. The peer set of a lookup can change rapidly, and faster
@@ -205,6 +206,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> SingleBlockLookup<T> {
@@ -241,6 +243,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             awaiting_parent,
             created: Instant::now(),
             span: lookup_span,
+            _phantom: PhantomData,
         }
     }
 
@@ -332,7 +335,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Maybe insert a verified response into this lookup. Returns true if imported
-    pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) -> bool {
+    pub fn add_child_components(&mut self, block_component: BlockComponent) -> bool {
         match block_component {
             BlockComponent::Block(block) => {
                 self.block_request.state.insert_verified_response(block)
@@ -423,7 +426,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                                 req_id,
                             }),
                             &[self.block_root],
-                            slot.epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch()),
+                            slot.epoch(Spec::slots_per_epoch()),
                             // single lookups consult the DA cache to skip gossip-imported columns
                             false,
                             peers.clone(),
@@ -630,7 +633,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         &mut self,
         req_id: ReqId,
         peer_id: PeerId,
-        result: BlockDownloadResponse<T::EthSpec>,
+        result: BlockDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         if result.is_err() {
@@ -646,7 +649,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_custody_download_response(
         &mut self,
         req_id: ReqId,
-        result: CustodyDownloadResponse<T::EthSpec>,
+        result: CustodyDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let DataRequest::Request { state, .. } = &mut self.data_request else {
@@ -663,7 +666,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         &mut self,
         req_id: ReqId,
         peer_id: PeerId,
-        result: PayloadDownloadResponse<T::EthSpec>,
+        result: PayloadDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let PayloadRequest::Request { state, .. } = &mut self.payload_request else {

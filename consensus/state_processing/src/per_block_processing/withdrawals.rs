@@ -8,21 +8,21 @@ use milhouse::ProgressiveList;
 use safe_arith::{SafeArith, SafeArithIter};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload,
+    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, ExecPayload,
     ExpectedWithdrawals, ExpectedWithdrawalsCapella, ExpectedWithdrawalsElectra,
-    ExpectedWithdrawalsGloas, Validator, Withdrawal, Withdrawals,
+    ExpectedWithdrawalsGloas, Spec, Validator, Withdrawal, Withdrawals,
 };
 
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
 /// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#modified-get_expected_withdrawals
 #[allow(clippy::type_complexity)]
-pub fn get_expected_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_expected_withdrawals(
+    state: &BeaconState,
     spec: &ChainSpec,
-) -> Result<ExpectedWithdrawals<E>, BlockProcessingError> {
+) -> Result<ExpectedWithdrawals, BlockProcessingError> {
     let mut withdrawal_index = state.next_withdrawal_index()?;
-    let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
+    let mut withdrawals = Vec::<Withdrawal>::with_capacity(Spec::MAX_WITHDRAWALS_PER_PAYLOAD);
 
     // [New in Gloas:EIP7732]
     // Get builder withdrawals
@@ -74,8 +74,8 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     }
 }
 
-pub fn get_builder_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_builder_withdrawals(
+    state: &BeaconState,
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
 ) -> Result<Option<u64>, BlockProcessingError> {
@@ -84,7 +84,7 @@ pub fn get_builder_withdrawals<E: EthSpec>(
         return Ok(None);
     };
 
-    let withdrawals_limit = E::max_withdrawals_per_payload().safe_sub(1)?;
+    let withdrawals_limit = Spec::MAX_WITHDRAWALS_PER_PAYLOAD.safe_sub(1)?;
 
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
@@ -116,8 +116,8 @@ pub fn get_builder_withdrawals<E: EthSpec>(
     Ok(Some(processed_count))
 }
 
-pub fn get_pending_partial_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_pending_partial_withdrawals(
+    state: &BeaconState,
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
     spec: &ChainSpec,
@@ -132,7 +132,7 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
         withdrawals
             .len()
             .safe_add(spec.max_pending_partials_per_withdrawals_sweep as usize)?,
-        E::max_withdrawals_per_payload().safe_sub(1)?,
+        Spec::MAX_WITHDRAWALS_PER_PAYLOAD.safe_sub(1)?,
     );
 
     block_verify!(
@@ -183,8 +183,8 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
 /// and adds withdrawals for builders whose withdrawable_epoch has been reached and have balance.
 ///
 /// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#new-get_builders_sweep_withdrawals
-pub fn get_builders_sweep_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_builders_sweep_withdrawals(
+    state: &BeaconState,
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
 ) -> Result<Option<u64>, BlockProcessingError> {
@@ -198,9 +198,9 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
     }
 
     let epoch = state.current_epoch();
-    let builders_limit = std::cmp::min(builders.len(), E::max_builders_per_withdrawals_sweep());
+    let builders_limit = std::cmp::min(builders.len(), Spec::MAX_BUILDERS_PER_WITHDRAWALS_SWEEP);
 
-    let withdrawals_limit = E::max_withdrawals_per_payload().safe_sub(1)?;
+    let withdrawals_limit = Spec::MAX_WITHDRAWALS_PER_PAYLOAD.safe_sub(1)?;
 
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
@@ -245,8 +245,8 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
 /// and adds full or partial withdrawals for eligible validators.
 ///
 /// https://ethereum.github.io/consensus-specs/specs/capella/beacon-chain/#new-get_validators_sweep_withdrawals
-pub fn get_validators_sweep_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_validators_sweep_withdrawals(
+    state: &BeaconState,
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
     spec: &ChainSpec,
@@ -258,7 +258,7 @@ pub fn get_validators_sweep_withdrawals<E: EthSpec>(
         state.validators().len() as u64,
         spec.max_validators_per_withdrawals_sweep,
     );
-    let withdrawals_limit = E::max_withdrawals_per_payload();
+    let withdrawals_limit = Spec::MAX_WITHDRAWALS_PER_PAYLOAD;
 
     // There must be at least one space reserved for validator sweep withdrawals
     block_verify!(
@@ -310,8 +310,8 @@ pub fn get_validators_sweep_withdrawals<E: EthSpec>(
     Ok(processed_count)
 }
 
-pub fn get_balance_after_withdrawals<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_balance_after_withdrawals(
+    state: &BeaconState,
     validator_index: u64,
     withdrawals: &[Withdrawal],
 ) -> Result<u64, BeaconStateError> {
@@ -339,9 +339,9 @@ fn is_eligible_for_partial_withdrawals(
         && has_excess_balance
 }
 
-fn update_next_withdrawal_index<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    withdrawals: &Withdrawals<E>,
+fn update_next_withdrawal_index(
+    state: &mut BeaconState,
+    withdrawals: &Withdrawals,
 ) -> Result<(), BlockProcessingError> {
     // Update the next withdrawal index if this block contained withdrawals
     if let Some(latest_withdrawal) = withdrawals.last() {
@@ -350,16 +350,16 @@ fn update_next_withdrawal_index<E: EthSpec>(
     Ok(())
 }
 
-fn update_payload_expected_withdrawals<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    withdrawals: &Withdrawals<E>,
+fn update_payload_expected_withdrawals(
+    state: &mut BeaconState,
+    withdrawals: &Withdrawals,
 ) -> Result<(), BlockProcessingError> {
     *state.payload_expected_withdrawals_mut()? = ProgressiveList::new(withdrawals.to_vec())?;
     Ok(())
 }
 
-fn update_builder_pending_withdrawals<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn update_builder_pending_withdrawals(
+    state: &mut BeaconState,
     processed_builder_withdrawals_count: u64,
 ) -> Result<(), BlockProcessingError> {
     state
@@ -368,8 +368,8 @@ fn update_builder_pending_withdrawals<E: EthSpec>(
     Ok(())
 }
 
-fn update_pending_partial_withdrawals<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn update_pending_partial_withdrawals(
+    state: &mut BeaconState,
     processed_partial_withdrawals_count: u64,
 ) -> Result<(), BlockProcessingError> {
     state
@@ -378,8 +378,8 @@ fn update_pending_partial_withdrawals<E: EthSpec>(
     Ok(())
 }
 
-fn update_next_withdrawal_builder_index<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn update_next_withdrawal_builder_index(
+    state: &mut BeaconState,
     processed_builders_sweep_count: u64,
 ) -> Result<(), BlockProcessingError> {
     if !state.builders()?.is_empty() {
@@ -393,13 +393,13 @@ fn update_next_withdrawal_builder_index<E: EthSpec>(
     Ok(())
 }
 
-fn update_next_withdrawal_validator_index<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    withdrawals: &Withdrawals<E>,
+fn update_next_withdrawal_validator_index(
+    state: &mut BeaconState,
+    withdrawals: &Withdrawals,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Update the next validator index to start the next withdrawal sweep
-    if withdrawals.len() == E::max_withdrawals_per_payload() {
+    if withdrawals.len() == Spec::MAX_WITHDRAWALS_PER_PAYLOAD {
         // Next sweep starts after the latest withdrawal's validator index
         let latest_withdrawal = withdrawals
             .last()
@@ -420,9 +420,9 @@ fn update_next_withdrawal_validator_index<E: EthSpec>(
     Ok(())
 }
 
-pub fn apply_withdrawals<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    withdrawals: &Withdrawals<E>,
+pub fn apply_withdrawals(
+    state: &mut BeaconState,
+    withdrawals: &Withdrawals,
 ) -> Result<(), BlockProcessingError> {
     for withdrawal in withdrawals {
         if state.fork_name_unchecked().gloas_enabled()
@@ -450,8 +450,8 @@ pub mod capella_electra {
     use super::*;
 
     /// Apply withdrawals to the state.
-    pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
-        state: &mut BeaconState<E>,
+    pub fn process_withdrawals<Payload: AbstractExecPayload>(
+        state: &mut BeaconState,
         payload: Payload::Ref<'_>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -490,8 +490,8 @@ pub mod gloas {
     use super::*;
 
     /// Apply withdrawals to the state.
-    pub fn process_withdrawals<E: EthSpec>(
-        state: &mut BeaconState<E>,
+    pub fn process_withdrawals(
+        state: &mut BeaconState,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Return early if the parent block is empty.

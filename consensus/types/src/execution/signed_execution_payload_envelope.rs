@@ -1,31 +1,24 @@
 use crate::{
-    BeaconState, BeaconStateError, ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Fork, ForkName, Hash256, SignedRoot, Slot,
+    BeaconState, BeaconStateError, ChainSpec, Domain, Epoch, ExecutionBlockHash,
+    ExecutionPayloadEnvelope, Fork, ForkName, Hash256, SignedRoot, Slot, Spec,
     consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
-use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec")]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, PartialEq, Hash)]
 #[context_deserialize(ForkName)]
-pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
-    pub message: ExecutionPayloadEnvelope<E>,
+pub struct SignedExecutionPayloadEnvelope {
+    pub message: ExecutionPayloadEnvelope,
     pub signature: Signature,
 }
 
-impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
+impl SignedExecutionPayloadEnvelope {
     /// Returns the minimum SSZ-encoded size (all variable-length fields empty).
     pub fn min_size() -> usize {
         Self {
@@ -40,8 +33,8 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Signature is fixed-size, so the variable-length delta is entirely from the envelope.
-        Self::min_size() + ExecutionPayloadEnvelope::<E>::max_size()
-            - ExecutionPayloadEnvelope::<E>::min_size()
+        Self::min_size() + ExecutionPayloadEnvelope::max_size()
+            - ExecutionPayloadEnvelope::min_size()
     }
 
     pub fn slot(&self) -> Slot {
@@ -49,7 +42,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     }
 
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(E::slots_per_epoch())
+        self.slot().epoch(Spec::slots_per_epoch())
     }
 
     pub fn beacon_block_root(&self) -> Hash256 {
@@ -85,7 +78,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     /// Verify `self.signature` using keys drawn from the beacon state.
     pub fn verify_signature_with_state(
         &self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
         let builder_index = self.message.builder_index;
@@ -122,7 +115,6 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelope<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelope);
 }

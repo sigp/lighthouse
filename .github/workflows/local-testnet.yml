@@ -20,7 +20,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build --build-arg FEATURES=portable,spec-minimal -t lighthouse:local .
+          docker build --build-arg FEATURES=portable -t lighthouse:local .
           docker save lighthouse:local -o lighthouse-docker.tar
 
       - name: Upload Docker image artifact
@@ -28,6 +28,23 @@ jobs:
         with:
           name: lighthouse-docker
           path: lighthouse-docker.tar
+          retention-days: 3
+
+  dockerfile-ubuntu-minimal:
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build Docker image
+        run: |
+          docker build --build-arg FEATURES=portable,spec-minimal -t lighthouse:local-minimal .
+          docker save lighthouse:local-minimal -o lighthouse-docker-minimal.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-docker-minimal
+          path: lighthouse-docker-minimal.tar
           retention-days: 3
 
   run-local-testnet:
@@ -217,7 +234,7 @@ jobs:
   genesis-sync-test:
     name: genesis-sync-test-${{ matrix.fork }}-${{ matrix.offline_secs }}s
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
-    needs: dockerfile-ubuntu
+    needs: dockerfile-ubuntu-minimal
     strategy:
       matrix:
         fork: [fulu, gloas]
@@ -235,11 +252,11 @@ jobs:
       - name: Download Docker image artifact
         uses: actions/download-artifact@v4
         with:
-          name: lighthouse-docker
+          name: lighthouse-docker-minimal
           path: .
 
       - name: Load Docker image
-        run: docker load -i lighthouse-docker.tar
+        run: docker load -i lighthouse-docker-minimal.tar
 
       - name: Run the genesis sync test script
         run: |
@@ -262,6 +279,7 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: [
       'dockerfile-ubuntu',
+      'dockerfile-ubuntu-minimal',
       'run-local-testnet',
       'doppelganger-protection-success-test',
       'doppelganger-protection-failure-test',

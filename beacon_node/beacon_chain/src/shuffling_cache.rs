@@ -7,8 +7,8 @@ use parking_lot::RwLock;
 use state_processing::state_advance::partial_state_advance;
 use tracing::debug;
 use types::{
-    AttestationShufflingId, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC,
-    RelativeEpoch, Slot, state::CommitteeCache,
+    AttestationShufflingId, BeaconState, BeaconStateError, ChainSpec, Epoch, Hash256, PTC,
+    RelativeEpoch, Slot, Spec, state::CommitteeCache,
 };
 
 use crate::{
@@ -35,22 +35,22 @@ pub const DEFAULT_CACHE_SIZE: usize = 16;
 const MAX_CONCURRENT_PROMISES: usize = 2;
 
 #[derive(Clone)]
-pub struct CachedShuffling<E: EthSpec> {
+pub struct CachedShuffling {
     pub committee_cache: Arc<CommitteeCache>,
-    pub ptcs: CachedPTCs<E>,
+    pub ptcs: CachedPTCs,
 }
 
 #[derive(Clone)]
-pub enum CachedPTCs<E: EthSpec> {
+pub enum CachedPTCs {
     PreGloas,
-    PostGloas(Vec<PTC<E>>, Epoch),
+    PostGloas(Vec<PTC>, Epoch),
 }
 
-impl<E: EthSpec> CachedPTCs<E> {
+impl CachedPTCs {
     /// Returns `None` at the Gloas fork boundary (pre-Gloas state, Gloas shuffling epoch); the
     /// on-demand miss path in `with_cached_shuffling` handles those.
     pub fn try_from_state(
-        state: &BeaconState<E>,
+        state: &BeaconState,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Option<Self>, BeaconChainError> {
@@ -59,7 +59,7 @@ impl<E: EthSpec> CachedPTCs<E> {
                 return Ok(None);
             }
             let ptcs = epoch
-                .slot_iter(E::slots_per_epoch())
+                .slot_iter(Spec::slots_per_epoch())
                 .map(|slot| state.get_ptc(slot, spec))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Some(Self::PostGloas(ptcs, epoch)))
@@ -69,22 +69,22 @@ impl<E: EthSpec> CachedPTCs<E> {
     }
 }
 
-impl<E: EthSpec> CachedShuffling<E> {
-    pub fn new(committee_cache: Arc<CommitteeCache>, ptcs: CachedPTCs<E>) -> Self {
+impl CachedShuffling {
+    pub fn new(committee_cache: Arc<CommitteeCache>, ptcs: CachedPTCs) -> Self {
         Self {
             committee_cache,
             ptcs,
         }
     }
 
-    pub fn ptc_for_slot(&self, slot: Slot) -> Result<PTC<E>, BeaconChainError> {
+    pub fn ptc_for_slot(&self, slot: Slot) -> Result<PTC, BeaconChainError> {
         match &self.ptcs {
             CachedPTCs::PreGloas => Err(BeaconChainError::AttesterCacheNoPtcPreGloas { slot }),
             &CachedPTCs::PostGloas(ref ptcs, epoch) => {
-                if slot.epoch(E::slots_per_epoch()) != epoch {
+                if slot.epoch(Spec::slots_per_epoch()) != epoch {
                     Err(BeaconChainError::AttesterCachePtcOutOfBounds { slot, epoch })
                 } else {
-                    ptcs.get(slot.as_usize() % E::slots_per_epoch() as usize)
+                    ptcs.get(slot.as_usize() % Spec::slots_per_epoch() as usize)
                         .cloned()
                         .ok_or(BeaconChainError::AttesterCachePtcOutOfBounds { slot, epoch })
                 }
@@ -98,19 +98,19 @@ fn shuffling_requires_ptcs(shuffling_epoch: Epoch, spec: &ChainSpec) -> bool {
 }
 
 #[derive(Clone)]
-pub enum CacheItem<E: EthSpec> {
+pub enum CacheItem {
     /// A cached shuffling.
-    Committee(CachedShuffling<E>),
+    Committee(CachedShuffling),
     /// A promise for a future cached shuffling.
-    Promise(Receiver<CachedShuffling<E>>),
+    Promise(Receiver<CachedShuffling>),
 }
 
-impl<E: EthSpec> CacheItem<E> {
+impl CacheItem {
     pub fn is_promise(&self) -> bool {
         matches!(self, CacheItem::Promise(_))
     }
 
-    pub fn wait(self) -> Result<CachedShuffling<E>, BeaconChainError> {
+    pub fn wait(self) -> Result<CachedShuffling, BeaconChainError> {
         match self {
             CacheItem::Committee(cache) => Ok(cache),
             CacheItem::Promise(receiver) => receiver
@@ -124,13 +124,13 @@ impl<E: EthSpec> CacheItem<E> {
 ///
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
-pub struct ShufflingCache<E: EthSpec> {
-    cache: HashMap<AttestationShufflingId, CacheItem<E>>,
+pub struct ShufflingCache {
+    cache: HashMap<AttestationShufflingId, CacheItem>,
     cache_size: usize,
     head_shuffling_ids: BlockShufflingIds,
 }
 
-impl<E: EthSpec> ShufflingCache<E> {
+impl ShufflingCache {
     pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds) -> Self {
         Self {
             cache: HashMap::new(),
@@ -139,7 +139,7 @@ impl<E: EthSpec> ShufflingCache<E> {
         }
     }
 
-    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem<E>> {
+    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
         match self.cache.get(key) {
             // The cache contained the shuffling, return it.
             item @ Some(CacheItem::Committee(_)) => {
@@ -192,10 +192,7 @@ impl<E: EthSpec> ShufflingCache<E> {
     /// Returns a shuffling only if it has already been fully computed and cached.
     /// Promises and misses return `None` (doesn't count as a cache miss).
     /// Does not mutate the cache, so it is safe to call under a read lock.
-    pub fn get_shuffling_if_cached(
-        &self,
-        key: &AttestationShufflingId,
-    ) -> Option<CachedShuffling<E>> {
+    pub fn get_shuffling_if_cached(&self, key: &AttestationShufflingId) -> Option<CachedShuffling> {
         match self.cache.get(key) {
             Some(CacheItem::Committee(cached_shuffling)) => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
@@ -229,7 +226,7 @@ impl<E: EthSpec> ShufflingCache<E> {
     pub fn insert_committee_cache(
         &mut self,
         key: AttestationShufflingId,
-        cached_shuffling: CachedShuffling<E>,
+        cached_shuffling: CachedShuffling,
     ) {
         match self.cache.get(&key) {
             Some(CacheItem::Committee(_)) => {
@@ -243,7 +240,7 @@ impl<E: EthSpec> ShufflingCache<E> {
     }
 
     /// Prunes the cache first before inserting a new cache item.
-    fn insert_cache_item(&mut self, key: AttestationShufflingId, cache_item: CacheItem<E>) {
+    fn insert_cache_item(&mut self, key: AttestationShufflingId, cache_item: CacheItem) {
         self.prune_cache();
         self.cache.insert(key, cache_item);
     }
@@ -286,7 +283,7 @@ impl<E: EthSpec> ShufflingCache<E> {
     pub fn create_promise(
         &mut self,
         key: AttestationShufflingId,
-    ) -> Result<Sender<CachedShuffling<E>>, BeaconChainError> {
+    ) -> Result<Sender<CachedShuffling>, BeaconChainError> {
         let num_active_promises = self
             .cache
             .iter()
@@ -312,7 +309,7 @@ impl<E: EthSpec> ShufflingCache<E> {
 
 pub fn with_cached_shuffling<T, F, R, Error>(
     canonical_head: &CanonicalHead<T>,
-    shuffling_cache_lock: &RwLock<ShufflingCache<T::EthSpec>>,
+    shuffling_cache_lock: &RwLock<ShufflingCache>,
     store: &BeaconStore<T>,
     spec: &ChainSpec,
     head_block_root: Hash256,
@@ -321,7 +318,7 @@ pub fn with_cached_shuffling<T, F, R, Error>(
 ) -> Result<R, Error>
 where
     T: BeaconChainTypes,
-    F: Fn(&CachedShuffling<T::EthSpec>, Hash256) -> Result<R, Error>,
+    F: Fn(&CachedShuffling, Hash256) -> Result<R, Error>,
     Error: From<BeaconChainError>,
 {
     let head_block = canonical_head
@@ -338,7 +335,7 @@ where
     .id_for_epoch(shuffling_epoch)
     .ok_or_else(|| BeaconChainError::InvalidShufflingId {
         shuffling_epoch,
-        head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+        head_block_epoch: head_block.slot.epoch(Spec::slots_per_epoch()),
     })?;
 
     // Use a read lock for cache hits.
@@ -382,7 +379,7 @@ where
         // If the block's state will be so far ahead of `shuffling_epoch` that even its previous
         // epoch committee cache will be too new, then error. Callers of this function shouldn't be
         // requesting such old shufflings for this `head_block_root`.
-        let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+        let head_block_epoch = head_block.slot.epoch(Spec::slots_per_epoch());
         if head_block_epoch > shuffling_epoch + 1 {
             return Err(BeaconChainError::InvalidStateForShuffling {
                 state_epoch: head_block_epoch,
@@ -415,13 +412,13 @@ where
         let mut target_slot = std::cmp::max(
             shuffling_epoch
                 .saturating_sub(1_u64)
-                .start_slot(T::EthSpec::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
             head_block.slot,
         );
         if spec.gloas_fork_epoch == Some(shuffling_epoch) {
             target_slot = std::cmp::max(
                 target_slot,
-                shuffling_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                shuffling_epoch.start_slot(Spec::slots_per_epoch()),
             );
         }
 
@@ -522,9 +519,9 @@ impl BlockShufflingIds {
         }
     }
 
-    pub fn try_from_head<E: EthSpec>(
+    pub fn try_from_head(
         head_block_root: Hash256,
-        head_state: &BeaconState<E>,
+        head_state: &BeaconState,
     ) -> Result<Self, String> {
         let get_shuffling_id = |relative_epoch| {
             AttestationShufflingId::new(head_block_root, head_state, relative_epoch).map_err(|e| {
@@ -556,13 +553,12 @@ mod test {
 
     use super::*;
 
-    type E = MinimalEthSpec;
-    type TestBeaconChainType = EphemeralHarnessType<E>;
+    type TestBeaconChainType = EphemeralHarnessType;
     type BeaconChainHarness = crate::test_utils::BeaconChainHarness<TestBeaconChainType>;
     const TEST_CACHE_SIZE: usize = 5;
 
     // Creates a new shuffling cache for testing
-    fn new_shuffling_cache() -> ShufflingCache<E> {
+    fn new_shuffling_cache() -> ShufflingCache {
         create_test_tracing_subscriber();
 
         let current_epoch = 8;
@@ -576,15 +572,15 @@ mod test {
         ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
     }
 
-    fn cached_shuffling(committee_cache: Arc<CommitteeCache>) -> CachedShuffling<E> {
+    fn cached_shuffling(committee_cache: Arc<CommitteeCache>) -> CachedShuffling {
         CachedShuffling::new(committee_cache, CachedPTCs::PreGloas)
     }
 
     /// Returns two different committee caches for testing.
     fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder()
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(Spec::minimum_validator_count())
             .fresh_ephemeral_store()
             .build();
         let mut state = harness.get_current_state();
@@ -858,13 +854,13 @@ mod test {
     fn try_from_state_skips_at_gloas_boundary() {
         create_test_tracing_subscriber();
 
-        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        let mut spec = ForkName::Fulu.make_genesis_spec(Spec::default_spec());
         let gloas_fork_epoch = Epoch::new(2);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder()
             .spec(Arc::new(spec.clone()))
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(Spec::minimum_validator_count())
             .fresh_ephemeral_store()
             .build();
         let state = harness.get_current_state();
@@ -875,7 +871,7 @@ mod test {
             (gloas_fork_epoch, false),
             (gloas_fork_epoch + 1, false),
         ] {
-            let result = CachedPTCs::<E>::try_from_state(&state, epoch, &spec)
+            let result = CachedPTCs::try_from_state(&state, epoch, &spec)
                 .expect("must not error at the boundary");
             if expect_pre_gloas {
                 assert!(

@@ -28,8 +28,8 @@ use tracing::{Instrument, debug_span, warn};
 use types::execution::BlockProductionVersion;
 use types::*;
 
-pub type PreparePayloadResult<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
-pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
+pub type PreparePayloadResult = Result<BlockProposalContentsType, BlockProductionError>;
+pub type PreparePayloadHandle = JoinHandle<Option<PreparePayloadResult>>;
 
 /// Signal whether the execution payloads of new blocks should be
 /// immediately verified with the EL or imported optimistically without
@@ -44,15 +44,15 @@ pub enum NotifyExecutionLayer {
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub block: Arc<SignedBeaconBlock>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
 
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub fn new(
         chain: Arc<BeaconChain<T>>,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        state: &BeaconState<T::EthSpec>,
+        block: Arc<SignedBeaconBlock>,
+        state: &BeaconState,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
         let payload_verification_status = if block.fork_name_unchecked().gloas_enabled() {
@@ -66,7 +66,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             // the block as optimistically imported. This is particularly relevant in the case
             // where we do not send the block to the EL at all.
             let block_message = block.message();
-            partially_verify_execution_payload::<_, FullPayload<_>>(
+            partially_verify_execution_payload::<FullPayload>(
                 state,
                 block.slot(),
                 block_message.body(),
@@ -77,8 +77,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
                     // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
-                    let new_payload_request: NewPayloadRequest<T::EthSpec> =
-                        block_message.try_into()?;
+                    let new_payload_request: NewPayloadRequest = block_message.try_into()?;
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             block_number = ?block_message.execution_payload().map(|payload| payload.block_number()),
@@ -134,7 +133,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
     parent_beacon_block_root: Hash256,
-    new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
+    new_payload_request: NewPayloadRequest<'_>,
 ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
@@ -219,7 +218,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
 pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     parent_block: &ProtoBlock,
-    block: BeaconBlockRef<'_, T::EthSpec>,
+    block: BeaconBlockRef<'_>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     // Gloas blocks don't have an execution payload in the block body.
@@ -286,13 +285,13 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 pub fn get_execution_payload<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    state: &BeaconState<T::EthSpec>,
+    state: &BeaconState,
     parent_block_root: Hash256,
     proposer_index: u64,
     builder_params: BuilderParams,
     builder_boost_factor: Option<u64>,
     block_production_version: BlockProductionVersion,
-) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
+) -> Result<PreparePayloadHandle, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
@@ -304,7 +303,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = if state.fork_name_unchecked().capella_enabled() {
-        Some(Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into())
+        Some(Withdrawals::from(get_expected_withdrawals(state, spec)?).into())
     } else {
         None
     };
@@ -369,12 +368,12 @@ pub async fn prepare_execution_payload<T>(
     parent_beacon_block_root: Option<Hash256>,
     builder_boost_factor: Option<u64>,
     block_production_version: BlockProductionVersion,
-) -> Result<BlockProposalContentsType<T::EthSpec>, BlockProductionError>
+) -> Result<BlockProposalContentsType, BlockProductionError>
 where
     T: BeaconChainTypes,
 {
     let spec = &chain.spec;
-    let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+    let fork = spec.fork_name_at_slot(builder_params.slot);
 
     if fork.gloas_enabled() {
         return Err(BlockProductionError::InvalidBlockVariant(

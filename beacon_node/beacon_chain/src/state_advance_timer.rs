@@ -28,7 +28,7 @@ use std::sync::{
 use task_executor::TaskExecutor;
 use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
-use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
+use types::{AttestationShufflingId, BeaconStateError, Hash256, RelativeEpoch, Slot, Spec};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
 /// the state advancement.
@@ -303,7 +303,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
 
         // Only notify the validator monitor for recent blocks.
         if state.current_epoch() + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
-            >= current_slot.epoch(T::EthSpec::slots_per_epoch())
+            >= current_slot.epoch(Spec::slots_per_epoch())
         {
             // Potentially create logs/metrics for locally monitored validators.
             if let Err(e) = beacon_chain
@@ -367,7 +367,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         let next_epoch = state.next_epoch()?;
         let next_epoch_decision_slot = beacon_chain
             .spec
-            .proposer_shuffling_decision_slot::<T::EthSpec>(next_epoch);
+            .proposer_shuffling_decision_slot(next_epoch);
 
         if state.slot() > next_epoch_decision_slot {
             let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
@@ -411,7 +411,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 ?head_block_root,
                 next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
                 state_epoch = %state.current_epoch(),
-                current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
+                current_epoch = %current_slot.epoch(Spec::slots_per_epoch()),
                 "Primed proposer and attester caches"
             );
         } else {

@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -16,19 +16,19 @@ mod gloas;
 pub use gloas::PayloadEnvelopeContents;
 
 /// State loaded from the database for block production.
-pub(crate) struct BlockProductionState<E: EthSpec> {
-    pub state: BeaconState<E>,
+pub(crate) struct BlockProductionState {
+    pub state: BeaconState,
     pub state_root: Option<Hash256>,
     pub parent_payload_status: PayloadStatus,
-    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
 }
 
 /// Inputs assembled for producing a block via a proposer re-org.
-struct ReOrgInputs<E: EthSpec> {
-    state: BeaconState<E>,
+struct ReOrgInputs {
+    state: BeaconState,
     state_root: Hash256,
     parent_payload_status: PayloadStatus,
-    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -40,7 +40,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub(crate) fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
-    ) -> Result<BlockProductionState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BlockProductionState, BlockProductionError> {
         let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_FORK_CHOICE_TIMES);
         self.wait_for_fork_choice_before_block_production(slot)?;
         drop(fork_choice_timer);
@@ -174,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Option<ReOrgInputs<T::EthSpec>> {
+    ) -> Option<ReOrgInputs> {
         let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
         let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
         let re_org_max_epochs_since_finalization =

@@ -5,7 +5,7 @@ use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec},
+    core::{Address, Spec},
     fork::ForkName,
 };
 
@@ -23,7 +23,7 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
-pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
+pub type Withdrawals = VariableList<Withdrawal, typenum::U<{ Spec::MAX_WITHDRAWALS_PER_PAYLOAD }>>;
 
 #[cfg(test)]
 mod tests {

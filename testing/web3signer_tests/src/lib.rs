@@ -11,7 +11,7 @@
 //!
 //! There is a `download_binary` function in the `get_web3signer` module which obtains the latest version of Web3Signer and makes
 //! it available via the `TEMP_DIR`.
-#![cfg(all(test, unix, not(debug_assertions)))]
+#![cfg(all(test, unix, not(debug_assertions), not(feature = "spec-non-mainnet")))]
 
 mod get_web3signer;
 
@@ -70,8 +70,6 @@ mod tests {
 
     static GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::const_new();
 
-    type E = MainnetEthSpec;
-
     /// This marker trait is implemented for objects that we wish to compare to ensure Web3Signer
     /// and Lighthouse agree on signatures.
     ///
@@ -80,13 +78,13 @@ mod tests {
 
     impl SignedObject for Signature {}
     impl SignedObject for SingleAttestation {}
-    impl SignedObject for SignedBeaconBlock<E> {}
-    impl SignedObject for SignedBlock<E> {}
-    impl SignedObject for SignedAggregateAndProof<E> {}
+    impl SignedObject for SignedBeaconBlock {}
+    impl SignedObject for SignedBlock {}
+    impl SignedObject for SignedAggregateAndProof {}
     impl SignedObject for SelectionProof {}
     impl SignedObject for SyncSelectionProof {}
     impl SignedObject for SyncCommitteeMessage {}
-    impl SignedObject for SignedContributionAndProof<E> {}
+    impl SignedObject for SignedContributionAndProof {}
     impl SignedObject for SignedValidatorRegistrationData {}
 
     /// A file format used by Web3Signer to discover and unlock keystores.
@@ -306,7 +304,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -357,7 +355,7 @@ mod tests {
                 ..Default::default()
             };
 
-            let validator_store = LighthouseValidatorStore::<_, E>::new(
+            let validator_store = LighthouseValidatorStore::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -481,7 +479,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -516,7 +514,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = Result<(), lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
@@ -550,7 +548,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = Result<Vec<SingleAttestation>, lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
@@ -606,7 +604,7 @@ mod tests {
     }
 
     /// Get a generic, arbitrary attestation for signing.
-    fn get_attestation() -> Attestation<E> {
+    fn get_attestation() -> Attestation {
         Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
             data: get_attestation_data(),
@@ -627,7 +625,7 @@ mod tests {
     /// Test all the "base" (phase 0) types.
     async fn test_base_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let spec = Arc::new(network_config.chain_spec().unwrap());
 
         TestingRig::new(
             network,
@@ -646,7 +644,7 @@ mod tests {
         .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {
             let spec = spec.clone();
             async move {
-                let block = BeaconBlock::<E>::Base(BeaconBlockBase::empty(&spec));
+                let block = BeaconBlock::Base(BeaconBlockBase::empty(&spec));
                 let block_slot = block.slot();
                 let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
@@ -703,11 +701,11 @@ mod tests {
     /// Test all the Altair types.
     async fn test_altair_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let spec = Arc::new(network_config.chain_spec().unwrap());
         let altair_fork_slot = spec
             .altair_fork_epoch
             .unwrap()
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         TestingRig::new(
             network,
@@ -788,11 +786,11 @@ mod tests {
     /// Test all the Bellatrix types.
     async fn test_bellatrix_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let spec = Arc::new(network_config.chain_spec().unwrap());
         let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         TestingRig::new(
             network,
@@ -825,11 +823,11 @@ mod tests {
         let network = "mainnet";
 
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let spec = Arc::new(network_config.chain_spec().unwrap());
         let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         // The slashable message should only be signed by the web3signer validator if slashing
         // protection is disabled in Lighthouse.
@@ -863,7 +861,7 @@ mod tests {
         };
 
         let first_block = || {
-            let mut bellatrix_block = BeaconBlockBellatrix::<E>::empty(&spec);
+            let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
             bellatrix_block.slot = bellatrix_fork_slot;
             BeaconBlock::Bellatrix(bellatrix_block)
         };

@@ -9,13 +9,13 @@ use crate::per_block_processing::errors::{
 use std::collections::{HashMap, hash_map::Entry};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    Hash256, IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation,
-    PayloadAttestation, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, Hash256,
+    IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, PayloadAttestation,
+    SignedBeaconBlock, Slot, Spec,
 };
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ConsensusContext<E: EthSpec> {
+pub struct ConsensusContext {
     /// Slot to act as an identifier/safeguard
     pub slot: Slot,
     /// Previous epoch of the `slot` precomputed for optimization purpose.
@@ -27,9 +27,9 @@ pub struct ConsensusContext<E: EthSpec> {
     /// Block root of the block at `slot`.
     pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
-    pub indexed_attestations: HashMap<Hash256, IndexedAttestation<E>>,
+    pub indexed_attestations: HashMap<Hash256, IndexedAttestation>,
     /// Cache of indexed payload attestations constructed during block processing.
-    pub indexed_payload_attestations: HashMap<Hash256, IndexedPayloadAttestation<E>>,
+    pub indexed_payload_attestations: HashMap<Hash256, IndexedPayloadAttestation>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -52,9 +52,9 @@ impl From<EpochCacheError> for ContextError {
     }
 }
 
-impl<E: EthSpec> ConsensusContext<E> {
+impl ConsensusContext {
     pub fn new(slot: Slot) -> Self {
-        let current_epoch = slot.epoch(E::slots_per_epoch());
+        let current_epoch = slot.epoch(Spec::slots_per_epoch());
         let previous_epoch = current_epoch.saturating_sub(1u64);
         Self {
             slot,
@@ -80,7 +80,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     /// required. If the slot check is too restrictive, see `get_proposer_index_from_epoch_state`.
     pub fn get_proposer_index(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_slot(state.slot())?;
@@ -94,7 +94,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     /// we want to extract the proposer index from a single state for every slot in the epoch.
     pub fn get_proposer_index_from_epoch_state(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_epoch(state.current_epoch())?;
@@ -103,7 +103,7 @@ impl<E: EthSpec> ConsensusContext<E> {
 
     fn get_proposer_index_no_checks(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         if let Some(proposer_index) = self.proposer_index {
@@ -121,9 +121,9 @@ impl<E: EthSpec> ConsensusContext<E> {
         self
     }
 
-    pub fn get_current_block_root<Payload: AbstractExecPayload<E>>(
+    pub fn get_current_block_root<Payload: AbstractExecPayload>(
         &mut self,
-        block: &SignedBeaconBlock<E, Payload>,
+        block: &SignedBeaconBlock<Payload>,
     ) -> Result<Hash256, ContextError> {
         self.check_slot(block.slot())?;
 
@@ -148,7 +148,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     }
 
     fn check_epoch(&self, epoch: Epoch) -> Result<(), ContextError> {
-        let expected = self.slot.epoch(E::slots_per_epoch());
+        let expected = self.slot.epoch(Spec::slots_per_epoch());
         if epoch == expected {
             Ok(())
         } else {
@@ -160,9 +160,9 @@ impl<E: EthSpec> ConsensusContext<E> {
     #[allow(mismatched_lifetime_syntaxes)]
     pub fn get_indexed_attestation<'a>(
         &'a mut self,
-        state: &BeaconState<E>,
-        attestation: AttestationRef<'a, E>,
-    ) -> Result<IndexedAttestationRef<'a, E>, BlockOperationError<AttestationInvalid>> {
+        state: &BeaconState,
+        attestation: AttestationRef<'a>,
+    ) -> Result<IndexedAttestationRef<'a>, BlockOperationError<AttestationInvalid>> {
         let key = attestation.tree_hash_root();
         match attestation {
             AttestationRef::Base(attn) => match self.indexed_attestations.entry(key) {
@@ -196,11 +196,10 @@ impl<E: EthSpec> ConsensusContext<E> {
 
     pub fn get_indexed_payload_attestation<'a>(
         &'a mut self,
-        state: &BeaconState<E>,
-        payload_attestation: &'a PayloadAttestation<E>,
+        state: &BeaconState,
+        payload_attestation: &'a PayloadAttestation,
         spec: &ChainSpec,
-    ) -> Result<&'a IndexedPayloadAttestation<E>, BlockOperationError<PayloadAttestationInvalid>>
-    {
+    ) -> Result<&'a IndexedPayloadAttestation, BlockOperationError<PayloadAttestationInvalid>> {
         let key = payload_attestation.tree_hash_root();
         match self.indexed_payload_attestations.entry(key) {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
@@ -219,7 +218,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     #[must_use]
     pub fn set_indexed_attestations(
         mut self,
-        attestations: HashMap<Hash256, IndexedAttestation<E>>,
+        attestations: HashMap<Hash256, IndexedAttestation>,
     ) -> Self {
         self.indexed_attestations = attestations;
         self

@@ -12,7 +12,7 @@ use std::time::Duration;
 use std::time::Instant;
 use strum::{Display, EnumIter, IntoStaticStr};
 use types::Slot;
-use types::{DataColumnSidecarList, Epoch, EthSpec};
+use types::{DataColumnSidecarList, Epoch, Spec};
 
 /// Batch states used as metrics labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, IntoStaticStr)]
@@ -94,7 +94,7 @@ pub enum BatchProcessingResult {
 #[derive(Educe)]
 #[educe(Debug)]
 /// A segment of a chain.
-pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
+pub struct BatchInfo<B: BatchConfig, D: Hash> {
     /// Start slot of the batch.
     start_slot: Slot,
     /// End slot of the batch.
@@ -111,12 +111,10 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     batch_type: ByRangeRequestType,
     /// Pin the generic
     #[educe(Debug(ignore))]
-    marker: std::marker::PhantomData<(E, B)>,
+    marker: std::marker::PhantomData<B>,
 }
 
-impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> std::fmt::Display
-    for BatchInfo<E, B, D>
-{
+impl<B: BatchConfig, D: std::fmt::Debug + Hash> std::fmt::Display for BatchInfo<B, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -169,7 +167,7 @@ impl<D: Hash> BatchState<D> {
     }
 }
 
-impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
+impl<B: BatchConfig, D: Hash> BatchInfo<B, D> {
     /// Batches are downloaded excluding the first block of the epoch assuming it has already been
     /// downloaded.
     ///
@@ -184,8 +182,8 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// deal with this for now.
     /// This means finalization might be slower in deneb
     pub fn new(start_epoch: &Epoch, num_of_epochs: u64, batch_type: ByRangeRequestType) -> Self {
-        let start_slot = start_epoch.start_slot(E::slots_per_epoch());
-        let end_slot = start_slot + num_of_epochs * E::slots_per_epoch();
+        let start_slot = start_epoch.start_slot(Spec::slots_per_epoch());
+        let end_slot = start_slot + num_of_epochs * Spec::slots_per_epoch();
         Self {
             start_slot,
             end_slot,
@@ -443,7 +441,7 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
 }
 
 // BatchInfo implementations for RangeSync
-impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, Vec<RangeSyncBlock<E>>> {
+impl<B: BatchConfig> BatchInfo<B, Vec<RangeSyncBlock>> {
     /// Returns a BlocksByRange request associated with the batch.
     pub fn to_blocks_by_range_request(&self) -> (BlocksByRangeRequest, ByRangeRequestType) {
         (
@@ -470,7 +468,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, Vec<RangeSyncBlock<E>>> {
 }
 
 // BatchInfo implementation for CustodyBackFillSync
-impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, DataColumnSidecarList<E>> {
+impl<B: BatchConfig> BatchInfo<B, DataColumnSidecarList> {
     /// Returns a DataColumnsByRange request associated with the batch.
     pub fn to_data_columns_by_range_request(
         &self,
@@ -551,10 +549,9 @@ impl<D: Hash> BatchState<D> {
 mod tests {
     use super::*;
     use crate::sync::range_sync::RangeSyncBatchConfig;
-    use types::MinimalEthSpec;
 
-    type Cfg = RangeSyncBatchConfig<MinimalEthSpec>;
-    type TestBatch = BatchInfo<MinimalEthSpec, Cfg, Vec<u64>>;
+    type Cfg = RangeSyncBatchConfig;
+    type TestBatch = BatchInfo<Cfg, Vec<u64>>;
 
     fn max_dl() -> u8 {
         Cfg::max_batch_download_attempts()

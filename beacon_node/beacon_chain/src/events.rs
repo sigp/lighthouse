@@ -2,40 +2,39 @@ pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
-use types::EthSpec;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 
-pub struct ServerSentEventHandler<E: EthSpec> {
-    attestation_tx: Sender<EventKind<E>>,
-    single_attestation_tx: Sender<EventKind<E>>,
-    block_tx: Sender<EventKind<E>>,
-    blob_sidecar_tx: Sender<EventKind<E>>,
-    data_column_sidecar_tx: Sender<EventKind<E>>,
-    finalized_tx: Sender<EventKind<E>>,
-    head_tx: Sender<EventKind<E>>,
-    head_v2_tx: Sender<EventKind<E>>,
-    exit_tx: Sender<EventKind<E>>,
-    chain_reorg_tx: Sender<EventKind<E>>,
-    contribution_tx: Sender<EventKind<E>>,
-    payload_attributes_tx: Sender<EventKind<E>>,
-    late_head: Sender<EventKind<E>>,
-    light_client_finality_update_tx: Sender<EventKind<E>>,
-    light_client_optimistic_update_tx: Sender<EventKind<E>>,
-    proposer_slashing_tx: Sender<EventKind<E>>,
-    attester_slashing_tx: Sender<EventKind<E>>,
-    bls_to_execution_change_tx: Sender<EventKind<E>>,
-    block_gossip_tx: Sender<EventKind<E>>,
-    execution_payload_tx: Sender<EventKind<E>>,
-    execution_payload_gossip_tx: Sender<EventKind<E>>,
-    execution_payload_available_tx: Sender<EventKind<E>>,
-    execution_payload_bid_tx: Sender<EventKind<E>>,
-    proposer_preferences_tx: Sender<EventKind<E>>,
-    payload_attestation_message_tx: Sender<EventKind<E>>,
-    fast_confirmation_tx: Sender<EventKind<E>>,
+pub struct ServerSentEventHandler {
+    attestation_tx: Sender<EventKind>,
+    single_attestation_tx: Sender<EventKind>,
+    block_tx: Sender<EventKind>,
+    blob_sidecar_tx: Sender<EventKind>,
+    data_column_sidecar_tx: Sender<EventKind>,
+    finalized_tx: Sender<EventKind>,
+    head_tx: Sender<EventKind>,
+    head_v2_tx: Sender<EventKind>,
+    exit_tx: Sender<EventKind>,
+    chain_reorg_tx: Sender<EventKind>,
+    contribution_tx: Sender<EventKind>,
+    payload_attributes_tx: Sender<EventKind>,
+    late_head: Sender<EventKind>,
+    light_client_finality_update_tx: Sender<EventKind>,
+    light_client_optimistic_update_tx: Sender<EventKind>,
+    proposer_slashing_tx: Sender<EventKind>,
+    attester_slashing_tx: Sender<EventKind>,
+    bls_to_execution_change_tx: Sender<EventKind>,
+    block_gossip_tx: Sender<EventKind>,
+    execution_payload_tx: Sender<EventKind>,
+    execution_payload_gossip_tx: Sender<EventKind>,
+    execution_payload_available_tx: Sender<EventKind>,
+    execution_payload_bid_tx: Sender<EventKind>,
+    proposer_preferences_tx: Sender<EventKind>,
+    payload_attestation_message_tx: Sender<EventKind>,
+    fast_confirmation_tx: Sender<EventKind>,
 }
 
-impl<E: EthSpec> ServerSentEventHandler<E> {
+impl ServerSentEventHandler {
     pub fn new(capacity_multiplier: usize) -> Self {
         Self::new_with_capacity(capacity_multiplier.saturating_mul(DEFAULT_CHANNEL_CAPACITY))
     }
@@ -98,7 +97,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         }
     }
 
-    pub fn register(&self, kind: EventKind<E>) {
+    pub fn register(&self, kind: EventKind) {
         let log_count = |name, count| {
             trace!(
                 kind = name,
@@ -217,107 +216,107 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         }
     }
 
-    pub fn subscribe_attestation(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_attestation(&self) -> Receiver<EventKind> {
         self.attestation_tx.subscribe()
     }
 
-    pub fn subscribe_single_attestation(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_single_attestation(&self) -> Receiver<EventKind> {
         self.single_attestation_tx.subscribe()
     }
 
-    pub fn subscribe_block(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_block(&self) -> Receiver<EventKind> {
         self.block_tx.subscribe()
     }
 
-    pub fn subscribe_blob_sidecar(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_blob_sidecar(&self) -> Receiver<EventKind> {
         self.blob_sidecar_tx.subscribe()
     }
 
-    pub fn subscribe_data_column_sidecar(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_data_column_sidecar(&self) -> Receiver<EventKind> {
         self.data_column_sidecar_tx.subscribe()
     }
 
-    pub fn subscribe_finalized(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_finalized(&self) -> Receiver<EventKind> {
         self.finalized_tx.subscribe()
     }
 
-    pub fn subscribe_head(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_head(&self) -> Receiver<EventKind> {
         self.head_tx.subscribe()
     }
 
-    pub fn subscribe_head_v2(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_head_v2(&self) -> Receiver<EventKind> {
         self.head_v2_tx.subscribe()
     }
 
-    pub fn subscribe_exit(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_exit(&self) -> Receiver<EventKind> {
         self.exit_tx.subscribe()
     }
 
-    pub fn subscribe_reorgs(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_reorgs(&self) -> Receiver<EventKind> {
         self.chain_reorg_tx.subscribe()
     }
 
-    pub fn subscribe_contributions(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_contributions(&self) -> Receiver<EventKind> {
         self.contribution_tx.subscribe()
     }
 
-    pub fn subscribe_payload_attributes(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_payload_attributes(&self) -> Receiver<EventKind> {
         self.payload_attributes_tx.subscribe()
     }
 
-    pub fn subscribe_late_head(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_late_head(&self) -> Receiver<EventKind> {
         self.late_head.subscribe()
     }
 
-    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind> {
         self.light_client_finality_update_tx.subscribe()
     }
 
-    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind> {
         self.light_client_optimistic_update_tx.subscribe()
     }
 
-    pub fn subscribe_attester_slashing(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_attester_slashing(&self) -> Receiver<EventKind> {
         self.attester_slashing_tx.subscribe()
     }
 
-    pub fn subscribe_proposer_slashing(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_proposer_slashing(&self) -> Receiver<EventKind> {
         self.proposer_slashing_tx.subscribe()
     }
 
-    pub fn subscribe_bls_to_execution_change(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_bls_to_execution_change(&self) -> Receiver<EventKind> {
         self.bls_to_execution_change_tx.subscribe()
     }
 
-    pub fn subscribe_block_gossip(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_block_gossip(&self) -> Receiver<EventKind> {
         self.block_gossip_tx.subscribe()
     }
 
-    pub fn subscribe_execution_payload(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_execution_payload(&self) -> Receiver<EventKind> {
         self.execution_payload_tx.subscribe()
     }
 
-    pub fn subscribe_execution_payload_gossip(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_execution_payload_gossip(&self) -> Receiver<EventKind> {
         self.execution_payload_gossip_tx.subscribe()
     }
 
-    pub fn subscribe_execution_payload_available(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_execution_payload_available(&self) -> Receiver<EventKind> {
         self.execution_payload_available_tx.subscribe()
     }
 
-    pub fn subscribe_execution_payload_bid(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_execution_payload_bid(&self) -> Receiver<EventKind> {
         self.execution_payload_bid_tx.subscribe()
     }
 
-    pub fn subscribe_proposer_preferences(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_proposer_preferences(&self) -> Receiver<EventKind> {
         self.proposer_preferences_tx.subscribe()
     }
 
-    pub fn subscribe_payload_attestation_message(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_payload_attestation_message(&self) -> Receiver<EventKind> {
         self.payload_attestation_message_tx.subscribe()
     }
 
-    pub fn subscribe_fast_confirmation(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_fast_confirmation(&self) -> Receiver<EventKind> {
         self.fast_confirmation_tx.subscribe()
     }
 

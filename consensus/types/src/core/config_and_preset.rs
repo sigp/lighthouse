@@ -6,7 +6,7 @@ use superstruct::superstruct;
 
 use crate::core::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
-    ElectraPreset, EthSpec, FuluPreset, GloasPreset, HezePreset, consts,
+    ElectraPreset, FuluPreset, GloasPreset, HezePreset, consts,
 };
 
 /// Fusion of a runtime-config with the compile-time preset values.
@@ -50,20 +50,20 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
-    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
-        let mut config = Config::from_chain_spec::<E>(spec);
-        let base_preset = BasePreset::from_chain_spec::<E>(spec);
-        let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
-        let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
-        let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
-        let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
+    pub fn from_chain_spec(spec: &ChainSpec) -> Self {
+        let mut config = Config::from_chain_spec(spec);
+        let base_preset = BasePreset::from_chain_spec(spec);
+        let altair_preset = AltairPreset::from_chain_spec(spec);
+        let bellatrix_preset = BellatrixPreset::from_chain_spec(spec);
+        let capella_preset = CapellaPreset::from_chain_spec(spec);
+        let deneb_preset = DenebPreset::from_chain_spec(spec);
         let extra_fields = get_extra_fields(spec);
 
         if spec.is_heze_scheduled() {
-            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
-            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
-            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
-            let heze_preset = HezePreset::from_chain_spec::<E>(spec);
+            let electra_preset = ElectraPreset::from_chain_spec(spec);
+            let fulu_preset = FuluPreset::from_chain_spec(spec);
+            let gloas_preset = GloasPreset::from_chain_spec(spec);
+            let heze_preset = HezePreset::from_chain_spec(spec);
 
             ConfigAndPreset::Heze(ConfigAndPresetHeze {
                 config,
@@ -79,9 +79,9 @@ impl ConfigAndPreset {
                 extra_fields,
             })
         } else if spec.is_gloas_scheduled() {
-            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
-            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
-            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
+            let electra_preset = ElectraPreset::from_chain_spec(spec);
+            let fulu_preset = FuluPreset::from_chain_spec(spec);
+            let gloas_preset = GloasPreset::from_chain_spec(spec);
 
             ConfigAndPreset::Gloas(ConfigAndPresetGloas {
                 config,
@@ -96,8 +96,8 @@ impl ConfigAndPreset {
                 extra_fields,
             })
         } else if spec.is_fulu_scheduled() {
-            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
-            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+            let electra_preset = ElectraPreset::from_chain_spec(spec);
+            let fulu_preset = FuluPreset::from_chain_spec(spec);
 
             ConfigAndPreset::Fulu(ConfigAndPresetFulu {
                 config,
@@ -114,7 +114,7 @@ impl ConfigAndPreset {
             // Remove blob schedule for backwards-compatibility.
             config.blob_schedule.set_skip_serializing();
 
-            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let electra_preset = ElectraPreset::from_chain_spec(spec);
 
             ConfigAndPreset::Electra(ConfigAndPresetElectra {
                 config,
@@ -177,7 +177,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Epoch, MainnetEthSpec};
+    use crate::{Epoch, core::Spec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -193,7 +193,7 @@ mod test {
         // TODO(heze): bump this test to roundtrip a heze config once Heze is enabled.
         // setting gloas_fork_epoch because we are roundtripping a gloas config
         mainnet_spec.gloas_fork_epoch = Some(Epoch::new(42));
-        let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let mut yamlconfig = ConfigAndPreset::from_chain_spec(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
         let (k3, v3) = ("SAMPLE_HARDFORK_KEY3", 32);
@@ -218,7 +218,7 @@ mod test {
     #[test]
     fn test_attestation_subnet_prefix_bits_in_extra_fields() {
         let mainnet_spec = ChainSpec::mainnet();
-        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let config = ConfigAndPreset::from_chain_spec(&mainnet_spec);
         let extra_fields = config.extra_fields();
         assert!(extra_fields.contains_key("ATTESTATION_SUBNET_PREFIX_BITS"));
 
@@ -232,8 +232,8 @@ mod test {
     // This is not exhaustive, but it can be extended as new fields are added to the spec.
     #[test]
     fn test_required_spec_fields_exist() {
-        let mainnet_spec = ChainSpec::mainnet();
-        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let spec = Spec::default_spec();
+        let config = ConfigAndPreset::from_chain_spec(&spec);
         let json = serde_json::to_value(&config).expect("should serialize");
         let obj = json.as_object().expect("should be an object");
         let required_fields = [

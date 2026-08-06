@@ -1,17 +1,16 @@
 use super::errors::EpochProcessingError;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-use typenum::Unsigned;
-use types::core::EthSpec;
+use types::Spec;
 use types::state::BeaconState;
 
-pub fn process_historical_roots_update<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_historical_roots_update(
+    state: &mut BeaconState,
 ) -> Result<(), EpochProcessingError> {
     let next_epoch = state.next_epoch()?;
     if next_epoch
         .as_u64()
-        .safe_rem(E::SlotsPerHistoricalRoot::to_u64().safe_div(E::slots_per_epoch())?)?
+        .safe_rem((Spec::slots_per_historical_root()).safe_div(Spec::slots_per_epoch())?)?
         == 0
     {
         let historical_batch = state.historical_batch()?;

@@ -9,15 +9,16 @@ use crate::per_block_processing::verify_payload_attestation::verify_payload_atte
 use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
+use types::Spec;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
 use types::is_builder_withdrawal_credential;
 
-pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    block_body: BeaconBlockBodyRef<E, Payload>,
+pub fn process_operations<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    block_body: BeaconBlockBodyRef<Payload>,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
@@ -84,29 +85,29 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ///
 /// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
 /// `ProgressiveList` is unbounded so they must be checked explicitly.
-pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    block_body: BeaconBlockBodyRef<E, Payload>,
+pub fn verify_operation_list_lengths<Payload: AbstractExecPayload>(
+    block_body: BeaconBlockBodyRef<Payload>,
 ) -> Result<(), BlockProcessingError> {
     let checks: [(&str, usize, usize); 6] = [
         (
             "proposer_slashings",
             block_body.proposer_slashings().len(),
-            E::MaxProposerSlashings::to_usize(),
+            Spec::MAX_PROPOSER_SLASHINGS,
         ),
         (
             "attester_slashings",
             block_body.attester_slashings_len(),
-            E::MaxAttesterSlashingsElectra::to_usize(),
+            Spec::MAX_ATTESTER_SLASHINGS_ELECTRA,
         ),
         (
             "attestations",
             block_body.attestations_len(),
-            E::MaxAttestationsElectra::to_usize(),
+            Spec::MAX_ATTESTATIONS_ELECTRA,
         ),
         (
             "voluntary_exits",
             block_body.voluntary_exits().len(),
-            E::MaxVoluntaryExits::to_usize(),
+            Spec::MAX_VOLUNTARY_EXITS,
         ),
         (
             "bls_to_execution_changes",
@@ -114,7 +115,7 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
                 .bls_to_execution_changes()
                 .map(|changes| changes.len())
                 .unwrap_or(0),
-            E::MaxBlsToExecutionChanges::to_usize(),
+            Spec::MAX_BLS_TO_EXECUTION_CHANGES,
         ),
         (
             "payload_attestations",
@@ -122,7 +123,7 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
                 .payload_attestations()
                 .map(|atts| atts.len())
                 .unwrap_or(0),
-            E::MaxPayloadAttestations::to_usize(),
+            Spec::MAX_PAYLOAD_ATTESTATIONS,
         ),
     ];
 
@@ -143,15 +144,15 @@ pub mod base {
     ///
     /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
     /// an `Err` describing the invalid object or cause of failure.
-    pub fn process_attestations<'a, E: EthSpec, I>(
-        state: &mut BeaconState<E>,
+    pub fn process_attestations<'a, I>(
+        state: &mut BeaconState,
         attestations: I,
         verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<E>,
+        ctxt: &mut ConsensusContext,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError>
     where
-        I: Iterator<Item = AttestationRef<'a, E>>,
+        I: Iterator<Item = AttestationRef<'a>>,
     {
         // Ensure required caches are all built. These should be no-ops during regular operation.
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -207,26 +208,26 @@ pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
-    pub fn process_attestations<'a, E: EthSpec, I>(
-        state: &mut BeaconState<E>,
+    pub fn process_attestations<'a, I>(
+        state: &mut BeaconState,
         attestations: I,
         verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<E>,
+        ctxt: &mut ConsensusContext,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError>
     where
-        I: Iterator<Item = AttestationRef<'a, E>>,
+        I: Iterator<Item = AttestationRef<'a>>,
     {
         attestations.enumerate().try_for_each(|(i, attestation)| {
             process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
         })
     }
 
-    pub fn process_attestation<E: EthSpec>(
-        state: &mut BeaconState<E>,
-        attestation: AttestationRef<E>,
+    pub fn process_attestation(
+        state: &mut BeaconState,
+        attestation: AttestationRef,
         att_index: usize,
-        ctxt: &mut ConsensusContext<E>,
+        ctxt: &mut ConsensusContext,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -300,26 +301,26 @@ pub mod gloas {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
-    pub fn process_attestations<'a, E: EthSpec, I>(
-        state: &mut BeaconState<E>,
+    pub fn process_attestations<'a, I>(
+        state: &mut BeaconState,
         attestations: I,
         verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<E>,
+        ctxt: &mut ConsensusContext,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError>
     where
-        I: Iterator<Item = AttestationRef<'a, E>>,
+        I: Iterator<Item = AttestationRef<'a>>,
     {
         attestations.enumerate().try_for_each(|(i, attestation)| {
             process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
         })
     }
 
-    pub fn process_attestation<E: EthSpec>(
-        state: &mut BeaconState<E>,
-        attestation: AttestationRef<E>,
+    pub fn process_attestation(
+        state: &mut BeaconState,
+        attestation: AttestationRef,
         att_index: usize,
-        ctxt: &mut ConsensusContext<E>,
+        ctxt: &mut ConsensusContext,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -344,12 +345,9 @@ pub mod gloas {
 
         // [New in EIP-7732]
         let current_epoch_target = data.target.epoch == state.current_epoch();
-        let slot_mod = data
-            .slot
-            .as_usize()
-            .safe_rem(E::slots_per_epoch() as usize)?;
+        let slot_mod = data.slot.as_usize().safe_rem(Spec::SLOTS_PER_EPOCH)?;
         let payment_index = if current_epoch_target {
-            (E::slots_per_epoch() as usize).safe_add(slot_mod)?
+            (Spec::SLOTS_PER_EPOCH).safe_add(slot_mod)?
         } else {
             slot_mod
         };
@@ -442,11 +440,11 @@ pub mod gloas {
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_proposer_slashings<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_proposer_slashings(
+    state: &mut BeaconState,
     proposer_slashings: &[ProposerSlashing],
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     state.build_slashings_cache()?;
@@ -468,11 +466,11 @@ pub fn process_proposer_slashings<E: EthSpec>(
             // equivocation could grief an honest proposer's payment.
             if state.fork_name_unchecked().gloas_enabled() {
                 let slot = proposer_slashing.signed_header_1.message.slot;
-                let proposal_epoch = slot.epoch(E::slots_per_epoch());
-                let slot_in_epoch = slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?;
+                let proposal_epoch = slot.epoch(Spec::slots_per_epoch());
+                let slot_in_epoch = slot.as_usize().safe_rem(Spec::SLOTS_PER_EPOCH)?;
 
                 let payment_index = if proposal_epoch == state.current_epoch() {
-                    Some(E::SlotsPerEpoch::to_usize().safe_add(slot_in_epoch)?)
+                    Some(Spec::SLOTS_PER_EPOCH.safe_add(slot_in_epoch)?)
                 } else if proposal_epoch == state.previous_epoch() {
                     Some(slot_in_epoch)
                 } else {
@@ -509,15 +507,15 @@ pub fn process_proposer_slashings<E: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_attester_slashings<'a, E: EthSpec, I>(
-    state: &mut BeaconState<E>,
+pub fn process_attester_slashings<'a, I>(
+    state: &mut BeaconState,
     attester_slashings: I,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError>
 where
-    I: Iterator<Item = AttesterSlashingRef<'a, E>>,
+    I: Iterator<Item = AttesterSlashingRef<'a>>,
 {
     state.build_slashings_cache()?;
 
@@ -536,11 +534,11 @@ where
 
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
-pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    block_body: BeaconBlockBodyRef<E, Payload>,
+pub fn process_attestations<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    block_body: BeaconBlockBodyRef<Payload>,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if state.fork_name_unchecked().gloas_enabled() {
@@ -575,8 +573,8 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_exits<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_exits(
+    state: &mut BeaconState,
     voluntary_exits: &[SignedVoluntaryExit],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -603,8 +601,8 @@ pub fn process_exits<E: EthSpec>(
 }
 
 /// Initiate the exit of a builder. [New in Gloas:EIP7732]
-fn initiate_builder_exit<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn initiate_builder_exit(
+    state: &mut BeaconState,
     builder_index: u64,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
@@ -629,8 +627,8 @@ fn initiate_builder_exit<E: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_bls_to_execution_changes<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_bls_to_execution_changes(
+    state: &mut BeaconState,
     bls_to_execution_changes: &[SignedBlsToExecutionChange],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -654,8 +652,8 @@ pub fn process_bls_to_execution_changes<E: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_deposits<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_deposits(
+    state: &mut BeaconState,
     deposits: &[Deposit],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -669,7 +667,7 @@ pub fn process_deposits<E: EthSpec>(
 
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
-            E::MaxDeposits::to_u64(),
+            Spec::MAX_DEPOSITS as u64,
             eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index())?,
         );
         block_verify!(
@@ -712,8 +710,8 @@ pub fn process_deposits<E: EthSpec>(
 }
 
 /// Process a single deposit, verifying its merkle proof if provided.
-pub fn apply_deposit<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn apply_deposit(
+    state: &mut BeaconState,
     deposit_data: DepositData,
     proof: Option<FixedVector<Hash256, U33>>,
     increment_eth1_deposit_index: bool,
@@ -790,8 +788,8 @@ pub fn apply_deposit<E: EthSpec>(
 }
 
 // Make sure to build the pubkey cache before calling this function
-pub fn process_withdrawal_requests<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_withdrawal_requests(
+    state: &mut BeaconState,
     requests: &[WithdrawalRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -800,7 +798,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
         let is_full_exit_request = amount == spec.full_exit_request_amount;
 
         // If partial withdrawal queue is full, only full exits are processed
-        if state.pending_partial_withdrawals()?.len() == E::pending_partial_withdrawals_limit()
+        if state.pending_partial_withdrawals()?.len() == Spec::PENDING_PARTIAL_WITHDRAWALS_LIMIT
             && !is_full_exit_request
         {
             continue;
@@ -885,8 +883,8 @@ pub fn process_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_deposit_requests(
+    state: &mut BeaconState,
     deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -915,8 +913,8 @@ pub fn process_deposit_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_builder_deposit_requests<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_builder_deposit_requests(
+    state: &mut BeaconState,
     builder_deposit_requests: &[BuilderDepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -927,8 +925,8 @@ pub fn process_builder_deposit_requests<E: EthSpec>(
     Ok(())
 }
 
-fn process_builder_deposit_request<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn process_builder_deposit_request(
+    state: &mut BeaconState,
     builder_deposit_request: &BuilderDepositRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -976,8 +974,8 @@ fn process_builder_deposit_request<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_builder_exit_requests<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_builder_exit_requests(
+    state: &mut BeaconState,
     builder_exit_requests: &[BuilderExitRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -988,8 +986,8 @@ pub fn process_builder_exit_requests<E: EthSpec>(
     Ok(())
 }
 
-fn process_builder_exit_request<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn process_builder_exit_request(
+    state: &mut BeaconState,
     builder_exit_request: &BuilderExitRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -1043,8 +1041,8 @@ pub fn is_pending_validator<'a>(
 }
 
 // Make sure to build the pubkey cache before calling this function
-pub fn process_consolidation_requests<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_consolidation_requests(
+    state: &mut BeaconState,
     consolidation_requests: &[ConsolidationRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -1055,8 +1053,8 @@ pub fn process_consolidation_requests<E: EthSpec>(
     Ok(())
 }
 
-fn is_valid_switch_to_compounding_request<E: EthSpec>(
-    state: &BeaconState<E>,
+fn is_valid_switch_to_compounding_request(
+    state: &BeaconState,
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<bool, BlockProcessingError> {
@@ -1110,8 +1108,8 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
     Ok(true)
 }
 
-pub fn process_consolidation_request<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_consolidation_request(
+    state: &mut BeaconState,
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -1134,7 +1132,7 @@ pub fn process_consolidation_request<E: EthSpec>(
     }
 
     // If the pending consolidations queue is full, consolidation requests are ignored
-    if state.pending_consolidations()?.len() == E::PendingConsolidationsLimit::to_usize() {
+    if state.pending_consolidations()?.len() == Spec::PENDING_CONSOLIDATIONS_LIMIT {
         return Ok(());
     }
     // If there is too little available consolidation churn limit, consolidation requests are ignored
@@ -1217,27 +1215,27 @@ pub fn process_consolidation_request<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_payload_attestation<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    payload_attestation: &PayloadAttestation<E>,
+pub fn process_payload_attestation(
+    state: &mut BeaconState,
+    payload_attestation: &PayloadAttestation,
     att_index: usize,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     verify_payload_attestation(state, payload_attestation, ctxt, verify_signatures, spec)
         .map_err(|e| e.into_with_index(att_index))
 }
 
-pub fn process_payload_attestations<'a, E: EthSpec, I>(
-    state: &mut BeaconState<E>,
+pub fn process_payload_attestations<'a, I>(
+    state: &mut BeaconState,
     payload_attestations: I,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError>
 where
-    I: Iterator<Item = &'a PayloadAttestation<E>>,
+    I: Iterator<Item = &'a PayloadAttestation>,
 {
     // Presently the PTC cache requires the committee cache for `state.slot() - 1` which is either
     // in the current or previous epoch.

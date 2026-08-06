@@ -45,8 +45,8 @@ use timer::spawn_timer;
 use tracing::{debug, info, instrument, warn};
 use types::data::compute_ordered_custody_column_indices;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
+    BeaconState, BlobSidecarList, ChainSpec, ExecutionBlockHash, Hash256, SignedBeaconBlock, Spec,
+    test_utils::generate_deterministic_keypairs,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -73,37 +73,44 @@ const BLOB_AVAILABILITY_REDUCTION_EPOCHS: u64 = 2;
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     #[allow(clippy::type_complexity)]
-    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    runtime_context: Option<RuntimeContext<T::EthSpec>>,
+    store: Option<Arc<HotColdDB<T::HotStore, T::ColdStore>>>,
+    runtime_context: Option<RuntimeContext>,
     chain_spec: Option<Arc<ChainSpec>>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
-    network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
-    network_senders: Option<NetworkSenders<T::EthSpec>>,
+    network_globals: Option<Arc<NetworkGlobals>>,
+    network_senders: Option<NetworkSenders>,
     libp2p_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
-    slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    slasher: Option<Arc<Slasher>>,
     beacon_processor_config: Option<BeaconProcessorConfig>,
-    beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
-    light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
-    eth_spec_instance: T::EthSpec,
+    beacon_processor_channels: Option<BeaconProcessorChannels>,
+    light_client_server_rv: Option<Receiver<LightClientProducerEvent>>,
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
+impl<TSlotClock, THotStore, TColdStore> Default
+    for ClientBuilder<Witness<TSlotClock, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    E: EthSpec + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<TSlotClock, THotStore, TColdStore> ClientBuilder<Witness<TSlotClock, THotStore, TColdStore>>
+where
+    TSlotClock: SlotClock + Clone + 'static,
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
 {
     /// Instantiates a new, empty builder.
-    ///
-    /// The `eth_spec_instance` parameter is used to concretize `E`.
-    pub fn new(eth_spec_instance: E) -> Self {
+    pub fn new() -> Self {
         Self {
             slot_clock: None,
             store: None,
@@ -119,7 +126,6 @@ where
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
             slasher: None,
-            eth_spec_instance,
             beacon_processor_config: None,
             beacon_processor_channels: None,
             light_client_server_rv: None,
@@ -127,7 +133,7 @@ where
     }
 
     /// Specifies the runtime context (tokio executor, logger, etc) for client services.
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
+    pub fn runtime_context(mut self, context: RuntimeContext) -> Self {
         self.runtime_context = Some(context);
         self
     }
@@ -144,7 +150,7 @@ where
         self
     }
 
-    pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
+    pub fn slasher(mut self, slasher: Arc<Slasher>) -> Self {
         self.slasher = Some(slasher);
         self
     }
@@ -161,7 +167,6 @@ where
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
-        let eth_spec_instance = self.eth_spec_instance.clone();
         let chain_config = config.chain.clone();
         let beacon_graffiti = config.beacon_graffiti;
 
@@ -194,12 +199,10 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
-        let ordered_custody_column_indices =
-            compute_ordered_custody_column_indices::<E>(node_id, &spec).map_err(|e| {
-                format!("Failed to compute ordered custody column indices: {:?}", e)
-            })?;
+        let ordered_custody_column_indices = compute_ordered_custody_column_indices(node_id, &spec)
+            .map_err(|e| format!("Failed to compute ordered custody column indices: {:?}", e))?;
 
-        let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
+        let builder = BeaconChainBuilder::new(Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
@@ -225,7 +228,7 @@ where
         };
 
         let builder = if config.network.enable_light_client_server {
-            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<E>>(
+            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent>(
                 LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
             );
             self.light_client_server_rv = Some(rv);
@@ -314,7 +317,7 @@ where
                     let genesis_time = genesis_state.genesis_time();
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
-                            * E::slots_per_epoch()
+                            * Spec::slots_per_epoch()
                             * spec.get_slot_duration().as_secs());
 
                     // Shrink the blob availability window so users don't start
@@ -324,7 +327,7 @@ where
                         .min_epochs_for_blob_sidecars_requests
                         .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                     let blob_availability_window = reduced_p2p_availability_epochs
-                        * E::slots_per_epoch()
+                        * Spec::slots_per_epoch()
                         * spec.get_slot_duration().as_secs();
 
                     if now > deneb_time + blob_availability_window {
@@ -393,7 +396,7 @@ where
 
                 debug!("Downloading finalized state");
                 let state = remote
-                    .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
+                    .get_debug_beacon_states_ssz(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
@@ -404,7 +407,7 @@ where
 
                 debug!(block_slot = ?finalized_block_slot,"Downloading finalized block");
                 let block = remote
-                    .get_beacon_blocks_ssz::<E>(BlockId::Slot(finalized_block_slot), &spec)
+                    .get_beacon_blocks_ssz(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -420,13 +423,11 @@ where
                 debug!("Downloaded finalized block");
 
                 // `get_blob_sidecars` API is deprecated from Fulu and may not be supported by all servers
-                let is_before_fulu = !spec
-                    .fork_name_at_slot::<E>(finalized_block_slot)
-                    .fulu_enabled();
+                let is_before_fulu = !spec.fork_name_at_slot(finalized_block_slot).fulu_enabled();
                 let blobs = if is_before_fulu && block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
-                        .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
+                        .get_blob_sidecars(BlockId::Root(block_root), None, &spec)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
@@ -617,7 +618,7 @@ where
     #[instrument(name = "build_client", skip_all)]
     pub async fn build(
         mut self,
-    ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
+    ) -> Result<Client<Witness<TSlotClock, THotStore, TColdStore>>, String> {
         let runtime_context = self
             .runtime_context
             .as_ref()
@@ -810,11 +811,9 @@ where
     }
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
+impl<TSlotClock, THotStore, TColdStore> ClientBuilder<Witness<TSlotClock, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    E: EthSpec + 'static,
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
 {
@@ -847,10 +846,9 @@ where
     }
 }
 
-impl<TSlotClock, E> ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>
+impl<TSlotClock> ClientBuilder<Witness<TSlotClock, BeaconNodeBackend, BeaconNodeBackend>>
 where
     TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
 {
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
@@ -869,7 +867,7 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let schema_upgrade =
-            |db, from, to| migrate_schema::<Witness<TSlotClock, _, _, _>>(db, from, to);
+            |db, from, to| migrate_schema::<Witness<TSlotClock, _, _>>(db, from, to);
 
         let store = HotColdDB::open(
             hot_path,
@@ -885,9 +883,8 @@ where
     }
 }
 
-impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
+impl<THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, THotStore, TColdStore>>
 where
-    E: EthSpec + 'static,
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
 {
@@ -919,16 +916,16 @@ where
 }
 
 /// Obtain the genesis state from the `eth2_network_config` in `context`.
-async fn genesis_state<E: EthSpec>(
-    context: &RuntimeContext<E>,
+async fn genesis_state(
+    context: &RuntimeContext,
     config: &ClientConfig,
-) -> Result<BeaconState<E>, String> {
+) -> Result<BeaconState, String> {
     let eth2_network_config = context
         .eth2_network_config
         .as_ref()
         .ok_or("An eth2_network_config is required to obtain the genesis state")?;
     eth2_network_config
-        .genesis_state::<E>(
+        .genesis_state(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
         )

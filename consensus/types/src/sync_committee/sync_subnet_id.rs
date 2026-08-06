@@ -8,9 +8,8 @@ use std::{
 
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
-use typenum::Unsigned;
 
-use crate::core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT};
+use crate::core::{Spec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT};
 
 static SYNC_SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut v = Vec::with_capacity(SYNC_COMMITTEE_SUBNET_COUNT as usize);
@@ -42,10 +41,10 @@ impl SyncSubnetId {
     }
 
     /// Compute required subnets to subscribe to given the sync committee indices.
-    pub fn compute_subnets_for_sync_committee<E: EthSpec>(
+    pub fn compute_subnets_for_sync_committee(
         sync_committee_indices: &[u64],
     ) -> Result<HashSet<Self>, ArithError> {
-        let subcommittee_size = E::SyncSubcommitteeSize::to_u64();
+        let subcommittee_size = Spec::sync_subcommittee_size();
 
         sync_committee_indices
             .iter()

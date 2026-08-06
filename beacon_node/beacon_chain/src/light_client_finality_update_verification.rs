@@ -1,5 +1,4 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use educe::Educe;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -55,18 +54,18 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientFinalityUpdate` that has been verified for propagation on the gossip network.
-#[derive(Educe)]
-#[educe(Clone(bound(T: BeaconChainTypes)))]
-pub struct VerifiedLightClientFinalityUpdate<T: BeaconChainTypes> {
-    light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct VerifiedLightClientFinalityUpdate {
+    light_client_finality_update: LightClientFinalityUpdate,
     seen_timestamp: Duration,
 }
 
-impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
+impl VerifiedLightClientFinalityUpdate {
     /// Returns `Ok(Self)` if the `light_client_finality_update` is valid to be (re)published on the gossip
     /// network.
-    pub fn verify(
-        rcv_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+    pub fn verify<T: BeaconChainTypes>(
+        rcv_finality_update: LightClientFinalityUpdate,
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::time::Interval;
-use types::{ChainSpec, Epoch, EthSpec, ForkContext};
+use types::{ChainSpec, Epoch, ForkContext};
 
 /// Nanoseconds since a given time.
 // Maintained as u64 to reduce footprint
@@ -308,7 +308,7 @@ pub trait RateLimiterItem {
     fn max_responses(&self, digest_epoch: Epoch, spec: &ChainSpec) -> u64;
 }
 
-impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
+impl RateLimiterItem for super::RequestType {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
@@ -318,7 +318,7 @@ impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
     }
 }
 
-impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
+impl RateLimiterItem for (super::RpcResponse, Protocol) {
     fn protocol(&self) -> Protocol {
         self.1
     }

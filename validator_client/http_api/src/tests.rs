@@ -38,12 +38,12 @@ use zeroize::Zeroizing;
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 
-type E = MainnetEthSpec;
+use types::Spec;
 
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     spec: Arc<ChainSpec>,
@@ -79,7 +79,7 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(&token_path).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let spec = Arc::new(E::default_spec());
+        let spec = Arc::new(Spec::default_spec());
 
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -93,7 +93,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -134,10 +134,9 @@ impl ApiTester {
             slot_clock: slot_clock.clone(),
         });
         let ctx = context.clone();
-        let (listening_socket, server) =
-            super::serve::<_, E>(ctx, test_runtime.task_executor.exit())
-                .await
-                .unwrap();
+        let (listening_socket, server) = super::serve(ctx, test_runtime.task_executor.exit())
+            .await
+            .unwrap();
 
         tokio::spawn(server);
 
@@ -233,7 +232,7 @@ impl ApiTester {
                 .map(|res| ConfigAndPreset::Electra(res.data))
         }
         .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
+        let expected = ConfigAndPreset::from_chain_spec(&self.spec);
 
         assert_eq!(result, expected);
 
@@ -297,7 +296,7 @@ impl ApiTester {
                 builder_proposals: None,
                 builder_boost_factor: None,
                 prefer_builder_proposals: None,
-                deposit_gwei: E::default_spec().max_effective_balance,
+                deposit_gwei: Spec::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
 
@@ -381,7 +380,7 @@ impl ApiTester {
             let deposit_bytes = serde_utils::hex::decode(&validator.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
-                decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
+                decode_eth1_tx_data(&deposit_bytes, Spec::default_spec().max_effective_balance)
                     .unwrap();
 
             assert_eq!(
@@ -394,14 +393,14 @@ impl ApiTester {
                 deposit_data.withdrawal_credentials,
                 Hash256::from_slice(&bls::get_withdrawal_credentials(
                     &withdrawal_keypair.pk,
-                    E::default_spec().bls_withdrawal_prefix_byte
+                    Spec::default_spec().bls_withdrawal_prefix_byte
                 )),
                 "the locally generated withdrawal creds should match the deposit data"
             );
 
             assert_eq!(
                 deposit_data.signature,
-                deposit_data.create_signature(&voting_keypair.sk, &E::default_spec()),
+                deposit_data.create_signature(&voting_keypair.sk, &Spec::default_spec()),
                 "the locally-generated deposit sig should create the same deposit sig"
             );
         }
@@ -543,7 +542,7 @@ impl ApiTester {
     fn get_current_epoch(&self) -> Epoch {
         self.slot_clock
             .now()
-            .map(|s| s.epoch(E::slots_per_epoch()))
+            .map(|s| s.epoch(Spec::slots_per_epoch()))
             .unwrap()
     }
 

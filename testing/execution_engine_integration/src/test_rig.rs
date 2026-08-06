@@ -23,17 +23,17 @@ use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::execution::BlockProductionVersion;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, MainnetEthSpec, Slot, Uint256,
+    Address, ChainSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, ForkName,
+    Hash256, Slot, Spec, Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
 const TEST_FORK: ForkName = ForkName::Capella;
 
-struct ExecutionPair<Engine, E: EthSpec> {
+struct ExecutionPair<Engine> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer<E>,
+    execution_layer: ExecutionLayer,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
     execution_engine: ExecutionEngine<Engine>,
@@ -43,11 +43,11 @@ struct ExecutionPair<Engine, E: EthSpec> {
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
+pub struct TestRig<Engine> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<Engine, E>,
-    ee_b: ExecutionPair<Engine, E>,
+    ee_a: ExecutionPair<Engine>,
+    ee_b: ExecutionPair<Engine>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
     use_local_signing: bool,
@@ -121,7 +121,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
-        let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
+        let mut spec = TEST_FORK.make_genesis_spec(Spec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 
         let fee_recipient = None;
@@ -239,7 +239,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
 
         // Submit transactions before getting payload
-        let txs = transactions::<MainnetEthSpec>(account1, account2);
+        let txs = transactions(account1, account2);
         let mut pending_txs = Vec::new();
 
         if self.use_local_signing {
@@ -719,8 +719,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 ///
 /// Panic if payload reconstruction fails.
 async fn check_payload_reconstruction<E: GenericExecutionEngine>(
-    ee: &ExecutionPair<E, MainnetEthSpec>,
-    payload: &ExecutionPayload<MainnetEthSpec>,
+    ee: &ExecutionPair<E>,
+    payload: &ExecutionPayload,
 ) {
     // check via payload bodies method
     let capabilities = ee

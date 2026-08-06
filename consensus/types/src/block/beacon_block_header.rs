@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     block::SignedBeaconBlockHeader,
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot},
+    core::{ChainSpec, Domain, Hash256, SignedRoot, Slot, Spec},
     fork::{Fork, ForkName},
 };
 
@@ -37,14 +37,14 @@ impl BeaconBlockHeader {
     }
 
     /// Signs `self`, producing a `SignedBeaconBlockHeader`.
-    pub fn sign<E: EthSpec>(
+    pub fn sign(
         self,
         secret_key: &SecretKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedBeaconBlockHeader {
-        let epoch = self.slot.epoch(E::slots_per_epoch());
+        let epoch = self.slot.epoch(Spec::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork, genesis_validators_root);
         let message = self.signing_root(domain);
         let signature = secret_key.sign(message);

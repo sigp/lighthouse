@@ -1,10 +1,14 @@
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-};
-use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
+#[cfg(not(feature = "spec-minimal"))]
+use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+#[cfg(not(feature = "spec-minimal"))]
+use beacon_chain::validator_monitor::MISSED_BLOCK_LAG_SLOTS;
+use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use bls::{Keypair, PublicKeyBytes};
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
+#[cfg(not(feature = "spec-minimal"))]
+use types::Hash256;
+use types::{Epoch, Slot, Spec};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -13,13 +17,11 @@ pub const VALIDATOR_COUNT: usize = 48;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-type E = MainnetEthSpec;
-
 fn get_harness(
     validator_count: usize,
     validator_indexes_to_monitor: Vec<usize>,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+) -> BeaconChainHarness<EphemeralHarnessType> {
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
@@ -41,7 +43,7 @@ fn get_harness(
 // Regression test for off-by-one caching issue in missed block detection.
 #[tokio::test]
 async fn missed_blocks_across_epochs() {
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let all_validators = (0..VALIDATOR_COUNT).collect::<Vec<_>>();
 
     let harness = get_harness(VALIDATOR_COUNT, vec![]);
@@ -114,12 +116,13 @@ async fn missed_blocks_across_epochs() {
     );
 }
 
+#[cfg(not(feature = "spec-minimal"))]
 #[tokio::test]
 async fn missed_blocks_basic() {
-    // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+    // >= 32 validators required for Gloas genesis with MainnetSpec (32 slots/epoch).
     let validator_count = 32;
 
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
 
     let nb_epoch_to_simulate = Epoch::new(2);
 

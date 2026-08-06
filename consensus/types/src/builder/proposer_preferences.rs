@@ -1,4 +1,4 @@
-use crate::{Address, ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, SignedRoot, Slot};
+use crate::{Address, ChainSpec, Domain, Fork, ForkName, Hash256, SignedRoot, Slot, Spec};
 use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -42,14 +42,14 @@ impl SignedProposerPreferences {
     }
 
     /// Verify `self.signature` against the given `pubkey`.
-    pub fn verify_signature<E: EthSpec>(
+    pub fn verify_signature(
         &self,
         pubkey: &PublicKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
-        let proposal_epoch = self.message.proposal_slot.epoch(E::slots_per_epoch());
+        let proposal_epoch = self.message.proposal_slot.epoch(Spec::slots_per_epoch());
         let domain = spec.get_domain(
             proposal_epoch,
             Domain::ProposerPreferences,

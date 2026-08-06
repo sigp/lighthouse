@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 use tracing::warn;
-use types::{EthSpec, Hash256, IndexedAttestation};
+use types::{Hash256, IndexedAttestation};
 
 /// Hard cap on validator indices accepted by the slasher.
 ///
@@ -18,41 +18,41 @@ const MAX_VALIDATOR_INDEX: u64 = 8_388_608;
 /// Attestations are not grouped by validator index at this stage so that they can be easily
 /// filtered for timeliness.
 #[derive(Debug, Default)]
-pub struct AttestationQueue<E: EthSpec> {
-    pub queue: Mutex<SimpleBatch<E>>,
+pub struct AttestationQueue {
+    pub queue: Mutex<SimpleBatch>,
 }
 
-pub type SimpleBatch<E> = Vec<Arc<IndexedAttesterRecord<E>>>;
+pub type SimpleBatch = Vec<Arc<IndexedAttesterRecord>>;
 
 /// Attestations dequeued from the queue and in preparation for processing.
 ///
 /// This struct is responsible for mapping validator indices to attestations and performing
 /// de-duplication to remove redundant attestations.
 #[derive(Debug, Default)]
-pub struct AttestationBatch<E: EthSpec> {
+pub struct AttestationBatch {
     /// Map from (`validator_index`, `attestation_data_hash`) to indexed attester record.
     ///
     /// This mapping is used for de-duplication, see:
     ///
     /// https://github.com/sigp/lighthouse/issues/2112
-    pub attesters: BTreeMap<(u64, Hash256), Arc<IndexedAttesterRecord<E>>>,
+    pub attesters: BTreeMap<(u64, Hash256), Arc<IndexedAttesterRecord>>,
 
     /// Vec of all unique indexed attester records.
     ///
     /// The weak references account for the fact that some records might prove useless after
     /// de-duplication.
-    pub attestations: Vec<Weak<IndexedAttesterRecord<E>>>,
+    pub attestations: Vec<Weak<IndexedAttesterRecord>>,
 }
 
 /// Attestations grouped by validator index range.
 #[derive(Debug)]
-pub struct GroupedAttestations<E: EthSpec> {
-    pub subqueues: Vec<SimpleBatch<E>>,
+pub struct GroupedAttestations {
+    pub subqueues: Vec<SimpleBatch>,
 }
 
-impl<E: EthSpec> AttestationBatch<E> {
+impl AttestationBatch {
     /// Add an attestation to the queue.
-    pub fn queue(&mut self, indexed_record: Arc<IndexedAttesterRecord<E>>) {
+    pub fn queue(&mut self, indexed_record: Arc<IndexedAttesterRecord>) {
         self.attestations.push(Arc::downgrade(&indexed_record));
 
         let attestation_data_hash = indexed_record.record.attestation_data_hash;
@@ -77,7 +77,7 @@ impl<E: EthSpec> AttestationBatch<E> {
     }
 
     /// Group the attestations by validator chunk index.
-    pub fn group_by_validator_chunk_index(self, config: &Config) -> GroupedAttestations<E> {
+    pub fn group_by_validator_chunk_index(self, config: &Config) -> GroupedAttestations {
         let mut grouped_attestations = GroupedAttestations { subqueues: vec![] };
 
         for ((validator_index, _), indexed_record) in self.attesters {
@@ -104,18 +104,18 @@ impl<E: EthSpec> AttestationBatch<E> {
     }
 }
 
-impl<E: EthSpec> AttestationQueue<E> {
-    pub fn queue(&self, attestation: IndexedAttestation<E>) {
+impl AttestationQueue {
+    pub fn queue(&self, attestation: IndexedAttestation) {
         let attester_record = AttesterRecord::from(attestation.clone());
         let indexed_record = IndexedAttesterRecord::new(attestation, attester_record);
         self.queue.lock().push(indexed_record);
     }
 
-    pub fn dequeue(&self) -> SimpleBatch<E> {
+    pub fn dequeue(&self) -> SimpleBatch {
         std::mem::take(&mut self.queue.lock())
     }
 
-    pub fn requeue(&self, batch: SimpleBatch<E>) {
+    pub fn requeue(&self, batch: SimpleBatch) {
         self.queue.lock().extend(batch);
     }
 

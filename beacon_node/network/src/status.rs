@@ -1,8 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fixed_bytes::FixedBytesExtended;
-use types::{EthSpec, Hash256};
-
 use lighthouse_network::rpc::{StatusMessage, methods::StatusMessageV2};
+use types::{Hash256, Spec};
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
 ///
 /// NOTE: The purpose of this is simply to obtain a `StatusMessage` from the `BeaconChain` without
@@ -25,7 +24,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
 
     // Alias the genesis checkpoint root to `0x00`.
     let spec = &beacon_chain.spec;
-    let genesis_epoch = spec.genesis_slot.epoch(T::EthSpec::slots_per_epoch());
+    let genesis_epoch = spec.genesis_slot.epoch(Spec::slots_per_epoch());
     if finalized_checkpoint.epoch == genesis_epoch {
         finalized_checkpoint.root = Hash256::zero();
     }

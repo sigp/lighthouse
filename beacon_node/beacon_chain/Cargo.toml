@@ -15,6 +15,9 @@ participation_metrics = []
 # Initialise the harness chain spec from the FORK_NAME env variable
 fork_from_env = []
 portable = ["bls/supranational-portable"]
+spec-non-mainnet = []
+spec-minimal = ["types/spec-minimal", "spec-non-mainnet"]
+spec-gnosis = ["types/spec-gnosis", "spec-non-mainnet"]
 test_backfill = []
 ef_tests = ["fork_choice/test-utils"]
 arbitrary = ["dep:arbitrary", "types/arbitrary"]
@@ -95,3 +98,8 @@ harness = false
 [[test]]
 name = "beacon_chain_tests"
 path = "tests/main.rs"
+
+[[test]]
+name = "beacon_chain_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]

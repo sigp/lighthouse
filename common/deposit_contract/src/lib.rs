@@ -124,13 +124,11 @@ pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Ha
     Ok((deposit_data, root))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 mod tests {
     use super::*;
     use bls::{Keypair, Signature};
-    use types::{ChainSpec, EthSpec, MinimalEthSpec, test_utils::generate_deterministic_keypair};
-
-    type E = MinimalEthSpec;
+    use types::{ChainSpec, Spec, test_utils::generate_deterministic_keypair};
 
     fn get_deposit(keypair: Keypair, spec: &ChainSpec) -> DepositData {
         let mut deposit_data = DepositData {
@@ -145,7 +143,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let spec = &E::default_spec();
+        let spec = &Spec::default_spec();
 
         let keypair = generate_deterministic_keypair(42);
         let original = get_deposit(keypair, spec);

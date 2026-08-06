@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
 use crate::{
-    core::{Epoch, EthSpec, Hash256, RelativeEpoch},
+    core::{Epoch, Hash256, RelativeEpoch},
     state::{BeaconState, BeaconStateError},
 };
 
@@ -33,9 +33,9 @@ impl AttestationShufflingId {
     ///
     /// - The root of the block which produced this state.
     /// - If the state is from a skip slot, the root of the latest block in that state.
-    pub fn new<E: EthSpec>(
+    pub fn new(
         block_root: Hash256,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         relative_epoch: RelativeEpoch,
     ) -> Result<Self, BeaconStateError> {
         let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());

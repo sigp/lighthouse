@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
-    Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    Address, BeaconBlockRef, ConsolidationRequest, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256,
     Withdrawal, Withdrawals,
 };
@@ -320,39 +320,39 @@ pub struct ProposeBlindedBlockResponse {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct GetPayloadResponse<E: EthSpec> {
+pub struct GetPayloadResponse {
     #[superstruct(
         only(Bellatrix),
         partial_getter(rename = "execution_payload_bellatrix")
     )]
-    pub execution_payload: ExecutionPayloadBellatrix<E>,
+    pub execution_payload: ExecutionPayloadBellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<E>,
+    pub execution_payload: ExecutionPayloadCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<E>,
+    pub execution_payload: ExecutionPayloadDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
-    pub execution_payload: ExecutionPayloadElectra<E>,
+    pub execution_payload: ExecutionPayloadElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
-    pub execution_payload: ExecutionPayloadFulu<E>,
+    pub execution_payload: ExecutionPayloadFulu,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
-    pub execution_payload: ExecutionPayloadGloas<E>,
+    pub execution_payload: ExecutionPayloadGloas,
     #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
-    pub execution_payload: ExecutionPayloadHeze<E>,
+    pub execution_payload: ExecutionPayloadHeze,
     pub block_value: Uint256,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
-    pub blobs_bundle: BlobsBundle<E>,
+    pub blobs_bundle: BlobsBundle,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     pub should_override_builder: bool,
     #[superstruct(
         only(Electra, Fulu),
         partial_getter(rename = "execution_requests_electra")
     )]
-    pub requests: types::ExecutionRequestsElectra<E>,
+    pub requests: types::ExecutionRequestsElectra,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
-    pub requests: types::ExecutionRequestsGloas<E>,
+    pub requests: types::ExecutionRequestsGloas,
 }
 
-impl<E: EthSpec> GetPayloadResponse<E> {
+impl GetPayloadResponse {
     pub fn fee_recipient(&self) -> Address {
         ExecutionPayloadRef::from(self.to_ref()).fee_recipient()
     }
@@ -366,31 +366,31 @@ impl<E: EthSpec> GetPayloadResponse<E> {
     }
 }
 
-impl<'a, E: EthSpec> From<GetPayloadResponseRef<'a, E>> for ExecutionPayloadRef<'a, E> {
-    fn from(response: GetPayloadResponseRef<'a, E>) -> Self {
+impl<'a> From<GetPayloadResponseRef<'a>> for ExecutionPayloadRef<'a> {
+    fn from(response: GetPayloadResponseRef<'a>) -> Self {
         map_get_payload_response_ref_into_execution_payload_ref!(&'a _, response, |inner, cons| {
             cons(&inner.execution_payload)
         })
     }
 }
 
-impl<E: EthSpec> From<GetPayloadResponse<E>> for ExecutionPayload<E> {
-    fn from(response: GetPayloadResponse<E>) -> Self {
+impl From<GetPayloadResponse> for ExecutionPayload {
+    fn from(response: GetPayloadResponse) -> Self {
         map_get_payload_response_into_execution_payload!(response, |inner, cons| {
             cons(inner.execution_payload)
         })
     }
 }
 
-impl<E: EthSpec> From<GetPayloadResponse<E>>
+impl From<GetPayloadResponse>
     for (
-        ExecutionPayload<E>,
+        ExecutionPayload,
         Uint256,
-        Option<BlobsBundle<E>>,
-        Option<ExecutionRequests<E>>,
+        Option<BlobsBundle>,
+        Option<ExecutionRequests>,
     )
 {
-    fn from(response: GetPayloadResponse<E>) -> Self {
+    fn from(response: GetPayloadResponse) -> Self {
         match response {
             GetPayloadResponse::Bellatrix(inner) => (
                 ExecutionPayload::Bellatrix(inner.execution_payload),
@@ -438,28 +438,25 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
     }
 }
 
-pub enum GetPayloadResponseType<E: EthSpec> {
-    Full(GetPayloadResponse<E>),
-    Blinded(GetPayloadResponse<E>),
+pub enum GetPayloadResponseType {
+    Full(GetPayloadResponse),
+    Blinded(GetPayloadResponse),
 }
 
-impl<E: EthSpec> GetPayloadResponse<E> {
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'_, E> {
+impl GetPayloadResponse {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'_> {
         self.to_ref().into()
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct ExecutionPayloadBodyV1<E: EthSpec> {
-    pub transactions: Transactions<E>,
-    pub withdrawals: Option<Withdrawals<E>>,
+pub struct ExecutionPayloadBodyV1 {
+    pub transactions: Transactions,
+    pub withdrawals: Option<Withdrawals>,
 }
 
-impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
-    pub fn to_payload(
-        self,
-        header: ExecutionPayloadHeader<E>,
-    ) -> Result<ExecutionPayload<E>, String> {
+impl ExecutionPayloadBodyV1 {
+    pub fn to_payload(self, header: ExecutionPayloadHeader) -> Result<ExecutionPayload, String> {
         match header {
             ExecutionPayloadHeader::Bellatrix(header) => {
                 if self.withdrawals.is_some() {

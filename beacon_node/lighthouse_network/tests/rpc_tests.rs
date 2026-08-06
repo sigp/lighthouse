@@ -23,16 +23,14 @@ use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
-    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, LightClientUpdate, LightClientUpdateCapella, MinimalEthSpec, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot, SyncAggregate, SyncCommittee,
+    DataColumnsByRootIdentifier, EmptyBlock, Epoch, ForkName, FullPayload, Hash256, KzgCommitment,
+    KzgProof, LightClientUpdate, LightClientUpdateCapella, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot, Spec, SyncAggregate, SyncCommittee,
 };
 
-type E = MinimalEthSpec;
-
 /// Bellatrix block with length < max_rpc_size.
-fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
+fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock {
+    let mut block: BeaconBlockBellatrix<FullPayload> = BeaconBlockBellatrix::empty(spec);
     let tx = VariableList::try_from(vec![0; 1024]).unwrap();
     let txs = VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
@@ -46,8 +44,8 @@ fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
 /// Bellatrix block with length > MAX_RPC_SIZE.
 /// The max limit for a bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
 /// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
+fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock {
+    let mut block: BeaconBlockBellatrix<FullPayload> = BeaconBlockBellatrix::empty(spec);
     // 11,000 × 1KB ≈ 11MB, just above the 10MB max_payload_size.
     // Previously used 100,000 txs (~100MB) which caused hangs and timeouts.
     let tx = VariableList::try_from(vec![0; 1024]).unwrap();
@@ -198,11 +196,11 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             }));
 
         // BlocksByRange Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_base = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
-        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
@@ -327,7 +325,7 @@ fn test_tcp_light_client_updates_by_range_chunked_rpc() {
         let response_slot = spec
             .capella_fork_epoch
             .expect("Capella fork is configured")
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             ForkName::Capella,
@@ -463,14 +461,14 @@ fn test_blobs_by_range_chunked_rpc() {
         let deneb_slot = spec
             .deneb_fork_epoch
             .expect("deneb must be scheduled")
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
         let rpc_request = RequestType::BlobsByRange(BlobsByRangeRequest {
             start_slot: deneb_slot.as_u64(),
             count: slot_count,
         });
 
         // BlobsByRange Response
-        let mut blob = BlobSidecar::<E>::empty();
+        let mut blob = BlobSidecar::empty();
         blob.signed_block_header.message.slot = deneb_slot;
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
@@ -964,11 +962,11 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             }));
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_base = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
-        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
@@ -1072,14 +1070,14 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
     let log_level = "debug";
     let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
-    let num_of_columns = E::number_of_columns();
+    let num_of_columns = Spec::number_of_columns();
     let messages_to_send = 32 * num_of_columns;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
     let slot = spec
         .fork_epoch(fork_name)
         .expect("fork must be scheduled")
-        .start_slot(E::slots_per_epoch());
+        .start_slot(Spec::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -1101,10 +1099,8 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
             vec![
                 DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: VariableList::new(
-                        (0..E::number_of_columns() as u64).collect::<Vec<_>>()
-                    )
-                    .unwrap(),
+                    columns: VariableList::new((0..Spec::number_of_columns()).collect::<Vec<_>>())
+                        .unwrap(),
                 };
                 max_request_blocks
             ],
@@ -1113,7 +1109,7 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
         .unwrap();
         let req_bytes = req.data_column_ids.as_ssz_bytes();
         let req_decoded = DataColumnsByRootRequest {
-            data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
+            data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier>>::from_ssz_bytes(
                 &req_bytes,
                 spec.max_request_blocks(fork_name),
             )
@@ -1129,7 +1125,7 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
                 slot,
                 beacon_block_root: Hash256::zero(),
 
-                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; Spec::BYTES_PER_CELL].try_into().unwrap()]
                     .try_into()
                     .unwrap(),
                 kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
@@ -1147,14 +1143,14 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
                     },
                     signature: Signature::empty(),
                 },
-                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; Spec::BYTES_PER_CELL].try_into().unwrap()]
                     .try_into()
                     .unwrap(),
                 kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
                 kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
                 kzg_commitments_inclusion_proof: vec![
                     Hash256::zero();
-                    E::kzg_commitments_inclusion_proof_depth()
+                    Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH
                 ]
                 .try_into()
                 .unwrap(),
@@ -1269,7 +1265,7 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
     let slot = spec
         .fork_epoch(fork_name)
         .expect("fork must be scheduled")
-        .start_slot(E::slots_per_epoch());
+        .start_slot(Spec::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -1288,7 +1284,7 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
         let rpc_request = RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
             start_slot: slot.as_u64(),
             count: 32,
-            columns: (0..E::number_of_columns() as u64).collect(),
+            columns: (0..Spec::number_of_columns()).collect(),
         });
 
         // DataColumnsByRange Response
@@ -1297,7 +1293,7 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
                 index: 1,
                 slot,
                 beacon_block_root: Hash256::zero(),
-                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; Spec::BYTES_PER_CELL].try_into().unwrap()]
                     .try_into()
                     .unwrap(),
                 kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
@@ -1315,14 +1311,14 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
                     },
                     signature: Signature::empty(),
                 },
-                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; Spec::BYTES_PER_CELL].try_into().unwrap()]
                     .try_into()
                     .unwrap(),
                 kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
                 kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
                 kzg_commitments_inclusion_proof: vec![
                     Hash256::zero();
-                    E::kzg_commitments_inclusion_proof_depth()
+                    Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH
                 ]
                 .try_into()
                 .unwrap(),
@@ -1466,7 +1462,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             }));
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
@@ -1970,12 +1966,12 @@ fn test_request_too_large_data_columns_by_range() {
             start_slot: 0,
             count: 0,
             // exceeds the max request defined in the spec.
-            columns: vec![0; E::number_of_columns() + 1],
+            columns: vec![0; Spec::NUMBER_OF_COLUMNS + 1],
         }),
     );
 }
 
-fn test_request_too_large(app_request_id: AppRequestId, request: RequestType<E>) {
+fn test_request_too_large(app_request_id: AppRequestId, request: RequestType) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;

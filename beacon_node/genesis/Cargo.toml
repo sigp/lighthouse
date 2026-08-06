@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bls = { workspace = true }
 ethereum_hashing = { workspace = true }

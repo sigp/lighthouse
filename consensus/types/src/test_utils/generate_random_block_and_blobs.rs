@@ -3,21 +3,20 @@ use kzg::{KzgCommitment, KzgProof};
 
 use crate::{
     block::{BeaconBlock, SignedBeaconBlock},
-    core::{EthSpec, MainnetEthSpec},
     data::{Blob, BlobSidecar, BlobsList},
     execution::FullPayload,
     fork::{ForkName, map_fork_name},
     kzg_ext::{KzgCommitments, KzgProofs},
 };
 
-type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
+type BlobsBundle = (KzgCommitments, KzgProofs, BlobsList);
 
 #[allow(clippy::type_complexity)]
-pub fn generate_rand_block_and_blobs<E: EthSpec>(
+pub fn generate_rand_block_and_blobs(
     fork_name: ForkName,
     num_blobs: usize,
     u: &mut arbitrary::Unstructured,
-) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
+) -> arbitrary::Result<(SignedBeaconBlock<FullPayload>, Vec<BlobSidecar>)> {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(u)?);
     let mut block = SignedBeaconBlock::from_block(inner, bls::Signature::arbitrary(u)?);
     let mut blob_sidecars = vec![];
@@ -26,7 +25,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         return Ok((block, blob_sidecars));
     }
 
-    let (commitments, proofs, blobs) = generate_blobs::<E>(num_blobs).unwrap();
+    let (commitments, proofs, blobs) = generate_blobs(num_blobs).unwrap();
     *block
         .message_mut()
         .body_mut()
@@ -52,12 +51,12 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     Ok((block, blob_sidecars))
 }
 
-pub fn generate_blobs<E: EthSpec>(n_blobs: usize) -> Result<BlobsBundle<E>, String> {
-    let (mut commitments, mut proofs, mut blobs) = BlobsBundle::<E>::default();
+pub fn generate_blobs(n_blobs: usize) -> Result<BlobsBundle, String> {
+    let (mut commitments, mut proofs, mut blobs) = BlobsBundle::default();
 
     for blob_index in 0..n_blobs {
         blobs
-            .push(Blob::<E>::default())
+            .push(Blob::default())
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
         commitments
             .push(KzgCommitment::empty_for_testing())
@@ -78,8 +77,7 @@ mod test {
     #[test]
     fn test_verify_blob_inclusion_proof() {
         let mut u = crate::test_utils::test_unstructured();
-        let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 2, &mut u).unwrap();
+        let (_block, blobs) = generate_rand_block_and_blobs(ForkName::Deneb, 2, &mut u).unwrap();
         for blob in blobs {
             assert!(blob.verify_blob_sidecar_inclusion_proof());
         }
@@ -89,7 +87,7 @@ mod test {
     fn test_verify_blob_inclusion_proof_from_existing_proof() {
         let mut u = crate::test_utils::test_unstructured();
         let (block, mut blob_sidecars) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut u).unwrap();
+            generate_rand_block_and_blobs(ForkName::Deneb, 1, &mut u).unwrap();
         let BlobSidecar {
             index,
             blob,
@@ -106,8 +104,7 @@ mod test {
     #[test]
     fn test_verify_blob_inclusion_proof_invalid() {
         let mut u = crate::test_utils::test_unstructured();
-        let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut u).unwrap();
+        let (_block, blobs) = generate_rand_block_and_blobs(ForkName::Deneb, 1, &mut u).unwrap();
 
         for mut blob in blobs {
             blob.kzg_commitment_inclusion_proof = FixedVector::arbitrary(&mut u).unwrap();

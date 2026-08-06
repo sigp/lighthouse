@@ -18,24 +18,23 @@ struct Eth1 {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct GenesisInitialization<E: EthSpec> {
+pub struct GenesisInitialization {
     pub path: PathBuf,
     pub eth1_block_hash: Hash256,
     pub eth1_timestamp: u64,
     pub deposits: Vec<Deposit>,
-    pub execution_payload_header: Option<ExecutionPayloadHeader<E>>,
-    pub state: Option<BeaconState<E>>,
+    pub execution_payload_header: Option<ExecutionPayloadHeader>,
+    pub state: Option<BeaconState>,
 }
 
-impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
+impl LoadCase for GenesisInitialization {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let Eth1 {
             eth1_block_hash,
             eth1_timestamp,
         } = yaml_decode_file(&path.join("eth1.yaml"))?;
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
-        let execution_payload_header: Option<ExecutionPayloadHeader<E>> =
+        let execution_payload_header: Option<ExecutionPayloadHeader> =
             if meta.execution_payload_header.unwrap_or(false) {
                 Some(ssz_decode_file_with(
                     &path.join("execution_payload_header.ssz_snappy"),
@@ -50,7 +49,7 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
                 ssz_decode_file(&path.join(filename))
             })
             .collect::<Result<_, _>>()?;
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
         let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
 
         Ok(Self {
@@ -64,13 +63,13 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
     }
 }
 
-impl<E: EthSpec> Case for GenesisInitialization<E> {
+impl Case for GenesisInitialization {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         fork_name == ForkName::Base
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
 
         let mut result = initialize_beacon_state_from_eth1(
             self.eth1_block_hash,

@@ -5,12 +5,12 @@ use ssz::Encode;
 use std::hint::black_box;
 use std::sync::Arc;
 use types::{
-    BeaconState, Epoch, Eth1Data, EthSpec, Hash256, MainnetEthSpec, Validator,
+    BeaconState, Epoch, Eth1Data, Hash256, Spec, Validator,
     test_utils::generate_deterministic_keypair,
 };
 
-fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
-    let spec = &E::default_spec();
+fn get_state(validator_count: usize) -> BeaconState {
+    let spec = &Spec::default_spec();
     let eth1_data = Eth1Data {
         deposit_root: Hash256::zero(),
         deposit_count: 0,
@@ -47,12 +47,12 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
 
 fn all_benches(c: &mut Criterion) {
     let validator_count = 16_384;
-    let spec = Arc::new(MainnetEthSpec::default_spec());
+    let spec = Arc::new(Spec::default_spec());
 
     let mut g = c.benchmark_group("types");
     g.sample_size(10);
 
-    let mut state = get_state::<MainnetEthSpec>(validator_count);
+    let mut state = get_state(validator_count);
     state.build_caches(&spec).expect("should build caches");
     let state_bytes = state.as_ssz_bytes();
 
@@ -76,7 +76,7 @@ fn all_benches(c: &mut Criterion) {
             b.iter_batched_ref(
                 || (bytes.clone(), spec.clone()),
                 |(bytes, spec)| {
-                    let state: BeaconState<MainnetEthSpec> =
+                    let state: BeaconState =
                         BeaconState::from_ssz_bytes(bytes, spec).expect("should decode");
                     black_box(state)
                 },

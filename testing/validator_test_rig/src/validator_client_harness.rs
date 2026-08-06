@@ -11,20 +11,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
-use types::{
-    ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot,
-    test_utils::generate_deterministic_keypair,
-};
+use types::{ChainSpec, Epoch, Hash256, Slot, Spec, test_utils::generate_deterministic_keypair};
 use validator_store::ValidatorStore;
 
 use crate::mock_beacon_node::MockBeaconNode;
 
-pub type S = LighthouseValidatorStore<ManualSlotClock, E>;
-type E = MainnetEthSpec;
+pub type S = LighthouseValidatorStore<ManualSlotClock>;
 
 pub struct ValidatorClientHarness {
-    pub mock_beacon_node_1: MockBeaconNode<E>,
-    pub mock_beacon_node_2: MockBeaconNode<E>,
+    pub mock_beacon_node_1: MockBeaconNode,
+    pub mock_beacon_node_2: MockBeaconNode,
     pub beacon_nodes: Arc<BeaconNodeFallback<ManualSlotClock>>,
     pub validator_store: Arc<S>,
     pub slot_clock: ManualSlotClock,
@@ -40,7 +36,7 @@ impl ValidatorClientHarness {
     }
 
     pub async fn new_with_config(num_validators: usize, config: &ValidatorStoreConfig) -> Self {
-        let mut default_spec = MainnetEthSpec::default_spec();
+        let mut default_spec = Spec::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(default_spec);
 
@@ -58,8 +54,8 @@ impl ValidatorClientHarness {
         )
         .await;
 
-        let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-        let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
+        let mock_beacon_node_1 = MockBeaconNode::new().await;
+        let mock_beacon_node_2 = MockBeaconNode::new().await;
 
         let beacon_node_1 =
             CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
@@ -146,7 +142,7 @@ pub async fn create_validator_store(
         .register_validators(pubkeys.iter())
         .unwrap();
 
-    let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
+    let validator_store = Arc::new(LighthouseValidatorStore::new(
         initialized_validators,
         slashing_protection,
         Hash256::ZERO,

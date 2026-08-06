@@ -1,13 +1,13 @@
 use super::errors::EpochProcessingError;
 use crate::per_epoch_processing::single_pass::{SinglePassConfig, process_epoch_single_pass};
 use safe_arith::SafeArith;
+use types::BeaconStateError;
 use types::core::ChainSpec;
 use types::state::BeaconState;
-use types::{BeaconStateError, EthSpec};
 
 /// This implementation is now only used in phase0. Later hard forks use single-pass.
-pub fn process_effective_balance_updates<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_effective_balance_updates(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     // Compute new total active balance for the next epoch as a side-effect of iterating the
@@ -57,8 +57,8 @@ pub fn process_effective_balance_updates<E: EthSpec>(
 }
 
 /// Only used to test the effective balance part of single-pass in isolation.
-pub fn process_effective_balance_updates_slow<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_effective_balance_updates_slow(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     process_epoch_single_pass(

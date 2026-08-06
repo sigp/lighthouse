@@ -12,17 +12,16 @@ use ssz_types::{RuntimeVariableList, VariableList};
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::SignedExecutionPayloadEnvelope;
 use types::{
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, ForkContext, ForkName,
+    ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    SignedBeaconBlockGloas, SignedBeaconBlockHeze, Spec,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -30,17 +29,16 @@ const CONTEXT_BYTES_LEN: usize = 4;
 
 /* Inbound Codec */
 
-pub struct SSZSnappyInboundCodec<E: EthSpec> {
+pub struct SSZSnappyInboundCodec {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
     fork_context: Arc<ForkContext>,
-    phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> SSZSnappyInboundCodec<E> {
+impl SSZSnappyInboundCodec {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
@@ -54,18 +52,13 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
             inner: uvi_codec,
             protocol,
             len: None,
-            phantom: PhantomData,
             fork_context,
             max_packet_size,
         }
     }
 
     /// Encodes RPC Responses sent to peers.
-    fn encode_response(
-        &mut self,
-        item: RpcResponse<E>,
-        dst: &mut BytesMut,
-    ) -> Result<(), RPCError> {
+    fn encode_response(&mut self, item: RpcResponse, dst: &mut BytesMut) -> Result<(), RPCError> {
         let bytes = match &item {
             RpcResponse::Success(resp) => match &resp {
                 RpcSuccessResponse::Status(res) => match self.protocol.versioned_protocol {
@@ -138,10 +131,10 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<E: EthSpec> Encoder<RpcResponse<E>> for SSZSnappyInboundCodec<E> {
+impl Encoder<RpcResponse> for SSZSnappyInboundCodec {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RpcResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RpcResponse, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
         dst.put_u8(
@@ -153,8 +146,8 @@ impl<E: EthSpec> Encoder<RpcResponse<E>> for SSZSnappyInboundCodec<E> {
 }
 
 // Decoder for inbound streams: Decodes RPC requests from peers
-impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
-    type Item = RequestType<E>;
+impl Decoder for SSZSnappyInboundCodec {
+    type Item = RequestType;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -173,9 +166,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self
-            .protocol
-            .rpc_request_limits::<E>(&self.fork_context.spec);
+        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context.spec);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -209,7 +200,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 }
 
 /* Outbound Codec: Codec for initiating RPC requests */
-pub struct SSZSnappyOutboundCodec<E: EthSpec> {
+pub struct SSZSnappyOutboundCodec {
     inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,
@@ -220,10 +211,9 @@ pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     fork_context: Arc<ForkContext>,
     /// Keeps track of the current response code for a chunk.
     current_response_code: Option<u8>,
-    phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
+impl SSZSnappyOutboundCodec {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
@@ -240,7 +230,6 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
             len: None,
             fork_name: None,
             fork_context,
-            phantom: PhantomData,
             current_response_code: None,
         }
     }
@@ -249,7 +238,7 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
     fn decode_response(
         &mut self,
         src: &mut BytesMut,
-    ) -> Result<Option<RpcSuccessResponse<E>>, RPCError> {
+    ) -> Result<Option<RpcSuccessResponse>, RPCError> {
         // Read the context bytes if required
         if self.protocol.has_context_bytes() && self.fork_name.is_none() {
             if src.len() >= CONTEXT_BYTES_LEN {
@@ -270,7 +259,7 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_response_limits::<E>(&self.fork_context);
+        let ssz_limits = self.protocol.rpc_response_limits(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC response length is out of bounds, length {}, max {}, min {}",
@@ -336,10 +325,10 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
+impl Encoder<RequestType> for SSZSnappyOutboundCodec {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RequestType, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RequestType::Status(req) => {
                 // Send the status message based on the negotiated protocol
@@ -404,8 +393,8 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
 // The majority of the decoding has now been pushed upstream due to the changing specification.
 // We prefer to decode blocks and attestations with extra knowledge about the chain to perform
 // faster verification checks before decoding entire blocks/attestations.
-impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
-    type Item = RpcResponse<E>;
+impl Decoder for SSZSnappyOutboundCodec {
+    type Item = RpcResponse;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -421,7 +410,7 @@ impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
         });
 
         let inner_result = {
-            if RpcResponse::<E>::is_response(response_code) {
+            if RpcResponse::is_response(response_code) {
                 // decode an actual response and mutates the buffer if enough bytes have been read
                 // returning the result.
                 self.decode_response(src)
@@ -473,10 +462,10 @@ fn handle_error<T>(
 
 /// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
 /// Returns `None` when context bytes are not required.
-fn context_bytes<E: EthSpec>(
+fn context_bytes(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
-    resp: &RpcResponse<E>,
+    resp: &RpcResponse,
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes()
@@ -484,7 +473,7 @@ fn context_bytes<E: EthSpec>(
     {
         return rpc_variant
             .slot()
-            .map(|slot| fork_context.context_bytes(slot.epoch(E::slots_per_epoch())));
+            .map(|slot| fork_context.context_bytes(slot.epoch(Spec::slots_per_epoch())));
     }
     None
 }
@@ -517,12 +506,12 @@ fn handle_length(
 /// Decodes an `InboundRequest` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
-fn handle_rpc_request<E: EthSpec>(
+fn handle_rpc_request(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     current_fork: ForkName,
     spec: &ChainSpec,
-) -> Result<Option<RequestType<E>>, RPCError> {
+) -> Result<Option<RequestType>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(StatusMessage::V1(
             StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
@@ -588,7 +577,7 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(RequestType::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids:
-                    <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
+                    <RuntimeVariableList<DataColumnsByRootIdentifier>>::from_ssz_bytes(
                         decoded_buffer,
                         spec.max_request_blocks(current_fork),
                     )?,
@@ -649,11 +638,11 @@ fn handle_rpc_request<E: EthSpec>(
 ///
 /// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
 /// according to the received `ForkName`.
-fn handle_rpc_response<E: EthSpec>(
+fn handle_rpc_response(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     fork_name: Option<ForkName>,
-) -> Result<Option<RpcSuccessResponse<E>>, RPCError> {
+) -> Result<Option<RpcSuccessResponse>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(StatusMessage::V1(
             StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
@@ -1004,8 +993,6 @@ mod tests {
     };
     use types::{BlobSidecar, DataColumnSidecarFulu};
 
-    type Spec = types::MainnetEthSpec;
-
     fn spec_with_all_forks_enabled() -> ChainSpec {
         let mut chain_spec = Spec::default_spec();
         chain_spec.altair_fork_epoch = Some(Epoch::new(1));
@@ -1025,27 +1012,27 @@ mod tests {
     fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
         let current_epoch = spec.fork_epoch(fork_name);
         let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
-        ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
+        ForkContext::new(current_slot, Hash256::zero(), spec)
     }
 
     /// Smallest sized block across all current forks. Useful for testing
     /// min length check conditions.
-    fn empty_base_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
-        let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(spec));
+    fn empty_base_block(spec: &ChainSpec) -> SignedBeaconBlock {
+        let empty_block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
         SignedBeaconBlock::from_block(empty_block, Signature::empty())
     }
 
-    fn altair_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+    fn altair_block(spec: &ChainSpec) -> SignedBeaconBlock {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(spec));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::full(spec));
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
-    fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar<Spec>> {
+    fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let mut blob_sidecar = BlobSidecar::<Spec>::empty();
+        let mut blob_sidecar = BlobSidecar::empty();
         blob_sidecar.signed_block_header.message.slot = spec
             .deneb_fork_epoch
             .expect("deneb fork epoch must be set")
@@ -1053,12 +1040,12 @@ mod tests {
         Arc::new(blob_sidecar)
     }
 
-    fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar<Spec>> {
+    fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
         let data_column_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: 0,
-            column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
+            column: VariableList::new(vec![Cell::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
@@ -1077,11 +1064,10 @@ mod tests {
     }
 
     /// Bellatrix block with length < max_rpc_size.
-    fn bellatrix_block_small(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+    fn bellatrix_block_small(spec: &ChainSpec) -> SignedBeaconBlock {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(spec);
+        let mut block: BeaconBlockBellatrix<FullPayload> = BeaconBlockBellatrix::empty(spec);
 
         let tx = VariableList::try_from(vec![0; 1024]).unwrap();
         let txs =
@@ -1097,11 +1083,10 @@ mod tests {
     /// Bellatrix block with length > MAX_RPC_SIZE.
     /// The max limit for a Bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
     /// Hence, we generate a Bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-    fn bellatrix_block_large(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+    fn bellatrix_block_large(spec: &ChainSpec) -> SignedBeaconBlock {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(spec);
+        let mut block: BeaconBlockBellatrix<FullPayload> = BeaconBlockBellatrix::empty(spec);
 
         // 11,000 × 1KB ≈ 11MB, just above the 10MB max_payload_size.
         // Previously used 100,000 txs (~100MB) which made this test take >60s.
@@ -1160,7 +1145,7 @@ mod tests {
         }
     }
 
-    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest<Spec> {
+    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest {
         DataColumnsByRootRequest {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
@@ -1196,28 +1181,28 @@ mod tests {
         Ping { data: 1 }
     }
 
-    fn metadata() -> Arc<MetaData<Spec>> {
+    fn metadata() -> Arc<MetaData> {
         MetaData::V1(MetaDataV1 {
             seq_number: 1,
-            attnets: EnrAttestationBitfield::<Spec>::default(),
+            attnets: EnrAttestationBitfield::default(),
         })
         .into()
     }
 
-    fn metadata_v2() -> Arc<MetaData<Spec>> {
+    fn metadata_v2() -> Arc<MetaData> {
         MetaData::V2(MetaDataV2 {
             seq_number: 1,
-            attnets: EnrAttestationBitfield::<Spec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            attnets: EnrAttestationBitfield::default(),
+            syncnets: EnrSyncCommitteeBitfield::default(),
         })
         .into()
     }
 
-    fn metadata_v3() -> Arc<MetaData<Spec>> {
+    fn metadata_v3() -> Arc<MetaData> {
         MetaData::V3(MetaDataV3 {
             seq_number: 1,
-            attnets: EnrAttestationBitfield::<Spec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            attnets: EnrAttestationBitfield::default(),
+            syncnets: EnrSyncCommitteeBitfield::default(),
             custody_group_count: 1,
         })
         .into()
@@ -1226,7 +1211,7 @@ mod tests {
     /// Encodes the given protocol response as bytes.
     fn encode_response(
         protocol: SupportedProtocol,
-        message: RpcResponse<Spec>,
+        message: RpcResponse,
         fork_name: ForkName,
         spec: &ChainSpec,
     ) -> Result<BytesMut, RPCError> {
@@ -1236,7 +1221,7 @@ mod tests {
 
         let mut buf = BytesMut::new();
         let mut snappy_inbound_codec =
-            SSZSnappyInboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
+            SSZSnappyInboundCodec::new(snappy_protocol_id, max_packet_size, fork_context);
 
         snappy_inbound_codec.encode_response(message, &mut buf)?;
         Ok(buf)
@@ -1277,12 +1262,12 @@ mod tests {
         message: &mut BytesMut,
         fork_name: ForkName,
         spec: &ChainSpec,
-    ) -> Result<Option<RpcSuccessResponse<Spec>>, RPCError> {
+    ) -> Result<Option<RpcSuccessResponse>, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name, spec));
         let max_packet_size = spec.max_payload_size as usize;
         let mut snappy_outbound_codec =
-            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
+            SSZSnappyOutboundCodec::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
         snappy_outbound_codec.decode_response(message)
     }
@@ -1290,30 +1275,27 @@ mod tests {
     /// Encodes the provided protocol message as bytes and tries to decode the encoding bytes.
     fn encode_then_decode_response(
         protocol: SupportedProtocol,
-        message: RpcResponse<Spec>,
+        message: RpcResponse,
         fork_name: ForkName,
         spec: &ChainSpec,
-    ) -> Result<Option<RpcSuccessResponse<Spec>>, RPCError> {
+    ) -> Result<Option<RpcSuccessResponse>, RPCError> {
         let mut encoded = encode_response(protocol, message, fork_name, spec)?;
         decode_response(protocol, &mut encoded, fork_name, spec)
     }
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
-    fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
+    fn encode_then_decode_request(req: RequestType, fork_name: ForkName, spec: &ChainSpec) {
         let fork_context = Arc::new(fork_context(fork_name, spec));
         let max_packet_size = spec.max_payload_size as usize;
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
         // Encode a request we send
         let mut buf = BytesMut::new();
-        let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
-            protocol.clone(),
-            max_packet_size,
-            fork_context.clone(),
-        );
+        let mut outbound_codec =
+            SSZSnappyOutboundCodec::new(protocol.clone(), max_packet_size, fork_context.clone());
         outbound_codec.encode(req.clone(), &mut buf).unwrap();
 
         let mut inbound_codec =
-            SSZSnappyInboundCodec::<Spec>::new(protocol.clone(), max_packet_size, fork_context);
+            SSZSnappyInboundCodec::new(protocol.clone(), max_packet_size, fork_context);
 
         let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
             panic!(
@@ -2095,7 +2077,7 @@ mod tests {
     fn test_encode_then_decode_request() {
         let chain_spec = spec_with_all_forks_enabled();
 
-        let requests: &[RequestType<Spec>] = &[
+        let requests: &[RequestType] = &[
             RequestType::Ping(ping_message()),
             RequestType::Status(status_message_v1()),
             RequestType::Status(status_message_v2()),
@@ -2200,6 +2182,8 @@ mod tests {
 
     /// Test a malicious snappy encoding for a V2 `BlocksByRange` message where the attacker
     /// sends a valid message filled with a stream of useless padding before the actual message.
+    // TODO(spec-gates): This test should be made spec-agnostic.
+    #[cfg(not(feature = "spec-non-mainnet"))]
     #[test]
     fn test_decode_malicious_v2_message() {
         let chain_spec = spec_with_all_forks_enabled();
@@ -2325,7 +2309,7 @@ mod tests {
         let chain_spec = spec_with_all_forks_enabled();
         let fork_context = Arc::new(fork_context(ForkName::Base, &chain_spec));
 
-        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::new(
             snappy_protocol_id,
             chain_spec.max_payload_size as usize,
             fork_context,
@@ -2360,7 +2344,7 @@ mod tests {
         let chain_spec = spec_with_all_forks_enabled();
         let fork_context = Arc::new(fork_context(ForkName::Base, &chain_spec));
 
-        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::new(
             snappy_protocol_id,
             chain_spec.max_payload_size as usize,
             fork_context,
@@ -2391,37 +2375,10 @@ mod tests {
         let fork_context = Arc::new(fork_context(ForkName::Base, &chain_spec));
 
         let max_rpc_size = chain_spec.max_payload_size as usize;
-        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
+        let limit = protocol_id.rpc_response_limits(&fork_context);
         let mut max = encode_len(limit.max + 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
-            protocol_id.clone(),
-            max_rpc_size,
-            fork_context.clone(),
-        );
-        assert!(matches!(
-            codec.decode_response(&mut max).unwrap_err(),
-            RPCError::InvalidData(_)
-        ));
-
-        let mut min = encode_len(limit.min - 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
-            protocol_id.clone(),
-            max_rpc_size,
-            fork_context.clone(),
-        );
-        assert!(matches!(
-            codec.decode_response(&mut min).unwrap_err(),
-            RPCError::InvalidData(_)
-        ));
-
-        // Request limits
-        let limit = protocol_id.rpc_request_limits::<Spec>(&fork_context.spec);
-        let mut max = encode_len(limit.max + 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
-            protocol_id.clone(),
-            max_rpc_size,
-            fork_context.clone(),
-        );
+        let mut codec =
+            SSZSnappyOutboundCodec::new(protocol_id.clone(), max_rpc_size, fork_context.clone());
         assert!(matches!(
             codec.decode_response(&mut max).unwrap_err(),
             RPCError::InvalidData(_)
@@ -2429,7 +2386,24 @@ mod tests {
 
         let mut min = encode_len(limit.min - 1);
         let mut codec =
-            SSZSnappyOutboundCodec::<Spec>::new(protocol_id, max_rpc_size, fork_context);
+            SSZSnappyOutboundCodec::new(protocol_id.clone(), max_rpc_size, fork_context.clone());
+        assert!(matches!(
+            codec.decode_response(&mut min).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        // Request limits
+        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
+        let mut max = encode_len(limit.max + 1);
+        let mut codec =
+            SSZSnappyOutboundCodec::new(protocol_id.clone(), max_rpc_size, fork_context.clone());
+        assert!(matches!(
+            codec.decode_response(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec = SSZSnappyOutboundCodec::new(protocol_id, max_rpc_size, fork_context);
         assert!(matches!(
             codec.decode_response(&mut min).unwrap_err(),
             RPCError::InvalidData(_)
@@ -2445,11 +2419,8 @@ mod tests {
 
         let protocol = ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy);
 
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
-            protocol.clone(),
-            max_packet_size,
-            fork_ctx.clone(),
-        );
+        let mut codec =
+            SSZSnappyOutboundCodec::new(protocol.clone(), max_packet_size, fork_ctx.clone());
 
         let mut payload = BytesMut::new();
         payload.extend_from_slice(&[0u8]);

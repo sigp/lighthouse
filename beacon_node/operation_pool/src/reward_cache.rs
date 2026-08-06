@@ -1,7 +1,7 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
 use fixed_bytes::FixedBytesExtended;
-use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
+use types::{BeaconState, BeaconStateError, Epoch, Hash256, ParticipationFlags};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct Initialization {
@@ -53,7 +53,7 @@ impl RewardCache {
     ///
     /// For simplicity at genesis we return the zero hash, which will cause one unnecessary
     /// re-calculation in `update`.
-    fn latest_block_root<E: EthSpec>(state: &BeaconState<E>) -> Result<Hash256, OpPoolError> {
+    fn latest_block_root(state: &BeaconState) -> Result<Hash256, OpPoolError> {
         if state.slot() == 0 {
             Ok(Hash256::zero())
         } else {
@@ -64,7 +64,7 @@ impl RewardCache {
     }
 
     /// Update the cache.
-    pub fn update<E: EthSpec>(&mut self, state: &BeaconState<E>) -> Result<(), OpPoolError> {
+    pub fn update(&mut self, state: &BeaconState) -> Result<(), OpPoolError> {
         if matches!(state, BeaconState::Base(_)) {
             return Ok(());
         }
@@ -95,9 +95,9 @@ impl RewardCache {
         Ok(())
     }
 
-    fn update_previous_epoch_participation<E: EthSpec>(
+    fn update_previous_epoch_participation(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
     ) -> Result<(), BeaconStateError> {
         let default_participation = ParticipationFlags::default();
         self.previous_epoch_participation = state
@@ -108,9 +108,9 @@ impl RewardCache {
         Ok(())
     }
 
-    fn update_current_epoch_participation<E: EthSpec>(
+    fn update_current_epoch_participation(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
     ) -> Result<(), BeaconStateError> {
         let default_participation = ParticipationFlags::default();
         self.current_epoch_participation = state

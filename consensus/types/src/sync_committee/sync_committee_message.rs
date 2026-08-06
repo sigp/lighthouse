@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
+    core::{ChainSpec, Domain, Hash256, SignedRoot, Slot, SlotData, Spec},
     fork::{Fork, ForkName},
 };
 
@@ -24,7 +24,7 @@ pub struct SyncCommitteeMessage {
 
 impl SyncCommitteeMessage {
     /// Equivalent to `get_sync_committee_message` from the spec.
-    pub fn new<E: EthSpec>(
+    pub fn new(
         slot: Slot,
         beacon_block_root: Hash256,
         validator_index: u64,
@@ -33,7 +33,7 @@ impl SyncCommitteeMessage {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);
         let message = beacon_block_root.signing_root(domain);
         let signature = secret_key.sign(message);

@@ -45,9 +45,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
-    CellBitmap, ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName,
-    PartialDataColumn, PartialDataColumnHeader, Slot, SubnetId,
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    CellBitmap, ChainSpec, DataColumnSubnetId, EnrForkId, ForkContext, ForkName, PartialDataColumn,
+    PartialDataColumnHeader, Slot, Spec, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -64,7 +63,7 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
-pub enum NetworkEvent<E: EthSpec> {
+pub enum NetworkEvent {
     /// We have successfully dialed and connected to a peer.
     PeerConnectedOutgoing(PeerId),
     /// A peer has successfully dialed and connected to us.
@@ -86,7 +85,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// Identifier of the request. All responses to this request must use this id.
         inbound_request_id: InboundRequestId,
         /// Request the peer sent.
-        request_type: RequestType<E>,
+        request_type: RequestType,
     },
     ResponseReceived {
         /// Peer that sent the response.
@@ -94,7 +93,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// Id of the request to which the peer is responding.
         app_request_id: AppRequestId,
         /// Response the peer sent.
-        response: Response<E>,
+        response: Response,
     },
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
@@ -104,14 +103,14 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The topic that this message was sent on.
         topic: TopicHash,
         /// The message itself.
-        message: PubsubMessage<E>,
+        message: PubsubMessage,
     },
     /// A partial data column sidecar received via gossipsub partial protocol.
     PartialDataColumnSidecar {
         /// The peer from which we received this message.
         source: PeerId,
         /// The partial column data.
-        column: Box<PartialDataColumn<E>>,
+        column: Box<PartialDataColumn>,
         /// The topic that this message was sent on.
         topic: GossipTopic,
     },
@@ -128,10 +127,7 @@ pub type SubscriptionFilter =
     gossipsub::MaxCountSubscriptionFilter<gossipsub::WhitelistSubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
-pub(crate) struct Behaviour<E>
-where
-    E: EthSpec,
-{
+pub(crate) struct Behaviour {
     // NOTE: The order of the following list of behaviours has meaning,
     // `NetworkBehaviour::handle_{pending, established}_{inbound, outbound}` methods
     // are called sequentially for each behaviour and they are fallible,
@@ -143,11 +139,11 @@ where
     /// Keep track of active and pending connections to enforce hard limits.
     pub connection_limits: libp2p::connection_limits::Behaviour,
     /// The peer manager that keeps track of peer's reputation and status.
-    pub peer_manager: PeerManager<E>,
+    pub peer_manager: PeerManager,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub eth2_rpc: RPC<AppRequestId, E>,
+    pub eth2_rpc: RPC<AppRequestId>,
     /// Discv5 Discovery protocol.
-    pub discovery: Discovery<E>,
+    pub discovery: Discovery,
     /// Keep regular connection to peers and disconnect if absent.
     // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
@@ -161,11 +157,11 @@ where
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
-pub struct Network<E: EthSpec> {
-    swarm: libp2p::swarm::Swarm<Behaviour<E>>,
+pub struct Network {
+    swarm: libp2p::swarm::Swarm<Behaviour>,
     /* Auxiliary Fields */
     /// A collections of variables accessible outside the network service.
-    network_globals: Arc<NetworkGlobals<E>>,
+    network_globals: Arc<NetworkGlobals>,
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
     // lookups for every gossipsub message send.
@@ -174,7 +170,7 @@ pub struct Network<E: EthSpec> {
     network_dir: PathBuf,
     fork_context: Arc<ForkContext>,
     /// Gossipsub score parameters.
-    score_settings: PeerScoreSettings<E>,
+    score_settings: PeerScoreSettings,
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
@@ -184,13 +180,13 @@ pub struct Network<E: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<E: EthSpec> Network<E> {
+impl Network {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
         custody_group_count: u64,
         local_keypair: Keypair,
-    ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
+    ) -> Result<(Self, Arc<NetworkGlobals>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
 
@@ -209,7 +205,7 @@ impl<E: EthSpec> Network<E> {
         let advertised_cgc = config
             .advertise_false_custody_group_count
             .unwrap_or(custody_group_count);
-        let enr = crate::discovery::enr::build_or_load_enr::<E>(
+        let enr = crate::discovery::enr::build_or_load_enr(
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
@@ -247,7 +243,7 @@ impl<E: EthSpec> Network<E> {
             ctx.fork_context.clone(),
             gossipsub_config_params,
             ctx.chain_spec.get_slot_duration(),
-            E::slots_per_epoch(),
+            Spec::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
 
@@ -255,7 +251,8 @@ impl<E: EthSpec> Network<E> {
 
         let gossip_cache = {
             let half_epoch = std::time::Duration::from_millis(
-                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
+                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * Spec::slots_per_epoch()
+                    / 2,
             );
 
             GossipCache::builder()
@@ -280,7 +277,7 @@ impl<E: EthSpec> Network<E> {
             let params = {
                 // Construct a set of gossipsub peer scoring parameters
                 // We don't know the number of active validators and the current slot yet
-                let active_validators = E::minimum_validator_count();
+                let active_validators = Spec::minimum_validator_count();
                 let current_slot = Slot::new(0);
                 score_settings.get_peer_score_params(
                     active_validators,
@@ -310,7 +307,7 @@ impl<E: EthSpec> Network<E> {
             let all_topics_for_digests = current_and_future_digests
                 .map(|(epoch, digest)| {
                     let fork = ctx.chain_spec.fork_name_at_epoch(epoch);
-                    all_topics_at_fork::<E>(fork, &ctx.chain_spec)
+                    all_topics_at_fork(fork, &ctx.chain_spec)
                         .into_iter()
                         .map(|topic| GossipTopic::new(topic, GossipEncoding::default(), digest))
                         .collect::<Vec<_>>()
@@ -668,11 +665,11 @@ impl<E: EthSpec> Network<E> {
         &mut self.swarm.behaviour_mut().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<AppRequestId, E> {
+    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<AppRequestId> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery_mut(&mut self) -> &mut Discovery<E> {
+    pub fn discovery_mut(&mut self) -> &mut Discovery {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
@@ -680,7 +677,7 @@ impl<E: EthSpec> Network<E> {
         &mut self.swarm.behaviour_mut().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
-    pub fn peer_manager_mut(&mut self) -> &mut PeerManager<E> {
+    pub fn peer_manager_mut(&mut self) -> &mut PeerManager {
         &mut self.swarm.behaviour_mut().peer_manager
     }
 
@@ -689,11 +686,11 @@ impl<E: EthSpec> Network<E> {
         &self.swarm.behaviour().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc(&self) -> &RPC<AppRequestId, E> {
+    pub fn eth2_rpc(&self) -> &RPC<AppRequestId> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery(&self) -> &Discovery<E> {
+    pub fn discovery(&self) -> &Discovery {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
@@ -701,7 +698,7 @@ impl<E: EthSpec> Network<E> {
         &self.swarm.behaviour().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
-    pub fn peer_manager(&self) -> &PeerManager<E> {
+    pub fn peer_manager(&self) -> &PeerManager {
         &self.swarm.behaviour().peer_manager
     }
 
@@ -747,7 +744,7 @@ impl<E: EthSpec> Network<E> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in core_topics_to_subscribe::<E>(
+        for kind in core_topics_to_subscribe(
             new_fork,
             &self.network_globals.as_topic_config(),
             &self.fork_context.spec,
@@ -854,7 +851,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
-    pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
+    pub fn publish(&mut self, messages: Vec<PubsubMessage>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
@@ -917,7 +914,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(&mut self, messages: Vec<PubsubPartialMessage<E>>) {
+    pub fn publish_partial(&mut self, messages: Vec<PubsubPartialMessage>) {
         if !self.network_globals.config.enable_partial_columns {
             return;
         }
@@ -937,9 +934,9 @@ impl<E: EthSpec> Network<E> {
 
     fn publish_partial_data_column_fulu(
         &mut self,
-        column: Arc<PartialDataColumn<E>>,
-        request_cells: CellBitmap<E>,
-        header: Arc<PartialDataColumnHeader<E>>,
+        column: Arc<PartialDataColumn>,
+        request_cells: CellBitmap,
+        header: Arc<PartialDataColumnHeader>,
     ) {
         let subnet = DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
         let topic = GossipTopic::new(
@@ -1089,7 +1086,7 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        request: RequestType<E>,
+        request: RequestType,
     ) -> Result<(), (AppRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
@@ -1102,7 +1099,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_response<T: Into<RpcResponse<E>>>(
+    pub fn send_response<T: Into<RpcResponse>>(
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -1256,13 +1253,13 @@ impl<E: EthSpec> Network<E> {
         let local_attnets = self
             .discovery_mut()
             .local_enr()
-            .attestation_bitfield::<E>()
+            .attestation_bitfield()
             .expect("Local discovery must have attestation bitfield");
 
         let local_syncnets = self
             .discovery_mut()
             .local_enr()
-            .sync_committee_bitfield::<E>()
+            .sync_committee_bitfield()
             .expect("Local discovery must have sync committee bitfield");
 
         // write lock scope
@@ -1325,8 +1322,8 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         app_request_id: AppRequestId,
         peer_id: PeerId,
-        response: Response<E>,
-    ) -> Option<NetworkEvent<E>> {
+        response: Response,
+    ) -> Option<NetworkEvent> {
         match app_request_id {
             AppRequestId::Internal => None,
             _ => Some(NetworkEvent::ResponseReceived {
@@ -1340,7 +1337,7 @@ impl<E: EthSpec> Network<E> {
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet, spec: Arc<ChainSpec>) {
-        let predicate = subnet_predicate::<E>(vec![subnet], spec);
+        let predicate = subnet_predicate(vec![subnet], spec);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
@@ -1381,7 +1378,7 @@ impl<E: EthSpec> Network<E> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: Event) -> Option<NetworkEvent<E>> {
+    fn inject_gs_event(&mut self, event: Event) -> Option<NetworkEvent> {
         match event {
             Event::Message {
                 propagation_source,
@@ -1432,7 +1429,7 @@ impl<E: EthSpec> Network<E> {
                     .ok()?;
 
                 if let Some(message) = message {
-                    match decode_partial::<E>(&topic, &group_id, &message, &self.fork_context) {
+                    match decode_partial(&topic, &group_id, &message, &self.fork_context) {
                         Err(error) => {
                             debug!(
                                 topic = ?topic_hash,
@@ -1573,7 +1570,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle an RPC event.
-    fn inject_rpc_event(&mut self, event: RPCMessage<AppRequestId, E>) -> Option<NetworkEvent<E>> {
+    fn inject_rpc_event(&mut self, event: RPCMessage<AppRequestId>) -> Option<NetworkEvent> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected or RPC requests,
@@ -1913,7 +1910,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle an identify event.
-    fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
+    fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent> {
         match event {
             identify::Event::Received {
                 peer_id,
@@ -1935,7 +1932,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle a peer manager event.
-    fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent<E>> {
+    fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent> {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
                 Some(NetworkEvent::PeerConnectedIncoming(peer_id))
@@ -2031,7 +2028,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /* Networking polling */
-    pub async fn next_event(&mut self) -> NetworkEvent<E> {
+    pub async fn next_event(&mut self) -> NetworkEvent {
         loop {
             tokio::select! {
                 // Poll the libp2p `Swarm`.
@@ -2064,10 +2061,7 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
-    fn parse_swarm_event(
-        &mut self,
-        event: SwarmEvent<BehaviourEvent<E>>,
-    ) -> Option<NetworkEvent<E>> {
+    fn parse_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) -> Option<NetworkEvent> {
         match event {
             SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                 // Handle sub-behaviour events.

@@ -14,8 +14,8 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// where the block is being applied to the given `state`.
 ///
 /// Returns `Ok(())` if the `SignedBlsToExecutionChange` is valid, otherwise indicates the reason for invalidity.
-pub fn verify_bls_to_execution_change<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn verify_bls_to_execution_change(
+    state: &BeaconState,
     signed_address_change: &SignedBlsToExecutionChange,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,

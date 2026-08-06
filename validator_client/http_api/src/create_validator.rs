@@ -8,7 +8,7 @@ use eth2::lighthouse_vc::types::{self as api_types};
 use lighthouse_validator_store::LighthouseValidatorStore;
 use slot_clock::SlotClock;
 use std::path::{Path, PathBuf};
-use types::{ChainSpec, EthSpec};
+use types::ChainSpec;
 use validator_dir::{Builder as ValidatorDirBuilder, keystore_password_path};
 use zeroize::Zeroizing;
 
@@ -23,13 +23,13 @@ use zeroize::Zeroizing;
 ///
 /// If `key_derivation_path_offset` is supplied then the EIP-2334 validator index will start at
 /// this point.
-pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
+pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock>(
     mnemonic_opt: Option<Mnemonic>,
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
     secrets_dir: Option<PathBuf>,
-    validator_store: &LighthouseValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -175,9 +175,9 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     Ok((validators, mnemonic))
 }
 
-pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
+pub async fn create_validators_web3signer<T: 'static + SlotClock>(
     validators: Vec<ValidatorDefinition>,
-    validator_store: &LighthouseValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T>,
 ) -> Result<(), warp::Rejection> {
     for validator in validators {
         validator_store

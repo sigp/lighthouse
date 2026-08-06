@@ -6,9 +6,9 @@ use std::sync::Arc;
 use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
-    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    LightClientUpdate, MerkleProof, Slot, SyncAggregate, SyncCommittee,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, MerkleProof, Slot,
+    Spec, SyncAggregate, SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -19,29 +19,29 @@ const PREV_BLOCK_CACHE_SIZE: usize = 32;
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
 /// expensive.
-pub struct LightClientServerCache<T: BeaconChainTypes> {
+pub struct LightClientServerCache {
     /// Tracks a single global latest finality update out of all imported blocks.
     ///
     /// TODO: Active discussion with @etan-status if this cache should be fork aware to return
     /// latest canonical (update with highest signature slot, where its attested header is part of
     /// the head chain) instead of global latest (update with highest signature slot, out of all
     /// branches).
-    latest_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
+    latest_finality_update: RwLock<Option<LightClientFinalityUpdate>>,
     /// Tracks a single global latest optimistic update out of all imported blocks.
-    latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
+    latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate>>,
     /// Caches the most recent light client update
-    latest_light_client_update: RwLock<Option<LightClientUpdate<T::EthSpec>>>,
+    latest_light_client_update: RwLock<Option<LightClientUpdate>>,
     /// Caches the current sync committee,
-    latest_written_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
+    latest_written_current_sync_committee: RwLock<Option<Arc<SyncCommittee>>>,
     /// Caches state proofs by block root
-    prev_block_cache: Mutex<LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
+    prev_block_cache: Mutex<LruCache<Hash256, LightClientCachedData>>,
     /// Tracks the latest broadcasted finality update
-    latest_broadcasted_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
+    latest_broadcasted_finality_update: RwLock<Option<LightClientFinalityUpdate>>,
     /// Tracks the latest broadcasted optimistic update
-    latest_broadcasted_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
+    latest_broadcasted_optimistic_update: RwLock<Option<LightClientOptimisticUpdate>>,
 }
 
-impl<T: BeaconChainTypes> LightClientServerCache<T> {
+impl LightClientServerCache {
     pub fn new() -> Self {
         Self {
             latest_finality_update: None.into(),
@@ -59,12 +59,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     pub(crate) fn cache_state_data(
         &self,
         spec: &ChainSpec,
-        block: BeaconBlockRef<T::EthSpec>,
+        block: BeaconBlockRef,
         block_root: Hash256,
-        block_post_state: &mut BeaconState<T::EthSpec>,
+        block_post_state: &mut BeaconState,
     ) -> Result<(), BeaconChainError> {
         let _timer = metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES);
-        let fork_name = spec.fork_name_at_slot::<T::EthSpec>(block.slot());
+        let fork_name = spec.fork_name_at_slot(block.slot());
         // Only post-altair
         if fork_name.altair_enabled() {
             // Persist in memory cache for a descendent block
@@ -77,12 +77,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     /// Given a block with a SyncAggregate computes better or more recent light client updates. The
     /// results are cached either on disk or memory to be served via p2p and rest API
-    pub fn recompute_and_cache_updates(
+    pub fn recompute_and_cache_updates<T: BeaconChainTypes>(
         &self,
         store: BeaconStore<T>,
         block_slot: Slot,
         block_parent_root: &Hash256,
-        sync_aggregate: &SyncAggregate<T::EthSpec>,
+        sync_aggregate: &SyncAggregate,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS);
@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let attested_block_root = block_parent_root;
 
         let sync_period = block_slot
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
         let attested_block = store.get_blinded_block(attested_block_root)?.ok_or(
@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             )),
         )?;
 
-        let cached_parts = self.get_or_compute_prev_block_cache(
+        let cached_parts = self.get_or_compute_prev_block_cache::<T>(
             store.clone(),
             attested_block_root,
             &attested_block.state_root(),
@@ -120,14 +120,19 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             &cached_parts.current_sync_committee_branch,
         )?;
 
-        self.store_current_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
+        self.store_current_sync_committee::<T>(
+            &store,
+            &cached_parts,
+            sync_period,
+            finalized_period,
+        )?;
 
         let attested_slot = attested_block.slot();
 
         let maybe_finalized_block = store.get_blinded_block(&cached_parts.finalized_block_root)?;
 
         let sync_period = block_slot
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
@@ -190,7 +195,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
         let prev_light_client_update =
-            self.get_light_client_update(&store, sync_period, chain_spec)?;
+            self.get_light_client_update::<T>(&store, sync_period, chain_spec)?;
 
         let should_persist_light_client_update =
             if let Some(prev_light_client_update) = prev_light_client_update {
@@ -209,10 +214,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(())
     }
 
-    fn store_current_sync_committee(
+    fn store_current_sync_committee<T: BeaconChainTypes>(
         &self,
         store: &BeaconStore<T>,
-        cached_parts: &LightClientCachedData<T::EthSpec>,
+        cached_parts: &LightClientCachedData,
         sync_committee_period: u64,
         finalized_period: u64,
     ) -> Result<(), BeaconChainError> {
@@ -240,16 +245,16 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     ///
     /// Note: Should not be used outside the light client server, as it also caches the fetched
     /// light client update.
-    fn get_light_client_update(
+    fn get_light_client_update<T: BeaconChainTypes>(
         &self,
         store: &BeaconStore<T>,
         sync_committee_period: u64,
         chain_spec: &ChainSpec,
-    ) -> Result<Option<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
+    ) -> Result<Option<LightClientUpdate>, BeaconChainError> {
         if let Some(latest_light_client_update) = self.latest_light_client_update.read().clone() {
             let latest_lc_update_sync_committee_period = latest_light_client_update
                 .signature_slot()
-                .epoch(T::EthSpec::slots_per_epoch())
+                .epoch(Spec::slots_per_epoch())
                 .sync_committee_period(chain_spec)?;
             if latest_lc_update_sync_committee_period == sync_committee_period {
                 return Ok(Some(latest_light_client_update));
@@ -268,13 +273,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// parent state, and inserts an entry to the cache.
     ///
     /// In separate function since FnOnce of get_or_insert can not be fallible.
-    fn get_or_compute_prev_block_cache(
+    fn get_or_compute_prev_block_cache<T: BeaconChainTypes>(
         &self,
         store: BeaconStore<T>,
         block_root: &Hash256,
         block_state_root: &Hash256,
         block_slot: Slot,
-    ) -> Result<LightClientCachedData<T::EthSpec>, BeaconChainError> {
+    ) -> Result<LightClientCachedData, BeaconChainError> {
         // Attempt to get the value from the cache first.
         if let Some(cached_parts) = self.prev_block_cache.lock().get(block_root) {
             return Ok(cached_parts.clone());
@@ -302,9 +307,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// Checks if we've already broadcasted the latest finality update.
     /// If we haven't, update the `latest_broadcasted_finality_update` cache
     /// and return the latest finality update for broadcasting, else return `None`.
-    pub fn should_broadcast_latest_finality_update(
-        &self,
-    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+    pub fn should_broadcast_latest_finality_update(&self) -> Option<LightClientFinalityUpdate> {
         if let Some(latest_finality_update) = self.get_latest_finality_update() {
             let latest_broadcasted_finality_update = self.get_latest_broadcasted_finality_update();
             match latest_broadcasted_finality_update {
@@ -324,32 +327,28 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         None
     }
 
-    pub fn get_latest_finality_update(&self) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+    pub fn get_latest_finality_update(&self) -> Option<LightClientFinalityUpdate> {
         self.latest_finality_update.read().clone()
     }
 
-    pub fn get_latest_broadcasted_optimistic_update(
-        &self,
-    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+    pub fn get_latest_broadcasted_optimistic_update(&self) -> Option<LightClientOptimisticUpdate> {
         self.latest_broadcasted_optimistic_update.read().clone()
     }
 
-    pub fn get_latest_broadcasted_finality_update(
-        &self,
-    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+    pub fn get_latest_broadcasted_finality_update(&self) -> Option<LightClientFinalityUpdate> {
         self.latest_broadcasted_finality_update.read().clone()
     }
 
     pub fn set_latest_broadcasted_optimistic_update(
         &self,
-        optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        optimistic_update: LightClientOptimisticUpdate,
     ) {
         *self.latest_broadcasted_optimistic_update.write() = Some(optimistic_update.clone());
     }
 
     pub fn set_latest_broadcasted_finality_update(
         &self,
-        finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        finality_update: LightClientFinalityUpdate,
     ) {
         *self.latest_broadcasted_finality_update.write() = Some(finality_update.clone());
     }
@@ -357,9 +356,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// Checks if we've already broadcasted the latest optimistic update.
     /// If we haven't, update the `latest_broadcasted_optimistic_update` cache
     /// and return the latest optimistic update for broadcasting, else return `None`.
-    pub fn should_broadcast_latest_optimistic_update(
-        &self,
-    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+    pub fn should_broadcast_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate> {
         if let Some(latest_optimistic_update) = self.get_latest_optimistic_update() {
             let latest_broadcasted_optimistic_update =
                 self.get_latest_broadcasted_optimistic_update();
@@ -382,7 +379,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         None
     }
 
-    pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+    pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate> {
         self.latest_optimistic_update.read().clone()
     }
 
@@ -393,13 +390,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// for a finalized checkpoint block root. However, we currently have no backfill mechanism for these values.
     /// Therefore, `sync_committee_branch` and `sync_committee` are only persisted while a node is synced.
     #[allow(clippy::type_complexity)]
-    pub fn get_light_client_bootstrap(
+    pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
         &self,
         store: &BeaconStore<T>,
         block_root: &Hash256,
         finalized_period: u64,
         chain_spec: &ChainSpec,
-    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
+    ) -> Result<Option<(LightClientBootstrap, ForkName)>, BeaconChainError> {
         let Some(block) = store.get_blinded_block(block_root)? else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
                 "Block root {block_root} not found"
@@ -408,11 +405,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let (_, slot) = (block.state_root(), block.slot());
 
-        let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
+        let fork_name = chain_spec.fork_name_at_slot(slot);
 
         let sync_committee_period = block
             .slot()
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
         let Some(current_sync_committee_branch) = store.get_sync_committee_branch(block_root)?
@@ -446,25 +443,25 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     }
 }
 
-impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
+impl Default for LightClientServerCache {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[derive(Clone)]
-struct LightClientCachedData<E: EthSpec> {
+struct LightClientCachedData {
     finalized_checkpoint: Checkpoint,
     finality_branch: MerkleProof,
     next_sync_committee_branch: MerkleProof,
     current_sync_committee_branch: MerkleProof,
-    next_sync_committee: Arc<SyncCommittee<E>>,
-    current_sync_committee: Arc<SyncCommittee<E>>,
+    next_sync_committee: Arc<SyncCommittee>,
+    current_sync_committee: Arc<SyncCommittee>,
     finalized_block_root: Hash256,
 }
 
-impl<E: EthSpec> LightClientCachedData<E> {
-    fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
+impl LightClientCachedData {
+    fn from_state(state: &mut BeaconState) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
             finality_branch: state.compute_finalized_root_proof()?,

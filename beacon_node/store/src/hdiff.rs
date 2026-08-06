@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::state::HistoricalSummary;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
+use types::{BeaconState, ChainSpec, Epoch, Hash256, Slot, Validator};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 
@@ -170,7 +170,7 @@ pub struct AppendOnlyDiff<T: Encode + Decode> {
 }
 
 impl HDiffBuffer {
-    pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
+    pub fn from_state(mut beacon_state: BeaconState) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
         // Set state.balances to empty list, and then serialize state as ssz
         let balances_list = beacon_state.take_balances();
@@ -207,7 +207,7 @@ impl HDiffBuffer {
         }
     }
 
-    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+    pub fn as_state(&self, spec: &ChainSpec) -> Result<BeaconState, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;

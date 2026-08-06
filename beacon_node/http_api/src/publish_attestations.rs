@@ -71,7 +71,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     attestation: &SingleAttestation,
     seen_timestamp: Duration,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage>,
 ) -> Result<(), Error> {
     let verified_attestation = chain
         .verify_unaggregated_attestation_for_gossip(attestation, None)
@@ -122,10 +122,10 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
 }
 
 pub async fn publish_attestations<T: BeaconChainTypes>(
-    task_spawner: TaskSpawner<T::EthSpec>,
+    task_spawner: TaskSpawner,
     chain: Arc<BeaconChain<T>>,
     attestations: Vec<SingleAttestation>,
-    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: UnboundedSender<NetworkMessage>,
     allow_reprocess: bool,
 ) -> Result<(), warp::Rejection> {
     // Collect metadata about attestations which we'll use to report failures. We need to

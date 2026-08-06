@@ -17,12 +17,12 @@ use std::{
 };
 use tokio_util::time::DelayQueue;
 use tracing::debug;
-use types::{EthSpec, ForkContext};
+use types::ForkContext;
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
-struct QueuedRequest<Id: ReqId, E: EthSpec> {
-    req: RequestType<E>,
+struct QueuedRequest<Id: ReqId> {
+    req: RequestType,
     request_id: Id,
     queued_at: Duration,
 }
@@ -31,19 +31,19 @@ struct QueuedRequest<Id: ReqId, E: EthSpec> {
 const WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS: u64 = 100;
 
 #[allow(clippy::type_complexity)]
-pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
+pub(crate) struct SelfRateLimiter<Id: ReqId> {
     /// Active requests that are awaiting a response.
     active_requests: HashMap<PeerId, HashMap<Protocol, usize>>,
     /// Requests queued for sending per peer. These requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
-    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, E>>>,
+    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id>>>,
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
     rate_limiter: Option<RateLimiter>,
     /// Requests that are ready to be sent.
-    ready_requests: SmallVec<[(PeerId, RPCSend<Id, E>, Duration); 3]>,
+    ready_requests: SmallVec<[(PeerId, RPCSend<Id>, Duration); 3]>,
 }
 
 /// Error returned when the rate limiter does not accept a request.
@@ -55,7 +55,7 @@ pub enum Error {
     RateLimited,
 }
 
-impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
+impl<Id: ReqId> SelfRateLimiter<Id> {
     /// Creates a new [`SelfRateLimiter`] based on configuration values.
     pub fn new(
         config: Option<OutboundRateLimiterConfig>,
@@ -84,8 +84,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         &mut self,
         peer_id: PeerId,
         request_id: Id,
-        req: RequestType<E>,
-    ) -> Result<RPCSend<Id, E>, Error> {
+        req: RequestType,
+    ) -> Result<RPCSend<Id>, Error> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
@@ -127,8 +127,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         rate_limiter: &mut Option<RateLimiter>,
         peer_id: PeerId,
         request_id: Id,
-        req: RequestType<E>,
-    ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
+        req: RequestType,
+    ) -> Result<RPCSend<Id>, (QueuedRequest<Id>, Duration)> {
         if let Some(active_request) = active_requests.get(&peer_id)
             && let Some(count) = active_request.get(&req.protocol())
             && *count >= MAX_CONCURRENT_REQUESTS
@@ -288,7 +288,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         }
     }
 
-    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
+    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id>> {
         // First check the requests that were self rate limited, since those might add events to
         // the queue. Also do this before rate limiter pruning to avoid removing and
         // immediately adding rate limiting keys.
@@ -337,7 +337,7 @@ mod tests {
     use logging::create_test_tracing_subscriber;
     use std::num::NonZeroU64;
     use std::time::Duration;
-    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
+    use types::{ForkContext, Hash256, Slot, Spec};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -347,12 +347,12 @@ mod tests {
             ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
         let lookup_id = 0;
@@ -420,12 +420,12 @@ mod tests {
     /// Test that `next_peer_request_ready` correctly maintains the queue when using the self-limiter without rate limiting.
     #[tokio::test]
     async fn test_next_peer_request_ready_concurrent_requests() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer_id = PeerId::random();
 
@@ -497,12 +497,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_disconnected() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
@@ -574,16 +574,16 @@ mod tests {
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
         const REPLENISH_DURATION: u64 = 50;
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), REPLENISH_DURATION),
             ..Default::default()
         });
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
 

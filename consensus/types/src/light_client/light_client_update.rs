@@ -15,7 +15,7 @@ use typenum::{U4, U5, U6, U7};
 
 use crate::{
     block::SignedBlindedBeaconBlock,
-    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
+    core::{ChainSpec, Epoch, Hash256, Slot, Spec},
     fork::ForkName,
     light_client::{
         LightClientError, LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -47,39 +47,31 @@ type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProo
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         context_deserialize(ForkName),
     )
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Encode, TreeHash, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-#[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct LightClientUpdate<E: EthSpec> {
+#[serde(deny_unknown_fields)]
+pub struct LightClientUpdate {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
-    pub attested_header: LightClientHeaderAltair<E>,
+    pub attested_header: LightClientHeaderAltair,
     #[superstruct(only(Capella), partial_getter(rename = "attested_header_capella"))]
-    pub attested_header: LightClientHeaderCapella<E>,
+    pub attested_header: LightClientHeaderCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
-    pub attested_header: LightClientHeaderDeneb<E>,
+    pub attested_header: LightClientHeaderDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
-    pub attested_header: LightClientHeaderElectra<E>,
+    pub attested_header: LightClientHeaderElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "attested_header_fulu"))]
-    pub attested_header: LightClientHeaderFulu<E>,
+    pub attested_header: LightClientHeaderFulu,
     /// The `SyncCommittee` used in the next period.
-    pub next_sync_committee: Arc<SyncCommittee<E>>,
+    pub next_sync_committee: Arc<SyncCommittee>,
     // Merkle proof for next sync committee
     #[superstruct(
         only(Altair, Capella, Deneb),
@@ -93,15 +85,15 @@ pub struct LightClientUpdate<E: EthSpec> {
     pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
-    pub finalized_header: LightClientHeaderAltair<E>,
+    pub finalized_header: LightClientHeaderAltair,
     #[superstruct(only(Capella), partial_getter(rename = "finalized_header_capella"))]
-    pub finalized_header: LightClientHeaderCapella<E>,
+    pub finalized_header: LightClientHeaderCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
-    pub finalized_header: LightClientHeaderDeneb<E>,
+    pub finalized_header: LightClientHeaderDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
-    pub finalized_header: LightClientHeaderElectra<E>,
+    pub finalized_header: LightClientHeaderElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "finalized_header_fulu"))]
-    pub finalized_header: LightClientHeaderFulu<E>,
+    pub finalized_header: LightClientHeaderFulu,
     /// Merkle proof attesting finalized header.
     #[superstruct(
         only(Altair, Capella, Deneb),
@@ -114,12 +106,12 @@ pub struct LightClientUpdate<E: EthSpec> {
     )]
     pub finality_branch: FinalityBranchElectra,
     /// current sync aggreggate
-    pub sync_aggregate: SyncAggregate<E>,
+    pub sync_aggregate: SyncAggregate,
     /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for LightClientUpdate {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -154,16 +146,16 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
     }
 }
 
-impl<E: EthSpec> LightClientUpdate<E> {
+impl LightClientUpdate {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        sync_aggregate: &SyncAggregate<E>,
+        sync_aggregate: &SyncAggregate,
         block_slot: Slot,
-        next_sync_committee: Arc<SyncCommittee<E>>,
+        next_sync_committee: Arc<SyncCommittee>,
         next_sync_committee_branch: Vec<Hash256>,
         finality_branch: Vec<Hash256>,
-        attested_block: &SignedBlindedBeaconBlock<E>,
-        finalized_block: Option<&SignedBlindedBeaconBlock<E>>,
+        attested_block: &SignedBlindedBeaconBlock,
+        finalized_block: Option<&SignedBlindedBeaconBlock>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, LightClientError> {
         let light_client_update = match attested_block
@@ -366,7 +358,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         &self,
         chain_spec: &ChainSpec,
     ) -> Result<Epoch, LightClientError> {
-        compute_sync_committee_period_at_slot::<E>(self.attested_header_slot(), chain_spec)
+        compute_sync_committee_period_at_slot(self.attested_header_slot(), chain_spec)
             .map_err(LightClientError::ArithError)
     }
 
@@ -374,7 +366,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         &self,
         chain_spec: &ChainSpec,
     ) -> Result<Epoch, LightClientError> {
-        compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)
+        compute_sync_committee_period_at_slot(*self.signature_slot(), chain_spec)
             .map_err(LightClientError::ArithError)
     }
 
@@ -392,7 +384,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         chain_spec: &ChainSpec,
     ) -> Result<bool, LightClientError> {
         Ok(
-            compute_sync_committee_period_at_slot::<E>(self.finalized_header_slot(), chain_spec)?
+            compute_sync_committee_period_at_slot(self.finalized_header_slot(), chain_spec)?
                 == self.attested_header_sync_committee_period(chain_spec)?,
         )
     }
@@ -481,10 +473,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
     // Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md#lightclientupdate
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
-        let next_sync_committee = Arc::new(SyncCommittee::<E>::temporary());
+        let next_sync_committee = Arc::new(SyncCommittee::temporary());
         macro_rules! min_len {
             ($update:ident) => {
-                $update::<E> {
+                $update {
                     attested_header: Default::default(),
                     next_sync_committee: next_sync_committee.clone(),
                     next_sync_committee_branch: Default::default(),
@@ -506,7 +498,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas | ForkName::Heze => 0,
         };
-        min_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        min_len + 2 * LightClientHeader::ssz_max_var_len_for_fork(fork_name)
     }
 
     pub fn map_with_fork_name<F, R>(&self, func: F) -> R
@@ -532,11 +524,11 @@ fn is_empty_branch(branch: &[Hash256]) -> bool {
     true
 }
 
-fn compute_sync_committee_period_at_slot<E: EthSpec>(
+fn compute_sync_committee_period_at_slot(
     slot: Slot,
     chain_spec: &ChainSpec,
 ) -> Result<Epoch, ArithError> {
-    slot.epoch(E::slots_per_epoch())
+    slot.epoch(Spec::slots_per_epoch())
         .safe_div(chain_spec.epochs_per_sync_committee_period)
 }
 
@@ -549,37 +541,32 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateAltair<MainnetEthSpec>);
+        use crate::LightClientUpdateAltair;
+        ssz_tests!(LightClientUpdateAltair);
     }
 
     #[cfg(test)]
     mod capella {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateCapella<MainnetEthSpec>);
+        use crate::LightClientUpdateCapella;
+        ssz_tests!(LightClientUpdateCapella);
     }
 
     #[cfg(test)]
     mod deneb {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+        use crate::LightClientUpdateDeneb;
+        ssz_tests!(LightClientUpdateDeneb);
     }
 
     #[cfg(test)]
     mod electra {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateElectra<MainnetEthSpec>);
+        use crate::LightClientUpdateElectra;
+        ssz_tests!(LightClientUpdateElectra);
     }
 
     #[cfg(test)]
     mod fulu {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateFulu<MainnetEthSpec>);
+        use crate::LightClientUpdateFulu;
+        ssz_tests!(LightClientUpdateFulu);
     }
 
     #[test]

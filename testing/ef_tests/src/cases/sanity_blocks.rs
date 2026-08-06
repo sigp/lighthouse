@@ -17,17 +17,16 @@ pub struct Metadata {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct SanityBlocks<E: EthSpec> {
+pub struct SanityBlocks {
     pub metadata: Metadata,
-    pub pre: BeaconState<E>,
-    pub blocks: Vec<SignedBeaconBlock<E>>,
-    pub post: Option<BeaconState<E>>,
+    pub pre: BeaconState,
+    pub blocks: Vec<SignedBeaconBlock>,
+    pub post: Option<BeaconState>,
 }
 
-impl<E: EthSpec> LoadCase for SanityBlocks<E> {
+impl LoadCase for SanityBlocks {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
         let blocks = (0..metadata.blocks_count)
@@ -54,7 +53,7 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     }
 }
 
-impl<E: EthSpec> Case for SanityBlocks<E> {
+impl Case for SanityBlocks {
     fn description(&self) -> String {
         self.metadata.description.clone().unwrap_or_default()
     }
@@ -64,7 +63,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
         let mut bulk_state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec(fork_name);
 
         // Processing requires the epoch cache.
         bulk_state.build_caches(spec).unwrap();

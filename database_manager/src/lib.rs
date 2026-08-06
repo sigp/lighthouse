@@ -23,12 +23,12 @@ use store::{
 };
 use strum::{EnumString, VariantNames};
 use tracing::{info, warn};
-use types::{BeaconState, EthSpec, Slot};
+use types::{BeaconState, Slot};
 
-fn parse_client_config<E: EthSpec>(
+fn parse_client_config(
     cli_args: &ArgMatches,
     database_manager_config: &DatabaseManager,
-    _env: &Environment<E>,
+    _env: &Environment,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
 
@@ -45,9 +45,9 @@ fn parse_client_config<E: EthSpec>(
     Ok(client_config)
 }
 
-pub fn display_db_version<E: EthSpec>(
+pub fn display_db_version(
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
+    runtime_context: &RuntimeContext,
 ) -> Result<(), Error> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
@@ -55,7 +55,7 @@ pub fn display_db_version<E: EthSpec>(
     let blobs_path = client_config.get_blobs_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
-    HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
+    HotColdDB::<BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -118,8 +118,7 @@ fn parse_inspect_config(inspect_config: &Inspect) -> Result<InspectConfig, Strin
     let limit = inspect_config.limit;
     let freezer = inspect_config.freezer;
     let blobs_db = inspect_config.blobs_db;
-
-    let output_dir: PathBuf = inspect_config.output_dir.clone().unwrap_or_default();
+    let output_dir = inspect_config.output_dir.clone().unwrap_or_default();
     Ok(InspectConfig {
         column,
         target,
@@ -131,7 +130,7 @@ fn parse_inspect_config(inspect_config: &Inspect) -> Result<InspectConfig, Strin
     })
 }
 
-pub fn inspect_db<E: EthSpec>(
+pub fn inspect_db(
     inspect_config: InspectConfig,
     client_config: ClientConfig,
 ) -> Result<(), String> {
@@ -253,10 +252,7 @@ fn parse_compact_config(compact_config: &Compact) -> Result<CompactConfig, Strin
     })
 }
 
-pub fn compact_db<E: EthSpec>(
-    compact_config: CompactConfig,
-    client_config: ClientConfig,
-) -> Result<(), Error> {
+pub fn compact_db(compact_config: CompactConfig, client_config: ClientConfig) -> Result<(), Error> {
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
@@ -297,10 +293,10 @@ fn parse_migrate_config(migrate_config: &Migrate) -> Result<MigrateConfig, Strin
     Ok(MigrateConfig { to })
 }
 
-pub fn migrate_db<E: EthSpec>(
+pub fn migrate_db(
     migrate_config: MigrateConfig,
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
+    runtime_context: &RuntimeContext,
 ) -> Result<(), Error> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
@@ -309,7 +305,7 @@ pub fn migrate_db<E: EthSpec>(
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
-    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
+    let db = HotColdDB::<BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -327,19 +323,19 @@ pub fn migrate_db<E: EthSpec>(
         "Migrating database schema"
     );
 
-    migrate_schema::<Witness<SystemTimeSlotClock, _, _, _>>(db, from, to)
+    migrate_schema::<Witness<SystemTimeSlotClock, _, _>>(db, from, to)
 }
 
-pub fn prune_payloads<E: EthSpec>(
+pub fn prune_payloads(
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
+    runtime_context: &RuntimeContext,
 ) -> Result<(), Error> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
+    let db = HotColdDB::<BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -354,16 +350,16 @@ pub fn prune_payloads<E: EthSpec>(
     db.try_prune_execution_payloads(force)
 }
 
-pub fn prune_blobs<E: EthSpec>(
+pub fn prune_blobs(
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
+    runtime_context: &RuntimeContext,
 ) -> Result<(), Error> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
+    let db = HotColdDB::<BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -387,18 +383,18 @@ fn parse_prune_states_config(
     Ok(PruneStatesConfig { confirm })
 }
 
-pub fn prune_states<E: EthSpec>(
+pub fn prune_states(
     client_config: ClientConfig,
     prune_config: PruneStatesConfig,
-    mut genesis_state: BeaconState<E>,
-    runtime_context: &RuntimeContext<E>,
+    mut genesis_state: BeaconState,
+    runtime_context: &RuntimeContext,
 ) -> Result<(), String> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
+    let db = HotColdDB::<BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -447,10 +443,10 @@ pub fn prune_states<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<E: EthSpec>(
+pub fn run(
     cli_args: &ArgMatches,
     db_manager_config: &DatabaseManager,
-    env: Environment<E>,
+    env: Environment,
 ) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, db_manager_config, &env)?;
     let context = env.core_context();
@@ -465,7 +461,7 @@ pub fn run<E: EthSpec>(
 
         executor
             .block_on_dangerous(
-                network_config.genesis_state::<E>(
+                network_config.genesis_state(
                     client_config.genesis_state_url.as_deref(),
                     client_config.genesis_state_url_timeout,
                 ),
@@ -483,7 +479,7 @@ pub fn run<E: EthSpec>(
         }
         cli::DatabaseManagerSubcommand::Inspect(inspect_config) => {
             let inspect_config = parse_inspect_config(inspect_config)?;
-            inspect_db::<E>(inspect_config, client_config)
+            inspect_db(inspect_config, client_config)
         }
         cli::DatabaseManagerSubcommand::Version(_) => {
             display_db_version(client_config, &context).map_err(format_err)
@@ -501,7 +497,7 @@ pub fn run<E: EthSpec>(
         }
         cli::DatabaseManagerSubcommand::Compact(compact_config) => {
             let compact_config = parse_compact_config(compact_config)?;
-            compact_db::<E>(compact_config, client_config).map_err(format_err)
+            compact_db(compact_config, client_config).map_err(format_err)
         }
     }
 }

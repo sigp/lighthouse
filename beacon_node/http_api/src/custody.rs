@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::CustodyInfo;
 use std::sync::Arc;
-use types::EthSpec;
+use types::Spec;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 
 pub fn info<T: BeaconChainTypes>(
@@ -30,11 +30,11 @@ pub fn info<T: BeaconChainTypes>(
             // more recent.
             let oldest_block_slot = chain.store.get_anchor_info().oldest_block_slot;
             column_data_availability_boundary
-                .start_slot(T::EthSpec::slots_per_epoch())
+                .start_slot(Spec::slots_per_epoch())
                 .max(oldest_block_slot)
         });
     let earliest_custodied_data_column_epoch =
-        earliest_custodied_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+        earliest_custodied_data_column_slot.epoch(Spec::slots_per_epoch());
 
     // Compute the custody columns and the CGC *at the earliest custodied slot*. The node might
     // have some columns prior to this, but this value is the most up-to-date view of the data the

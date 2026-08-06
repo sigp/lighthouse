@@ -14,7 +14,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
-use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
 pub const CMD: &str = "create";
@@ -115,9 +114,9 @@ pub fn cli_app() -> Command {
         )
 }
 
-pub fn cli_run<E: EthSpec>(
+pub fn cli_run(
     matches: &ArgMatches,
-    env: Environment<E>,
+    env: Environment,
     validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;

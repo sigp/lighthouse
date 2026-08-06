@@ -5,15 +5,15 @@ use std::{
 
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
-use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
+use typenum::U;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
+use crate::{attestation::AttestationData, core::Spec, fork::ForkName};
 
 /// Details an attestation that can be slashable.
 ///
@@ -30,58 +30,42 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
             Deserialize,
             Decode,
             Encode,
-            Educe,
+            PartialEq,
+            Hash,
             TreeHash,
         ),
         context_deserialize(ForkName),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
     ),
-    specific_variant_attributes(Gloas(
-        tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))
-    ))
+    specific_variant_attributes(Gloas(tree_hash(
+        struct_behaviour = "progressive_container",
+        active_fields(1, 1, 1)
+    )))
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
-#[educe(PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, PartialEq, Deserialize)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-#[serde(bound = "E: EthSpec", deny_unknown_fields)]
-pub struct IndexedAttestation<E: EthSpec> {
+#[serde(deny_unknown_fields)]
+pub struct IndexedAttestation {
     /// Lists validator registry indices, not committee indices.
     #[superstruct(only(Base), partial_getter(rename = "attesting_indices_base"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, U<{ Spec::MAX_VALIDATORS_PER_COMMITTEE }>>,
     #[superstruct(only(Electra), partial_getter(rename = "attesting_indices_electra"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
+    pub attesting_indices: VariableList<u64, U<{ Spec::MAX_VALIDATORS_PER_SLOT }>>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "attesting_indices_gloas"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: ProgressiveVariableList<u64>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
-    // The Gloas variant has no fields referencing `E`, so it requires a phantom field. This is
-    // skipped for all (de)serialization and hashing purposes.
-    #[superstruct(only(Gloas))]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[serde(skip)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub _phantom: std::marker::PhantomData<E>,
 }
 
-impl<E: EthSpec> IndexedAttestation<E> {
+impl IndexedAttestation {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
     /// Spec v0.12.1
@@ -138,14 +122,16 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, ssz_types::Error> {
+    pub fn to_electra(self) -> Result<IndexedAttestationElectra, ssz_types::Error> {
         match self {
             Self::Base(att) => {
-                let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
-                    VariableList::new(att.attesting_indices.to_vec())
-                        .expect("MaxValidatorsPerSlot must be >= MaxValidatorsPerCommittee");
-                // Note a unit test in consensus/types/src/eth_spec.rs asserts this invariant for
-                // all known specs
+                let extended_attesting_indices: VariableList<
+                    u64,
+                    U<{ Spec::MAX_VALIDATORS_PER_SLOT }>,
+                > = VariableList::new(att.attesting_indices.to_vec())
+                    .expect("MaxValidatorsPerSlot must be >= MaxValidatorsPerCommittee");
+                // Note a unit test in consensus/types/src/core/spec.rs asserts this invariant for
+                // each compiled spec.
 
                 Ok(IndexedAttestationElectra {
                     attesting_indices: extended_attesting_indices,
@@ -155,7 +141,7 @@ impl<E: EthSpec> IndexedAttestation<E> {
             }
             Self::Electra(att) => Ok(att),
             Self::Gloas(att) => {
-                let attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
+                let attesting_indices: VariableList<u64, U<{ Spec::MAX_VALIDATORS_PER_SLOT }>> =
                     VariableList::new(att.attesting_indices.to_vec())?;
 
                 Ok(IndexedAttestationElectra {
@@ -167,7 +153,7 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn to_gloas(self) -> IndexedAttestationGloas<E> {
+    pub fn to_gloas(self) -> IndexedAttestationGloas {
         let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec());
         let (data, signature) = match self {
             Self::Base(att) => (att.data, att.signature),
@@ -178,12 +164,11 @@ impl<E: EthSpec> IndexedAttestation<E> {
             attesting_indices,
             data,
             signature,
-            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<E: EthSpec> IndexedAttestationRef<'_, E> {
+impl IndexedAttestationRef<'_> {
     pub fn is_double_vote(&self, other: Self) -> bool {
         self.data().target.epoch == other.data().target.epoch && self.data() != other.data()
     }
@@ -233,7 +218,7 @@ impl<E: EthSpec> IndexedAttestationRef<'_, E> {
         }
     }
 
-    pub fn clone_as_indexed_attestation(self) -> IndexedAttestation<E> {
+    pub fn clone_as_indexed_attestation(self) -> IndexedAttestation {
         match self {
             IndexedAttestationRef::Base(att) => IndexedAttestation::Base(att.clone()),
             IndexedAttestationRef::Electra(att) => IndexedAttestation::Electra(att.clone()),
@@ -247,7 +232,7 @@ impl<E: EthSpec> IndexedAttestationRef<'_, E> {
 /// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
 ///
 /// Used in the operation pool.
-impl<E: EthSpec> Hash for IndexedAttestation<E> {
+impl Hash for IndexedAttestation {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             IndexedAttestation::Base(att) => att.attesting_indices.hash(state),
@@ -262,7 +247,7 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Epoch, MainnetEthSpec};
+    use crate::core::Epoch;
     use arbitrary::Arbitrary;
 
     #[test]
@@ -315,17 +300,14 @@ mod tests {
 
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationBase);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationElectra);
     }
 
-    fn create_indexed_attestation(
-        target_epoch: u64,
-        source_epoch: u64,
-    ) -> IndexedAttestation<MainnetEthSpec> {
+    fn create_indexed_attestation(target_epoch: u64, source_epoch: u64) -> IndexedAttestation {
         let mut u = crate::test_utils::test_unstructured();
         let mut indexed_vote =
             IndexedAttestation::Base(IndexedAttestationBase::arbitrary(&mut u).unwrap());
