@@ -1142,7 +1142,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1159,7 +1159,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
@@ -1171,7 +1171,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
             unaggregated_attestation_due_gloas: Duration::from_millis(3000),
-            payload_due: Duration::from_millis(9000),
+            payload_due: Duration::from_millis(6000),
             payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
@@ -1331,7 +1331,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1513,7 +1513,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
             unaggregated_attestation_due_gloas: Duration::from_millis(1500),
-            payload_due: Duration::from_millis(4500),
+            payload_due: Duration::from_millis(3000),
             payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
@@ -1588,7 +1588,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1605,7 +1605,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
@@ -1615,7 +1615,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
             unaggregated_attestation_due_gloas: Duration::from_millis(1250),
-            payload_due: Duration::from_millis(3750),
+            payload_due: Duration::from_millis(2500),
             payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
@@ -1777,7 +1777,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -2502,7 +2502,7 @@ const fn default_attestation_due_bps_gloas() -> u64 {
 }
 
 const fn default_payload_due_bps() -> u64 {
-    7500
+    5000
 }
 
 const fn default_payload_attestation_due_bps() -> u64 {
@@ -2526,7 +2526,7 @@ const fn default_contribution_due_bps() -> u64 {
 }
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
-    8192
+    64
 }
 
 const fn default_churn_limit_quotient_gloas() -> u64 {
@@ -3864,10 +3864,10 @@ mod yaml_tests {
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
 
-        // Test payload due (7500 bps = 75% of 12s = 9s)
+        // Test payload due (5000 bps = 50% of 12s = 6s)
         let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
         let payload_due = spec.get_payload_due();
-        assert_eq!(payload_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+        assert_eq!(payload_due, Duration::from_millis(6000)); // 12000 * 5000 / 10000
 
         // Test payload attestation due (7500 bps = 75% of 12s = 9s)
         let payload_att_due = spec.get_payload_attestation_due();
@@ -3908,8 +3908,8 @@ mod yaml_tests {
             Duration::from_millis(8000)
         );
 
-        // Mainnet payload due: 12000ms slots, 7500 bps = 9000ms
-        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(9000));
+        // Mainnet payload due: 12000ms slots, 5000 bps = 6000ms
+        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(6000));
         assert_eq!(
             mainnet.get_payload_attestation_due(),
             Duration::from_millis(9000)
@@ -3936,8 +3936,8 @@ mod yaml_tests {
             minimal.get_contribution_message_due(),
             Duration::from_millis(4000)
         );
-        // Minimal payload due: 6000ms slots, 7500 bps = 4500ms
-        assert_eq!(minimal.get_payload_due(), Duration::from_millis(4500));
+        // Minimal payload due: 6000ms slots, 5000 bps = 3000ms
+        assert_eq!(minimal.get_payload_due(), Duration::from_millis(3000));
         assert_eq!(
             minimal.get_payload_attestation_due(),
             Duration::from_millis(4500)
@@ -3964,8 +3964,8 @@ mod yaml_tests {
             gnosis.get_contribution_message_due(),
             Duration::from_millis(3333)
         );
-        // Gnosis payload due: 5000ms slots, 7500 bps = 3750ms
-        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(3750));
+        // Gnosis payload due: 5000ms slots, 5000 bps = 2500ms
+        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(2500));
         assert_eq!(
             gnosis.get_payload_attestation_due(),
             Duration::from_millis(3750)

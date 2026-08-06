@@ -324,6 +324,7 @@ fn update_envelope_block_root(snapshot: &mut BeaconSnapshot<E>) {
     if let Some(envelope) = snapshot.execution_envelope.as_ref() {
         let mut envelope = envelope.as_ref().clone();
         envelope.message.beacon_block_root = snapshot.beacon_block.canonical_root();
+        envelope.message.parent_beacon_block_root = snapshot.beacon_block.parent_root();
         snapshot.execution_envelope = Some(Arc::new(envelope));
     }
 }
@@ -532,6 +533,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        // Fine to pass None to the envelope here because this is testing non linear parent roots and not envelope
         RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
@@ -576,6 +578,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = Slot::new(0);
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
         RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
@@ -610,6 +613,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = blocks[2].slot();
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
         RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
@@ -1544,6 +1548,48 @@ async fn block_gossip_verification() {
                 if max_blobs_at_epoch == kzg_commitments_len && block == kzg_commitments_len + 1
             ),
             "should not import a block with higher blob_kzg_commitment length than the max_blobs at epoch"
+        );
+    }
+
+    /*
+     * This test ensures that:
+     *
+     * We do not accept gloas blocks with a non-empty `deposits` list. Gloas removes legacy
+     * eth1 deposits, so the effective limit for this progressive list is zero.
+     */
+    let (mut block, signature) = chain_segment[block_index]
+        .beacon_block
+        .as_ref()
+        .clone()
+        .deconstruct();
+
+    if let BeaconBlock::Gloas(gloas_block) = &mut block {
+        let deposit = Deposit {
+            proof: ssz_types::FixedVector::default(),
+            data: DepositData {
+                pubkey: bls::PublicKeyBytes::empty(),
+                withdrawal_credentials: Hash256::ZERO,
+                amount: 0,
+                signature: bls::SignatureBytes::empty(),
+            },
+        };
+        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]);
+        assert!(
+            matches!(
+                unwrap_err(
+                    harness
+                        .chain
+                        .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                            block, signature
+                        )))
+                        .await
+                ),
+                BlockError::PerBlockProcessingError(BlockProcessingError::OperationListTooLong {
+                    kind: "deposits",
+                    ..
+                })
+            ),
+            "should not accept a gloas block with a non-empty deposits list"
         );
     }
 }
@@ -2946,4 +2992,466 @@ async fn rpc_block_allows_construction_past_da_boundary() {
     }
 
     panic!("No block with blob commitments found");
+}
+
+/// Tests that a chain segment with a valid gloas block but an envelope with an invalid signature is rejected.
+#[tokio::test]
+async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+
+    let ((block, _blob), envelope, _state) = harness.make_block_with_envelope(state, slot).await;
+    let mut envelope = envelope.unwrap();
+
+    // Manually modify the envelope signature
+    envelope.signature = junk_signature();
+
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+
+    let available_envelope = AvailableEnvelope::new(
+        Arc::new(envelope),
+        columns,
+        bid,
+        &harness.chain.custody_context,
+    )
+    .unwrap();
+
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let result = harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    // result should fail with EnvelopeError(BadSignature)
+    match result {
+        ChainSegmentResult::Failed { error, .. } => {
+            assert!(
+                error.to_string().contains("BadSignature"),
+                "expected BadSignature error, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail with invalid envelope signature"),
+    }
+}
+
+/// Tests that when a chain segment has 2 gloas blocks with one block has invalid envelope signature
+/// both blocks imported into fork choice but only the block with valid envelope has payload received
+#[tokio::test]
+async fn process_chain_segment_partial_import_with_invalid_envelope() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    // Block 1 with a valid envelope.
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope1 = chain_dump[0].execution_envelope.clone().unwrap();
+    let columns1 = generate_data_column_sidecars_from_block(&block1, &harness.chain.spec);
+    let bid1 = block1
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope1 = AvailableEnvelope::new(
+        envelope1,
+        columns1,
+        bid1,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+
+    // Block 2 with an invalid envelope
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let mut envelope2 =
+        SignedExecutionPayloadEnvelope::clone(chain_dump[1].execution_envelope.as_ref().unwrap());
+    // modify the envelope signature to make the envelope invalid
+    envelope2.signature = junk_signature();
+    let columns2 = generate_data_column_sidecars_from_block(&block2, &harness.chain.spec);
+    let bid2 = block2
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope2 = AvailableEnvelope::new(
+        Arc::new(envelope2),
+        columns2,
+        bid2,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
+
+    let block_root1 = range_sync_blocks[0].block_root();
+    let block_root2 = range_sync_blocks[1].block_root();
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed {
+            imported_blocks,
+            error,
+        } => {
+            // should import 2 blocks, even though the second block envelope is invalid
+            assert_eq!(imported_blocks.len(), 2, "both blocks should be imported");
+            assert!(
+                error.to_string().contains("BadSignature"),
+                "expected BadSignature error for second block's envelope, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail on second block's bad envelope"),
+    }
+
+    // Both blocks land in fork choice
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.contains_block(&block_root1),);
+    assert!(fork_choice.contains_block(&block_root2),);
+
+    // Only the first block payload is received
+    assert!(fork_choice.is_payload_received(&block_root1),);
+    // the second block payload is false, because the envelope is invalid
+    assert!(!fork_choice.is_payload_received(&block_root2),);
+}
+
+/// Tests that a block cannot be imported when the parent's envelope is missing
+#[tokio::test]
+async fn process_chain_segment_import_fails_without_parent_envelope() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    // Block 1 is without an envelope
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, None).unwrap();
+
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope2 = chain_dump[1].execution_envelope.clone().unwrap();
+    let columns2 = generate_data_column_sidecars_from_block(&block2, &harness.chain.spec);
+    let bid2 = block2
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope2 = AvailableEnvelope::new(
+        envelope2,
+        columns2,
+        bid2,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+
+    let block_root1 = range_sync_block1.block_root();
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed {
+            imported_blocks,
+            error,
+        } => {
+            // block1 is imported successfully
+            assert_eq!(imported_blocks.len(), 1, "only block 1 should be imported");
+            assert_eq!(imported_blocks[0].0, block_root1);
+            // block2 import fails because it's a child of block1, but block1 has no envelope
+            // It has ParentImportStatus::UnknownPayload, and the error is: BlockError::ParentUnknown
+            assert!(
+                error.to_string().contains("ParentUnknown"),
+                "expected ParentUnknown error, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail without parent envelope"),
+    }
+
+    // Verify block 1 is in fork choice but payload not received.
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.contains_block(&block_root1),);
+    assert!(!fork_choice.is_payload_received(&block_root1),);
+}
+
+/// Tests a batch containing both full and empty parent, verify that blocks and payloads are imported consistently:
+/// block1: with envelope (full transition, payload received)
+/// block2: without envelope
+/// block3: empty child of block 2, with envelope
+#[tokio::test]
+async fn process_chain_segment_full_and_empty_transitions() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let block1 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope1 = chain_dump[0].execution_envelope.clone().unwrap();
+    let block2 = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[1].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    // block1 with envelope
+    let columns1 = generate_data_column_sidecars_from_block(&block1, &harness.chain.spec);
+    let bid1 = block1
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope1 = AvailableEnvelope::new(
+        envelope1,
+        columns1,
+        bid1,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+
+    // block2 is without envelope
+    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, None).unwrap();
+
+    // Produce block 3 as an empty child of block2
+    // This simulates a proposer who did not see block2 payload, and build block3 with PayloadStatus::Empty
+    harness.advance_slot();
+    let state3 = harness.get_current_state();
+    let slot3 = harness.get_current_slot();
+    let ((block3, _blob3), envelope3, _post_state3) = harness
+        .make_block_with_envelope_on(state3, slot3, PayloadStatus::Empty)
+        .await;
+    // block3 has a valid envelope.
+    let envelope3 = envelope3.unwrap();
+    let columns3 = generate_data_column_sidecars_from_block(&block3, &harness.chain.spec);
+    let bid3 = block3
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope3 = AvailableEnvelope::new(
+        Arc::new(envelope3),
+        columns3,
+        bid3,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+    let range_sync_block3 = RangeSyncBlock::new_gloas(block3, Some(available_envelope3)).unwrap();
+
+    let block_root1 = range_sync_block1.block_root();
+    let block_root2 = range_sync_block2.block_root();
+    let block_root3 = range_sync_block3.block_root();
+    let range_sync_blocks = vec![range_sync_block1, range_sync_block2, range_sync_block3];
+
+    import_harness
+        .chain
+        .slot_clock
+        .set_slot(range_sync_blocks.last().unwrap().slot().as_u64());
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(range_sync_blocks, NotifyExecutionLayer::Yes)
+        .await;
+
+    // All blocks are imported successfully
+    // block2 can be imported because block1 payload is available
+    // block3 can be imported because it does not build on block2's payload (PayloadStatus::Empty)
+    let ChainSegmentResult::Successful { imported_blocks: _ } = result else {
+        panic!("All blocks should be imported successfully");
+    };
+
+    let fork_choice = import_harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.contains_block(&block_root1));
+    assert!(fork_choice.contains_block(&block_root2));
+    assert!(fork_choice.contains_block(&block_root3));
+    // block1 payload is received (envelope provided).
+    assert!(fork_choice.is_payload_received(&block_root1),);
+    // block2 payload is not received (no envelope provided).
+    assert!(!fork_choice.is_payload_received(&block_root2),);
+    // block3 payload is received because it has its own envelope
+    assert!(fork_choice.is_payload_received(&block_root3),);
+}
+
+/// Tests that providing an envelope with invalid data columns causes block import to fail
+#[tokio::test]
+async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let block = Arc::new(
+        harness
+            .chain
+            .get_block(&chain_dump[0].beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let envelope = chain_dump[0].execution_envelope.clone().unwrap();
+
+    let mut columns = generate_data_column_sidecars_from_block(&block, &harness.chain.spec);
+    // Make one of the data column data to be invalid
+    // The block import should fail due to invalid data column
+    let mut invalid_column = (*columns[0]).clone();
+    if let DataColumnSidecar::Gloas(data_column_sidecar) = &mut invalid_column {
+        data_column_sidecar.column.get_mut(0).unwrap()[0] = 0x42;
+    } else {
+        panic!("test expects a Gloas DataColumnSidecar");
+    }
+    columns[0] = Arc::new(invalid_column);
+
+    let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap();
+    let available_envelope = AvailableEnvelope::new(
+        envelope,
+        columns,
+        bid,
+        &import_harness.chain.custody_context,
+    )
+    .unwrap();
+
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let result = import_harness
+        .chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    match result {
+        ChainSegmentResult::Failed { error, .. } => {
+            assert!(
+                // The check will fail at: verify_columns_against_block() which is called by process_chain_segment()
+                // When the data column is invalid, the error should contain InvalidColumn
+                error.to_string().contains("InvalidColumn"),
+                "expected InvalidColumn error from KZG verification, got: {error}"
+            );
+        }
+        _ => panic!("chain segment should fail with invalid column KZG proof"),
+    }
 }
