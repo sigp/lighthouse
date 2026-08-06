@@ -164,4 +164,21 @@ mod heze_tests {
     use crate::MainnetEthSpec;
 
     ssz_and_tree_hash_tests!(ExecutionPayloadBidHeze<MainnetEthSpec>);
+
+    #[test]
+    fn inclusion_list_bits_committed_to_signing_root() {
+        let bid = ExecutionPayloadBidHeze::<MainnetEthSpec>::default();
+        let mut bid_with_bits = bid.clone();
+        bid_with_bits
+            .inclusion_list_bits
+            .set(0, true)
+            .expect("bit index should be within the committee size");
+
+        let domain = Hash256::ZERO;
+        assert_ne!(
+            ExecutionPayloadBidRef::Heze(&bid).signing_root(domain),
+            ExecutionPayloadBidRef::Heze(&bid_with_bits).signing_root(domain),
+            "inclusion_list_bits must be covered by the Heze bid signing root",
+        );
+    }
 }
