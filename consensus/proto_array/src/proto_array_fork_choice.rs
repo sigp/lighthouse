@@ -92,7 +92,7 @@ pub struct LatestMessage {
     pub payload_present: bool,
 }
 
-/// Represents the verification status of an execution payload pre-Gloas.
+/// Represents the verification status of an execution payload.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
@@ -109,7 +109,10 @@ pub enum ExecutionStatus {
     ///
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
-    Irrelevant(bool),
+    PreMerge(bool),
+    /// The block is post-Gloas: the execution payload is decoupled from the beacon block, but the
+    /// EL block hash is still tracked here so that fork-choice-update calls can carry it.
+    PostGloas(ExecutionBlockHash),
 }
 
 /// Represents the status of an execution payload post-Gloas.
@@ -141,44 +144,39 @@ impl IndexedForkChoiceNode {
 }
 
 impl ExecutionStatus {
-    pub fn is_execution_enabled(&self) -> bool {
-        !matches!(self, ExecutionStatus::Irrelevant(_))
+    pub fn pre_merge() -> Self {
+        ExecutionStatus::PreMerge(false)
     }
 
-    pub fn irrelevant() -> Self {
-        ExecutionStatus::Irrelevant(false)
-    }
-
+    /// Returns the execution block hash if the block has execution enabled, else `None`.
     pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
         match self {
             ExecutionStatus::Valid(hash)
             | ExecutionStatus::Invalid(hash)
-            | ExecutionStatus::Optimistic(hash) => Some(*hash),
-            ExecutionStatus::Irrelevant(_) => None,
+            | ExecutionStatus::Optimistic(hash)
+            | ExecutionStatus::PostGloas(hash) => Some(*hash),
+            ExecutionStatus::PreMerge(_) => None,
         }
     }
 
-    /// Returns `true` if the block:
+    /// Returns `true` if the block has a valid payload OR doesn't have execution enabled.
     ///
-    /// - Has a valid payload, OR
-    /// - Does not have execution enabled.
-    ///
-    /// Whenever this function returns `true`, the block is *fully valid*.
-    pub fn is_valid_or_irrelevant(&self) -> bool {
+    /// Whenever this returns `true`, the block is fully valid.
+    pub fn is_valid_or_pre_merge(&self) -> bool {
         matches!(
             self,
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_)
+            ExecutionStatus::Valid(_) | ExecutionStatus::PreMerge(_)
         )
     }
 
     /// Returns `true` if the block:
     ///
     /// - Has execution enabled, AND
-    /// - Has a valid payload
+    /// - Has a valid payload.
     ///
-    /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
-    /// This means that some blocks that are perfectly valid will still receive a `false` response.
-    /// See `Self::is_valid_or_irrelevant` for a function that will always return `true` given any
+    /// This will return `false` for any block from a slot prior to the Bellatrix fork. This means
+    /// that some blocks that are perfectly valid will still receive a `false` response. See
+    /// [`Self::is_valid_or_pre_merge`] for a function that always returns `true` given any
     /// perfectly valid block.
     pub fn is_valid_and_post_bellatrix(&self) -> bool {
         matches!(self, ExecutionStatus::Valid(_))
@@ -212,11 +210,10 @@ impl ExecutionStatus {
         matches!(self, ExecutionStatus::Invalid(_))
     }
 
-    /// Returns `true` if the block:
-    ///
-    /// - Does not have execution enabled (before or after Bellatrix fork)
-    pub fn is_irrelevant(&self) -> bool {
-        matches!(self, ExecutionStatus::Irrelevant(_))
+    /// Returns `true` if the block does not have execution enabled
+    /// (pre-merge-fork or pre-terminal-PoW-block).
+    pub fn is_pre_merge(&self) -> bool {
+        matches!(self, ExecutionStatus::PreMerge(_))
     }
 }
 
@@ -226,7 +223,8 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Valid(_) => write!(f, "valid"),
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
-            ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+            ExecutionStatus::PreMerge(_) => write!(f, "pre-merge"),
+            ExecutionStatus::PostGloas(_) => write!(f, "post-gloas"),
         }
     }
 }
@@ -415,6 +413,7 @@ pub enum DoNotReOrg {
     HeadNotLate,
     NotProposing,
     ReOrgsDisabled,
+    GloasReOrgsDisabled,
 }
 
 impl std::fmt::Display for DoNotReOrg {
@@ -459,6 +458,9 @@ impl std::fmt::Display for DoNotReOrg {
             }
             Self::ReOrgsDisabled => {
                 write!(f, "re-orgs disabled in config")
+            }
+            Self::GloasReOrgsDisabled => {
+                write!(f, "re-orgs not yet supported for Gloas")
             }
         }
     }
@@ -914,8 +916,9 @@ impl ProtoArrayForkChoice {
                         node.execution_status = ExecutionStatus::Optimistic(block_hash)
                     }
                 }
-                // An irrelevant node cannot become optimistic, this is a no-op.
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
+                // A pre-merge node cannot become optimistic; post-Gloas verification is
+                // decoupled; V29 (Gloas) nodes are no-ops.
+                Ok(ExecutionStatus::PreMerge(_)) | Ok(ExecutionStatus::PostGloas(_)) | Err(_) => (),
             }
         }
 
@@ -955,6 +958,7 @@ impl ProtoArrayForkChoice {
             .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root());
+        let execution_status = proto_node_execution_status(block)?;
 
         Some(Block {
             slot: block.slot(),
@@ -966,9 +970,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
             justified_checkpoint: *block.justified_checkpoint(),
             finalized_checkpoint: *block.finalized_checkpoint(),
-            execution_status: block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            execution_status,
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
@@ -1035,14 +1037,13 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("{e:?}"))
     }
 
-    /// Returns the `block.execution_status` field, if the block is present.
+    /// Returns the `block.execution_status` field, if the block is present and an execution
+    /// view is recoverable.
+    ///
+    /// V29 (Gloas) nodes don't carry `execution_status`; surface the real EL hash via
+    /// `PostGloas`. Returns `None` when neither view is available.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        let block = self.get_proto_node(block_root)?;
-        Some(
-            block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-        )
+        proto_node_execution_status(self.get_proto_node(block_root)?)
     }
 
     /// Returns whether the execution payload for a block has been received.
@@ -1181,6 +1182,17 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .heads_descended_from_finalization::<E>(best_finalized_checkpoint)
     }
+}
+
+/// Surfaces an `ExecutionStatus` for a proto node. V29 (Gloas) nodes don't carry
+/// `execution_status` directly, so we map them via `PostGloas(<execution_payload_block_hash>)`.
+/// Returns `None` if neither view is available.
+fn proto_node_execution_status(node: &ProtoNode) -> Option<ExecutionStatus> {
+    node.execution_status().ok().or_else(|| {
+        node.execution_payload_block_hash()
+            .ok()
+            .map(ExecutionStatus::PostGloas)
+    })
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in
@@ -1361,7 +1373,7 @@ mod test_compute_deltas {
         let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_status = ExecutionStatus::irrelevant();
+        let execution_status = ExecutionStatus::pre_merge();
 
         let genesis_checkpoint = Checkpoint {
             epoch: genesis_epoch,
@@ -1522,7 +1534,7 @@ mod test_compute_deltas {
         let junk_state_root = Hash256::zero();
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_status = ExecutionStatus::irrelevant();
+        let execution_status = ExecutionStatus::pre_merge();
 
         let genesis_checkpoint = Checkpoint {
             epoch: Epoch::new(0),

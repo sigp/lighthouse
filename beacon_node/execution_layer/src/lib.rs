@@ -20,6 +20,7 @@ pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
 use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
+pub use fork_choice::FcuHash;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
 pub use payload_status::PayloadStatus;
@@ -1346,14 +1347,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
+                    // Engine API spec: zero is the documented sentinel for `safeBlockHash` /
+                    // `finalizedBlockHash` when no such block is known yet (merge transition).
+                    let safe_block_hash = match forkchoice_update_params.justified_hash {
+                        FcuHash::Hash(h) => h,
+                        FcuHash::PreMerge => ExecutionBlockHash::zero(),
+                    };
+                    let finalized_block_hash = match forkchoice_update_params.finalized_hash {
+                        FcuHash::Hash(h) => h,
+                        FcuHash::PreMerge => ExecutionBlockHash::zero(),
+                    };
                     let fork_choice_state = ForkchoiceState {
                         head_block_hash: parent_hash,
-                        safe_block_hash: forkchoice_update_params
-                            .justified_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                        finalized_block_hash: forkchoice_update_params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
+                        safe_block_hash,
+                        finalized_block_hash,
                     };
 
                     let response = engine
