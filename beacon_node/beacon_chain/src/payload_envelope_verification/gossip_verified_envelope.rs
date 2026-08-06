@@ -605,8 +605,7 @@ mod tests {
                     validator_pubkey: PublicKeyBytes::empty(),
                     amount: 0,
                 };
-                requests.withdrawals =
-                    ProgressiveVariableList::new(vec![withdrawal_request; len]);
+                requests.withdrawals = ProgressiveVariableList::new(vec![withdrawal_request; len]);
             },
         );
 

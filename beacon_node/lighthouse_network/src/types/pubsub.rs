@@ -715,11 +715,17 @@ mod tests {
 
         let data = vec![0u8; max + 1];
         let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
-        assert!(err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+        assert!(
+            err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
+            "{err}"
+        );
 
         let data = vec![0u8; max];
         let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
-        assert!(!err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+        assert!(
+            !err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
+            "{err}"
+        );
     }
 
     #[test]
