@@ -89,6 +89,7 @@ use crate::{
     CachedHead, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
+use builder_client::Builders;
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
@@ -456,6 +457,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
     pub proof_engine: Option<Arc<ProofEngine>>,
+    /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
+    /// API. Present only when the Gloas fork is scheduled.
+    pub builders: Option<Arc<Builders>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
