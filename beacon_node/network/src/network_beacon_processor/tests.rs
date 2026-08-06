@@ -424,6 +424,22 @@ impl TestRig {
         self.chain.head_snapshot().beacon_block_root
     }
 
+    /// Wait for the head to become `expected`. Delayed data column reconstruction can import
+    /// a block on a separate work item, so the head update is not synchronous with the
+    /// gossip work journal.
+    pub async fn wait_for_head_root(&self, expected: Hash256) {
+        let result = tokio::time::timeout(STANDARD_TIMEOUT, async {
+            while self.head_root() != expected {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(
+            result.is_ok(),
+            "timed out waiting for the block to be imported and become head"
+        );
+    }
+
     pub fn enqueue_gossip_block(&self) {
         self.network_beacon_processor
             .send_gossip_beacon_block(
@@ -1262,11 +1278,8 @@ async fn import_gossip_block_at_current_slot() {
             .await;
     }
 
-    assert_eq!(
-        rig.head_root(),
-        rig.next_block.canonical_root(),
-        "block should be imported and become head"
-    );
+    rig.wait_for_head_root(rig.next_block.canonical_root())
+        .await;
 }
 
 fn fork_from_env_starts_at_fulu_or_later(spec: &ChainSpec) -> bool {
