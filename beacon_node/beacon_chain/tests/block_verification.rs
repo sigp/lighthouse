@@ -1551,7 +1551,8 @@ async fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * We do not accept gloas blocks whose progressive operation lists exceed their spec limits.
+     * We do not accept gloas blocks with a non-empty `deposits` list. Gloas removes legacy
+     * eth1 deposits, so the effective limit for this progressive list is zero.
      */
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block
