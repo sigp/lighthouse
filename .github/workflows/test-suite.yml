@@ -52,6 +52,30 @@ jobs:
          done
          echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
 
+  check-stack-position:
+    runs-on: ubuntu-latest
+    name: Check stacked pull request position
+    outputs:
+      skip_ef_tests: ${{ steps.set-output.outputs.SKIP_EF_TESTS }}
+    steps:
+      - name: check stack position
+        id: set-output
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SKIP_EF_TESTS="false"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            STACK=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.stack // empty' || true)
+            if [ -n "$STACK" ]; then
+              POSITION=$(echo "$STACK" | jq -r '.position')
+              SIZE=$(echo "$STACK" | jq -r '.size')
+              if [ "$POSITION" -lt "$SIZE" ]; then
+                SKIP_EF_TESTS="true"
+              fi
+            fi
+          fi
+          echo "SKIP_EF_TESTS=$SKIP_EF_TESTS" >> $GITHUB_OUTPUT
+
   lockbud:
     name: lockbud
     runs-on: ubuntu-latest
@@ -278,8 +302,10 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
+    needs: [check-labels, check-stack-position]
+    # Skip EF tests below the top of a stack. Stack CI tests each layer's
+    # combined prefix, so the top layer covers the full stack.
+    if: needs.check-labels.outputs.skip_ci != 'true' && needs.check-stack-position.outputs.skip_ef_tests != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -497,6 +523,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [
       'check-labels',
+      'check-stack-position',
       'target-branch-check',
       'forbidden-files-check',
       'release-tests-ubuntu',
