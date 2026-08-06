@@ -8819,6 +8819,7 @@ dependencies = [
 name = "system_health"
 version = "0.1.0"
 dependencies = [
+ "discv5",
  "lighthouse_network",
  "metrics",
  "network_utils",

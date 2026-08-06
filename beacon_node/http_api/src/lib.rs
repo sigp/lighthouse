@@ -72,7 +72,6 @@ use lighthouse_network::PeerId;
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
-use network_utils::discovery_metrics::scrape_discovery_metrics;
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 pub use publish_blocks::{
@@ -2982,9 +2981,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_json_task(Priority::P1, move || {
-                // discv5 metrics are not pushed continuously; pull fresh values from the discv5
-                // global metrics so that observe_nat() reads up-to-date contactability results.
-                scrape_discovery_metrics();
                 Ok(api_types::GenericResponse::from(observe_nat()))
             })
         });
