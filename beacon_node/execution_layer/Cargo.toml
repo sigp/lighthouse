@@ -29,7 +29,7 @@ logging = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = "0.30"
+opentelemetry-http = { workspace = true }
 parking_lot = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 rand = { workspace = true }
