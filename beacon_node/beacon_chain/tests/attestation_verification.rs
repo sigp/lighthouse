@@ -15,6 +15,7 @@ use beacon_chain::{
     },
 };
 use bls::{AggregateSignature, Keypair, SecretKey};
+use eth2::types::EventKind;
 use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
@@ -346,6 +347,9 @@ impl GossipTester {
             SignedAggregateAndProofRefMut::Electra(att) => {
                 att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
             }
+            SignedAggregateAndProofRefMut::Gloas(att) => {
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
         }
 
         Self {
@@ -591,6 +595,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.slot = tester.slot() + 1
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
+                }
             },
             |tester, err| {
                 assert!(matches!(
@@ -612,6 +619,11 @@ async fn aggregated_gossip_verification() {
                             too_early_slot.epoch(E::slots_per_epoch());
                     }
                     SignedAggregateAndProofRefMut::Electra(att) => {
+                        att.message.aggregate.data.slot = too_early_slot;
+                        att.message.aggregate.data.target.epoch =
+                            too_early_slot.epoch(E::slots_per_epoch());
+                    }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
                         att.message.aggregate.data.slot = too_early_slot;
                         att.message.aggregate.data.target.epoch =
                             too_early_slot.epoch(E::slots_per_epoch());
@@ -647,6 +659,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.target.epoch += 1
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.target.epoch += 1
+                }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
         )
@@ -661,6 +676,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
                 }
             },
@@ -678,6 +696,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
             },
@@ -711,6 +732,12 @@ async fn aggregated_gossip_verification() {
                     assert!(aggregation_bits.is_zero());
                     att.message.aggregate.signature = AggregateSignature::infinity()
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
+                }
             },
             |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
         )
@@ -726,6 +753,9 @@ async fn aggregated_gossip_verification() {
                     att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
             },
@@ -786,6 +816,21 @@ async fn aggregated_gossip_verification() {
                             }
                         };
                     }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
+                        att.message.selection_proof = loop {
+                            i += 1;
+                            let proof: SelectionProof = tester
+                                .aggregator_sk
+                                .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                                .into();
+                            if proof
+                                .is_aggregator(committee_len, &tester.harness.chain.spec)
+                                .unwrap()
+                            {
+                                break proof.into();
+                            }
+                        };
+                    }
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -807,6 +852,9 @@ async fn aggregated_gossip_verification() {
                     SignedAggregateAndProofRefMut::Electra(att) => {
                         att.message.aggregate.signature = agg_sig;
                     }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
+                        att.message.aggregate.signature = agg_sig;
+                    }
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -822,6 +870,10 @@ async fn aggregated_gossip_verification() {
                         <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregator_index =
                         <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
@@ -848,6 +900,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index = VALIDATOR_COUNT as u64
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
             },
@@ -907,9 +962,12 @@ async fn aggregated_gossip_verification() {
             "gloas: aggregate with index >= 2",
             |_, a| match a.to_mut() {
                 SignedAggregateAndProofRefMut::Base(_) => {
-                    panic!("Expected Electra attestation variant");
+                    panic!("Expected Electra or Gloas attestation variant");
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.index = 2;
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.index = 2;
                 }
             },
@@ -962,6 +1020,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
             },
             |tester, err| {
                 assert!(matches!(
@@ -971,6 +1032,47 @@ async fn aggregated_gossip_verification() {
                 ))
             },
         );
+}
+
+/// Ensures the batch verification paths emit SSE events for each valid attestation, just like
+/// the individual verification paths.
+#[tokio::test]
+async fn batch_verification_emits_events() {
+    let tester = GossipTester::new().await;
+    let chain = &tester.harness.chain;
+
+    let event_handler = chain.event_handler.as_ref().unwrap();
+    let mut single_attestation_receiver = event_handler.subscribe_single_attestation();
+    let mut attestation_receiver = event_handler.subscribe_attestation();
+
+    let results = chain
+        .batch_verify_unaggregated_attestations_for_gossip(
+            vec![(
+                &tester.valid_attestation,
+                Some(tester.attestation_subnet_id),
+            )]
+            .into_iter(),
+        )
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    match single_attestation_receiver.try_recv() {
+        Ok(EventKind::SingleAttestation(single_attestation)) => {
+            assert_eq!(*single_attestation, tester.valid_attestation)
+        }
+        other => panic!("expected single_attestation event, got {other:?}"),
+    }
+    assert!(attestation_receiver.try_recv().is_err());
+
+    let results = chain
+        .batch_verify_aggregated_attestations_for_gossip(vec![&tester.valid_aggregate].into_iter())
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    assert!(matches!(
+        attestation_receiver.try_recv(),
+        Ok(EventKind::Attestation(_))
+    ));
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
@@ -1958,6 +2060,9 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
         SignedAggregateAndProofRefMut::Electra(att) => {
             att.message.aggregate.data.index = 1;
         }
+        SignedAggregateAndProofRefMut::Gloas(att) => {
+            att.message.aggregate.data.index = 1;
+        }
     }
 
     let result = harness
@@ -2117,13 +2222,17 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     let (mut valid_aggregate, _, _) =
         get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
 
-    valid_aggregate
-        .as_electra_mut()
-        .unwrap()
-        .message
-        .aggregate
-        .data
-        .index = 1;
+    match valid_aggregate.to_mut() {
+        SignedAggregateAndProofRefMut::Base(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Electra(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Gloas(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+    }
 
     let result = harness
         .chain

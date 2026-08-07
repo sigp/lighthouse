@@ -17,8 +17,8 @@ use beacon_chain::payload_envelope_verification::{
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
+    ExitValidationError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -1979,15 +1979,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Dropping invalid exit"
                 );
-                // These errors occur due to a fault in the beacon chain. It is not necessarily
-                // the fault on the peer.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // We still penalize a peer slightly to prevent overuse of invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_exit",
-                );
+                let validation_result = if matches!(
+                    e,
+                    BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_))
+                ) {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_exit",
+                    );
+                    MessageAcceptance::Reject
+                } else {
+                    // Other errors do not prove that the peer sent an invalid message.
+                    MessageAcceptance::Ignore
+                };
+                self.propagate_validation_result(message_id, peer_id, validation_result);
                 return;
             }
         };
@@ -3776,9 +3782,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
+                    | EnvelopeError::ParentBeaconBlockRootMismatch { .. }
+                    | EnvelopeError::InvalidPayloadHash(_)
+                    | EnvelopeError::ExecutionRequestsRootMismatch { .. }
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
                     | EnvelopeError::ExecutionPayloadError(_)
+                    | EnvelopeError::OperationListTooLong { .. }
                     | EnvelopeError::EnvelopeProcessingError(_) => {
                         self.propagate_validation_result(
                             message_id,
@@ -3891,10 +3901,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "envelope arrived early"
                 );
 
-                // TODO(gloas) update metrics to note how early the envelope arrived
+                // Take note of how early this envelope arrived.
+                if let Some(duration) = self
+                    .chain
+                    .slot_clock
+                    .start_of(envelope_slot)
+                    .and_then(|start| start.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_EARLY_SECONDS,
+                        duration,
+                    );
+                }
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_REQUEUED_TOTAL,
+                );
 
                 let inner_self = self.clone();
-                let _process_fn = Box::pin(async move {
+                let process_fn = Box::pin(async move {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
@@ -3902,8 +3927,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         )
                         .await;
                 });
-
-                // TODO(gloas) send to reprocess queue
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::EarlyEnvelope(
+                            QueuedGossipEnvelope {
+                                beacon_block_slot: envelope_slot,
+                                beacon_block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        %envelope_slot,
+                        ?beacon_block_root,
+                        location = "envelope gossip",
+                        "Failed to defer envelope import"
+                    )
+                }
                 None
             }
             Ok(_) => Some(verified_envelope),
@@ -4043,7 +4087,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidBuilderVersion { .. }
-                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
@@ -4063,6 +4106,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)

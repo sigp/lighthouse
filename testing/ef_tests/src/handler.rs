@@ -45,6 +45,11 @@ pub trait Handler {
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
+            // TODO(heze): remove this skip once Heze spec test vectors are published in
+            // consensus-spec-tests.
+            if fork_name == ForkName::Heze {
+                continue;
+            }
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
             }
@@ -305,6 +310,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Gloas])
     }
 
+    pub fn heze_only() -> Self {
+        Self::for_forks(vec![ForkName::Heze])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -325,12 +334,20 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
     }
 
+    pub fn electra_through_fulu() -> Self {
+        Self::for_forks(ForkName::list_all()[5..7].to_vec())
+    }
+
     pub fn fulu_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
     pub fn gloas_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[7..].to_vec())
+    }
+
+    pub fn heze_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[8..].to_vec())
     }
 
     pub fn pre_electra() -> Self {
@@ -812,7 +829,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas optimistic sync tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1034,6 +1051,10 @@ impl<E> GossipValidationHandler<E> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn latest_stable(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::latest_stable()])
+    }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
@@ -1083,7 +1104,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1108,7 +1129,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1133,7 +1154,7 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1158,7 +1179,7 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1187,7 +1208,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG merkle proof tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1216,7 +1237,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1246,7 +1267,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1298,13 +1319,21 @@ impl<H: TypeName> Handler for SszGenericHandler<H> {
 // Supported SSZ generic handlers
 pub struct BasicVector;
 type_name!(BasicVector, "basic_vector");
+pub struct BasicProgressiveList;
+type_name!(BasicProgressiveList, "basic_progressive_list");
 pub struct Bitlist;
 type_name!(Bitlist, "bitlist");
 pub struct Bitvector;
 type_name!(Bitvector, "bitvector");
+pub struct ProgressiveBitlist;
+type_name!(ProgressiveBitlist, "progressive_bitlist");
 pub struct Boolean;
 type_name!(Boolean, "boolean");
 pub struct Uints;
 type_name!(Uints, "uints");
 pub struct Containers;
 type_name!(Containers, "containers");
+pub struct ProgressiveContainers;
+type_name!(ProgressiveContainers, "progressive_containers");
+pub struct CompatibleUnions;
+type_name!(CompatibleUnions, "compatible_unions");

@@ -479,6 +479,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                 return Err("invalid fork".to_string());
             }
+            SignedBlindedBeaconBlock::Heze(_) => {
+                // TODO(heze) Check if this is how we want to do error handling for heze
+                return Err("invalid fork".to_string());
+            }
         };
         let block_hash = block
             .message()
@@ -597,6 +601,10 @@ impl<E: EthSpec> MockBuilder<E> {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                         return Err("invalid fork".to_string());
                     }
+                    ForkName::Heze => {
+                        // TODO(heze) Check if this is how we want to do error handling for heze
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -607,13 +615,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests
-                            .map(|r| ExecutionRequestsElectra {
-                                deposits: r.deposits().clone(),
-                                withdrawals: r.withdrawals().clone(),
-                                consolidations: r.consolidations().clone(),
-                            })
-                            .unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                         header: payload
@@ -625,13 +630,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests
-                            .map(|r| ExecutionRequestsElectra {
-                                deposits: r.deposits().clone(),
-                                withdrawals: r.withdrawals().clone(),
-                                consolidations: r.consolidations().clone(),
-                            })
-                            .unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                         header: payload
@@ -930,7 +932,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,

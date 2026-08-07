@@ -4,13 +4,17 @@ use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
-use reqwest::header::CONTENT_TYPE;
+use opentelemetry::global;
+use opentelemetry_http::HeaderInjector;
+use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use std::time::{Duration, Instant};
 
@@ -671,6 +675,14 @@ impl HttpJsonRpc {
             request = request.bearer_auth(auth.generate_token()?);
         };
 
+        // Inject the current span's trace context as a `traceparent` header.
+        let context = Span::current().context();
+        let mut headers = HeaderMap::new();
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&context, &mut HeaderInjector(&mut headers))
+        });
+        request = request.headers(headers);
+
         let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
@@ -1080,6 +1092,7 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
+            // TODO(heze): add a Heze arm once Heze payload retrieval is implemented.
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v6 with {}",
                 fork_name
@@ -1413,6 +1426,11 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
+            // TODO(heze): implement the Heze newPayload path once the engine API for Heze
+            // is specified.
+            NewPayloadRequest::Heze(_) => Err(Error::UnsupportedForkVariant(
+                "newPayload not implemented for Heze".to_string(),
+            )),
         }
     }
 
@@ -1462,6 +1480,11 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
                 }
             }
+            // TODO(heze): implement the Heze getPayload path once the engine API for Heze
+            // is specified.
+            ForkName::Heze => Err(Error::UnsupportedForkVariant(
+                "getPayload not implemented for Heze".to_string(),
+            )),
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload with {}",
                 fork_name
@@ -1683,7 +1706,7 @@ mod test {
             .unwrap()
             .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions().clone())
+        Ok(ep.transactions_bounded().unwrap().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(
