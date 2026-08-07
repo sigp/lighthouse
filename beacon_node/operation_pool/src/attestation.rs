@@ -107,7 +107,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
                     }
                 }
 
-                Some((index, proposer_reward_numerator)).filter(|_| proposer_reward_numerator != 0)
+                (proposer_reward_numerator != 0).then_some((index, proposer_reward_numerator))
             })
             .collect();
 
@@ -186,7 +186,9 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     let mut new_validators = match attestation.indexed {
         CompactIndexedAttestation::Base(indexed_att) => indexed_att.aggregation_bits.clone(),
         // This code path is obsolete post altair fork, so we just return an empty bitlist here.
-        CompactIndexedAttestation::Electra(_) => return BitList::with_capacity(0).unwrap(),
+        CompactIndexedAttestation::Electra(_) | CompactIndexedAttestation::Gloas(_) => {
+            return BitList::with_capacity(0).unwrap();
+        }
     };
 
     let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {

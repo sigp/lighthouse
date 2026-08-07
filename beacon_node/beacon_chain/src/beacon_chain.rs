@@ -15,15 +15,14 @@ use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
 pub use crate::canonical_head::CanonicalHead;
+use crate::canonical_head::ForkChoiceWriteGuard;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::{CustodyContext, CustodyContextSsz};
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
-    DataColumnReconstructionResult as DataColumnReconstructionResultV1,
+    DataAvailabilityChecker, DataColumnReconstructionResult as DataColumnReconstructionResultV1,
     verify_columns_against_block,
 };
-
-use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
@@ -92,7 +91,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
-    SseExtendedPayloadAttributes, SseHead,
+    SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
@@ -111,10 +110,11 @@ use logging::crit;
 use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
+use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -483,7 +483,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
-    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
@@ -1258,7 +1258,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
                 debug!(
-                    bytes = format!("0x{}", hex::encode(&**txn)),
+                    bytes = format!("0x{}", hex::encode(txn)),
                     "Reconstructed txn"
                 );
             }
@@ -1449,12 +1449,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         sync_committee_period: u64,
         count: u64,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
-        self.light_client_server_cache.get_light_client_updates(
-            &self.store,
-            sync_committee_period,
-            count,
-            &self.spec,
-        )
+        Ok(self
+            .store
+            .get_light_client_updates(sync_committee_period, count)?)
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -1749,12 +1746,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
         match attestation {
             AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
-            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
-                att.data.slot,
-                &att.data.tree_hash_root(),
-                att.committee_index()
-                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
-            ),
+            AttestationRef::Electra(_) | AttestationRef::Gloas(_) => self
+                .get_aggregated_attestation_electra(
+                    attestation.data().slot,
+                    &attestation.data().tree_hash_root(),
+                    attestation
+                        .committee_index()
+                        .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+                ),
         }
     }
 
@@ -2192,11 +2191,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
             });
 
-        // A payload is only imported into fork choice if its data was available.
+        // `blob_data_available` reflects whether our custody requirement for this block's data
+        // columns has been satisfied, independent of whether the payload envelope itself has
+        // been received or imported into fork choice.
         let blob_data_available = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .is_payload_received(&beacon_block_root);
+            .pending_payload_cache
+            .is_blob_data_available(&beacon_block_root);
 
         Ok(PayloadAttestationData {
             beacon_block_root,
@@ -2219,7 +2219,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
-        batch_verify_unaggregated_attestations(attestations, self)
+        let results = batch_verify_unaggregated_attestations(attestations, self)?;
+        for verified_attestation in results.iter().flatten() {
+            self.register_unaggregated_attestation_events(verified_attestation);
+        }
+        Ok(results)
+    }
+
+    /// Register SSE events for a successfully verified unaggregated attestation.
+    fn register_unaggregated_attestation_events(
+        &self,
+        verified_attestation: &VerifiedUnaggregatedAttestation<'_, T>,
+    ) {
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_single_attestation_subscribers()
+        {
+            event_handler.register(EventKind::SingleAttestation(Box::new(
+                verified_attestation.single_attestation(),
+            )));
+        }
     }
 
     /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
@@ -2238,30 +2256,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).inspect(
             |v| {
-                // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-                if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_single_attestation_subscribers() {
-                        let current_fork = self
-                            .spec
-                            .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
-                        if current_fork.electra_enabled() {
-                            event_handler.register(EventKind::SingleAttestation(Box::new(
-                                v.single_attestation(),
-                            )));
-                        }
-                    }
-
-                    if event_handler.has_attestation_subscribers() {
-                        let current_fork = self
-                            .spec
-                            .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
-                        if !current_fork.electra_enabled() {
-                            event_handler.register(EventKind::Attestation(Box::new(
-                                v.attestation().clone_as_attestation(),
-                            )));
-                        }
-                    }
-                }
+                self.register_unaggregated_attestation_events(v);
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
             },
         )
@@ -2277,7 +2272,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
     {
-        batch_verify_aggregated_attestations(aggregates, self)
+        let results = batch_verify_aggregated_attestations(aggregates, self)?;
+        for verified_aggregate in results.iter().flatten() {
+            self.register_aggregated_attestation_event(verified_aggregate);
+        }
+        Ok(results)
+    }
+
+    /// Register an SSE event for a successfully verified aggregated attestation.
+    fn register_aggregated_attestation_event(
+        &self,
+        verified_aggregate: &VerifiedAggregatedAttestation<'_, T>,
+    ) {
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_attestation_subscribers()
+        {
+            event_handler.register(EventKind::Attestation(Box::new(
+                verified_aggregate.attestation().clone_as_attestation(),
+            )));
+        }
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -2291,14 +2304,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
         VerifiedAggregatedAttestation::verify(signed_aggregate, self).inspect(|v| {
-            // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-            if let Some(event_handler) = self.event_handler.as_ref()
-                && event_handler.has_attestation_subscribers()
-            {
-                event_handler.register(EventKind::Attestation(Box::new(
-                    v.attestation().clone_as_attestation(),
-                )));
-            }
+            self.register_aggregated_attestation_event(v);
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
         })
     }
@@ -2382,16 +2388,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_data_column_sidecar_for_gossip(
+    pub async fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
-        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        let chain = self.clone();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                    let _timer = metrics::start_timer(
+                        &metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                    );
+                    GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, &chain).inspect(
+                        |_| {
+                            metrics::inc_counter(
+                                &metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                            );
+                        },
+                    )
+                },
+                "gossip_data_column_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 
     pub fn verify_partial_data_column_header_for_gossip(
@@ -3730,7 +3753,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gloas:
     /// - true only once the payload envelope and required data columns are fully imported.
     ///   The beacon block itself may already be present in fork choice before this is true.
-    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+    pub fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
         let is_gloas = self
             .spec
             .fork_name_at_slot::<T::EthSpec>(slot)
@@ -4317,7 +4340,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = fork_choice_reader.upgrade();
 
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
@@ -4425,6 +4448,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     warn!(
                                         error = ?e,
                                         "Unable to find dependent roots, cannot register head event"
+                                    );
+                                }
+                            }
+                        }
+
+                        // Register a server-sent-event for a new head_v2
+                        if let Some(event_handler) = self
+                            .event_handler
+                            .as_ref()
+                            .filter(|handler| handler.has_head_v2_subscribers())
+                        {
+                            let head_slot = state.slot();
+                            let state_root = block.state_root();
+                            let is_epoch_transition = state.current_epoch()
+                                > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                            let current_epoch_dependent_root = state
+                                .attester_shuffling_decision_root(
+                                    self.genesis_block_root,
+                                    RelativeEpoch::Current,
+                                );
+                            let next_epoch_dependent_root = state.attester_shuffling_decision_root(
+                                self.genesis_block_root,
+                                RelativeEpoch::Next,
+                            );
+
+                            match (current_epoch_dependent_root, next_epoch_dependent_root) {
+                                (
+                                    Ok(current_epoch_dependent_root),
+                                    Ok(next_epoch_dependent_root),
+                                ) => {
+                                    let head_v2 = SseHeadV2 {
+                                        slot: head_slot,
+                                        block: block_root,
+                                        state: state_root,
+                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
+                                        payload_status: fork_choice::PayloadStatus::Empty,
+                                        epoch_transition: is_epoch_transition,
+                                        current_epoch_dependent_root,
+                                        next_epoch_dependent_root,
+                                        execution_optimistic: new_head_is_optimistic,
+                                    };
+                                    event_handler.register(EventKind::HeadV2(Box::new(
+                                        ForkVersionedResponse {
+                                            version: self
+                                                .spec
+                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                            metadata: Default::default(),
+                                            data: head_v2,
+                                        },
+                                    )))
+                                }
+                                (Err(e), _) | (_, Err(e)) => {
+                                    warn!(
+                                        error = ?e,
+                                        "Unable to find dependent roots, cannot register head_v2 event"
                                     );
                                 }
                             }
@@ -4549,7 +4628,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        fork_choice_write_lock: ForkChoiceWriteGuard<T>,
     ) -> Result<(), BlockError> {
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
@@ -5057,16 +5136,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
+        // TODO(gloas) once we fork to gloas, we can remove `parent_block_number`.
+        // In the meantime we are just setting it to `None`.
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            if proposer_head == head_parent_block_root {
+                (cached_head.parent_random()?, None)
+            } else {
+                (cached_head.head_random()?, None)
+            }
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (
@@ -5812,27 +5894,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (attester_slashings_base, attester_slashings_electra) =
-            attester_slashings.into_iter().fold(
-                (Vec::new(), Vec::new()),
-                |(mut base, mut electra), slashing| {
-                    match slashing {
-                        AttesterSlashing::Base(slashing) => base.push(slashing),
-                        AttesterSlashing::Electra(slashing) => electra.push(slashing),
-                    }
-                    (base, electra)
-                },
-            );
-        let (attestations_base, attestations_electra) = attestations.into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut base, mut electra), attestation| {
-                match attestation {
-                    Attestation::Base(attestation) => base.push(attestation),
-                    Attestation::Electra(attestation) => electra.push(attestation),
+        let mut attester_slashings_base = Vec::new();
+        let mut attester_slashings_electra = Vec::new();
+        for slashing in attester_slashings {
+            match slashing {
+                AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
+                AttesterSlashing::Electra(slashing) => attester_slashings_electra.push(slashing),
+                // Gloas-typed slashings cannot be included in pre-Gloas blocks, and Gloas
+                // blocks are produced via `complete_partial_beacon_block_gloas`.
+                AttesterSlashing::Gloas(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Gloas attester slashing in pre-Gloas block production".to_owned(),
+                    ));
                 }
-                (base, electra)
-            },
-        );
+            }
+        }
+        let mut attestations_base = Vec::new();
+        let mut attestations_electra = Vec::new();
+        for attestation in attestations {
+            match attestation {
+                Attestation::Base(attestation) => attestations_base.push(attestation),
+                Attestation::Electra(attestation) => attestations_electra.push(attestation),
+                // Gloas-typed attestations cannot be included in pre-Gloas blocks, and Gloas
+                // blocks are produced via `complete_partial_beacon_block_gloas`.
+                Attestation::Gloas(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Gloas attestation in pre-Gloas block production".to_owned(),
+                    ));
+                }
+            }
+        }
 
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
@@ -6087,11 +6178,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6146,11 +6232,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6161,6 +6242,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Gloas(_) => {
                 return Err(BlockProductionError::GloasNotImplemented(
                     "Attempting to produce gloas beacon block via non gloas code path".to_owned(),
+                ));
+            }
+            BeaconState::Heze(_) => {
+                return Err(BlockProductionError::HezeNotImplemented(
+                    "Attempting to produce heze beacon block via non heze code path".to_owned(),
                 ));
             }
         };
@@ -6543,14 +6629,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
-            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
                     proposer_index: proposer,
                     parent_block_root: head_root,
-                    parent_block_number,
+                    parent_block_number: pre_payload_attributes
+                        .parent_block_number
+                        .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                     payload_attributes: payload_attributes.into(),
                 },
@@ -6948,6 +7035,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.envelope_times_cache.write().prune(slot);
             self.gossip_verified_payload_bid_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
+            self.pending_payload_envelopes.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {

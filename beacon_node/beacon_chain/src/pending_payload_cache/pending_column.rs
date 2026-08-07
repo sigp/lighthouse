@@ -1,5 +1,5 @@
 use kzg::KzgProof;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
 use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, EthSpec, Hash256, Slot};
 
@@ -54,8 +54,8 @@ impl<E: EthSpec> PendingColumn<E> {
         // post-Gloas variants are introduced (or move construction to a fork-aware helper).
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
-            column: VariableList::try_from(column).ok()?,
-            kzg_proofs: VariableList::try_from(kzg_proofs).ok()?,
+            column: ProgressiveVariableList::from_iter(column),
+            kzg_proofs: ProgressiveVariableList::from_iter(kzg_proofs),
             slot,
             beacon_block_root,
         })))

@@ -333,9 +333,13 @@ mod ssz_static {
     fn attestation() {
         SszStaticHandler::<AttestationBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra().run();
         SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
-        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
+            .run();
+        SszStaticHandler::<AttestationGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<AttestationGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
             .run();
     }
 
@@ -351,10 +355,16 @@ mod ssz_static {
             .run();
         SszStaticHandler::<AttesterSlashingBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<AttesterSlashingElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<AttesterSlashingElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
             .run();
+        SszStaticHandler::<AttesterSlashingGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<AttesterSlashingGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
+        )
+        .run();
     }
 
     #[test]
@@ -363,9 +373,13 @@ mod ssz_static {
             .run();
         SszStaticHandler::<IndexedAttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<IndexedAttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<IndexedAttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<IndexedAttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<IndexedAttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
+            .run();
+        SszStaticHandler::<IndexedAttestationGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<IndexedAttestationGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
             .run();
     }
 
@@ -377,10 +391,16 @@ mod ssz_static {
         SszStaticHandler::<SignedAggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra(
         )
         .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later(
+        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu(
         )
         .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later(
+        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
         )
         .run();
     }
@@ -391,10 +411,16 @@ mod ssz_static {
             .run();
         SszStaticHandler::<AggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later(
+        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu(
         )
         .run();
-        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later(
+        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu(
+        )
+        .run();
+        SszStaticHandler::<AggregateAndProofGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<AggregateAndProofGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
         )
         .run();
     }
@@ -430,6 +456,8 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
+        SszStaticHandler::<BeaconBlockBodyHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only().run();
+        SszStaticHandler::<BeaconBlockBodyHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only().run();
     }
 
     // Altair and later
@@ -661,6 +689,8 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
+        SszStaticHandler::<ExecutionPayloadHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only().run();
+        SszStaticHandler::<ExecutionPayloadHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only().run();
     }
 
     #[test]
@@ -750,6 +780,10 @@ mod ssz_static {
         SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
         SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 
@@ -917,6 +951,10 @@ fn ssz_generic() {
     SszGenericHandler::<Boolean>::default().run();
     SszGenericHandler::<Uints>::default().run();
     SszGenericHandler::<Containers>::default().run();
+    SszGenericHandler::<BasicProgressiveList>::default().run();
+    SszGenericHandler::<ProgressiveBitlist>::default().run();
+    SszGenericHandler::<ProgressiveContainers>::default().run();
+    SszGenericHandler::<CompatibleUnions>::default().run();
 }
 
 #[test]
@@ -1106,6 +1144,30 @@ fn fork_choice_deposit_with_reorg() {
     // There is no mainnet variant for this test.
 }
 
+macro_rules! fast_confirmation_tests {
+    ($($name:ident: $handler:literal),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                FastConfirmationHandler::<MinimalEthSpec>::new($handler).run();
+            }
+        )*
+    };
+}
+
+fast_confirmation_tests! {
+    fast_confirmation_basic: "basic",
+    fast_confirmation_current_epoch: "current_epoch",
+    fast_confirmation_empty_slots: "empty_slots",
+    fast_confirmation_ffg: "ffg",
+    fast_confirmation_is_one_confirmed: "is_one_confirmed",
+    fast_confirmation_previous_epoch: "previous_epoch",
+    fast_confirmation_reconfirmation: "reconfirmation",
+    fast_confirmation_restart_gu: "restart_gu",
+    fast_confirmation_revert_finality: "revert_finality",
+    fast_confirmation_variables: "variables",
+}
+
 #[test]
 fn fork_choice_on_execution_payload_envelope() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload_envelope").run();
@@ -1242,6 +1304,12 @@ fn compute_columns_for_custody_group() {
 }
 
 #[test]
+fn gossip_beacon_block() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_beacon_block").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_beacon_block").run();
+}
+
+#[test]
 fn gossip_proposer_slashing() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_proposer_slashing").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_proposer_slashing").run();
@@ -1251,4 +1319,50 @@ fn gossip_proposer_slashing() {
 fn gossip_attester_slashing() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_attester_slashing").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_attester_slashing").run();
+}
+
+#[test]
+fn gossip_voluntary_exit() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_voluntary_exit").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_voluntary_exit").run();
+}
+
+#[test]
+fn gossip_beacon_attestation() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_beacon_attestation").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_beacon_attestation").run();
+}
+
+#[test]
+fn gossip_beacon_aggregate_and_proof() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_beacon_aggregate_and_proof")
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_beacon_aggregate_and_proof")
+        .run();
+}
+
+#[test]
+fn gossip_bls_to_execution_change() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_bls_to_execution_change")
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_bls_to_execution_change")
+        .run();
+}
+
+#[test]
+fn gossip_sync_committee_message() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable("gossip_sync_committee_message").run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable("gossip_sync_committee_message").run();
+}
+
+#[test]
+fn gossip_sync_committee_contribution_and_proof() {
+    GossipValidationHandler::<MinimalEthSpec>::latest_stable(
+        "gossip_sync_committee_contribution_and_proof",
+    )
+    .run();
+    GossipValidationHandler::<MainnetEthSpec>::latest_stable(
+        "gossip_sync_committee_contribution_and_proof",
+    )
+    .run();
 }

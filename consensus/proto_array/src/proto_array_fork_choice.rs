@@ -41,6 +41,18 @@ pub struct VoteTrackerV28 {
     next_epoch: Epoch,
 }
 
+impl VoteTracker {
+    /// The block root this validator most recently voted for.
+    pub fn current_root(&self) -> Hash256 {
+        self.current_root
+    }
+
+    /// The slot of this validator's latest message.
+    pub fn current_slot(&self) -> Slot {
+        self.current_slot
+    }
+}
+
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
 // The payload status is `false` for pre-Gloas nodes.
 impl From<VoteTrackerV28> for VoteTracker {
@@ -102,6 +114,7 @@ pub enum ExecutionStatus {
 
 /// Represents the status of an execution payload post-Gloas.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
@@ -1151,6 +1164,13 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// Read-only access to the per-validator votes.
+    ///
+    /// Used by the fast confirmation rule to compute attestation support.
+    pub fn votes(&self) -> &[VoteTracker] {
+        &self.votes.0
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
