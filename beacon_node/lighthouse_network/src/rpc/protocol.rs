@@ -155,7 +155,8 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         | ForkName::Deneb
         | ForkName::Electra
         | ForkName::Fulu
-        | ForkName::Gloas => RpcLimits::new(
+        | ForkName::Gloas
+        | ForkName::Heze => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN,
             *SIGNED_BEACON_BLOCK_BELLATRIX_MAX,
         ),
@@ -184,7 +185,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -204,7 +205,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -225,7 +226,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => RpcLimits::new(
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -242,7 +243,7 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
         }
     }
@@ -321,7 +322,9 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
-            Protocol::LightClientUpdatesByRange => None,
+            Protocol::LightClientUpdatesByRange => {
+                Some(ResponseTermination::LightClientUpdatesByRange)
+            }
         }
     }
 }
@@ -726,20 +729,17 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     spec: &ChainSpec,
 ) -> RpcLimits {
     let fork_name = spec.fork_name_at_epoch(current_digest_epoch);
+    let max_blobs = spec.max_blobs_per_block(current_digest_epoch) as usize;
 
     if fork_name.gloas_enabled() {
         RpcLimits::new(
             DataColumnSidecarGloas::<E>::min_size(),
-            DataColumnSidecarGloas::<E>::max_size(
-                spec.max_blobs_per_block(current_digest_epoch) as usize
-            ),
+            E::max_data_column_sidecar_size(),
         )
     } else {
         RpcLimits::new(
             DataColumnSidecarFulu::<E>::min_size(),
-            DataColumnSidecarFulu::<E>::max_size(
-                spec.max_blobs_per_block(current_digest_epoch) as usize
-            ),
+            DataColumnSidecarFulu::<E>::max_size(max_blobs),
         )
     }
 }
@@ -927,7 +927,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
-            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
         }
     }
 
@@ -1024,7 +1026,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
-            RequestType::LightClientUpdatesByRange(_) => true,
+            RequestType::LightClientUpdatesByRange(_) => false,
         }
     }
 }

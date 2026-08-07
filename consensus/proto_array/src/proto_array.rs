@@ -174,6 +174,10 @@ pub struct ProtoNode {
 }
 
 impl ProtoNode {
+    pub fn is_gloas(&self) -> bool {
+        self.as_v29().is_ok()
+    }
+
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
@@ -1560,7 +1564,12 @@ impl ProtoArray {
             Ok(fc_node.payload_status as u8)
         } else if fc_node.payload_status == PayloadStatus::Empty {
             Ok(1)
-        } else if self.should_extend_payload::<E>(fc_node, proto_node, proposer_boost_root)? {
+        } else if self.should_extend_payload::<E>(
+            fc_node,
+            proto_node,
+            current_slot,
+            proposer_boost_root,
+        )? {
             Ok(2)
         } else {
             Ok(0)
@@ -1569,10 +1578,13 @@ impl ProtoArray {
 
     /// Called by the proposer to decide whether to build on the full or empty
     /// parent pending node. Returns false if the PTC has voted the data as unavailable.
+    /// For a parent from an earlier slot the `Empty` or `Full` node has already been resolved
+    /// by attestation weight in `get_head`.
     pub fn should_build_on_full<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
     ) -> Result<bool, Error> {
         if fc_node.payload_status == PayloadStatus::Pending {
             return Err(Error::InvalidPayloadStatus {
@@ -1584,18 +1596,40 @@ impl ProtoArray {
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }
+
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Ok(true);
+        }
+
         // Check that false votes have not achieved an absolute majority. This allows the payload to be
         // considered available when either a majority have voted true or not enough votes have
         // been cast either way.
-        Ok(!proto_node.payload_data_availability::<E>(false)?)
+        if proto_node.payload_data_availability::<E>(false)? {
+            return Ok(false);
+        }
+
+        if proto_node.payload_timeliness::<E>(false)? {
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Err(Error::ShouldExtendPayloadInvalidSlot {
+                block_root: fc_node.root,
+                block_slot: proto_node.slot(),
+                current_slot,
+            });
+        }
+
         let Ok(node) = proto_node.as_v29() else {
             return Err(Error::InvalidNodeVariant {
                 block_root: fc_node.root,
@@ -1688,7 +1722,7 @@ impl ProtoArray {
         }
 
         // Adjust the indices map.
-        for (_root, index) in self.indices.iter_mut() {
+        for index in self.indices.values_mut() {
             *index = index
                 .checked_sub(finalized_index)
                 .ok_or(Error::IndexOverflow("indices"))?;
@@ -1796,6 +1830,14 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {
+        self.indices.get(&root).and_then(|&idx| self.nodes.get(idx))
+    }
+
+    pub fn get_parent(&self, node: &ProtoNode) -> Option<&ProtoNode> {
+        self.nodes.get(node.parent()?)
     }
 
     /// Returns `true` if `root` is equal to or a descendant of

@@ -10,7 +10,7 @@ use mockall::automock;
 use std::collections::HashSet;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{ChainSpec, ColumnIndex, Hash256, Slot};
+use types::{ChainSpec, ColumnIndex, EthSpec, Hash256, Slot};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing fetch blobs logic.
 pub(crate) struct FetchBlobsBeaconAdapter<T: BeaconChainTypes> {
@@ -92,7 +92,8 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         block_root: &Hash256,
         slot: Slot,
     ) -> Option<Vec<u64>> {
-        self.chain.cached_data_column_indexes(block_root, slot)
+        self.chain
+            .cached_data_column_indexes(block_root, slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     pub(crate) async fn process_engine_blobs(

@@ -1,4 +1,4 @@
-use crate::metrics::{self, register_process_result_metrics};
+use crate::metrics::{self, EnvelopeSource, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
@@ -14,7 +14,7 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
-    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
+    HistoricalBlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
@@ -26,9 +26,8 @@ use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
+use types::{BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -56,19 +55,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             let duplicate_cache = self.duplicate_cache.clone();
-            self.process_lookup_block(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-                duplicate_cache,
-            )
-            .await;
+            self.process_lookup_block(block_root, block, process_type, duplicate_cache)
+                .await;
         };
         Box::pin(process_fn)
     }
@@ -78,14 +70,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
         let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
-            seen_timestamp,
             process_type.clone(),
         );
         // A closure which will ignore the block.
@@ -119,7 +109,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
     ) {
@@ -133,12 +122,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-            );
+            let (process_fn, ignore_fn) =
+                self.clone()
+                    .generate_lookup_beacon_block_fns(block_root, block, process_type);
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                 beacon_block_root: block_root,
                 process_fn,
@@ -158,8 +144,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let slot = block.slot();
-        let parent_root = block.message().parent_root();
         let commitments_formatted = block.as_block().commitments_formatted();
 
         debug!(
@@ -186,17 +170,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // RPC block imported, regardless of process type
         match result.as_ref() {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+            Ok(AvailabilityProcessingStatus::Imported(slot, hash)) => {
                 info!(
                     %slot,
                     %hash,
                     "New RPC block received",
                 );
                 // Trigger processing for work referencing this block.
-                let reprocess_msg = ReprocessQueueMessage::BlockImported {
-                    block_root: *hash,
-                    parent_root,
-                };
+                let reprocess_msg = ReprocessQueueMessage::BlockImported { block_root: *hash };
                 if self
                     .beacon_processor_send
                     .try_send(WorkEvent {
@@ -211,13 +192,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Failed to inform block import"
                     );
                 };
-                self.chain.block_times_cache.write().set_time_observed(
-                    *hash,
-                    slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
 
                 self.chain.recompute_head_at_current_slot().await;
             }
@@ -227,7 +201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // to be sent from the peers if we already have them.
                 if let Ok(header) = signed_beacon_block.as_ref().try_into() {
                     let publish_blobs = false;
-                    self.fetch_engine_blobs_and_publish(
+                    self.fetch_engine_blobs_and_publish_full(
                         Arc::new(header),
                         block_root,
                         publish_blobs,
@@ -259,20 +233,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         // custody_columns must always have at least one element
         let Some(slot) = custody_columns.first().map(|d| d.slot()) else {
             return;
         };
-
-        if let Ok(current_slot) = self.chain.slot()
-            && current_slot == slot
-        {
-            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
-            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-        }
 
         let mut indices = custody_columns
             .iter()
@@ -294,7 +260,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(hash) => {
+                AvailabilityProcessingStatus::Imported(_, hash) => {
                     debug!(
                         result = "imported block and custody columns",
                         block_hash = %hash,
@@ -337,7 +303,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         debug!(
@@ -375,6 +340,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // through the existing `BlockProcessingResult::Err` path.
         let result: Result<AvailabilityProcessingStatus, BlockError> =
             result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
+
+        // The payload envelope is imported; release any attestations awaiting this block's payload
+        // so they can be re-processed (parity with the gossip import path).
+        if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result {
+            self.chain.recompute_head_at_current_slot().await;
+            self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Rpc);
+        }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
@@ -681,57 +653,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let total_blocks = downloaded_blocks.len();
-        let available_blocks = downloaded_blocks
-            .into_iter()
-            .map(|block| block.into_available_block())
-            .collect::<Vec<_>>();
-
-        // TODO(gloas) when implementing backfill sync for gloas
-        // we need a batch verify kzg function in the new da checker
-        match self
+        // Verify KZG proofs for blobs and data columns, including columns carried by Gloas
+        // payload envelopes.
+        if let Err(e) = self
             .chain
             .data_availability_checker
-            .batch_verify_kzg_for_available_blocks(&available_blocks)
+            .batch_verify_kzg_for_range_sync_blocks(&downloaded_blocks)
         {
-            Ok(()) => {}
-            Err(e) => match e {
-                AvailabilityCheckError::StoreError(_) => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: None,
-                            message: "Failed to check block availability".into(),
-                        }),
-                    );
-                }
-                e => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: Some(PeerAction::LowToleranceError),
-                            message: format!("Failed to check block availability : {:?}", e),
-                        }),
-                    );
-                }
-            },
-        };
-
-        if available_blocks.len() != total_blocks {
-            return (
-                0,
-                Err(ChainSegmentFailed {
+            // Don't penalize peers for internal store errors.
+            let failure = match e {
+                AvailabilityCheckError::StoreError(_) => ChainSegmentFailed {
+                    peer_action: None,
+                    message: "Failed to check block availability".into(),
+                },
+                e => ChainSegmentFailed {
                     peer_action: Some(PeerAction::LowToleranceError),
-                    message: format!(
-                        "{} out of {} blocks were unavailable",
-                        (total_blocks - available_blocks.len()),
-                        total_blocks
-                    ),
-                }),
-            );
+                    message: format!("Failed to check block availability : {:?}", e),
+                },
+            };
+            return (0, Err(failure));
         }
 
-        match self.chain.import_historical_block_batch(available_blocks) {
+        match self.chain.import_historical_block_batch(downloaded_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
@@ -774,7 +717,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // This is an internal error, do not penalize the peer.
                         None
                     }
+                    HistoricalBlockError::MissingEnvelope { block_root } => {
+                        debug!(
+                            ?block_root,
+                            error = "missing_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer is faulty if they omit the envelope for a revealed payload.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalBlockError::InvalidEnvelope { block_root, reason } => {
+                        debug!(
+                            ?block_root,
+                            reason,
+                            error = "invalid_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer sent an envelope whose payload doesn't match the bid
+                        // committed in the block.
+                        Some(PeerAction::LowToleranceError)
+                    }
 
+                    HistoricalBlockError::MissingProposerPubkey {
+                        block_root,
+                        proposer_index,
+                    } => {
+                        warn!(
+                            ?block_root,
+                            proposer_index,
+                            error = "missing_proposer_pubkey",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",
@@ -893,6 +869,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: None,
                 })
             }
+            ref err @ BlockError::EnvelopeError(ref envelope_error) => {
+                debug!(error = ?err, "Invalid execution payload envelope");
+                Err(ChainSegmentFailed {
+                    message: format!("Invalid execution payload envelope: {err:?}"),
+                    peer_action: if envelope_error.penalize_peer() {
+                        Some(PeerAction::LowToleranceError)
+                    } else {
+                        None
+                    },
+                })
+            }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
                 if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
@@ -962,13 +949,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
 /// The classified outcome of submitting a block / blob / column for processing, ready for the
 /// lookup state machine to act on without re-inspecting `BlockError`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BlockProcessingResult {
     /// `fully_imported` is true if the lookup is complete; false if `MissingComponents` (the
     /// lookup must keep fetching). `info` is a stable label for logs / metrics.
     Imported(bool, &'static str),
     ParentUnknown {
         parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
     },
     /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
     /// the third tuple element is the `report_peer` telemetry msg. `reason` is for logs only.
@@ -990,7 +978,7 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
             ))
         }
         match result {
-            Ok(AvailabilityProcessingStatus::Imported(_)) => Self::Imported(true, "imported"),
+            Ok(AvailabilityProcessingStatus::Imported(..)) => Self::Imported(true, "imported"),
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 Self::Imported(false, "missing_components")
             }
@@ -1000,9 +988,13 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                         return Self::Imported(true, "duplicate");
                     }
                     BlockError::GenesisBlock => return Self::Imported(true, "genesis"),
-                    BlockError::ParentUnknown { parent_root, .. } => {
+                    BlockError::ParentUnknown {
+                        parent_root,
+                        parent_block_hash,
+                    } => {
                         return Self::ParentUnknown {
                             parent_root: *parent_root,
+                            parent_block_hash: *parent_block_hash,
                         };
                     }
                     BlockError::BeaconChainError(_) | BlockError::InternalError(_) => None,
@@ -1025,9 +1017,16 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             None
                         }
                     }
-                    BlockError::EnvelopeError(_) => {
-                        // TODO(gloas): penalize correctly in range sync PR
-                        None
+                    BlockError::EnvelopeError(epe) => {
+                        if epe.penalize_peer() {
+                            Some((
+                                PeerAction::MidToleranceError,
+                                WhichPeerToPenalize::BlockPeer,
+                                (&e).into(),
+                            ))
+                        } else {
+                            None
+                        }
                     }
                     // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
                     // new `BlockError` variant forces a compile error here.

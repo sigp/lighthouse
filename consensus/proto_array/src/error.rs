@@ -1,6 +1,6 @@
 use crate::PayloadStatus;
 use safe_arith::ArithError;
-use types::{Epoch, ExecutionBlockHash, Hash256};
+use types::{Epoch, ExecutionBlockHash, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -50,7 +50,6 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
-    InvalidEpochOffset(u64),
     Arith(ArithError),
     InvalidNodeVariant {
         block_root: Hash256,
@@ -63,6 +62,14 @@ pub enum Error {
     InvalidPayloadStatus {
         block_root: Hash256,
         payload_status: PayloadStatus,
+    },
+    /// `should_extend_payload` was called for a block whose slot is not the previous slot.
+    ///
+    /// Spec equivalent: `assert store.blocks[root].slot + 1 == get_current_slot(store)`.
+    ShouldExtendPayloadInvalidSlot {
+        block_root: Hash256,
+        block_slot: Slot,
+        current_slot: Slot,
     },
 }
 

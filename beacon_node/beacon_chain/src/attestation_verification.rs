@@ -48,6 +48,7 @@ use state_processing::{
     common::{
         attesting_indices_base,
         attesting_indices_electra::{self, get_committee_indices},
+        attesting_indices_gloas,
     },
     per_block_processing::errors::{AttestationValidationError, BlockOperationError},
     signature_sets::{
@@ -174,6 +175,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload envelope has not been seen yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
+    /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
+    UnknownPayloadEnvelope { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -612,6 +621,18 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             ));
         }
 
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
+        }
+
         // Check the attestation target root is consistent with the head root.
         //
         // This check is not in the specification, however we guard against it since it opens us up
@@ -668,6 +689,16 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         signed_aggregate.message.selection_proof.clone(),
                         signed_aggregate.message.aggregate.data.clone(),
                     ),
+                    SignedAggregateAndProof::Gloas(signed_aggregate) => (
+                        signed_aggregate
+                            .message
+                            .aggregate
+                            .committee_index()
+                            .ok_or(Error::NotExactlyOneCommitteeBitSet(0))?,
+                        signed_aggregate.message.aggregator_index,
+                        signed_aggregate.message.selection_proof.clone(),
+                        signed_aggregate.message.aggregate.data.clone(),
+                    ),
                 };
                 let slot = data.slot;
 
@@ -699,6 +730,13 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     }
                     SignedAggregateAndProof::Electra(signed_aggregate) => {
                         attesting_indices_electra::get_indexed_attestation(
+                            &committees,
+                            &signed_aggregate.message.aggregate,
+                        )
+                        .map_err(|e| BeaconChainError::from(e).into())
+                    }
+                    SignedAggregateAndProof::Gloas(signed_aggregate) => {
+                        attesting_indices_gloas::get_indexed_attestation(
                             &committees,
                             &signed_aggregate.message.aggregate,
                         )
@@ -921,6 +959,16 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             return Err(Error::CommitteeIndexNonZero(
                 attestation.data.index as usize,
             ));
+        }
+
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled() && attestation.data.index == 1 && !head_block.payload_received
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
         }
 
         // Check the attestation target root is consistent with the head root.
@@ -1520,6 +1568,20 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
             }
             AttestationRef::Electra(att) => {
                 attesting_indices_electra::get_indexed_attestation(&committees, att)
+                    .map(|attestation| (attestation, committees_per_slot))
+                    .map_err(|e| {
+                        if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {
+                            Error::NoCommitteeForSlotAndIndex {
+                                slot: att.data.slot,
+                                index,
+                            }
+                        } else {
+                            Error::Invalid(e)
+                        }
+                    })
+            }
+            AttestationRef::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
                         if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {

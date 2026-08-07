@@ -107,14 +107,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         if let Some(enr) = self.peers_to_dial.pop() {
             self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
 
-            let multiaddr_quic = if self.quic_enabled {
-                enr.multiaddr_quic()
-            } else {
-                vec![]
-            };
-
-            // Prioritize Quic connections over Tcp ones.
-            let multiaddrs = [multiaddr_quic, enr.multiaddr_tcp()].concat();
+            let multiaddrs = self.dialable_multiaddrs(&enr);
 
             debug!(peer_id = %enr.peer_id(), ?multiaddrs, "Dialing peer");
             return Poll::Ready(ToSwarm::Dial {

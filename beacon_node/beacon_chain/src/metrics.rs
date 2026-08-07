@@ -612,6 +612,35 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_hold_seconds",
+        "Time the fork-choice read lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_hold_seconds",
+        "Time the fork-choice write lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_hold_seconds",
+            "Time the fork-choice upgradable read lock was held before being released or upgraded.",
+            decimal_buckets(-4, 1),
+        )
+    });
+pub static FORK_CHOICE_UPGRADE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_upgrade_seconds",
+        "Time taken to upgrade the fork-choice upgradable read lock to a write lock.",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_encode_seconds",
@@ -666,6 +695,13 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
+pub static SLOT_ASSIGNMENTS_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_slot_assignments_errors_total",
+        "Count of slot assignments cache update errors by error category",
+        &["error"],
+    )
+});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
@@ -1711,21 +1747,21 @@ pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS: LazyLock<Resu
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_requests_total",
-            "Count of all partial data column sidecars submitted for processing",
+            "Count of all partial data column sidecar headers submitted for processing",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_dupes_total",
-            "Number of partial data column sidecars verified for gossip (excluding dupes)",
+            "Number of partial data column sidecar headers received that matched a cached header",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_successes_total",
-            "Number of partial data column sidecar headers verified for gossip (excluding dupes)",
+            "Number of partial data column sidecar headers verified for gossip",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES: LazyLock<

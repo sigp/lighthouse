@@ -456,6 +456,11 @@ impl<E: EthSpec> PeerManager<E> {
     /// A peer is being dialed.
     /// Returns true, if this peer will be dialed.
     pub fn dial_peer(&mut self, peer: Enr) -> bool {
+        if self.dialable_multiaddrs(&peer).is_empty() {
+            debug!(peer_id = %peer.peer_id(), "Not dialing peer with no dialable address");
+            return false;
+        }
+
         if self
             .network_globals
             .peers
@@ -467,6 +472,18 @@ impl<E: EthSpec> PeerManager<E> {
         } else {
             false
         }
+    }
+
+    /// The addresses we can dial `enr` on, given the transports we have enabled.
+    fn dialable_multiaddrs(&self, enr: &Enr) -> Vec<Multiaddr> {
+        let multiaddr_quic = if self.quic_enabled {
+            enr.dialable_multiaddrs_quic()
+        } else {
+            vec![]
+        };
+
+        // Prioritize Quic connections over Tcp ones.
+        [multiaddr_quic, enr.dialable_multiaddrs_tcp()].concat()
     }
 
     /// Reports if a peer is banned or not.
@@ -1759,6 +1776,26 @@ mod tests {
         }
     }
 
+    fn enr_with_tcp4_port(port: u16) -> Enr {
+        let key = discv5::enr::CombinedKey::generate_secp256k1();
+        Enr::builder()
+            .ip4(std::net::Ipv4Addr::LOCALHOST)
+            .tcp4(port)
+            .build(&key)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_dial_peer_skips_zero_port() {
+        let mut peer_manager = build_peer_manager(3).await;
+
+        assert!(!peer_manager.dial_peer(enr_with_tcp4_port(0)));
+        assert!(peer_manager.peers_to_dial.is_empty());
+
+        assert!(peer_manager.dial_peer(enr_with_tcp4_port(9000)));
+        assert_eq!(peer_manager.peers_to_dial.len(), 1);
+    }
+
     #[tokio::test]
     async fn test_peer_manager_disconnects_correctly_during_heartbeat() {
         // Create 6 peers to connect to with a target of 3.
@@ -2040,11 +2077,11 @@ mod tests {
             .peer_info_mut(&peer0)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer0, Subnet::Attestation(1.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer0,
+            Subnet::Attestation(1.into()),
+            false,
+        );
 
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
         attnets.set(10, true).unwrap();
@@ -2061,11 +2098,11 @@ mod tests {
             .peer_info_mut(&peer2)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer2, Subnet::Attestation(10.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer2,
+            Subnet::Attestation(10.into()),
+            false,
+        );
 
         let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
         syncnets.set(3, true).unwrap();
@@ -2082,11 +2119,11 @@ mod tests {
             .peer_info_mut(&peer4)
             .unwrap()
             .set_meta_data(MetaData::V3(metadata));
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .add_subscription(&peer4, Subnet::SyncCommittee(3.into()));
+        peer_manager.network_globals.peers.write().add_subscription(
+            &peer4,
+            Subnet::SyncCommittee(3.into()),
+            false,
+        );
 
         // Perform the heartbeat.
         peer_manager.heartbeat();
@@ -2183,11 +2220,11 @@ mod tests {
                 peer_info.update_sync_status(empty_synced_status());
             }
 
-            peer_manager
-                .network_globals
-                .peers
-                .write()
-                .add_subscription(&peer, Subnet::DataColumn(subnet.into()));
+            peer_manager.network_globals.peers.write().add_subscription(
+                &peer,
+                Subnet::DataColumn(subnet.into()),
+                false,
+            );
             println!("{},{},{}", x, subnet, peer);
             peers.push(peer);
         }
@@ -2236,7 +2273,7 @@ mod tests {
                         // Make sure a peer on the same subnet has been removed
                         println!(
                             "Check against: {}, {}",
-                            alternative_index, &peers[alternative_index]
+                            alternative_index, peers[alternative_index]
                         );
                         assert!(!connected_peers.contains(&peers[alternative_index]));
                     }
@@ -2304,7 +2341,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             println!("{},{}", x, peer);
             peers.push(peer);
@@ -2408,7 +2445,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             peers.push(peer);
         }
@@ -2507,7 +2544,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             println!("{},{}", peer_idx, peer);
             peers.push(peer);
@@ -2679,7 +2716,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
             peers.push(peer);
         }
@@ -2746,11 +2783,11 @@ mod tests {
                 .unwrap()
                 .set_meta_data(MetaData::V3(metadata));
 
-            peer_manager
-                .network_globals
-                .peers
-                .write()
-                .add_subscription(&peer, Subnet::Attestation((subnet as u64).into()));
+            peer_manager.network_globals.peers.write().add_subscription(
+                &peer,
+                Subnet::Attestation((subnet as u64).into()),
+                false,
+            );
 
             peers.push(peer);
         }
@@ -2851,7 +2888,7 @@ mod tests {
                     .network_globals
                     .peers
                     .write()
-                    .add_subscription(&peer, subnet);
+                    .add_subscription(&peer, subnet, false);
             }
 
             peers.push(peer);
@@ -2937,7 +2974,7 @@ mod tests {
                 }
 
                 for subnet in peer_info.long_lived_subnets() {
-                    peers_db.add_subscription(&peer, subnet);
+                    peers_db.add_subscription(&peer, subnet, false);
                 }
 
                 peers.push(peer);
@@ -3158,7 +3195,7 @@ mod tests {
                         peer_info.set_custody_subnets(condition.custody_subnets.clone());
 
                         for subnet in peer_info.long_lived_subnets() {
-                            peer_db.add_subscription(&condition.peer_id, subnet);
+                            peer_db.add_subscription(&condition.peer_id, subnet, false);
                         }
                     }
 

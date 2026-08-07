@@ -9,8 +9,8 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
-    self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
-    ValidatorIndexData, ValidatorsRequestBody,
+    self as api_types, BuildersRequestBody, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
 use std::sync::Arc;
@@ -18,10 +18,7 @@ use types::{
     AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
     RelativeEpochError,
 };
-use warp::filters::BoxedFilter;
-use warp::http::Response;
-use warp::hyper::Body;
-use warp::{Filter, Reply};
+use warp::{Filter, Reply, filters::BoxedFilter, http::response::Builder};
 use warp_utils::query::multi_key_query;
 
 type BeaconStatesPath<T> = BoxedFilter<(
@@ -55,7 +52,7 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    consolidations.clone(),
+                                    consolidations.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -101,7 +98,7 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    withdrawals.clone(),
+                                    withdrawals.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -147,7 +144,7 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    deposits.clone(),
+                                    deposits.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -205,10 +202,10 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                         )?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -611,6 +608,33 @@ pub fn post_beacon_state_validators<T: BeaconChainTypes>(
                 };
                 task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validators(
+                        state_id,
+                        chain,
+                        &query.ids,
+                        &query.statuses,
+                    )
+                })
+            },
+        )
+        .boxed()
+}
+
+// POST beacon/states/{state_id}/builders
+pub fn post_beacon_state_builders<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builders"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json_no_body())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: BuildersRequestBody| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    crate::builders::get_beacon_state_builders(
                         state_id,
                         chain,
                         &query.ids,

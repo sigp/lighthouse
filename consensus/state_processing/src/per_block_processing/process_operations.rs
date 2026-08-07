@@ -4,16 +4,14 @@ use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
-use crate::per_block_processing::builder::{
-    convert_validator_index_to_builder_index, is_builder_index,
-};
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
-use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::{PublicKeyBytes, SignatureBytes};
+use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
+use types::is_builder_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -22,9 +20,15 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
+    // limits, so the spec's per-block limits are enforced at runtime instead.
+    if state.fork_name_unchecked().gloas_enabled() {
+        verify_operation_list_lengths(block_body)?;
+    }
+
     process_proposer_slashings(
         state,
-        block_body.proposer_slashings(),
+        &block_body.proposer_slashings().to_cow_slice(),
         verify_signatures,
         ctxt,
         spec,
@@ -37,11 +41,21 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
-    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    process_exits(
+        state,
+        &block_body.voluntary_exits().to_cow_slice(),
+        verify_signatures,
+        spec,
+    )?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
-        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+        process_bls_to_execution_changes(
+            state,
+            &bls_to_execution_changes.to_cow_slice(),
+            verify_signatures,
+            spec,
+        )?;
     }
 
     if state.fork_name_unchecked().gloas_enabled() {
@@ -54,17 +68,69 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         )?;
     } else if state.fork_name_unchecked().electra_enabled() {
         state.update_pubkey_cache()?;
-        process_deposit_requests_pre_gloas(
-            state,
-            &block_body.execution_requests()?.deposits,
-            spec,
-        )?;
+        process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
         process_consolidation_requests(
             state,
             &block_body.execution_requests()?.consolidations,
             spec,
         )?;
+    }
+
+    Ok(())
+}
+
+/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
+/// `ProgressiveList` is unbounded so they must be checked explicitly.
+pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    block_body: BeaconBlockBodyRef<E, Payload>,
+) -> Result<(), BlockProcessingError> {
+    let checks: [(&str, usize, usize); 6] = [
+        (
+            "proposer_slashings",
+            block_body.proposer_slashings().len(),
+            E::MaxProposerSlashings::to_usize(),
+        ),
+        (
+            "attester_slashings",
+            block_body.attester_slashings_len(),
+            E::MaxAttesterSlashingsElectra::to_usize(),
+        ),
+        (
+            "attestations",
+            block_body.attestations_len(),
+            E::MaxAttestationsElectra::to_usize(),
+        ),
+        (
+            "voluntary_exits",
+            block_body.voluntary_exits().len(),
+            E::MaxVoluntaryExits::to_usize(),
+        ),
+        (
+            "bls_to_execution_changes",
+            block_body
+                .bls_to_execution_changes()
+                .map(|changes| changes.len())
+                .unwrap_or(0),
+            E::MaxBlsToExecutionChanges::to_usize(),
+        ),
+        (
+            "payload_attestations",
+            block_body
+                .payload_attestations()
+                .map(|atts| atts.len())
+                .unwrap_or(0),
+            E::MaxPayloadAttestations::to_usize(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
     }
 
     Ok(())
@@ -192,7 +258,7 @@ pub mod altair_deneb {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -312,7 +378,7 @@ pub mod gloas {
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -397,7 +463,9 @@ pub fn process_proposer_slashings<E: EthSpec>(
 
             // [New in Gloas:EIP7732]
             // Remove the BuilderPendingPayment corresponding to this proposal
-            // if it is still in the 2-epoch window.
+            // if it is still in the 2-epoch window. Only clear it when the slashed validator is
+            // the proposer associated with the payment; otherwise an unrelated same-slot
+            // equivocation could grief an honest proposer's payment.
             if state.fork_name_unchecked().gloas_enabled() {
                 let slot = proposer_slashing.signed_header_1.message.slot;
                 let proposal_epoch = slot.epoch(E::slots_per_epoch());
@@ -416,7 +484,12 @@ pub fn process_proposer_slashings<E: EthSpec>(
                         .builder_pending_payments_mut()?
                         .get_mut(index)
                         .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(index))?;
-                    *payment = BuilderPendingPayment::default();
+
+                    if payment.proposer_index
+                        == proposer_slashing.signed_header_1.message.proposer_index
+                    {
+                        *payment = BuilderPendingPayment::default();
+                    }
                 }
             }
 
@@ -521,73 +594,11 @@ pub fn process_exits<E: EthSpec>(
             .into_with_index(i));
         }
 
-        // [New in Gloas:EIP7732]
-        if state.fork_name_unchecked().gloas_enabled()
-            && is_builder_index(exit.message.validator_index)
-        {
-            process_builder_voluntary_exit(state, exit, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))?;
-            continue;
-        }
-
         verify_exit(state, Some(current_epoch), exit, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
-    Ok(())
-}
-
-/// Process a builder voluntary exit. [New in Gloas:EIP7732]
-fn process_builder_voluntary_exit<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    signed_exit: &SignedVoluntaryExit,
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<(), BlockOperationError<ExitInvalid>> {
-    let builder_index =
-        convert_validator_index_to_builder_index(signed_exit.message.validator_index);
-
-    // Verify builder is known
-    state
-        .builders()?
-        .get(builder_index as usize)
-        .cloned()
-        .ok_or(BlockOperationError::invalid(ExitInvalid::ValidatorUnknown(
-            signed_exit.message.validator_index,
-        )))?;
-
-    // Verify the builder is active
-    if !state.is_active_builder(builder_index, spec)? {
-        return Err(BlockOperationError::invalid(ExitInvalid::NotActive(
-            signed_exit.message.validator_index,
-        )));
-    }
-
-    // Only exit builder if it has no pending withdrawals in the queue
-    let pending_balance = state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
-    if pending_balance != 0 {
-        return Err(BlockOperationError::invalid(
-            ExitInvalid::PendingWithdrawalInQueue(signed_exit.message.validator_index),
-        ));
-    }
-
-    if verify_signatures.is_true() {
-        verify!(
-            exit_signature_set(
-                state,
-                |i| get_pubkey_from_state(state, i),
-                signed_exit,
-                spec
-            )?
-            .verify(),
-            ExitInvalid::BadSignature
-        );
-    }
-
-    // Initiate builder exit
-    initiate_builder_exit(state, builder_index, spec)?;
-
     Ok(())
 }
 
@@ -731,7 +742,7 @@ pub fn apply_deposit<E: EthSpec>(
 
     if let Some(index) = validator_index {
         // [Modified in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -764,7 +775,7 @@ pub fn apply_deposit<E: EthSpec>(
         )?;
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -874,20 +885,23 @@ pub fn process_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
+pub fn process_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in deposit_requests {
-        // Set deposit receipt start index
-        if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
+        // Set deposit receipt start index if pre-Fulu.
+        // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+        if !state.fork_name_unchecked().fulu_enabled()
+            && state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index
+        {
             *state.deposit_requests_start_index_mut()? = request.index
         }
         let slot = state.slot();
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: request.pubkey,
                 withdrawal_credentials: request.withdrawal_credentials,
@@ -901,14 +915,106 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_post_gloas<E: EthSpec>(
+pub fn process_builder_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    deposit_requests: &[DepositRequest],
+    builder_deposit_requests: &[BuilderDepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    for request in deposit_requests {
-        process_deposit_request_post_gloas(state, request, spec)?;
+    for builder_deposit_request in builder_deposit_requests {
+        process_builder_deposit_request(state, builder_deposit_request, spec)?;
     }
+
+    Ok(())
+}
+
+fn process_builder_deposit_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_deposit_request: &BuilderDepositRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if !is_builder_withdrawal_credential(builder_deposit_request.withdrawal_credentials, spec) {
+        return Ok(());
+    }
+
+    let builder_index = state
+        .builders()?
+        .iter()
+        .position(|builder| builder.pubkey == builder_deposit_request.pubkey);
+
+    match builder_index {
+        None => {
+            if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
+                let slot = state.slot();
+                state.add_builder_to_registry(
+                    builder_deposit_request.pubkey,
+                    PAYLOAD_BUILDER_VERSION,
+                    builder_deposit_request.withdrawal_credentials,
+                    builder_deposit_request.amount,
+                    slot,
+                    spec,
+                )?;
+            }
+        }
+        Some(builder_index) => {
+            let current_epoch = state.current_epoch();
+            let builder = state
+                .builders_mut()?
+                .get_mut(builder_index)
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index as u64))?;
+
+            if builder.withdrawable_epoch != spec.far_future_epoch && builder.balance == 0 {
+                builder.withdrawable_epoch =
+                    current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
+            }
+
+            builder
+                .balance
+                .safe_add_assign(builder_deposit_request.amount)?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn process_builder_exit_requests<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_exit_requests: &[BuilderExitRequest],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for builder_exit_request in builder_exit_requests {
+        process_builder_exit_request(state, builder_exit_request, spec)?;
+    }
+
+    Ok(())
+}
+
+fn process_builder_exit_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_exit_request: &BuilderExitRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let Some(builder_index) = state
+        .builders()?
+        .iter()
+        .position(|builder| builder.pubkey == builder_exit_request.pubkey)
+        .map(|i| i as u64)
+    else {
+        return Ok(());
+    };
+
+    if !state.is_active_builder(builder_index, spec)? {
+        return Ok(());
+    }
+
+    if state.get_builder(builder_index)?.execution_address != builder_exit_request.source_address {
+        return Ok(());
+    }
+
+    if state.get_pending_balance_to_withdraw_for_builder(builder_index)? != 0 {
+        return Ok(());
+    }
+
+    initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
 }
@@ -934,107 +1040,6 @@ pub fn is_pending_validator<'a>(
             )
             .is_ok()
     })
-}
-
-pub fn process_deposit_request_post_gloas<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    deposit_request: &DepositRequest,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7732]
-    // Regardless of the withdrawal credentials prefix, if a builder/validator
-    // already exists with this pubkey, apply the deposit to their balance
-    // TODO(gloas): this could be more efficient in the builder case, see:
-    // https://github.com/sigp/lighthouse/issues/8783
-    let builder_index = state
-        .builders()?
-        .iter()
-        .enumerate()
-        .find(|(_, builder)| builder.pubkey == deposit_request.pubkey)
-        .map(|(i, _)| i as u64);
-    let is_builder = builder_index.is_some();
-
-    let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
-    let is_validator = validator_index.is_some();
-
-    let has_builder_prefix =
-        is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
-
-    if is_builder
-        || (has_builder_prefix
-            && !is_validator
-            && !is_pending_validator(state.pending_deposits()?, &deposit_request.pubkey, spec))
-    {
-        // Apply builder deposits immediately
-        apply_deposit_for_builder(
-            state,
-            builder_index,
-            deposit_request.pubkey,
-            deposit_request.withdrawal_credentials,
-            deposit_request.amount,
-            deposit_request.signature.clone(),
-            state.slot(),
-            spec,
-        )?;
-        return Ok(());
-    }
-
-    // Add validator deposits to the queue
-    let slot = state.slot();
-    state.pending_deposits_mut()?.push(PendingDeposit {
-        pubkey: deposit_request.pubkey,
-        withdrawal_credentials: deposit_request.withdrawal_credentials,
-        amount: deposit_request.amount,
-        signature: deposit_request.signature.clone(),
-        slot,
-    })?;
-
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn apply_deposit_for_builder<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    builder_index_opt: Option<BuilderIndex>,
-    pubkey: PublicKeyBytes,
-    withdrawal_credentials: Hash256,
-    amount: u64,
-    signature: SignatureBytes,
-    slot: Slot,
-    spec: &ChainSpec,
-) -> Result<Option<BuilderIndex>, BeaconStateError> {
-    match builder_index_opt {
-        None => {
-            // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
-            let deposit_data = DepositData {
-                pubkey,
-                withdrawal_credentials,
-                amount,
-                signature,
-            };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                let builder_index = state.add_builder_to_registry(
-                    pubkey,
-                    withdrawal_credentials,
-                    amount,
-                    slot,
-                    spec,
-                )?;
-                Ok(Some(builder_index))
-            } else {
-                Ok(None)
-            }
-        }
-        Some(builder_index) => {
-            state
-                .builders_mut()?
-                .get_mut(builder_index as usize)
-                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
-                .balance
-                .safe_add_assign(amount)?;
-            Ok(Some(builder_index))
-        }
-    }
 }
 
 // Make sure to build the pubkey cache before calling this function

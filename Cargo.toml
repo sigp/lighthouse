@@ -17,6 +17,7 @@ members = [
     "beacon_node/timer",
     "boot_node",
     "common/account_utils",
+    "common/axum_utils",
     "common/clap_utils",
     "common/deposit_contract",
     "common/directory",
@@ -46,6 +47,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
+    "consensus/fast_confirmation",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",
@@ -90,7 +92,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.1.3"
+version = "8.2.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -106,7 +108,8 @@ alloy-signer-local = { version = "1", default-features = false }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
-axum = "0.7.7"
+axum = "0.8"
+axum_utils = { path = "common/axum_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
@@ -127,7 +130,7 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.10", features = ["libp2p"] }
+discv5 = { version = "0.11", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
@@ -144,6 +147,7 @@ ethereum_serde_utils = "0.8.0"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }
+fast_confirmation = { path = "consensus/fast_confirmation" }
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
 fnv = "1"
@@ -152,7 +156,7 @@ fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
 graffiti_file = { path = "validator_client/graffiti_file" }
-hashlink = "0.9.0"
+hashlink = "0.11"
 health_metrics = { path = "common/health_metrics" }
 hex = "0.4"
 http_api = { path = "beacon_node/http_api" }
@@ -170,7 +174,6 @@ lockfile = { path = "common/lockfile" }
 log = "0.4"
 logging = { path = "common/logging" }
 logroller = "0.1.8"
-lru = "0.12"
 lru_cache = { path = "common/lru_cache" }
 malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
@@ -231,9 +234,11 @@ sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 tempfile = "3"
+thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
+tower = "0.5"
 tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
@@ -255,7 +260,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
-warp = { version = "0.3.7", default-features = false, features = ["tls"] }
+warp = { version = "0.4", default-features = false, features = ["server"] }
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c0515bd7c8fc671f47875e3ccc" }
@@ -274,3 +279,18 @@ incremental = false
 inherits = "release"
 debug = true
 
+[patch.crates-io]
+# FIXME(eip-7688): EIP-7688 development patches
+ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "9203d56ad2d7bc5f12133d043e085843f81edcd6" }
+milhouse = { git = "https://github.com/sigp/milhouse", rev = "c70f128976ac0d60ea65a978dabd117a921c36ee" }
+ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "2059c21ba52cd3a7e39a8ad537012b761812a393" }
+ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", rev = "2059c21ba52cd3a7e39a8ad537012b761812a393" }
+tree_hash = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125f306dd7a00cf46284575a01f" }
+tree_hash_derive = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125f306dd7a00cf46284575a01f" }
+# Temporary patch until the axum migration is complete
+warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
+
+[patch."https://github.com/libp2p/rust-libp2p.git"]
+libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
+libp2p-quic = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }

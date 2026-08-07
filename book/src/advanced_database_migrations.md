@@ -17,11 +17,9 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v8.0.0             | Nov 2025     | v28            | yes before Fulu      |
-| v8.0.0-rc.0        | Sep 2025     | v28            | yes before Fulu      |
-| v7.1.0             | Jul 2025     | v26            | yes                  |
-| v7.0.0             | Apr 2025     | v22            | no                   |
-| v6.0.0             | Nov 2024     | v22            | no                   |
+| v8.2.0             | Jun 2026     | v29            | yes before Gloas     |
+| v8.1.0             | Feb 2026     | v28            | no                   |
+| v8.0.0             | Nov 2025     | v28            | no                   |
 
 > **Note**: All point releases (e.g. v4.4.1) are schema-compatible with the prior minor release
 > (e.g. v4.4.0).
@@ -209,8 +207,11 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
-| v8.0.0-rc.0        | Sep 2025     | v28            | yes before Fulu                     |
-| v7.1.0             | Jul 2025     | v26            | yes                                 |
+| v8.2.0             | Jun 2026     | v29            | yes before Gloas                    |
+| v8.1.0             | Feb 2026     | v28            | yes before Fulu using <= v8.1.3     |
+| v8.0.0             | Nov 2025     | v28            | yes before Fulu using <= v8.1.3     |
+| v8.0.0-rc.0        | Sep 2025     | v28            | yes before Fulu using <= v8.1.3     |
+| v7.1.0             | Jul 2025     | v26            | yes using <= v8.1.3                 |
 | v7.0.0             | Apr 2025     | v22            | no                                  |
 | v6.0.0             | Nov 2024     | v22            | no                                  |
 | v5.3.0             | Aug 2024     | v21            | yes before Electra using <= v7.0.0  |

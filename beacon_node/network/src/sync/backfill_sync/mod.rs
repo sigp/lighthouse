@@ -35,7 +35,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
-use types::{ColumnIndex, Epoch, EthSpec};
+use types::{Epoch, EthSpec};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -322,37 +322,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
                 match coupling_error {
-                    CouplingError::DataColumnPeerFailure {
-                        error,
-                        faulty_peers,
-                        exceeded_retries,
-                    } => {
+                    CouplingError::DataColumnPeerFailure { error, .. } => {
                         debug!(?batch_id, error, "Block components coupling error");
-                        // Note: we don't fail the batch here because a `CouplingError` is
-                        // recoverable by requesting from other honest peers.
-                        let mut failed_columns = HashSet::new();
-                        let mut failed_peers = HashSet::new();
-                        for (column, peer) in faulty_peers {
-                            failed_columns.insert(*column);
-                            failed_peers.insert(*peer);
-                        }
-
-                        // Only retry if peer failure **and** retries haven't been exceeded
-                        if !*exceeded_retries {
-                            return self.retry_partial_batch(
-                                network,
-                                batch_id,
-                                request_id,
-                                failed_columns,
-                                failed_peers,
-                            );
-                        }
                     }
                     CouplingError::BlobPeerFailure(msg) => {
                         debug!(?batch_id, msg, "Blob peer failure");
                     }
+                    CouplingError::EnvelopePeerFailure(msg) => {
+                        debug!(?batch_id, ?msg, "Envelope peer failure");
+                    }
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
+                    }
+                    CouplingError::AvailabilityCheckError(err) => {
+                        error!(?batch_id, ?err, "Availability check error");
                     }
                 }
             }
@@ -699,7 +682,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 // Batches can be in `AwaitingDownload` state if there weren't good data column subnet
                 // peers to send the request to.
                 BatchState::AwaitingDownload => return Ok(ProcessResult::Successful),
-                BatchState::Failed | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(..) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - Processing -> `self.current_processing_batch` is None
@@ -802,10 +785,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::Downloading(..) => {}
                 BatchState::AwaitingDownload => return,
                 BatchState::Failed | BatchState::Poisoned => {
-                    crit!("batch indicates inconsistent chain state while advancing chain")
+                    crit!("batch indicates inconsistent chain state while advancing chain");
                 }
                 BatchState::AwaitingProcessing(..) => {}
-                BatchState::Processing(_) => {
+                BatchState::Processing(..) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id >= processing_id
@@ -908,7 +891,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
-                &synced_peers, // All synced peers have imported up to the finalized slot so they must have their custody columns available
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -954,53 +936,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         }
 
-        Ok(())
-    }
-
-    /// Retries partial column requests within the batch by creating new requests for the failed columns.
-    pub fn retry_partial_batch(
-        &mut self,
-        network: &mut SyncNetworkContext<T>,
-        batch_id: BatchId,
-        id: Id,
-        failed_columns: HashSet<ColumnIndex>,
-        mut failed_peers: HashSet<PeerId>,
-    ) -> Result<(), BackFillError> {
-        if let Some(batch) = self.batches.get_mut(&batch_id) {
-            failed_peers.extend(&batch.failed_peers());
-            let req = batch.to_blocks_by_range_request().0;
-
-            let synced_peers = network
-                .network_globals()
-                .peers
-                .read()
-                .synced_peers_for_epoch(batch_id)
-                .cloned()
-                .collect::<HashSet<_>>();
-
-            match network.retry_columns_by_range(
-                id,
-                &synced_peers,
-                &failed_peers,
-                req,
-                &failed_columns,
-            ) {
-                Ok(_) => {
-                    debug!(
-                        ?batch_id,
-                        id, "Retried column requests from different peers"
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    debug!(?batch_id, id, e, "Failed to retry partial batch");
-                }
-            }
-        } else {
-            return Err(BackFillError::InvalidSyncState(
-                "Batch should exist to be retried".to_string(),
-            ));
-        }
         Ok(())
     }
 
@@ -1229,7 +1164,7 @@ mod tests {
     fn request_batches_should_not_loop_infinitely() {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .default_spec()
-            .deterministic_keypairs(4)
+            .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 

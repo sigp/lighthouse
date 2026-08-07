@@ -1077,7 +1077,6 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            block.message().proposer_index(),
             &rig.harness.chain.spec,
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
@@ -1124,14 +1123,7 @@ async fn attesting_to_optimistic_head() {
             .produce_unaggregated_attestation(Slot::new(0), 0)
             .unwrap();
 
-        match &mut attestation {
-            Attestation::Base(att) => {
-                att.aggregation_bits.set(0, true).unwrap();
-            }
-            Attestation::Electra(att) => {
-                att.aggregation_bits.set(0, true).unwrap();
-            }
-        }
+        attestation.set_aggregation_bit(0, true).unwrap();
 
         attestation.data_mut().slot = slot;
         attestation.data_mut().beacon_block_root = root;

@@ -337,11 +337,21 @@ pub struct GloasPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_payload_attestations: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub builder_registry_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub builder_pending_withdrawals_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
     pub max_builders_per_withdrawals_sweep: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builder_deposit_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builder_exit_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_aggregate_and_proof_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_attester_slashing_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_data_column_sidecar_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_partial_data_column_sidecar_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_execution_payload_bid_size: u64,
 }
 
 impl GloasPreset {
@@ -349,9 +359,32 @@ impl GloasPreset {
         Self {
             ptc_size: E::ptc_size() as u64,
             max_payload_attestations: E::max_payload_attestations() as u64,
-            builder_registry_limit: E::BuilderRegistryLimit::to_u64(),
-            builder_pending_withdrawals_limit: E::builder_pending_withdrawals_limit() as u64,
             max_builders_per_withdrawals_sweep: E::max_builders_per_withdrawals_sweep() as u64,
+            max_builder_deposit_requests_per_payload: E::max_builder_deposit_requests_per_payload()
+                as u64,
+            max_builder_exit_requests_per_payload: E::max_builder_exit_requests_per_payload()
+                as u64,
+            max_signed_aggregate_and_proof_size: E::max_signed_aggregate_and_proof_size() as u64,
+            max_attester_slashing_size: E::max_attester_slashing_size() as u64,
+            max_data_column_sidecar_size: E::max_data_column_sidecar_size() as u64,
+            max_partial_data_column_sidecar_size: E::max_partial_data_column_sidecar_size() as u64,
+            max_signed_execution_payload_bid_size: E::max_signed_execution_payload_bid_size()
+                as u64,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct HezePreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub inclusion_list_committee_size: u64,
+}
+
+impl HezePreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            inclusion_list_committee_size: E::inclusion_list_committee_size() as u64,
         }
     }
 }
@@ -406,6 +439,9 @@ mod test {
 
         let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
         assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
+
+        let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
+        assert_eq!(heze, HezePreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

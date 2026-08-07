@@ -1,5 +1,6 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
+use eth2::types::PtcDuty;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, PayloadAttestationData, Slot};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -39,7 +40,11 @@ impl<S, T> Deref for PayloadAttestationService<S, T> {
     }
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationService<S, T> {
+impl<S, T> PayloadAttestationService<S, T>
+where
+    S: ValidatorStore + 'static,
+    T: SlotClock + 'static,
+{
     pub fn new(
         duties_service: Arc<DutiesService<S, T>>,
         validator_store: Arc<S>,
@@ -61,11 +66,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
     }
 
     pub fn start_update_service(self) -> Result<(), String> {
-        let slot_duration = self.chain_spec.get_slot_duration();
-        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
-
         info!(
-            payload_attestation_due_ms = payload_attestation_due.as_millis(),
+            payload_attestation_due_ms = self.chain_spec.get_payload_attestation_due().as_millis(),
             "Payload attestation service started"
         );
 
@@ -73,46 +75,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
         let interval_fut = async move {
             loop {
-                let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
-                    error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
-                    continue;
-                };
-
-                let Some(current_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock after trigger");
-                    continue;
-                };
-
-                if !self
-                    .chain_spec
-                    .fork_name_at_slot::<S::E>(current_slot)
-                    .gloas_enabled()
-                {
-                    let duration_to_next_epoch = self
-                        .slot_clock
-                        .duration_to_next_epoch(S::E::slots_per_epoch())
-                        .unwrap_or_else(|| {
-                            self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                        });
-                    sleep(duration_to_next_epoch).await;
-                    continue;
+                if let Err(e) = self.spawn_payload_attestation_tasks().await {
+                    error!(error = e, "Failed to produce payload attestations");
                 }
-
-                sleep(duration_to_next_slot + payload_attestation_due).await;
-
-                let Some(attestation_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock after sleep");
-                    continue;
-                };
-
-                let service = self.clone();
-                self.executor.spawn(
-                    async move {
-                        service.produce_and_publish(attestation_slot).await;
-                    },
-                    "payload_attestation_producer",
-                );
             }
         };
 
@@ -120,11 +85,86 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         Ok(())
     }
 
-    async fn produce_and_publish(&self, slot: types::Slot) {
+    async fn spawn_payload_attestation_tasks(&self) -> Result<(), String> {
+        let Some(attestation_slot) = self.wait_for_attestation_slot().await else {
+            return Ok(());
+        };
+
+        let Some((duties, attestation_data)) = self
+            .produce_payload_attestation_data(attestation_slot)
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let service = self.clone();
+        self.executor.spawn(
+            async move {
+                if let Err(e) = service
+                    .sign_and_publish(attestation_slot, duties, attestation_data)
+                    .await
+                {
+                    crit!(error = e, %attestation_slot, "Failed to publish payload attestations");
+                }
+            },
+            "payload_attestation_producer",
+        );
+
+        Ok(())
+    }
+
+    async fn wait_for_attestation_slot(&self) -> Option<Slot> {
+        let slot_duration = self.chain_spec.get_slot_duration();
+        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
+
+        let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
+            error!("Failed to read slot clock");
+            sleep(slot_duration).await;
+            return None;
+        };
+
+        let Some(current_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock after trigger");
+            return None;
+        };
+
+        if !self
+            .chain_spec
+            .fork_name_at_slot::<S::E>(current_slot)
+            .gloas_enabled()
+        {
+            let duration_to_next_epoch = self
+                .slot_clock
+                .duration_to_next_epoch(S::E::slots_per_epoch())
+                .unwrap_or_else(|| {
+                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
+                });
+            sleep(duration_to_next_epoch).await;
+            return None;
+        }
+
+        sleep(duration_to_next_slot + payload_attestation_due).await;
+
+        let Some(attestation_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock after sleep");
+            return None;
+        };
+
+        Some(attestation_slot)
+    }
+
+    /// Produce the payload attestation data for `slot`, returned alongside the duties to sign.
+    ///
+    /// Returns `Ok(None)` when there is nothing to publish (no duties, or no block for the slot)
+    /// and `Err` when data production failed.
+    async fn produce_payload_attestation_data(
+        &self,
+        slot: Slot,
+    ) -> Result<Option<(Vec<PtcDuty>, PayloadAttestationData)>, String> {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
 
         if duties.is_empty() {
-            return;
+            return Ok(None);
         }
 
         debug!(
@@ -151,15 +191,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     %slot,
                     "No block received for slot, skipping payload attestation"
                 );
-                return;
+                return Ok(None);
             }
             Err(e) => {
-                error!(
-                    error = %e,
-                    %slot,
-                    "Failed to produce payload attestation data"
-                );
-                return;
+                return Err(e.to_string());
             }
         };
 
@@ -170,6 +205,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
             "Received payload attestation data"
         );
 
+        Ok(Some((duties, attestation_data)))
+    }
+
+    /// Sign `attestation_data` for each duty and publish the resulting messages, preferring SSZ
+    /// and falling back to JSON.
+    async fn sign_and_publish(
+        &self,
+        slot: Slot,
+        duties: Vec<PtcDuty>,
+        attestation_data: PayloadAttestationData,
+    ) -> Result<(), String> {
         let mut messages = Vec::with_capacity(duties.len());
 
         for duty in &duties {
@@ -193,7 +239,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
 
         if messages.is_empty() {
-            return;
+            return Ok(());
         }
 
         let count = messages.len();
@@ -211,41 +257,420 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
             })
             .await;
 
-        let result = match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                debug!(%slot, "SSZ publish failed, falling back to JSON");
-                self.beacon_nodes
-                    .first_success(|beacon_node| {
-                        let messages = messages.clone();
-                        async move {
-                            beacon_node
-                                .post_beacon_pool_payload_attestations(&messages, fork_name)
-                                .await
-                                .map_err(|e| {
-                                    format!("Failed to publish payload attestations (JSON): {e:?}")
-                                })
-                        }
-                    })
-                    .await
-            }
+        if result.is_err() {
+            debug!(%slot, "SSZ publish failed, falling back to JSON");
+            self.beacon_nodes
+                .first_success(|beacon_node| {
+                    let messages = messages.clone();
+                    async move {
+                        beacon_node
+                            .post_beacon_pool_payload_attestations(&messages, fork_name)
+                            .await
+                            .map_err(|e| {
+                                format!("Failed to publish payload attestations (JSON): {e:?}")
+                            })
+                    }
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+
+        info!(
+            %slot,
+            %count,
+            "Successfully published payload attestations"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::duties_service::DutiesServiceBuilder;
+    use eth2::types::PtcDuty;
+    use futures::FutureExt;
+    use slot_clock::ManualSlotClock;
+    use std::time::Duration;
+    use types::{Epoch, ForkName, Hash256, PayloadAttestationData, Slot};
+    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
+
+    struct TestHarness {
+        harness: ValidatorClientHarness,
+        service: PayloadAttestationService<S, ManualSlotClock>,
+    }
+
+    impl TestHarness {
+        async fn new_with_validators(num_validators: usize) -> Self {
+            let harness = ValidatorClientHarness::new(num_validators).await;
+
+            let duties_service = Arc::new(
+                DutiesServiceBuilder::new()
+                    .validator_store(harness.validator_store.clone())
+                    .slot_clock(harness.slot_clock.clone())
+                    .beacon_nodes(harness.beacon_nodes.clone())
+                    .executor(harness.test_runtime.task_executor.clone())
+                    .spec(harness.spec.clone())
+                    .build()
+                    .unwrap(),
+            );
+
+            let service = PayloadAttestationService::new(
+                duties_service,
+                harness.validator_store.clone(),
+                harness.slot_clock.clone(),
+                harness.beacon_nodes.clone(),
+                harness.test_runtime.task_executor.clone(),
+                harness.spec.clone(),
+            );
+
+            Self { harness, service }
+        }
+
+        fn insert_ptc_duties(&self, slot: Slot) {
+            let duties = self
+                .harness
+                .pubkeys
+                .iter()
+                .enumerate()
+                .map(|(i, pubkey)| PtcDuty {
+                    pubkey: *pubkey,
+                    validator_index: i as u64,
+                    slot,
+                })
+                .collect();
+            self.service
+                .duties_service
+                .ptc_duties
+                .write()
+                .insert(Epoch::new(0), (Hash256::ZERO, duties));
+        }
+    }
+
+    // advance_time so that we don't have to wait for real-time to elapse in the test
+    async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
+        slot_clock.advance_time(duration);
+        tokio::time::advance(duration).await;
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let service = &harness.service;
+        let service_wait = service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+
+        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        // It calls sleep(duration_to_next_slot + payload_attestation_due).await which registers a timer with a deadline of 21s
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        let duration_to_wait = duration_to_next_slot + payload_attestation_due;
+        // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
+        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
+        // so the following assert! should return None
+        // This verifies that the function wait_for_attestation_slot waits for the correct duration before returning a slot.
+        advance_time(&harness.service.slot_clock, duration_to_wait).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Function should return None before the sleep duration has elapsed"
+        );
+
+        // Advance time for 1 more second, the sleep should have completed and the function should return Some(attestation_slot)
+        // slot_clock is now at 22s, which is slot 1
+        // Removing this advance_time should cause the following assert_eq! to fail
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_payload_attestation_ssz() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        let expected_payload_attestation = PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
         };
 
-        match result {
-            Ok(()) => {
-                info!(
-                    %slot,
-                    %count,
-                    "Successfully published payload attestations"
-                );
-            }
-            Err(e) => {
-                crit!(
-                    error = %e,
-                    %slot,
-                    "Failed to publish payload attestations"
-                );
-            }
-        }
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &expected_payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
+            );
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
+
+        let service = test_harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
+
+        let messages = test_harness
+            .harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+
+        // We create one validator with one PTC duty, so the PayloadAttestationMessage length should be 1
+        assert_eq!(
+            messages.len(),
+            1,
+            "Expected one payload attestation message"
+        );
+
+        // First try on beacon_node_1 (mock_ssz) is successful
+        // therefore mock_json is not hit at all
+        mock_ssz.expect(1).assert();
+        mock_json.expect(0).assert();
+
+        let result = &messages[0];
+        assert_eq!(result.validator_index, 0);
+        assert_eq!(
+            result.data.beacon_block_root,
+            expected_payload_attestation.beacon_block_root
+        );
+        assert_eq!(result.data.slot, attestation_slot);
+        assert!(result.data.payload_present);
+        assert!(result.data.blob_data_available);
+    }
+
+    #[tokio::test]
+    async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        let expected_payload_attestation = PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &expected_payload_attestation,
+                ForkName::Gloas,
+                Slot::new(1),
+            );
+
+        // mock_ssz returns 500 to simulate BN does not support SSZ, so that it fallbacks to mock_json
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz_error();
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
+
+        let service = test_harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
+
+        // first_success function tries both beacon nodes for SSZ post payload attestation:
+        // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
+        // second pass: repeats the first pass
+        // Therefore mock_ssz is hit twice.
+        // When SSZ fails, it fallbacks to JSON and should succeed on first call on mock_json.
+        mock_ssz.expect(2).assert();
+        mock_json.expect(1).assert();
+
+        let messages = test_harness
+            .harness
+            .mock_beacon_node_2
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+
+        assert_eq!(
+            messages.len(),
+            1,
+            "Expected one payload attestation via JSON fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_duties_no_publish() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        // we do not insert any duties in this test
+        let mock = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        let service = test_harness.service;
+
+        // when there is no duty, data production returns `None` so there is nothing to publish
+        // therefore, the beacon node is not called, expected to hit 0
+        let data = service
+            .produce_payload_attestation_data(Slot::new(1))
+            .await
+            .unwrap();
+        assert!(
+            data.is_none(),
+            "Expected no data to be produced without duties"
+        );
+        mock.expect(0).assert();
+
+        assert!(
+            test_harness
+                .harness
+                .mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published when there are no duties"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_payload_attestation_data_error() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        // We have PTC duties
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        // However, we simulate that both BNs have error in get_validator_payload_attestation_data
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data_error(attestation_slot);
+        test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_get_validator_payload_attestation_data_error(attestation_slot);
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
+
+        let service = test_harness.service;
+        // Data production should error before any signing/publishing happens.
+        let result = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await;
+        assert!(result.is_err());
+
+        // Both beacon nodes should not be called at all
+        mock_ssz.expect(0).assert();
+        mock_json.expect(0).assert();
+
+        // No payload attestation message published
+        assert!(
+            test_harness
+                .harness
+                .mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published when get data fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_multiple_payload_attestation_messages() {
+        // Create 3 validators with 1 PTC duty for each validator
+        let mut test_harness = TestHarness::new_with_validators(3).await;
+
+        let attestation_slot = Slot::new(1);
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        let expected_payload_attestation = PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &expected_payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
+            );
+
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        let service = test_harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
+
+        let messages = test_harness
+            .harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+
+        // With 3 PTC duties in total, we should have 3 PayloadAttestationMessage
+        assert_eq!(
+            messages.len(),
+            3,
+            "Expected three payload attestation messages"
+        );
+        // mock_ssz is only hit once
+        // this is to verify that a single call to the POST endpoint can publish multiple messages in one go
+        mock_ssz.expect(1).assert();
     }
 }

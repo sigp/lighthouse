@@ -25,8 +25,8 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
-    KzgProofs,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
+    ExecutionRequests, KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -38,7 +38,7 @@ mod new_payload_request;
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
     NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
-    NewPayloadRequestGloas,
+    NewPayloadRequestGloas, NewPayloadRequestHeze,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -312,7 +312,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -336,13 +336,20 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: ExecutionPayloadHeze<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub requests: ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_electra")
+    )]
+    pub requests: types::ExecutionRequestsElectra<E>,
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
+    pub requests: types::ExecutionRequestsGloas<E>,
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
@@ -407,19 +414,25 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
                 ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Electra(inner.requests)),
             ),
             GetPayloadResponse::Gloas(inner) => (
                 ExecutionPayload::Gloas(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
-                Some(inner.requests),
+                Some(ExecutionRequests::Gloas(inner.requests)),
+            ),
+            GetPayloadResponse::Heze(inner) => (
+                ExecutionPayload::Heze(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(ExecutionRequests::Gloas(inner.requests)),
             ),
         }
     }
@@ -832,16 +845,16 @@ impl ClientVersionV1 {
             // 12 characters for append_graffiti_full, plus one character for spacing
             // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
             if graffiti_length < 20 {
-                format!("{} {}", append_graffiti_full, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_full)
             // user-specified graffiti is between 20-23 characters
             } else if (20..24).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_one_byte, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_one_byte)
             // user-specified graffiti is between 24-27 characters
             } else if (24..28).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_no_commit, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_no_commit)
             // user-specified graffiti is between 28-29 characters
             } else if (28..30).contains(&graffiti_length) {
-                format!("{} {}", append_graffiti_only_el, graffiti_str)
+                format!("{} {}", graffiti_str, append_graffiti_only_el)
             // if user-specified graffiti is between 30-32 characters, append nothing
             } else {
                 return graffiti;

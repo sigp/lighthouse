@@ -9,11 +9,12 @@ use bls::Keypair;
 use eth2::types::ProposerPreparationData;
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::{apply_parent_execution_payload, withdrawals::get_expected_withdrawals},
     state_advance::complete_state_advance,
 };
+use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -184,11 +185,14 @@ async fn prepare_payload_generic(
     // created with eth1 withdrawal credentials in the interop genesis builder.
     let consolidation_request = harness.make_switch_to_compounding_request(1);
 
-    let execution_requests = ExecutionRequests::<E> {
-        deposits: VariableList::empty(),
-        withdrawals: VariableList::empty(),
-        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
-    };
+    let execution_requests = ExecutionRequests::Gloas(ExecutionRequestsGloas::<E> {
+        deposits: ProgressiveVariableList::empty(),
+        withdrawals: ProgressiveVariableList::empty(),
+        consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
+        builder_deposits: ProgressiveVariableList::empty(),
+        builder_exits: ProgressiveVariableList::empty(),
+        _phantom: PhantomData,
+    });
 
     // Inject the execution requests into the mock EL so the next payload includes them.
     harness
@@ -621,7 +625,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (_block, _post_state, _value) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
@@ -637,14 +641,16 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .await
         .unwrap();
 
-    // The envelope + blobs should now be in the pending cache.
+    // The envelope + blobs should now be in the pending cache, keyed by the block root.
+    let block_root = block.canonical_root();
     assert!(
         harness
             .chain
             .pending_payload_envelopes
             .read()
-            .contains(slot),
-        "Pending cache should contain an envelope for the produced slot"
+            .get_by_block_root(block_root)
+            .is_some(),
+        "Pending cache should contain an envelope for the produced block"
     );
 
     // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
@@ -652,7 +658,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
 
     assert!(
         blobs.is_some(),
@@ -670,7 +676,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
     assert!(
         second_take.is_none(),
         "Blobs should only be consumable once"
@@ -682,8 +688,58 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_block_root(block_root)
             .is_some(),
         "Envelope should remain in cache after taking blobs"
     );
+}
+
+/// A Gloas proposer re-orging must use the parent's `prev_randao`
+#[tokio::test]
+async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let head_block_root = cached_head.head_block_root();
+    let head_parent_block_root = cached_head.parent_block_root();
+    let proposal_slot = cached_head.head_slot() + 1;
+
+    let head_random = cached_head.head_random().unwrap();
+    let parent_random = cached_head.parent_random().unwrap();
+    assert_ne!(head_random, parent_random);
+
+    let on_head = harness
+        .chain
+        .get_pre_payload_attributes(proposal_slot, head_block_root, &cached_head)
+        .unwrap()
+        .unwrap();
+    assert_eq!(on_head.prev_randao, head_random);
+
+    // value should always be none post gloas
+    assert_eq!(on_head.parent_block_number, None);
+
+    let on_parent = harness
+        .chain
+        .get_pre_payload_attributes(proposal_slot, head_parent_block_root, &cached_head)
+        .unwrap()
+        .unwrap();
+    assert_eq!(on_parent.prev_randao, parent_random);
+
+    // value should always be none post gloas
+    assert_eq!(on_parent.parent_block_number, None);
 }

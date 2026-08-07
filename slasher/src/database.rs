@@ -9,13 +9,13 @@ use crate::{
 };
 use bls::AggregateSignature;
 use byteorder::{BigEndian, ByteOrder};
+use hashlink::lru_cache::LruCache;
 use interface::{Environment, OpenDatabases, RwTransaction};
-use lru::LruCache;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -23,8 +23,8 @@ use tracing::info;
 use tree_hash::TreeHash;
 use types::{
     AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationBase, IndexedAttestationElectra, ProposerSlashing, SignedBeaconBlockHeader,
-    Slot,
+    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas, ProposerSlashing,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -261,7 +261,19 @@ impl IndexedAttestationOnDisk {
         spec: &ChainSpec,
     ) -> Result<IndexedAttestation<E>, Error> {
         let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
-        if fork_at_target_epoch.electra_enabled() {
+        if fork_at_target_epoch.gloas_enabled() {
+            // Build a regular `VariableList` with a type-level bound to enforce the
+            // pre-Gloas length check, then convert to the `Progressive` version.
+            let attesting_indices =
+                VariableList::<u64, E::MaxValidatorsPerSlot>::new(self.attesting_indices)?;
+            let attesting_indices = ProgressiveVariableList::new(attesting_indices.into());
+            Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
+                attesting_indices,
+                data: self.data,
+                signature: self.signature,
+                _phantom: std::marker::PhantomData,
+            }))
+        } else if fork_at_target_epoch.electra_enabled() {
             let attesting_indices = VariableList::new(self.attesting_indices)?;
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices,
@@ -305,7 +317,8 @@ impl<E: EthSpec> SlasherDB<E> {
             }
         }
 
-        let attestation_root_cache = Mutex::new(LruCache::new(config.attestation_root_cache_size));
+        let attestation_root_cache =
+            Mutex::new(LruCache::new(config.attestation_root_cache_size.get()));
 
         let mut db = Self {
             env,
@@ -559,7 +572,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let indexed_attestation = self.get_indexed_attestation(txn, indexed_id)?;
         let attestation_data_root = indexed_attestation.data().tree_hash_root();
 
-        cache.put(indexed_id, attestation_data_root);
+        cache.insert(indexed_id, attestation_data_root);
 
         Ok((attestation_data_root, Some(indexed_attestation)))
     }
@@ -570,13 +583,13 @@ impl<E: EthSpec> SlasherDB<E> {
         attestation_data_root: Hash256,
     ) {
         let mut cache = self.attestation_root_cache.lock();
-        cache.put(indexed_attestation_id, attestation_data_root);
+        cache.insert(indexed_attestation_id, attestation_data_root);
     }
 
     fn delete_attestation_data_roots(&self, ids: impl IntoIterator<Item = IndexedAttestationId>) {
         let mut cache = self.attestation_root_cache.lock();
         for indexed_id in ids {
-            cache.pop(&indexed_id);
+            cache.remove(&indexed_id);
         }
     }
 
