@@ -35,6 +35,7 @@ use types::{
 };
 
 pub mod execution_pending_envelope;
+mod gossip_seen_envelope_cache;
 pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
