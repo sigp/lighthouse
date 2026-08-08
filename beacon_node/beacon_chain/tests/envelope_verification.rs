@@ -55,3 +55,46 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
         Err(EnvelopeError::ExecutionRequestsRootMismatch { .. })
     ));
 }
+
+#[tokio::test]
+async fn gossip_ignores_subsequent_envelope_from_same_builder() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _new_state) =
+        harness.make_block_with_envelope(state, target_slot).await;
+
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let envelope = Arc::new(signed_envelope);
+
+    harness
+        .chain
+        .verify_envelope_for_gossip(envelope.clone())
+        .await
+        .expect("first envelope should pass gossip verification");
+    let second_result = harness.chain.verify_envelope_for_gossip(envelope).await;
+
+    assert!(matches!(
+        second_result,
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. })
+    ));
+}
