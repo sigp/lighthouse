@@ -29,13 +29,13 @@ use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
-    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    Slot,
+    BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
-mod gossip_seen_envelope_cache;
+pub mod gossip_seen_envelope_cache;
 pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
@@ -201,6 +201,12 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// A validated envelope for this `block_root` has already been seen from the
+    /// builder with `builder_index`, so this one is a duplicate.
+    EnvelopeAlreadySeen {
+        block_root: Hash256,
+        builder_index: BuilderIndex,
+    },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -286,6 +292,7 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)

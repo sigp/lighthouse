@@ -11,6 +11,7 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
+use crate::payload_envelope_verification::gossip_seen_envelope_cache::GossipSeenEnvelopeCache;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
@@ -29,6 +30,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub gossip_seen_envelope_cache: &'a GossipSeenEnvelopeCache,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
 }
@@ -141,6 +143,21 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
         let beacon_block_root = envelope.beacon_block_root;
+        let block_slot = envelope.slot();
+        let builder_index = envelope.builder_index;
+
+        // If we've already seen a valid envelope for this beacon block from this
+        // builder, ignore the duplicate.
+        if ctx.gossip_seen_envelope_cache.has_seen_envelope(
+            block_slot,
+            beacon_block_root,
+            builder_index,
+        ) {
+            return Err(EnvelopeError::EnvelopeAlreadySeen {
+                block_root: beacon_block_root,
+                builder_index,
+            });
+        }
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
@@ -191,8 +208,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // For self-built envelopes, we can use the proposer cache for the fork and the
         // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
         // For external builder envelopes, we must load the state to access the builder registry.
-        let builder_index = envelope.builder_index;
-        let block_slot = envelope.slot();
         let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
         // already carries the correct `shuffling_decision_block`.
@@ -263,6 +278,13 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
+        // Mark gossip-validated envelope as seen for the (block_root, builder_index) pair
+        ctx.gossip_seen_envelope_cache.mark_envelope_seen(
+            block_slot,
+            beacon_block_root,
+            builder_index,
+        );
+
         if let Some(event_handler) = ctx.event_handler.as_ref()
             && event_handler.has_execution_payload_gossip_subscribers()
         {
@@ -297,6 +319,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec: &self.spec,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            gossip_seen_envelope_cache: &self.gossip_seen_envelope_cache,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
         }
