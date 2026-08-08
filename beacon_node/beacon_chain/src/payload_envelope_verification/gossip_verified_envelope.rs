@@ -146,19 +146,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let block_slot = envelope.slot();
         let builder_index = envelope.builder_index;
 
-        // If we've already seen a valid envelope for this beacon block from this
-        // builder, ignore the duplicate.
-        if ctx.gossip_seen_envelope_cache.has_seen_envelope(
-            block_slot,
-            beacon_block_root,
-            builder_index,
-        ) {
-            return Err(EnvelopeError::EnvelopeAlreadySeen {
-                block_root: beacon_block_root,
-                builder_index,
-            });
-        }
-
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
         // If we have a block_processing_table, we could have a Processed(Bid, bool) state that is only
@@ -178,6 +165,18 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         drop(fork_choice_read_lock);
 
+        // If we've already seen a valid envelope for this beacon block from this
+        // builder, ignore the duplicate.
+        if ctx.gossip_seen_envelope_cache.has_seen_envelope(
+            block_slot,
+            beacon_block_root,
+            builder_index,
+        ) {
+            return Err(EnvelopeError::EnvelopeAlreadySeen {
+                block_root: beacon_block_root,
+                builder_index,
+            });
+        }
         let latest_finalized_slot = ctx
             .canonical_head
             .cached_head()

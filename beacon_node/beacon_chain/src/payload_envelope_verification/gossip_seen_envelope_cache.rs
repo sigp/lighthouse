@@ -37,7 +37,7 @@ impl GossipSeenEnvelopeCache {
         self.seen_envelopes
             .read()
             .get(&slot)
-            .is_some_and(|pair| pair.contains(&(block_root, builder_index)))
+            .is_some_and(|seen| seen.contains(&(block_root, builder_index)))
     }
 
     /// Prune anything before `current_slot`
