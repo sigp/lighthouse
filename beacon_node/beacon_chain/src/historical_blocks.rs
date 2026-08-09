@@ -418,20 +418,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(verify_timer);
         drop(sig_timer);
 
-        // Write the I/O batches to disk, writing the blocks themselves first, as it's better
-        // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
-        // do not exist.
+        // Warning: Critical section. Writes span the blobs, hot and cold databases, then
+        // advance hot-DB metadata. These databases cannot be updated atomically together, so
+        // we sync each DB before anything that depends on it. If we crash after syncing data
+        // but before updating metadata, backfill redoes work; the reverse would leave durable
+        // metadata pointing at missing data.
+        //
+        // Write blocks before cold roots so the hot DB may contain extras rather than cold
+        // roots pointing at missing blocks. Skip sync when a DB had no ops this batch.
+        let blobs_empty = blob_batch.is_empty();
+        let hot_empty = hot_batch.is_empty();
+        let cold_empty = cold_batch.is_empty();
         {
             let _span = debug_span!("backfill_write_blobs_db").entered();
             self.store.blobs_db.do_atomically(blob_batch)?;
+            if !blobs_empty {
+                self.store.blobs_db.sync()?;
+            }
         }
         {
             let _span = debug_span!("backfill_write_hot_db").entered();
             self.store.hot_db.do_atomically(hot_batch)?;
+            if !hot_empty {
+                self.store.hot_db.sync()?;
+            }
         }
         {
             let _span = debug_span!("backfill_write_cold_db").entered();
             self.store.cold_db.do_atomically(cold_batch)?;
+            if !cold_empty {
+                self.store.cold_db.sync()?;
+            }
         }
 
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
@@ -475,6 +492,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .compare_and_set_anchor_info(anchor_info, new_anchor)?,
         );
         self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
+        // Flush metadata to disk (cf. `put_sync` for the freezer split).
+        self.store.hot_db.sync()?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
