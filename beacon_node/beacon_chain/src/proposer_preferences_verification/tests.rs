@@ -561,12 +561,8 @@ fn dependent_root_valid_via_boundary_crossing_child() {
     let prefs = make_signed_preferences(proposal_slot, 0, parent_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(
-        !matches!(
-            &result,
-            Err(ProposerPreferencesError::DependentRootTooRecent { .. }
-                | ProposerPreferencesError::InvalidDependentRoot { .. })
-        ),
-        "expected dependent root to be accepted, got: {:?}",
+        matches!(&result, Err(ProposerPreferencesError::BeaconChainError(_))),
+        "expected verification to pass dependent-root checks and fail at proposer resolution, got: {:?}",
         result
     );
 }
