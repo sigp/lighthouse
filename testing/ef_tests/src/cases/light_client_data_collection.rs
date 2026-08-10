@@ -3,6 +3,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::error::Error;
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::ChainConfig;
 use beacon_chain::test_utils::BeaconChainHarness;
 use bls::Signature;
 use serde::Deserialize;
@@ -188,10 +189,16 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
         };
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone().into())
-            .deterministic_keypairs(8)
-            .initial_state_ephemeral_store(self.initial_state.clone(), genesis_block, None)
-            .mock_execution_layer()
-            .build();
+            .keypairs(vec![])
+	    .chain_config(ChainConfig {
+		archive: true,
+		..ChainConfig::default()
+	    })
+	    .genesis_state_ephemeral_store(self.initial_state.clone())
+ 	    .mock_execution_layer()
+            .recalculate_fork_times_with_genesis(0)
+	    .mock_execution_layer_all_payloads_valid()
+	    .build();
 
         let mut skip_first = true;
         for step in &self.steps {
