@@ -2279,6 +2279,12 @@ pub struct Config {
     #[serde(default = "default_max_transactions_bytes_per_inclusion_list")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_transactions_bytes_per_inclusion_list: u64,
+    #[serde(default = "default_max_request_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_inclusion_list: u64,
+    #[serde(default = "default_min_slots_for_inclusion_lists_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_slots_for_inclusion_lists_requests: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2561,6 +2567,14 @@ const fn default_max_transactions_bytes_per_inclusion_list() -> u64 {
     8192
 }
 
+const fn default_max_request_inclusion_list() -> u64 {
+    16
+}
+
+const fn default_min_slots_for_inclusion_lists_requests() -> u64 {
+    1
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::new(
@@ -2821,6 +2835,8 @@ impl Config {
             churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
             max_transactions_bytes_per_inclusion_list: spec
                 .max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list: spec.max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests: spec.min_slots_for_inclusion_lists_requests,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -2930,6 +2946,8 @@ impl Config {
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
             max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3048,6 +3066,8 @@ impl Config {
             max_per_epoch_activation_churn_limit_gloas,
 
             max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
 
             ..chain_spec.clone()
         };
@@ -4020,9 +4040,6 @@ mod yaml_tests {
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
-        // Heze networking
-        "MAX_REQUEST_INCLUSION_LIST",
-        "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
