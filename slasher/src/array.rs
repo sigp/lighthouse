@@ -9,7 +9,7 @@ use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::io::Read;
 use std::sync::Arc;
-use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
+use types::{AttesterSlashing, Epoch, IndexedAttestation};
 
 pub const MAX_DISTANCE: u16 = u16::MAX;
 
@@ -120,14 +120,14 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn neutral_element() -> u16;
 
-    fn check_slashable<E: EthSpec>(
+    fn check_slashable(
         &self,
-        db: &SlasherDB<E>,
+        db: &SlasherDB,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
-        attestation: &IndexedAttestation<E>,
+        attestation: &IndexedAttestation,
         config: &Config,
-    ) -> Result<AttesterSlashingStatus<E>, Error>;
+    ) -> Result<AttesterSlashingStatus, Error>;
 
     fn update(
         &mut self,
@@ -147,10 +147,10 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_>;
+    fn select_db(db: &SlasherDB) -> &Database<'_>;
 
-    fn load<E: EthSpec>(
-        db: &SlasherDB<E>,
+    fn load(
+        db: &SlasherDB,
         txn: &mut RwTransaction<'_>,
         validator_chunk_index: usize,
         chunk_index: usize,
@@ -166,9 +166,9 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         Ok(Some(chunk))
     }
 
-    fn store<E: EthSpec>(
+    fn store(
         &self,
-        db: &SlasherDB<E>,
+        db: &SlasherDB,
         txn: &mut RwTransaction<'_>,
         validator_chunk_index: usize,
         chunk_index: usize,
@@ -216,14 +216,14 @@ impl TargetArrayChunk for MinTargetChunk {
         &mut self.chunk
     }
 
-    fn check_slashable<E: EthSpec>(
+    fn check_slashable(
         &self,
-        db: &SlasherDB<E>,
+        db: &SlasherDB,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
-        attestation: &IndexedAttestation<E>,
+        attestation: &IndexedAttestation,
         config: &Config,
-    ) -> Result<AttesterSlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus, Error> {
         let min_target =
             self.chunk
                 .get_target(validator_index, attestation.data().source.epoch, config)?;
@@ -290,7 +290,7 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
+    fn select_db(db: &SlasherDB) -> &Database<'_> {
         &db.databases.min_targets_db
     }
 }
@@ -319,14 +319,14 @@ impl TargetArrayChunk for MaxTargetChunk {
         &mut self.chunk
     }
 
-    fn check_slashable<E: EthSpec>(
+    fn check_slashable(
         &self,
-        db: &SlasherDB<E>,
+        db: &SlasherDB,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
-        attestation: &IndexedAttestation<E>,
+        attestation: &IndexedAttestation,
         config: &Config,
-    ) -> Result<AttesterSlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus, Error> {
         let max_target =
             self.chunk
                 .get_target(validator_index, attestation.data().source.epoch, config)?;
@@ -389,13 +389,13 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
+    fn select_db(db: &SlasherDB) -> &Database<'_> {
         &db.databases.max_targets_db
     }
 }
 
-pub fn get_chunk_for_update<'a, E: EthSpec, T: TargetArrayChunk>(
-    db: &SlasherDB<E>,
+pub fn get_chunk_for_update<'a, T: TargetArrayChunk>(
+    db: &SlasherDB,
     txn: &mut RwTransaction<'_>,
     updated_chunks: &'a mut BTreeMap<usize, T>,
     validator_chunk_index: usize,
@@ -418,16 +418,16 @@ pub fn get_chunk_for_update<'a, E: EthSpec, T: TargetArrayChunk>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
-    db: &SlasherDB<E>,
+pub fn apply_attestation_for_validator<T: TargetArrayChunk>(
+    db: &SlasherDB,
     txn: &mut RwTransaction<'_>,
     updated_chunks: &mut BTreeMap<usize, T>,
     validator_chunk_index: usize,
     validator_index: u64,
-    attestation: &IndexedAttestation<E>,
+    attestation: &IndexedAttestation,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<AttesterSlashingStatus<E>, Error> {
+) -> Result<AttesterSlashingStatus, Error> {
     let mut chunk_index = config.chunk_index(attestation.data().source.epoch);
     let mut current_chunk = get_chunk_for_update(
         db,
@@ -478,14 +478,14 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     Ok(AttesterSlashingStatus::NotSlashable)
 }
 
-pub fn update<E: EthSpec>(
-    db: &SlasherDB<E>,
+pub fn update(
+    db: &SlasherDB,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    batch: Vec<Arc<IndexedAttesterRecord<E>>>,
+    batch: Vec<Arc<IndexedAttesterRecord>>,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<HashSet<AttesterSlashing<E>>, Error> {
+) -> Result<HashSet<AttesterSlashing>, Error> {
     // Split the batch up into horizontal segments.
     // Map chunk indexes in the range `0..self.config.chunk_size` to attestations
     // for those chunks.
@@ -497,7 +497,7 @@ pub fn update<E: EthSpec>(
             .push(attestation);
     }
 
-    let mut slashings = update_array::<_, MinTargetChunk>(
+    let mut slashings = update_array::<MinTargetChunk>(
         db,
         txn,
         validator_chunk_index,
@@ -505,7 +505,7 @@ pub fn update<E: EthSpec>(
         current_epoch,
         config,
     )?;
-    slashings.extend(update_array::<_, MaxTargetChunk>(
+    slashings.extend(update_array::<MaxTargetChunk>(
         db,
         txn,
         validator_chunk_index,
@@ -522,8 +522,8 @@ pub fn update<E: EthSpec>(
     Ok(slashings)
 }
 
-pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
-    db: &SlasherDB<E>,
+pub fn epoch_update_for_validator<T: TargetArrayChunk>(
+    db: &SlasherDB,
     txn: &mut RwTransaction<'_>,
     updated_chunks: &mut BTreeMap<usize, T>,
     validator_chunk_index: usize,
@@ -563,14 +563,14 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
 }
 
 #[allow(clippy::type_complexity)]
-pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
-    db: &SlasherDB<E>,
+pub fn update_array<T: TargetArrayChunk>(
+    db: &SlasherDB,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    chunk_attestations: &BTreeMap<usize, Vec<Arc<IndexedAttesterRecord<E>>>>,
+    chunk_attestations: &BTreeMap<usize, Vec<Arc<IndexedAttesterRecord>>>,
     current_epoch: Epoch,
     config: &Config,
-) -> Result<HashSet<AttesterSlashing<E>>, Error> {
+) -> Result<HashSet<AttesterSlashing>, Error> {
     let mut slashings = HashSet::new();
     // Map from chunk index to updated chunk at that index.
     let mut updated_chunks = BTreeMap::new();
@@ -593,7 +593,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
             for validator_index in
                 config.attesting_validators_in_chunk(&attestation.indexed, validator_chunk_index)
             {
-                let slashing_status = apply_attestation_for_validator::<E, T>(
+                let slashing_status = apply_attestation_for_validator::<T>(
                     db,
                     txn,
                     &mut updated_chunks,

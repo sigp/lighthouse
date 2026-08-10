@@ -12,22 +12,20 @@ use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::path::PathBuf;
 use std::time::Duration;
-use std::{marker::PhantomData, path::PathBuf};
 use tracing::{info, warn};
-use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
-pub struct BootNodeConfig<E: EthSpec> {
+pub struct BootNodeConfig {
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
     pub discv5_config: discv5::Config,
-    phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> BootNodeConfig<E> {
+impl BootNodeConfig {
     pub async fn new(
         matches: &ArgMatches,
         eth2_network_config: &Eth2NetworkConfig,
@@ -99,7 +97,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
         } else {
             // build the enr_fork_id and add it to the local_enr if it exists
             let enr_fork = {
-                let spec = eth2_network_config.chain_spec::<E>()?;
+                let spec = eth2_network_config.chain_spec()?;
 
                 let genesis_state_url: Option<String> =
                     clap_utils::parse_optional(matches, "genesis-state-url")?;
@@ -109,7 +107,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                 if eth2_network_config.genesis_state_is_known() {
                     let mut genesis_state = eth2_network_config
-                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout).await?
+                        .genesis_state(genesis_state_url.as_deref(), genesis_state_url_timeout).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()
@@ -119,7 +117,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                         .canonical_root()
                         .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
                     info!(root = ?genesis_state_root, "Genesis state found");
-                    let enr_fork = spec.enr_fork_id::<E>(
+                    let enr_fork = spec.enr_fork_id(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
                     );
@@ -171,7 +169,6 @@ impl<E: EthSpec> BootNodeConfig<E> {
             local_enr,
             local_key,
             discv5_config: network_config.discv5_config,
-            phantom: PhantomData,
         })
     }
 }
@@ -193,13 +190,12 @@ pub struct BootNodeConfigSerialization {
 impl BootNodeConfigSerialization {
     /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
     /// relevant fields of `config`
-    pub fn from_config_ref<E: EthSpec>(config: &BootNodeConfig<E>) -> Self {
+    pub fn from_config_ref(config: &BootNodeConfig) -> Self {
         let BootNodeConfig {
             boot_nodes,
             local_enr,
             local_key: _,
             discv5_config,
-            phantom: _,
         } = config;
 
         let (ipv4_listen_socket, ipv6_listen_socket) = match discv5_config.listen_config {

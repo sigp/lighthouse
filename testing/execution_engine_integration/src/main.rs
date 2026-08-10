@@ -25,6 +25,11 @@ fn main() {
         panic!("windows is not supported, only linux");
     }
 
+    if cfg!(feature = "spec-non-mainnet") {
+        eprintln!("Skipping execution engine integration tests on non-mainnet spec");
+        return;
+    }
+
     test_geth();
     test_nethermind();
 }

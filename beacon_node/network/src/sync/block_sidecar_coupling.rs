@@ -19,8 +19,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{Span, debug, warn};
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec,
 };
 
 use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
@@ -36,19 +36,15 @@ use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkCo
 ///
 /// It accumulates responses until all expected components are received, then couples
 /// them together and returns complete `RangeSyncBlock`s ready for processing.
-pub struct RangeBlockComponentsRequest<E: EthSpec> {
+pub struct RangeBlockComponentsRequest {
     /// Blocks we have received awaiting for their corresponding sidecar.
     #[allow(clippy::type_complexity)]
-    blocks_request:
-        ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock<E>>>, PeerId)>,
+    blocks_request: ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock>>, PeerId)>,
     /// Sidecars we have received awaiting for their corresponding block.
-    block_data_request: RangeBlockDataRequest<E>,
+    block_data_request: RangeBlockDataRequest,
     /// Payload envelopes for Gloas blocks.
     payloads_request: Option<
-        ByRangeRequest<
-            PayloadEnvelopesByRangeRequestId,
-            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
-        >,
+        ByRangeRequest<PayloadEnvelopesByRangeRequestId, Vec<Arc<SignedExecutionPayloadEnvelope>>>,
     >,
     /// Span to track the range request and all children range requests.
     pub(crate) request_span: Span,
@@ -59,21 +55,21 @@ pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
     Complete(T),
 }
 
-enum RangeBlockDataRequest<E: EthSpec> {
+enum RangeBlockDataRequest {
     NoData,
-    Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
+    Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar>>>),
     /// A single custody-by-root request fetches the custody columns of every data-bearing block
     /// in this batch.
-    DataColumns(DataColumnsRequest<E>),
+    DataColumns(DataColumnsRequest),
 }
 
-enum DataColumnsRequest<E: EthSpec> {
+enum DataColumnsRequest {
     /// Blocks have not arrived yet, so no custody-by-root request has been initiated.
     NotStarted,
     /// A custody-by-root request is in flight for the batch's data blocks.
     Requesting,
     /// All custody columns for the batch have been downloaded.
-    Complete(DataColumnSidecarList<E>, PeerGroup),
+    Complete(DataColumnSidecarList, PeerGroup),
 }
 
 #[derive(Debug)]
@@ -95,7 +91,7 @@ impl From<AvailabilityCheckError> for CouplingError {
     }
 }
 
-impl<E: EthSpec> RangeBlockComponentsRequest<E> {
+impl RangeBlockComponentsRequest {
     /// Creates a new range request for blocks and their associated data (blobs or data columns).
     ///
     /// # Arguments
@@ -132,7 +128,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_blocks(
         &mut self,
         req_id: BlocksByRangeRequestId,
-        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+        blocks: Vec<Arc<SignedBeaconBlock>>,
         peer_id: PeerId,
     ) -> Result<(), String> {
         self.blocks_request.finish(req_id, (blocks, peer_id))
@@ -145,7 +141,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_blobs(
         &mut self,
         req_id: BlobsByRangeRequestId,
-        blobs: Vec<Arc<BlobSidecar<E>>>,
+        blobs: Vec<Arc<BlobSidecar>>,
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
@@ -162,7 +158,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// was never initiated.
     pub fn add_custody_columns(
         &mut self,
-        columns: DataColumnSidecarList<E>,
+        columns: DataColumnSidecarList,
         peer_group: PeerGroup,
     ) -> Result<(), String> {
         let RangeBlockDataRequest::DataColumns(state) = &mut self.block_data_request else {
@@ -185,7 +181,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_payload_envelopes(
         &mut self,
         req_id: PayloadEnvelopesByRangeRequestId,
-        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope>>,
     ) -> Result<(), String> {
         match &mut self.payloads_request {
             Some(req) => req.finish(req_id, envelopes),
@@ -198,7 +194,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     ///
     /// Only does work when blocks have arrived and we're in DataColumns mode and haven't started
     /// yet. Fires one custody request covering every block with data via the network context.
-    pub fn continue_requests<T: BeaconChainTypes<EthSpec = E>>(
+    pub fn continue_requests<T: BeaconChainTypes>(
         &mut self,
         id: ComponentsByRangeRequestId,
         cx: &mut SyncNetworkContext<T>,
@@ -247,7 +243,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             *state = DataColumnsRequest::Complete(vec![], PeerGroup::from_set(Default::default()));
             return Ok(());
         }
-        let block_epoch = blocks[0].slot().epoch(E::slots_per_epoch());
+        let block_epoch = blocks[0].slot().epoch(Spec::slots_per_epoch());
 
         match cx.custody_lookup_request(
             CustodyRequester::RangeSync(id),
@@ -292,9 +288,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
-    ) -> Option<(Result<Vec<RangeSyncBlock<E>>, CouplingError>, PeerId)>
+    ) -> Option<(Result<Vec<RangeSyncBlock>, CouplingError>, PeerId)>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return None;
@@ -350,13 +346,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     fn responses_with_blobs<T>(
-        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        blobs: Vec<Arc<BlobSidecar<E>>>,
+        blocks: Vec<Arc<SignedBeaconBlock>>,
+        blobs: Vec<Arc<BlobSidecar>>,
         custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
+    ) -> Result<Vec<RangeSyncBlock>, CouplingError>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         // There can't be more more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
@@ -419,13 +415,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     fn responses_with_custody_columns<T>(
-        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        columns: DataColumnSidecarList<E>,
+        blocks: Vec<Arc<SignedBeaconBlock>>,
+        columns: DataColumnSidecarList,
         custody_context: &CustodyContext<T>,
-        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
-    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
+        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope>>>,
+    ) -> Result<Vec<RangeSyncBlock>, CouplingError>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         // Index envelopes by beacon_block_root for correct coupling.
         let mut envelopes_by_block_root = payload_envelopes.map(|envelopes| {
@@ -437,7 +433,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         // Group the downloaded custody columns by block root. The custody-by-root request only
         // returns the requested custody columns, so we can couple them directly.
-        let mut columns_by_block_root = HashMap::<Hash256, Vec<Arc<DataColumnSidecar<E>>>>::new();
+        let mut columns_by_block_root = HashMap::<Hash256, Vec<Arc<DataColumnSidecar>>>::new();
         for column in columns {
             columns_by_block_root
                 .entry(column.block_root())
@@ -548,7 +544,7 @@ mod tests {
     use tree_hash::TreeHash;
     use types::{
         ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
-        ForkName, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -565,7 +561,7 @@ mod tests {
     /// incompatible with a Gloas genesis (Gloas columns have a different structure). Skip them when
     /// `FORK_NAME` schedules Gloas at genesis. TODO(gloas): port the harness to build Gloas columns.
     fn skip_under_gloas() -> bool {
-        test_spec::<E>()
+        test_spec()
             .fork_name_at_epoch(Epoch::new(0))
             .gloas_enabled()
     }
@@ -593,21 +589,21 @@ mod tests {
         }
     }
 
-    fn is_finished(info: &mut RangeBlockComponentsRequest<E>) -> bool {
-        let spec = Arc::new(test_spec::<E>());
+    fn is_finished(info: &mut RangeBlockComponentsRequest) -> bool {
+        let spec = Arc::new(test_spec());
         let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
         info.responses(&custody_context, spec).is_some()
     }
 
     fn gloas_spec() -> ChainSpec {
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         spec
     }
 
-    fn matching_envelope(block: &SignedBeaconBlock<E>) -> Arc<SignedExecutionPayloadEnvelope<E>> {
+    fn matching_envelope(block: &SignedBeaconBlock) -> Arc<SignedExecutionPayloadEnvelope> {
         let bid = &block
             .message()
             .body()
@@ -632,14 +628,14 @@ mod tests {
         count: usize,
         spec: &ChainSpec,
     ) -> Vec<(
-        Arc<SignedBeaconBlock<E>>,
-        DataColumnSidecarList<E>,
-        Arc<SignedExecutionPayloadEnvelope<E>>,
+        Arc<SignedBeaconBlock>,
+        DataColumnSidecarList,
+        Arc<SignedExecutionPayloadEnvelope>,
     )> {
         let mut u = types::test_utils::test_unstructured();
         (0..count)
             .map(|_| {
-                let (mut block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                let (mut block, data_columns) = generate_rand_block_and_data_columns(
                     ForkName::Gloas,
                     NumBlobs::Number(1),
                     &mut u,
@@ -654,7 +650,7 @@ mod tests {
                     .signed_execution_payload_bid_mut()
                 {
                     bid.message.execution_requests_root =
-                        ExecutionRequestsGloas::<E>::default().tree_hash_root();
+                        ExecutionRequestsGloas::default().tree_hash_root();
                 }
                 // The bid mutation changed the block root; re-point the columns at the mutated
                 // block so column<->block pairing (by block root) still holds.
@@ -677,11 +673,11 @@ mod tests {
 
     #[allow(clippy::type_complexity)]
     fn add_all_columns(
-        info: &mut RangeBlockComponentsRequest<E>,
+        info: &mut RangeBlockComponentsRequest,
         blocks: &[(
-            Arc<SignedBeaconBlock<E>>,
-            DataColumnSidecarList<E>,
-            Arc<SignedExecutionPayloadEnvelope<E>>,
+            Arc<SignedBeaconBlock>,
+            DataColumnSidecarList,
+            Arc<SignedExecutionPayloadEnvelope>,
         )],
         expected_custody_columns: &[u64],
     ) {
@@ -703,13 +699,13 @@ mod tests {
 
     #[allow(clippy::type_complexity)]
     struct GloasSetup {
-        info: RangeBlockComponentsRequest<E>,
-        custody_context: Arc<CustodyContext<EphemeralHarnessType<E>>>,
+        info: RangeBlockComponentsRequest,
+        custody_context: Arc<CustodyContext<EphemeralHarnessType>>,
         spec: Arc<ChainSpec>,
         blocks: Vec<(
-            Arc<SignedBeaconBlock<E>>,
-            DataColumnSidecarList<E>,
-            Arc<SignedExecutionPayloadEnvelope<E>>,
+            Arc<SignedBeaconBlock>,
+            DataColumnSidecarList,
+            Arc<SignedExecutionPayloadEnvelope>,
         )>,
         payloads_req_id: PayloadEnvelopesByRangeRequestId,
         expected_custody_columns: Vec<u64>,
@@ -728,7 +724,7 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let payloads_req_id = payloads_id(components_id);
-        let mut info = RangeBlockComponentsRequest::<E>::new(
+        let mut info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             None,
             true,
@@ -761,12 +757,12 @@ mod tests {
         if skip_under_gloas() {
             return;
         }
-        let spec = Arc::new(test_spec::<E>());
+        let spec = Arc::new(test_spec());
 
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(
+                generate_rand_block_and_blobs(
                     spec.fork_name_at_epoch(Epoch::new(0)),
                     NumBlobs::None,
                     &mut u,
@@ -775,11 +771,11 @@ mod tests {
                 .0
                 .into()
             })
-            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
+            .collect::<Vec<Arc<SignedBeaconBlock>>>();
 
         let blocks_req_id = blocks_id(components_id());
         let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, false, None, Span::none());
+            RangeBlockComponentsRequest::new(blocks_req_id, None, false, None, Span::none());
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks, PeerId::random())
@@ -797,17 +793,17 @@ mod tests {
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                generate_rand_block_and_blobs(ForkName::Deneb, NumBlobs::Number(3), &mut u)
                     .unwrap()
                     .0
                     .into()
             })
-            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
+            .collect::<Vec<Arc<SignedBeaconBlock>>>();
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let blobs_req_id = blobs_id(components_id);
-        let mut info = RangeBlockComponentsRequest::<E>::new(
+        let mut info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             Some(blobs_req_id),
             false,
@@ -821,7 +817,7 @@ mod tests {
         // Expect no blobs returned
         info.add_blobs(blobs_req_id, vec![]).unwrap();
 
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
         // FORK_NAME.
@@ -838,7 +834,7 @@ mod tests {
         if skip_under_gloas() {
             return;
         }
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
@@ -849,7 +845,7 @@ mod tests {
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
+                generate_rand_block_and_data_columns(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
                     &mut u,
@@ -862,7 +858,7 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, None, Span::none());
+            RangeBlockComponentsRequest::new(blocks_req_id, None, true, None, Span::none());
         // Send blocks and complete terminate response
         info.add_blocks(
             blocks_req_id,

@@ -30,7 +30,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, Hash256, SelectionProof, Slot};
+use types::{ChainSpec, Epoch, Hash256, SelectionProof, Slot, Spec};
 use validator_metrics::{ATTESTATION_DUTY, get_int_gauge, set_int_gauge};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
@@ -196,7 +196,7 @@ async fn make_beacon_committee_selection<S: ValidatorStore, T: SlotClock>(
 
     let epoch = duties
         .first()
-        .map(|attester_data| attester_data.slot.epoch(S::E::slots_per_epoch()))
+        .map(|attester_data| attester_data.slot.epoch(Spec::slots_per_epoch()))
         .unwrap_or_default();
 
     debug!(
@@ -512,7 +512,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
-        let epoch = slot.epoch(S::E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
 
         // Only collect validators that are considered safe in terms of doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
@@ -537,7 +537,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
 
     /// Returns all `ValidatorDuty` for the given `slot`.
     pub fn attesters(&self, slot: Slot) -> Vec<DutyAndProof> {
-        let epoch = slot.epoch(S::E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
 
         // Only collect validators that are considered safe in terms of doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
@@ -567,7 +567,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
     ///
     /// Returns duties for local validators who have PTC assignments at the given slot.
     pub fn get_ptc_duties_for_slot(&self, slot: Slot) -> Vec<PtcDuty> {
-        let epoch = slot.epoch(S::E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
 
         self.ptc_duties
             .read()
@@ -724,7 +724,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         continue;
                     };
 
-                    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+                    let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
                     let Some(gloas_fork_epoch) = duties_service.spec.gloas_fork_epoch else {
                         // Gloas fork epoch not configured, should not reach here
                         break;
@@ -795,7 +795,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             let current_slot_opt = duties_service.slot_clock.now();
 
             if let Some(current_slot) = current_slot_opt {
-                let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;
+                let is_first_slot_of_epoch = current_slot % Spec::slots_per_epoch() == 0;
 
                 // Query an unknown validator later if it was queried within the last epoch, or if
                 // the current slot is the first slot of an epoch.
@@ -857,7 +857,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                 // the beacon chain.
                 Ok(None) => {
                     if let Some(current_slot) = current_slot_opt {
-                        let next_poll_slot = current_slot.saturating_add(S::E::slots_per_epoch());
+                        let next_poll_slot = current_slot.saturating_add(Spec::slots_per_epoch());
                         duties_service
                             .unknown_validator_next_poll_slots
                             .write()
@@ -900,7 +900,7 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+    let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
     let next_epoch = current_epoch + 1;
 
     // Collect *all* pubkeys, even those undergoing doppelganger protection.
@@ -980,8 +980,7 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
     let num_expected_subscriptions = overallocation_numerator
         * std::cmp::max(
             1,
-            local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len()
-                / S::E::slots_per_epoch() as usize,
+            local_pubkeys.len() * ATTESTATION_SUBSCRIPTION_OFFSETS.len() / Spec::SLOTS_PER_EPOCH,
         )
         / overallocation_denominator;
     let mut subscriptions = Vec::with_capacity(num_expected_subscriptions);
@@ -1270,14 +1269,14 @@ fn update_per_validator_duty_metrics<S: ValidatorStore, T: SlotClock + 'static>(
                     get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
                 {
                     let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
-                    let existing_epoch = existing_slot.epoch(S::E::slots_per_epoch());
+                    let existing_epoch = existing_slot.epoch(Spec::slots_per_epoch());
 
                     // First condition ensures that we switch to the next epoch duty slot
                     // once the current epoch duty slot passes.
                     // Second condition is to ensure that next epoch duties don't override
                     // current epoch duties.
                     if existing_slot < current_slot
-                        || (duty_slot.epoch(S::E::slots_per_epoch()) <= existing_epoch
+                        || (duty_slot.epoch(Spec::slots_per_epoch()) <= existing_epoch
                             && duty_slot > current_slot
                             && duty_slot != existing_slot)
                     {
@@ -1346,7 +1345,7 @@ fn process_duty_and_proof<S: ValidatorStore>(
     };
 
     let attester_map = attesters.entry(duty.pubkey).or_default();
-    let epoch = duty.slot.epoch(S::E::slots_per_epoch());
+    let epoch = duty.slot.epoch(Spec::slots_per_epoch());
     match attester_map.entry(epoch) {
         hash_map::Entry::Occupied(mut entry) => {
             // No need to update duties for which no proof was computed.
@@ -1472,7 +1471,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
             // for distributed case that uses the selections_endpoint
             if duties_service.selection_proof_config.selections_endpoint {
                 // Using lookahead_slot to determine if it is the first slot of an epoch
-                let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
+                let is_lookahead_slot_epoch_start = lookahead_slot % Spec::slots_per_epoch() == 0;
 
                 // Call the selection endpoint only at the first slot of an epoch or when it errors
                 if is_lookahead_slot_epoch_start || call_selection_endpoint {
@@ -1648,7 +1647,7 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+    let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
 
     // Notify the block proposal service for any proposals that we have in our cache.
     //
@@ -1794,7 +1793,7 @@ async fn poll_beacon_ptc_attesters<S: ValidatorStore + 'static, T: SlotClock + '
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+    let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
 
     // Collect *all* pubkeys, even those undergoing doppelganger protection.
     let local_pubkeys: HashSet<_> = duties_service

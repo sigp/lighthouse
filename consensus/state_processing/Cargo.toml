@@ -17,6 +17,7 @@ arbitrary = [
     "tree_hash/arbitrary",
 ]
 portable = ["bls/supranational-portable"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+spec-non-mainnet = []
+spec-minimal = ["types/spec-minimal", "spec-non-mainnet"]
+spec-gnosis = ["types/spec-gnosis", "spec-non-mainnet"]
+
 [dependencies]
 
 [dev-dependencies]

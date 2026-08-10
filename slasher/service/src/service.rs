@@ -21,18 +21,18 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, Instant, interval_at};
 use tracing::{debug, error, info, trace, warn};
-use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
+use types::{AttesterSlashing, Epoch, ProposerSlashing, Spec};
 
 pub struct SlasherService<T: BeaconChainTypes> {
     beacon_chain: Arc<BeaconChain<T>>,
-    network_sender: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_sender: UnboundedSender<NetworkMessage>,
 }
 
 impl<T: BeaconChainTypes> SlasherService<T> {
     /// Create a new service but don't start any tasks yet.
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_sender: UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_sender: UnboundedSender<NetworkMessage>,
     ) -> Self {
         Self {
             beacon_chain,
@@ -98,7 +98,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         loop {
             interval.tick().await;
             if let Some(current_slot) = beacon_chain.slot_clock.now() {
-                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+                let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
                 if let Err(TrySendError::Disconnected(_)) = notif_sender.try_send(current_epoch) {
                     break;
                 }
@@ -111,9 +111,9 @@ impl<T: BeaconChainTypes> SlasherService<T> {
     /// Run the blocking task that performs work.
     fn run_processor(
         beacon_chain: Arc<BeaconChain<T>>,
-        slasher: Arc<Slasher<T::EthSpec>>,
+        slasher: Arc<Slasher>,
         notif_receiver: Receiver<Epoch>,
-        network_sender: UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_sender: UnboundedSender<NetworkMessage>,
     ) {
         while let Ok(current_epoch) = notif_receiver.recv() {
             let t = Instant::now();
@@ -164,8 +164,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
     /// Push any slashings found to the beacon chain, optionally publishing them on the network.
     fn process_slashings(
         beacon_chain: &BeaconChain<T>,
-        slasher: &Slasher<T::EthSpec>,
-        network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+        slasher: &Slasher,
+        network_sender: &UnboundedSender<NetworkMessage>,
     ) {
         Self::process_attester_slashings(beacon_chain, slasher, network_sender);
         Self::process_proposer_slashings(beacon_chain, slasher, network_sender);
@@ -173,8 +173,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
     fn process_attester_slashings(
         beacon_chain: &BeaconChain<T>,
-        slasher: &Slasher<T::EthSpec>,
-        network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+        slasher: &Slasher,
+        network_sender: &UnboundedSender<NetworkMessage>,
     ) {
         let attester_slashings = slasher.get_attester_slashings();
 
@@ -225,8 +225,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
     fn process_proposer_slashings(
         beacon_chain: &BeaconChain<T>,
-        slasher: &Slasher<T::EthSpec>,
-        network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+        slasher: &Slasher,
+        network_sender: &UnboundedSender<NetworkMessage>,
     ) {
         let proposer_slashings = slasher.get_proposer_slashings();
 
@@ -273,8 +273,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
     fn publish_attester_slashing(
         beacon_chain: &BeaconChain<T>,
-        network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-        slashing: AttesterSlashing<T::EthSpec>,
+        network_sender: &UnboundedSender<NetworkMessage>,
+        slashing: AttesterSlashing,
     ) -> Result<(), String> {
         let outcome = beacon_chain
             .verify_attester_slashing_for_gossip(slashing)
@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
     fn publish_proposer_slashing(
         beacon_chain: &BeaconChain<T>,
-        network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_sender: &UnboundedSender<NetworkMessage>,
         slashing: ProposerSlashing,
     ) -> Result<(), String> {
         let outcome = beacon_chain

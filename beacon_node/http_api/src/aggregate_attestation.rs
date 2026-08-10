@@ -15,7 +15,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
 ) -> Result<Response, warp::reject::Rejection> {
-    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+    let fork_name = chain.spec.fork_name_at_slot(slot);
     let aggregate_attestation = if fork_name.electra_enabled() {
         let Some(committee_index) = committee_index else {
             return Err(warp_utils::reject::custom_bad_request(

@@ -242,7 +242,7 @@ pub enum InvariantViolation {
     ColdStateBaseSummaryMissing { slot: Slot, base_slot: Slot },
 }
 
-impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
+impl<Hot: ItemStore, Cold: ItemStore> HotColdDB<Hot, Cold> {
     /// Run all database invariant checks.
     ///
     /// The `ctx` parameter provides data from the beacon chain layer (fork choice, state cache,
@@ -310,25 +310,25 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let bellatrix_fork_slot = self
             .spec
             .bellatrix_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+            .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
         let deneb_fork_slot = self
             .spec
             .deneb_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+            .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
         let fulu_fork_slot = self
             .spec
             .fulu_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+            .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
         let gloas_fork_slot = self
             .spec
             .gloas_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+            .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
         let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
         let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
 
         for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
             let (block_root, block_bytes) = res?;
-            let block = SignedBlindedBeaconBlock::<E>::from_ssz_bytes(&block_bytes, &self.spec)?;
+            let block = SignedBlindedBeaconBlock::from_ssz_bytes(&block_bytes, &self.spec)?;
             let slot = block.slot();
 
             // Invariant 2: block-state consistency.

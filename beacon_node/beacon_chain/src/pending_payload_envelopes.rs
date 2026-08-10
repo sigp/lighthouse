@@ -6,31 +6,31 @@
 //!  signs, and publishes the envelope.
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Hash256, Slot};
+use types::{BlobsList, ExecutionPayloadEnvelope, Hash256, Slot};
 
-pub struct PendingEnvelopeData<E: EthSpec> {
-    pub envelope: Arc<ExecutionPayloadEnvelope<E>>,
-    pub blobs: Option<Arc<BlobsList<E>>>,
+pub struct PendingEnvelopeData {
+    pub envelope: Arc<ExecutionPayloadEnvelope>,
+    pub blobs: Option<Arc<BlobsList>>,
 }
 
 /// Cache for pending execution payload envelopes awaiting publishing.
 ///
 /// Envelopes are keyed by the beacon block root they commit to and pruned based on slot age.
 /// This cache is only used for local building.
-pub struct PendingPayloadEnvelopes<E: EthSpec> {
+pub struct PendingPayloadEnvelopes {
     /// Maximum number of slots to keep envelopes before pruning.
     max_slot_age: u64,
     /// The envelopes, keyed by beacon block root.
-    envelopes: HashMap<Hash256, PendingEnvelopeData<E>>,
+    envelopes: HashMap<Hash256, PendingEnvelopeData>,
 }
 
-impl<E: EthSpec> Default for PendingPayloadEnvelopes<E> {
+impl Default for PendingPayloadEnvelopes {
     fn default() -> Self {
         Self::new(Self::DEFAULT_MAX_SLOT_AGE)
     }
 }
 
-impl<E: EthSpec> PendingPayloadEnvelopes<E> {
+impl PendingPayloadEnvelopes {
     /// Default maximum slot age before pruning (2 slots).
     pub const DEFAULT_MAX_SLOT_AGE: u64 = 2;
 
@@ -43,7 +43,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     }
 
     /// Insert a pending envelope into the cache, keyed by the beacon block root it commits to.
-    pub fn insert(&mut self, data: PendingEnvelopeData<E>) {
+    pub fn insert(&mut self, data: PendingEnvelopeData) {
         self.envelopes.insert(data.envelope.beacon_block_root, data);
     }
 
@@ -51,24 +51,21 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     pub fn get_by_block_root(
         &self,
         beacon_block_root: Hash256,
-    ) -> Option<&Arc<ExecutionPayloadEnvelope<E>>> {
+    ) -> Option<&Arc<ExecutionPayloadEnvelope>> {
         self.envelopes
             .get(&beacon_block_root)
             .map(|data| &data.envelope)
     }
 
     /// Remove and return the blobs for a beacon block root, leaving the envelope in place.
-    pub fn take_blobs(&mut self, beacon_block_root: Hash256) -> Option<Arc<BlobsList<E>>> {
+    pub fn take_blobs(&mut self, beacon_block_root: Hash256) -> Option<Arc<BlobsList>> {
         self.envelopes
             .get_mut(&beacon_block_root)
             .and_then(|data| data.blobs.take())
     }
 
     /// Remove and return a pending envelope by the beacon block root it commits to.
-    pub fn remove(
-        &mut self,
-        beacon_block_root: Hash256,
-    ) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
+    pub fn remove(&mut self, beacon_block_root: Hash256) -> Option<Arc<ExecutionPayloadEnvelope>> {
         self.envelopes
             .remove(&beacon_block_root)
             .map(|data| data.envelope)
@@ -97,11 +94,9 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, MainnetEthSpec};
+    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256};
 
-    type E = MainnetEthSpec;
-
-    fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData<E> {
+    fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData {
         PendingEnvelopeData {
             envelope: Arc::new(ExecutionPayloadEnvelope {
                 payload: ExecutionPayloadGloas {
@@ -119,7 +114,7 @@ mod tests {
 
     #[test]
     fn insert_and_get() {
-        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let mut cache = PendingPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let block_root = Hash256::repeat_byte(42);
         let data = make_envelope(slot, block_root);
@@ -139,7 +134,7 @@ mod tests {
 
     #[test]
     fn same_slot_different_roots_coexist() {
-        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let mut cache = PendingPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let root_a = Hash256::repeat_byte(1);
         let root_b = Hash256::repeat_byte(2);
@@ -154,7 +149,7 @@ mod tests {
 
     #[test]
     fn remove() {
-        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let mut cache = PendingPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let block_root = Hash256::repeat_byte(42);
         let data = make_envelope(slot, block_root);
@@ -171,11 +166,11 @@ mod tests {
 
     #[test]
     fn take_blobs_returns_once() {
-        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let mut cache = PendingPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let block_root = Hash256::repeat_byte(42);
 
-        let blobs = Arc::new(BlobsList::<E>::default());
+        let blobs = Arc::new(BlobsList::default());
         let data = PendingEnvelopeData {
             envelope: make_envelope(slot, block_root).envelope,
             blobs: Some(blobs),
@@ -196,7 +191,7 @@ mod tests {
 
     #[test]
     fn take_blobs_returns_none_when_absent() {
-        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let mut cache = PendingPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let block_root = Hash256::repeat_byte(42);
 
@@ -210,7 +205,7 @@ mod tests {
 
     #[test]
     fn prune_old_envelopes() {
-        let mut cache = PendingPayloadEnvelopes::<E>::new(2);
+        let mut cache = PendingPayloadEnvelopes::new(2);
 
         // Insert envelope at slot 5
         let slot_1 = Slot::new(5);

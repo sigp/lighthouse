@@ -7,7 +7,6 @@ use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use strum::{Display, EnumString, VariantNames};
 use superstruct::superstruct;
-use types::EthSpec;
 use types::new_non_zero_usize;
 use zstd::{Decoder, Encoder};
 
@@ -147,7 +146,7 @@ impl StoreConfig {
     }
 
     /// Check that the configuration is valid.
-    pub fn verify<E: EthSpec>(&self) -> Result<(), StoreConfigError> {
+    pub fn verify(&self) -> Result<(), StoreConfigError> {
         self.verify_compression_level()?;
         self.verify_epochs_per_blob_prune()
     }

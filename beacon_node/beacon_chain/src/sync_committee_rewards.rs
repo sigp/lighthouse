@@ -9,10 +9,10 @@ use tracing::error;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn compute_sync_committee_rewards<Payload: AbstractExecPayload<T::EthSpec>>(
+    pub fn compute_sync_committee_rewards<Payload: AbstractExecPayload>(
         &self,
-        block: BeaconBlockRef<'_, T::EthSpec, Payload>,
-        state: &mut BeaconState<T::EthSpec>,
+        block: BeaconBlockRef<'_, Payload>,
+        state: &mut BeaconState,
     ) -> Result<Vec<SyncCommitteeReward>, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);

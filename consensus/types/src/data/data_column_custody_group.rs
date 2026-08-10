@@ -5,7 +5,6 @@ use itertools::Itertools;
 use safe_arith::{ArithError, SafeArith};
 
 use crate::{
-    EthSpec,
     core::ChainSpec,
     data::{ColumnIndex, DataColumnSubnetId},
 };
@@ -88,7 +87,7 @@ fn get_custody_groups_ordered(
 /// # Arguments
 /// * `raw_node_id` - 32-byte node identifier
 /// * `spec` - Chain specification containing custody parameters
-pub fn compute_ordered_custody_column_indices<E: EthSpec>(
+pub fn compute_ordered_custody_column_indices(
     raw_node_id: [u8; 32],
     spec: &ChainSpec,
 ) -> Result<Vec<ColumnIndex>, DataColumnCustodyGroupError> {
@@ -97,7 +96,7 @@ pub fn compute_ordered_custody_column_indices<E: EthSpec>(
 
     let mut ordered_custody_columns = vec![];
     for custody_index in all_custody_groups_ordered {
-        let columns = compute_columns_for_custody_group::<E>(custody_index, spec)?;
+        let columns = compute_columns_for_custody_group(custody_index, spec)?;
         ordered_custody_columns.extend(columns);
     }
     Ok(ordered_custody_columns)
@@ -106,7 +105,7 @@ pub fn compute_ordered_custody_column_indices<E: EthSpec>(
 /// Returns the columns that are associated with a given custody group.
 ///
 /// spec: https://github.com/ethereum/consensus-specs/blob/8e0d0d48e81d6c7c5a8253ab61340f5ea5bac66a/specs/fulu/das-core.md#compute_columns_for_custody_group
-pub fn compute_columns_for_custody_group<E: EthSpec>(
+pub fn compute_columns_for_custody_group(
     custody_group: CustodyIndex,
     spec: &ChainSpec,
 ) -> Result<impl Iterator<Item = ColumnIndex>, DataColumnCustodyGroupError> {
@@ -118,7 +117,7 @@ pub fn compute_columns_for_custody_group<E: EthSpec>(
     }
 
     let mut columns = Vec::new();
-    for i in 0..spec.data_columns_per_group::<E>() {
+    for i in 0..spec.data_columns_per_group() {
         let column = number_of_custody_groups
             .safe_mul(i)
             .and_then(|v| v.safe_add(custody_group))
@@ -129,7 +128,7 @@ pub fn compute_columns_for_custody_group<E: EthSpec>(
     Ok(columns.into_iter())
 }
 
-pub fn compute_subnets_for_node<E: EthSpec>(
+pub fn compute_subnets_for_node(
     raw_node_id: [u8; 32],
     custody_group_count: u64,
     spec: &ChainSpec,
@@ -138,7 +137,7 @@ pub fn compute_subnets_for_node<E: EthSpec>(
     let mut subnets = HashSet::new();
 
     for custody_group in custody_groups {
-        let custody_group_subnets = compute_subnets_from_custody_group::<E>(custody_group, spec)?;
+        let custody_group_subnets = compute_subnets_from_custody_group(custody_group, spec)?;
         subnets.extend(custody_group_subnets);
     }
 
@@ -146,11 +145,11 @@ pub fn compute_subnets_for_node<E: EthSpec>(
 }
 
 /// Returns the subnets that are associated with a given custody group.
-pub fn compute_subnets_from_custody_group<E: EthSpec>(
+pub fn compute_subnets_from_custody_group(
     custody_group: CustodyIndex,
     spec: &ChainSpec,
 ) -> Result<impl Iterator<Item = DataColumnSubnetId> + '_, DataColumnCustodyGroupError> {
-    let result = compute_columns_for_custody_group::<E>(custody_group, spec)?
+    let result = compute_columns_for_custody_group(custody_group, spec)?
         .map(|column_index| DataColumnSubnetId::from_column_index(column_index, spec))
         .unique();
     Ok(result)
@@ -159,20 +158,18 @@ pub fn compute_subnets_from_custody_group<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
-
-    type E = MainnetEthSpec;
+    use crate::core::Spec;
 
     #[test]
     fn test_compute_columns_for_custody_group() {
-        let mut spec = ChainSpec::mainnet();
+        let mut spec = Spec::default_spec();
         spec.number_of_custody_groups = 64;
 
         let columns_per_custody_group =
-            E::number_of_columns() / (spec.number_of_custody_groups as usize);
+            Spec::NUMBER_OF_COLUMNS / (spec.number_of_custody_groups as usize);
 
         for custody_group in 0..spec.number_of_custody_groups {
-            let columns = compute_columns_for_custody_group::<E>(custody_group, &spec)
+            let columns = compute_columns_for_custody_group(custody_group, &spec)
                 .unwrap()
                 .collect::<Vec<_>>();
             assert_eq!(columns.len(), columns_per_custody_group);
@@ -181,7 +178,7 @@ mod test {
 
     #[test]
     fn test_compute_subnets_from_custody_group() {
-        let mut spec = ChainSpec::mainnet();
+        let mut spec = Spec::default_spec();
         spec.number_of_custody_groups = 64;
         spec.data_column_sidecar_subnet_count = 128;
 
@@ -189,7 +186,7 @@ mod test {
             spec.data_column_sidecar_subnet_count / spec.number_of_custody_groups;
 
         for custody_group in 0..spec.number_of_custody_groups {
-            let subnets = compute_subnets_from_custody_group::<E>(custody_group, &spec)
+            let subnets = compute_subnets_from_custody_group(custody_group, &spec)
                 .unwrap()
                 .collect::<Vec<_>>();
             assert_eq!(subnets.len(), subnets_per_custody_group as usize);

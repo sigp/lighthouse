@@ -8,6 +8,11 @@ edition = { workspace = true }
 name = "proto_array"
 path = "src/bin.rs"
 
+[features]
+spec-non-mainnet = []
+spec-minimal = ["types/spec-minimal", "spec-non-mainnet"]
+spec-gnosis = ["types/spec-gnosis", "spec-non-mainnet"]
+
 [dependencies]
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }

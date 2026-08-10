@@ -8,11 +8,9 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences,
+    SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot, Spec,
 };
-
-type E = MinimalEthSpec;
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
@@ -21,8 +19,8 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
         return;
     };
 
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
+    let spec = Arc::new(test_spec());
+    let harness = BeaconChainHarness::builder()
         .spec(spec)
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -37,11 +35,11 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
     let mut u = types::test_utils::test_unstructured();
     let sidecar = {
         let slot = Slot::new(10);
-        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let fork_name = harness.spec.fork_name_at_slot(slot);
         // DA checker only accepts sampling columns, so we need to create one with a sampling index.
         if fork_name.gloas_enabled() {
             let mut random_sidecar = DataColumnSidecarGloas::arbitrary(&mut u).unwrap();
-            let epoch = slot.epoch(E::slots_per_epoch());
+            let epoch = slot.epoch(Spec::slots_per_epoch());
             random_sidecar.slot = slot;
             random_sidecar.index = harness
                 .chain
@@ -49,7 +47,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
-            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            let mut bid = SignedExecutionPayloadBid::empty();
             bid.message.slot = Slot::new(10);
             harness
                 .chain
@@ -59,7 +57,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
             let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();
-            let epoch = slot.epoch(E::slots_per_epoch());
+            let epoch = slot.epoch(Spec::slots_per_epoch());
             random_sidecar.signed_block_header.message.slot = slot;
             random_sidecar.index = harness
                 .chain
@@ -94,8 +92,8 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
         return;
     };
 
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
+    let spec = Arc::new(test_spec());
+    let harness = BeaconChainHarness::builder()
         .spec(spec)
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -152,8 +150,8 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
         return;
     };
 
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
+    let spec = Arc::new(test_spec());
+    let harness = BeaconChainHarness::builder()
         .spec(spec.clone())
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -195,8 +193,8 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
 /// Verifies that a head event is emitted when a block is imported and becomes the head.
 #[tokio::test]
 async fn head_event_on_block_import() {
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
+    let spec = Arc::new(test_spec());
+    let harness = BeaconChainHarness::builder()
         .spec(spec.clone())
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -242,7 +240,7 @@ async fn execution_payload_envelope_events() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(64)
         .fresh_ephemeral_store()
@@ -344,7 +342,7 @@ async fn payload_attestation_message_event_on_gossip_verification() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(64)
         .fresh_ephemeral_store()
@@ -365,7 +363,7 @@ async fn payload_attestation_message_event_on_gossip_verification() {
     let validator_index = *ptc.0.first().expect("PTC should have at least one member") as u64;
 
     // Sign a payload attestation.
-    let target_epoch = target_slot.epoch(E::slots_per_epoch());
+    let target_epoch = target_slot.epoch(Spec::slots_per_epoch());
     let domain = harness.spec.get_domain(
         target_epoch,
         Domain::PTCAttester,
@@ -416,7 +414,7 @@ async fn proposer_preferences_event_on_gossip_verification() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(64)
         .fresh_ephemeral_store()
@@ -429,11 +427,11 @@ async fn proposer_preferences_event_on_gossip_verification() {
 
     // Pick a proposal slot in the next epoch so it is always a valid, future slot. The lookahead
     // covers 2 epochs: index = epoch_offset * slots_per_epoch + slot_in_epoch.
-    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let slots_per_epoch = Spec::slots_per_epoch() as usize;
     let proposer_lookahead = head_state
         .proposer_lookahead()
         .expect("gloas state should have proposer lookahead");
-    let next_epoch_start = (head_state.current_epoch() + 1).start_slot(E::slots_per_epoch());
+    let next_epoch_start = (head_state.current_epoch() + 1).start_slot(Spec::slots_per_epoch());
     let proposal_slot = next_epoch_start + 1;
     let lookahead_index = slots_per_epoch + 1;
     let validator_index = *proposer_lookahead
@@ -444,7 +442,7 @@ async fn proposer_preferences_event_on_gossip_verification() {
     // gossip verification can resolve the proposer shuffling from it.
     let dependent_root = head_state
         .proposer_shuffling_decision_root_at_epoch(
-            proposal_slot.epoch(E::slots_per_epoch()),
+            proposal_slot.epoch(Spec::slots_per_epoch()),
             head.head_block_root(),
             &harness.spec,
         )
@@ -459,7 +457,7 @@ async fn proposer_preferences_event_on_gossip_verification() {
         target_gas_limit: 30_000_000,
     };
     let domain = harness.spec.get_domain(
-        proposal_slot.epoch(E::slots_per_epoch()),
+        proposal_slot.epoch(Spec::slots_per_epoch()),
         Domain::ProposerPreferences,
         &head_state.fork(),
         genesis_validators_root,
@@ -488,7 +486,7 @@ async fn proposer_preferences_event_on_gossip_verification() {
         assert_eq!(versioned.data.message, preferences);
         assert_eq!(
             versioned.version,
-            harness.spec.fork_name_at_slot::<E>(proposal_slot)
+            harness.spec.fork_name_at_slot(proposal_slot)
         );
     } else {
         panic!("Expected ProposerPreferences event, got {:?}", event);

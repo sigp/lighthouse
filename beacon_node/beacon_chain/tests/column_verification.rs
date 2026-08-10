@@ -14,9 +14,7 @@ use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
 use types::*;
 
-type E = MainnetEthSpec;
-
-// >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+// >= 32 validators required for Gloas genesis with MainnetSpec (32 slots/epoch).
 const VALIDATOR_COUNT: usize = 32;
 
 /// A cached set of keys.
@@ -27,9 +25,9 @@ fn get_harness(
     validator_count: usize,
     spec: Arc<ChainSpec>,
     node_custody_type: NodeCustodyType,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+) -> BeaconChainHarness<EphemeralHarnessType> {
     create_test_tracing_subscriber();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder()
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -49,7 +47,7 @@ fn get_harness(
 // Regression test for https://github.com/sigp/lighthouse/issues/7650
 #[tokio::test]
 async fn rpc_columns_with_invalid_header_signature() {
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(test_spec());
 
     // Only run this test if columns are enabled.
     // TODO(gloas): Gloas blocks don't have blob_kzg_commitments — blobs are in the envelope.
@@ -59,7 +57,7 @@ async fn rpc_columns_with_invalid_header_signature() {
 
     let harness = get_harness(VALIDATOR_COUNT, spec, NodeCustodyType::Supernode);
 
-    let num_blocks = E::slots_per_epoch() as usize;
+    let num_blocks = Spec::SLOTS_PER_EPOCH;
 
     // Add some chain depth.
     harness
@@ -119,7 +117,7 @@ async fn rpc_columns_with_invalid_header_signature() {
 /// data columns can be built from those cached blobs.
 #[tokio::test]
 async fn gloas_envelope_blobs_produce_valid_columns() {
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(test_spec());
     if !spec.is_gloas_scheduled() {
         return;
     }
@@ -128,7 +126,7 @@ async fn gloas_envelope_blobs_produce_valid_columns() {
     harness.execution_block_generator().set_min_blob_count(1);
 
     // Build some chain depth.
-    let num_blocks = E::slots_per_epoch() as usize;
+    let num_blocks = Spec::SLOTS_PER_EPOCH;
     harness
         .extend_chain(
             num_blocks,
@@ -167,7 +165,7 @@ async fn gloas_envelope_blobs_produce_valid_columns() {
         generate_data_column_sidecars_from_block(signed_block, &harness.chain.spec);
     assert_eq!(
         data_column_sidecars.len(),
-        E::number_of_columns(),
+        Spec::NUMBER_OF_COLUMNS,
         "Should produce the correct number of data columns"
     );
 
@@ -193,7 +191,7 @@ async fn verify_header_signature_fork_block_bug() {
     // Create a spec with all forks enabled at genesis except Fulu which is at epoch 1
     // This allows us to easily create the scenario where the head is at Electra
     // but we're trying to verify a block from Fulu epoch
-    let mut spec = test_spec::<E>();
+    let mut spec = test_spec();
 
     // Only run this test for FORK_NAME=fulu.
     if !spec.is_fulu_scheduled() || spec.is_gloas_scheduled() {
@@ -215,7 +213,7 @@ async fn verify_header_signature_fork_block_bug() {
     // Add some blocks in epoch 0 (Electra)
     harness
         .extend_chain(
-            E::slots_per_epoch() as usize - 1,
+            Spec::SLOTS_PER_EPOCH - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -228,7 +226,7 @@ async fn verify_header_signature_fork_block_bug() {
 
     // Now produce a block at the first slot of epoch 1 (Fulu fork).
     // make_block will advance the state which will trigger the Electra->Fulu upgrade.
-    let fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_slot = fulu_fork_epoch.start_slot(Spec::slots_per_epoch());
     let ((signed_block, opt_blobs), _state_root) =
         harness.make_block(pre_fork_state.clone(), fork_slot).await;
     let (_, blobs) = opt_blobs.expect("Blobs should be present");

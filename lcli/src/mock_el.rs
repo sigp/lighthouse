@@ -7,9 +7,8 @@ use execution_layer::{
 };
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use types::*;
 
-pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run(mut env: Environment, matches: &ArgMatches) -> Result<(), String> {
     let jwt_output_path: Option<PathBuf> = parse_optional(matches, "jwt-output-path")?;
     let jwt_secret_path: Option<PathBuf> = parse_optional(matches, "jwt-secret-path")?;
     let listen_addr: Ipv4Addr = parse_required(matches, "listen-address")?;
@@ -55,7 +54,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         heze_time,
     };
     let kzg = None;
-    let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
+    let server: MockServer = MockServer::new_with_config(&handle, config, kzg);
 
     if all_payloads_valid {
         eprintln!(

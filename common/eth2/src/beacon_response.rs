@@ -195,23 +195,21 @@ mod fork_version_response_tests {
     use crate::beacon_response::ExecutionOptimisticFinalizedMetadata;
     use crate::{
         ExecutionPayload, ExecutionPayloadBellatrix, ForkName, ForkVersionedResponse,
-        MainnetEthSpec, UnversionedResponse,
+        UnversionedResponse,
     };
     use serde_json::json;
 
     #[test]
     fn fork_versioned_response_deserialize_correct_fork() {
-        type E = MainnetEthSpec;
-
         let response_json =
-            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
+            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload> {
                 version: ForkName::Bellatrix,
                 metadata: Default::default(),
                 data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))
             .unwrap();
 
-        let result: Result<ForkVersionedResponse<ExecutionPayload<E>>, _> =
+        let result: Result<ForkVersionedResponse<ExecutionPayload>, _> =
             serde_json::from_str(&response_json);
 
         assert!(result.is_ok());
@@ -219,17 +217,15 @@ mod fork_version_response_tests {
 
     #[test]
     fn fork_versioned_response_deserialize_incorrect_fork() {
-        type E = MainnetEthSpec;
-
         let response_json =
-            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
+            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload> {
                 version: ForkName::Capella,
                 metadata: Default::default(),
                 data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))
             .unwrap();
 
-        let result: Result<ForkVersionedResponse<ExecutionPayload<E>>, _> =
+        let result: Result<ForkVersionedResponse<ExecutionPayload>, _> =
             serde_json::from_str(&response_json);
 
         assert!(result.is_err());

@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::Checkpoint,
-    core::{Address, ChainSpec, Epoch, EthSpec, Hash256},
+    core::{Address, ChainSpec, Epoch, Hash256},
     fork::ForkName,
     state::BeaconState,
 };
@@ -112,11 +112,7 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is eligible to be activated.
-    pub fn is_eligible_for_activation<E: EthSpec>(
-        &self,
-        state: &BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> bool {
+    pub fn is_eligible_for_activation(&self, state: &BeaconState, spec: &ChainSpec) -> bool {
         self.is_eligible_for_activation_with_finalized_checkpoint(
             &state.finalized_checkpoint(),
             spec,

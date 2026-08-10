@@ -4,17 +4,17 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
-use types::{BuilderIndex, EthSpec, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
+use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
 
-type HighestBidMap<E> =
-    BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid<E>>>;
+type HighestBidMap =
+    BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid>>;
 
-pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
-    highest_bid: RwLock<HighestBidMap<E>>,
+pub struct GossipVerifiedPayloadBidCache {
+    highest_bid: RwLock<HighestBidMap>,
     seen_builder: RwLock<BTreeMap<Slot, HashSet<BuilderIndex>>>,
 }
 
-impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
+impl Default for GossipVerifiedPayloadBidCache {
     fn default() -> Self {
         Self {
             highest_bid: RwLock::new(BTreeMap::new()),
@@ -23,14 +23,14 @@ impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
     }
 }
 
-impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
+impl GossipVerifiedPayloadBidCache {
     /// Get the cached bid for the tuple `(slot, parent_block_hash, parent_block_root)`.
     pub fn get_highest_bid(
         &self,
         slot: Slot,
         parent_block_hash: ExecutionBlockHash,
         parent_block_root: Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadBid<E>>> {
+    ) -> Option<Arc<SignedExecutionPayloadBid>> {
         self.highest_bid.read().get(&slot).and_then(|map| {
             map.get(&(parent_block_hash, parent_block_root))
                 .map(|b| b.signed_bid.clone())
@@ -39,7 +39,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
 
     /// Insert a bid for the tuple `(slot, parent_block_hash, parent_block_root)` only if
     /// its value is higher than the currently cached bid for that tuple.
-    pub fn insert_highest_bid(&self, bid: GossipVerifiedPayloadBid<E>) {
+    pub fn insert_highest_bid(&self, bid: GossipVerifiedPayloadBid) {
         let key = (
             bid.signed_bid.message.parent_block_hash,
             bid.signed_bid.message.parent_block_root,
@@ -64,7 +64,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     }
 
     /// Insert a builder into the seen cache.
-    pub fn insert_seen_builder(&self, bid: &GossipVerifiedPayloadBid<E>) {
+    pub fn insert_seen_builder(&self, bid: &GossipVerifiedPayloadBid) {
         let mut seen_builder = self.seen_builder.write();
         seen_builder
             .entry(bid.signed_bid.message.slot)
@@ -90,14 +90,11 @@ mod tests {
 
     use bls::Signature;
     use types::{
-        ExecutionBlockHash, ExecutionPayloadBid, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBid, Slot,
+        ExecutionBlockHash, ExecutionPayloadBid, Hash256, SignedExecutionPayloadBid, Slot,
     };
 
     use super::GossipVerifiedPayloadBidCache;
     use crate::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid;
-
-    type E = MinimalEthSpec;
 
     fn make_gossip_verified(
         slot: Slot,
@@ -105,7 +102,7 @@ mod tests {
         parent_block_hash: ExecutionBlockHash,
         parent_block_root: Hash256,
         value: u64,
-    ) -> GossipVerifiedPayloadBid<E> {
+    ) -> GossipVerifiedPayloadBid {
         GossipVerifiedPayloadBid {
             signed_bid: Arc::new(SignedExecutionPayloadBid {
                 message: ExecutionPayloadBid {
@@ -123,7 +120,7 @@ mod tests {
 
     #[test]
     fn prune_removes_old_retains_current() {
-        let cache = GossipVerifiedPayloadBidCache::<E>::default();
+        let cache = GossipVerifiedPayloadBidCache::default();
         let hash = ExecutionBlockHash::zero();
         let root = Hash256::ZERO;
 

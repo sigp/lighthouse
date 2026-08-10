@@ -6,7 +6,7 @@ use slasher::{
     Config, Slasher,
     config::DEFAULT_CHUNK_SIZE,
     test_utils::{
-        E, att_slashing, chain_spec, indexed_att, indexed_att_electra,
+        att_slashing, chain_spec, indexed_att, indexed_att_electra,
         slashed_validators_from_slashings,
     },
 };
@@ -246,8 +246,8 @@ fn surrounded_by_single_val_multi_chunk() {
 
 // Process each attestation individually, and confirm that the slashings produced are as expected.
 fn slasher_test_indiv(
-    attestations: &[IndexedAttestation<E>],
-    expected: &HashSet<AttesterSlashing<E>>,
+    attestations: &[IndexedAttestation],
+    expected: &HashSet<AttesterSlashing>,
     current_epoch: u64,
 ) {
     slasher_test(attestations, expected, current_epoch, |_| true);
@@ -255,16 +255,16 @@ fn slasher_test_indiv(
 
 // Process all attestations in one batch.
 fn slasher_test_batch(
-    attestations: &[IndexedAttestation<E>],
-    expected: &HashSet<AttesterSlashing<E>>,
+    attestations: &[IndexedAttestation],
+    expected: &HashSet<AttesterSlashing>,
     current_epoch: u64,
 ) {
     slasher_test(attestations, expected, current_epoch, |_| false);
 }
 
 fn slasher_test(
-    attestations: &[IndexedAttestation<E>],
-    expected: &HashSet<AttesterSlashing<E>>,
+    attestations: &[IndexedAttestation],
+    expected: &HashSet<AttesterSlashing>,
     current_epoch: u64,
     should_process_after: impl Fn(usize) -> bool,
 ) {
@@ -294,7 +294,7 @@ fn slasher_test(
 }
 
 fn parallel_slasher_test(
-    attestations: &[IndexedAttestation<E>],
+    attestations: &[IndexedAttestation],
     expected_slashed_validators: HashSet<u64>,
     current_epoch: u64,
 ) {

@@ -45,7 +45,7 @@ pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub use gossip_methods::ReprocessAllowance;
 
-pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
+pub type Error = TrySendError<BeaconWorkEvent>;
 
 mod gossip_methods;
 mod rpc_methods;
@@ -65,18 +65,18 @@ pub enum InvalidBlockStorage {
 /// The wider `networking` crate should use this struct to interface with the
 /// beacon processor.
 pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
-    pub beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+    pub beacon_processor_send: BeaconProcessorSend,
     pub duplicate_cache: DuplicateCache,
     pub chain: Arc<BeaconChain<T>>,
-    pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    pub network_tx: mpsc::UnboundedSender<NetworkMessage>,
+    pub sync_tx: mpsc::UnboundedSender<SyncMessage>,
+    pub network_globals: Arc<NetworkGlobals>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
-    fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
+    fn try_send(&self, event: BeaconWorkEvent) -> Result<(), Error> {
         self.beacon_processor_send.try_send(event)
     }
 
@@ -89,7 +89,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
         let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
@@ -133,12 +133,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: SignedAggregateAndProof<T::EthSpec>,
+        aggregate: SignedAggregateAndProof,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
+        let process_individual = move |package: GossipAggregatePackage| {
             processor.process_gossip_aggregate(
                 package.message_id,
                 package.peer_id,
@@ -178,9 +178,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock>,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             let invalid_block_storage = processor.invalid_block_storage.clone();
@@ -210,10 +210,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: DataColumnSubnetId,
-        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        column_sidecar: Arc<DataColumnSidecar>,
         seen_timestamp: Duration,
         allow_reprocess: bool,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -238,10 +238,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
+        column_sidecar: Box<PartialDataColumn>,
         seen_timestamp: Duration,
         topic: GossipTopic,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -268,7 +268,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         sync_signature: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_sync_committee_signature(
@@ -291,9 +291,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+        sync_contribution: SignedContributionAndProof,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_sync_committee_contribution(
@@ -316,7 +316,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: Box<SignedVoluntaryExit>,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit);
@@ -333,7 +333,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: Box<ProposerSlashing>,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing);
@@ -350,9 +350,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        light_client_finality_update: LightClientFinalityUpdate,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_finality_update(
@@ -374,9 +374,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        light_client_optimistic_update: LightClientOptimisticUpdate,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_optimistic_update(
@@ -399,8 +399,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
-    ) -> Result<(), Error<T::EthSpec>> {
+        attester_slashing: Box<AttesterSlashing>,
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing);
@@ -418,7 +418,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         bls_to_execution_change: Box<SignedBlsToExecutionChange>,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_bls_to_execution_change(
@@ -439,9 +439,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        execution_payload: Box<SignedExecutionPayloadEnvelope>,
         seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -465,8 +465,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_payload_bid: Box<SignedExecutionPayloadBid<T::EthSpec>>,
-    ) -> Result<(), Error<T::EthSpec>> {
+        execution_payload_bid: Box<SignedExecutionPayloadBid>,
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_execution_payload_bid(
@@ -488,7 +488,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         payload_attestation_message: Box<PayloadAttestationMessage>,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_payload_attestation(
@@ -511,7 +511,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_preferences: Arc<SignedProposerPreferences>,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.process_gossip_proposer_preferences(message_id, peer_id, proposer_preferences)
@@ -528,9 +528,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: LookupBlock<T::EthSpec>,
+        block: LookupBlock,
         process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let process_fn =
             self.clone()
                 .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
@@ -548,9 +548,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_lookup_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelope>,
         process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -566,9 +566,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_rpc_custody_columns(
         self: &Arc<Self>,
         block_root: Hash256,
-        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        custody_columns: DataColumnSidecarList,
         process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let s = self.clone();
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -582,9 +582,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_historic_data_columns(
         self: &Arc<Self>,
         batch_id: CustodyBackfillBatchId,
-        data_columns: DataColumnSidecarList<T::EthSpec>,
+        data_columns: DataColumnSidecarList,
         expected_cgc: u64,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.process_historic_data_columns(batch_id, data_columns, expected_cgc);
@@ -601,8 +601,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
-    ) -> Result<(), Error<T::EthSpec>> {
+        blocks: Vec<RangeSyncBlock>,
+    ) -> Result<(), Error> {
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
         let processor = self.clone();
 
@@ -636,7 +636,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         message: StatusMessage,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || processor.process_status(peer_id, message);
 
@@ -652,7 +652,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRangeRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -672,7 +672,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlocksByHeadRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -692,7 +692,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRootRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -712,7 +712,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
         request: PayloadEnvelopesByRootRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -732,7 +732,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: PayloadEnvelopesByRangeRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = async move {
             processor
@@ -752,7 +752,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlobsByRangeRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.handle_blobs_by_range_request(peer_id, inbound_request_id, request);
@@ -769,7 +769,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.handle_blobs_by_root_request(peer_id, inbound_request_id, request);
@@ -785,8 +785,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest<T::EthSpec>,
-    ) -> Result<(), Error<T::EthSpec>> {
+        request: DataColumnsByRootRequest,
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.handle_data_columns_by_root_request(peer_id, inbound_request_id, request)
@@ -804,7 +804,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: DataColumnsByRangeRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.handle_data_columns_by_range_request(peer_id, inbound_request_id, request)
@@ -822,7 +822,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.handle_light_client_bootstrap(peer_id, inbound_request_id, request);
@@ -838,7 +838,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.handle_light_client_optimistic_update(peer_id, inbound_request_id);
@@ -854,7 +854,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn =
             move || processor.handle_light_client_finality_update(peer_id, inbound_request_id);
@@ -871,7 +871,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
-    ) -> Result<(), Error<T::EthSpec>> {
+    ) -> Result<(), Error> {
         let processor = self.clone();
         let process_fn = move || {
             processor.handle_light_client_updates_by_range(peer_id, inbound_request_id, request)
@@ -886,7 +886,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.
-    pub(crate) fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
+    pub(crate) fn send_sync_message(&self, message: SyncMessage) {
         self.sync_tx
             .send(message)
             .unwrap_or_else(|e| debug!(error = %e, "Could not send message to the sync service"));
@@ -895,7 +895,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Send a message to `network_tx`.
     ///
     /// Creates a log if there is an internal error.
-    fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
+    fn send_network_message(&self, message: NetworkMessage) {
         self.network_tx.send(message).unwrap_or_else(|e| {
             debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
@@ -903,17 +903,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header: Arc<PartialDataColumnHeader>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header.slot().epoch(Spec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
-        let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
+        let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn>| {
             if publish_blobs {
                 self_cloned.publish_data_columns_gradually(
                     columns.into_iter().map(|c| c.clone_arc()).collect(),
@@ -973,7 +973,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn publish_partial_data_columns(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header: Arc<PartialDataColumnHeader>,
         block_root: Hash256,
     ) {
         if header.kzg_commitments.is_empty() {
@@ -985,12 +985,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // Partials are disabled.
             return;
         };
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header.slot().epoch(Spec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
         let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
-        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
+        let mut messages: Vec<PubsubPartialMessage> = Vec::with_capacity(columns.len());
         for column in columns {
             // Republish both complete and incomplete columns as partials
             let partial_column = match column {
@@ -1033,8 +1033,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
             // bitmap constructor is infallible.
-            let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
-            else {
+            let Ok(cells_present_bitmap) = CellBitmap::with_capacity(num_cells) else {
                 crit!(
                     %block_root,
                     num_cells,
@@ -1130,7 +1129,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(level="debug", skip_all, fields(?block_root, data_column_count=data_columns_to_publish.len()))]
     fn publish_data_columns_gradually(
         self: &Arc<Self>,
-        mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,
+        mut data_columns_to_publish: DataColumnSidecarList,
         block_root: Hash256,
     ) {
         let self_clone = self.clone();
@@ -1138,7 +1137,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 let chain = self_clone.chain.clone();
-                let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
+                let publish_fn = |columns: DataColumnSidecarList| {
                     self_clone.send_network_message(NetworkMessage::Publish {
                         messages: columns
                             .into_iter()
@@ -1158,7 +1157,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
-                let number_of_columns = T::EthSpec::number_of_columns();
+                let number_of_columns = Spec::NUMBER_OF_COLUMNS;
                 let batch_size = number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 
@@ -1205,19 +1204,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
+pub(crate) type TestBeaconChainType = Witness<ManualSlotClock, MemoryStore, MemoryStore>;
 
-impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
+impl NetworkBeaconProcessor<TestBeaconChainType> {
     // Instantiates a mostly non-functional version of `Self` and returns the
     // event receiver that would normally go to the beacon processor. This is
     // useful for testing that messages are actually being sent to the beacon
     // processor (but not much else).
     pub fn null_for_testing(
-        network_globals: Arc<NetworkGlobals<E>>,
-        sync_tx: UnboundedSender<SyncMessage<E>>,
-        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        network_globals: Arc<NetworkGlobals>,
+        sync_tx: UnboundedSender<SyncMessage>,
+        chain: Arc<BeaconChain<TestBeaconChainType>>,
         executor: TaskExecutor,
-    ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+    ) -> (Self, mpsc::Receiver<BeaconWorkEvent>) {
         let (processor, beacon_processor_rx, _network_rx) =
             Self::null_for_testing_with_network_receiver(network_globals, sync_tx, chain, executor);
 
@@ -1225,14 +1224,14 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     }
 
     fn null_for_testing_with_network_receiver(
-        network_globals: Arc<NetworkGlobals<E>>,
-        sync_tx: UnboundedSender<SyncMessage<E>>,
-        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        network_globals: Arc<NetworkGlobals>,
+        sync_tx: UnboundedSender<SyncMessage>,
+        chain: Arc<BeaconChain<TestBeaconChainType>>,
         executor: TaskExecutor,
     ) -> (
         Self,
-        mpsc::Receiver<BeaconWorkEvent<E>>,
-        mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        mpsc::Receiver<BeaconWorkEvent>,
+        mpsc::UnboundedReceiver<NetworkMessage>,
     ) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -1257,15 +1256,15 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
     /// suitable for directly calling gossip processing methods in tests.
-    pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+    pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType>) -> Self {
         Self::null_from_harness_with_network_receiver(harness).0
     }
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` and returns its network event
     /// receiver so tests can observe messages sent to the network service.
     pub fn null_from_harness_with_network_receiver(
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage<E>>) {
+        harness: &BeaconChainHarness<EphemeralHarnessType>,
+    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage>) {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),

@@ -5,10 +5,10 @@ use crate::per_block_processing::is_valid_indexed_payload_attestation;
 use safe_arith::SafeArith;
 use types::*;
 
-pub fn verify_payload_attestation<'ctxt, E: EthSpec>(
-    state: &mut BeaconState<E>,
-    payload_attestation: &'ctxt PayloadAttestation<E>,
-    ctxt: &'ctxt mut ConsensusContext<E>,
+pub fn verify_payload_attestation<'ctxt>(
+    state: &mut BeaconState,
+    payload_attestation: &'ctxt PayloadAttestation,
+    ctxt: &'ctxt mut ConsensusContext,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<Invalid>> {

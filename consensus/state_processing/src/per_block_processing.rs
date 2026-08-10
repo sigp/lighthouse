@@ -10,7 +10,6 @@ use signature_sets::{
 };
 use std::borrow::Cow;
 use tree_hash::TreeHash;
-use typenum::Unsigned;
 use types::{
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     *,
@@ -112,12 +111,12 @@ pub enum VerifyBlockRoot {
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
 #[instrument(skip_all)]
-pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    signed_block: &SignedBeaconBlock<E, Payload>,
+pub fn per_block_processing<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    signed_block: &SignedBeaconBlock<Payload>,
     block_signature_strategy: BlockSignatureStrategy,
     verify_block_root: VerifyBlockRoot,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -191,18 +190,18 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
-            withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
+            withdrawals::gloas::process_withdrawals(state, spec)?;
             let signed_bid = block.body().signed_execution_payload_bid()?;
             process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
-                withdrawals::capella_electra::process_withdrawals::<E, Payload>(
+                withdrawals::capella_electra::process_withdrawals::<Payload>(
                     state,
                     body.execution_payload()?,
                     spec,
                 )?;
             }
-            process_execution_payload::<E, Payload>(state, body, spec)?;
+            process_execution_payload::<Payload>(state, body, spec)?;
         }
     }
 
@@ -228,11 +227,11 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 }
 
 /// Processes the block header, returning the proposer index.
-pub fn process_block_header<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_block_header(
+    state: &mut BeaconState,
     block_header: BeaconBlockHeader,
     verify_block_root: VerifyBlockRoot,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -289,10 +288,10 @@ pub fn process_block_header<E: EthSpec>(
 /// Verifies the signature of a block.
 ///
 /// Spec v0.12.1
-pub fn verify_block_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &BeaconState<E>,
-    block: &SignedBeaconBlock<E, Payload>,
-    ctxt: &mut ConsensusContext<E>,
+pub fn verify_block_signature<Payload: AbstractExecPayload>(
+    state: &BeaconState,
+    block: &SignedBeaconBlock<Payload>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     let block_root = Some(ctxt.get_current_block_root(block)?);
@@ -315,11 +314,11 @@ pub fn verify_block_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
-pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    block: BeaconBlockRef<'_, E, Payload>,
+pub fn process_randao<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    block: BeaconBlockRef<'_, Payload>,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if verify_signatures.is_true() {
@@ -345,8 +344,8 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
 }
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
-pub fn process_eth1_data<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_eth1_data(
+    state: &mut BeaconState,
     eth1_data: &Eth1Data,
 ) -> Result<(), BeaconStateError> {
     if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
@@ -360,8 +359,8 @@ pub fn process_eth1_data<E: EthSpec>(
 
 /// Returns `Ok(Some(eth1_data))` if adding the given `eth1_data` to `state.eth1_data_votes` would
 /// result in a change to `state.eth1_data`.
-pub fn get_new_eth1_data<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn get_new_eth1_data(
+    state: &BeaconState,
     eth1_data: &Eth1Data,
 ) -> Result<Option<Eth1Data>, ArithError> {
     let num_votes = state
@@ -371,7 +370,7 @@ pub fn get_new_eth1_data<E: EthSpec>(
         .count();
 
     // The +1 is to account for the `eth1_data` supplied to the function.
-    if num_votes.safe_add(1)?.safe_mul(2)? > E::SlotsPerEth1VotingPeriod::to_usize() {
+    if num_votes.safe_add(1)?.safe_mul(2)? > Spec::SLOTS_PER_ETH1_VOTING_PERIOD {
         Ok(Some(eth1_data.clone()))
     } else {
         Ok(None)
@@ -388,10 +387,10 @@ pub fn get_new_eth1_data<E: EthSpec>(
 /// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &BeaconState<E>,
+pub fn partially_verify_execution_payload<Payload: AbstractExecPayload>(
+    state: &BeaconState,
     block_slot: Slot,
-    body: BeaconBlockBodyRef<E, Payload>,
+    body: BeaconBlockBodyRef<Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let payload = body.execution_payload()?;
@@ -424,7 +423,7 @@ pub fn partially_verify_execution_payload<E: EthSpec, Payload: AbstractExecPaylo
     if let Ok(blob_commitments) = body.blob_kzg_commitments() {
         // Verify commitments are under the limit.
         let max_blobs_per_block =
-            spec.max_blobs_per_block(block_slot.epoch(E::slots_per_epoch())) as usize;
+            spec.max_blobs_per_block(block_slot.epoch(Spec::slots_per_epoch())) as usize;
         block_verify!(
             blob_commitments.len() <= max_blobs_per_block,
             BlockProcessingError::ExecutionInvalidBlobsLen {
@@ -444,12 +443,12 @@ pub fn partially_verify_execution_payload<E: EthSpec, Payload: AbstractExecPaylo
 /// Partially equivalent to the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    body: BeaconBlockBodyRef<E, Payload>,
+pub fn process_execution_payload<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    body: BeaconBlockBodyRef<Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload::<E, Payload>(state, state.slot(), body, spec)?;
+    partially_verify_execution_payload::<Payload>(state, state.slot(), body, spec)?;
     let payload = body.execution_payload()?;
     match state.latest_execution_payload_header_mut()? {
         ExecutionPayloadHeaderRefMut::Bellatrix(header_mut) => {
@@ -492,7 +491,7 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateBellatrix` as we'd have to
 /// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
-pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool {
+pub fn is_merge_transition_complete(state: &BeaconState) -> bool {
     // TODO(EIP7732): check this cause potuz modified this function for god knows what reason
     if state.fork_name_unchecked().capella_enabled() {
         true
@@ -508,9 +507,9 @@ pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool 
     }
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
-pub fn is_merge_transition_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &BeaconState<E>,
-    body: BeaconBlockBodyRef<E, Payload>,
+pub fn is_merge_transition_block<Payload: AbstractExecPayload>(
+    state: &BeaconState,
+    body: BeaconBlockBodyRef<Payload>,
 ) -> bool {
     // For execution payloads in blocks (which may be headers) we must check defaultness against
     // the payload with `transactions_root` equal to the tree hash of the empty list.
@@ -521,16 +520,16 @@ pub fn is_merge_transition_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_execution_enabled
-pub fn is_execution_enabled<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &BeaconState<E>,
-    body: BeaconBlockBodyRef<E, Payload>,
+pub fn is_execution_enabled<Payload: AbstractExecPayload>(
+    state: &BeaconState,
+    body: BeaconBlockBodyRef<Payload>,
 ) -> bool {
     is_merge_transition_block(state, body) || is_merge_transition_complete(state)
 }
 
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#compute_timestamp_at_slot
-pub fn compute_timestamp_at_slot<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn compute_timestamp_at_slot(
+    state: &BeaconState,
     block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
@@ -549,9 +548,9 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 ///
 /// `process_parent_execution_payload` must be called before `process_execution_payload_bid`
 /// (which overwrites `state.latest_execution_payload_bid`).
-pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    state: &mut BeaconState<E>,
-    block: BeaconBlockRef<'_, E, Payload>,
+pub fn process_parent_execution_payload<Payload: AbstractExecPayload>(
+    state: &mut BeaconState,
+    block: BeaconBlockRef<'_, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let bid_parent_block_hash = block
@@ -590,14 +589,14 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
 /// 1. Processes deposits, withdrawals, and consolidations from execution requests
 /// 2. Queues the builder pending payment from the parent's committed bid
 /// 3. Updates `execution_payload_availability` and `latest_block_hash`
-pub fn apply_parent_execution_payload<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    requests: &ExecutionRequestsGloas<E>,
+pub fn apply_parent_execution_payload(
+    state: &mut BeaconState,
+    requests: &ExecutionRequestsGloas,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let parent_bid = state.latest_execution_payload_bid()?.clone();
     let parent_slot = parent_bid.slot;
-    let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
+    let parent_epoch = parent_slot.epoch(Spec::slots_per_epoch());
 
     verify_execution_request_list_lengths(requests)?;
 
@@ -610,12 +609,12 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 
     // Queue the builder payment
     if parent_epoch == state.current_epoch() {
-        let payment_index = E::slots_per_epoch()
-            .safe_add(parent_slot.as_u64().safe_rem(E::slots_per_epoch())?)?
+        let payment_index = Spec::slots_per_epoch()
+            .safe_add(parent_slot.as_u64().safe_rem(Spec::slots_per_epoch())?)?
             as usize;
         settle_builder_payment(state, payment_index)?;
     } else if parent_epoch == state.previous_epoch() {
-        let payment_index = parent_slot.as_u64().safe_rem(E::slots_per_epoch())? as usize;
+        let payment_index = parent_slot.as_u64().safe_rem(Spec::slots_per_epoch())? as usize;
         settle_builder_payment(state, payment_index)?;
     } else if parent_bid.value > 0 {
         // Parent is older than previous epoch -- payment entry has already been
@@ -634,7 +633,7 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     // Update execution payload availability for the parent slot
     let availability_index = parent_slot
         .as_usize()
-        .safe_rem(E::slots_per_historical_root())?;
+        .safe_rem(Spec::SLOTS_PER_HISTORICAL_ROOT)?;
     state
         .execution_payload_availability_mut()?
         .set(availability_index, true)
@@ -648,29 +647,29 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 
 /// Deposit requests are deliberately unbounded (see the `deposit_requests_greater_than_electra_max`
 /// spec test).
-pub fn verify_execution_request_list_lengths<E: EthSpec>(
-    requests: &ExecutionRequestsGloas<E>,
+pub fn verify_execution_request_list_lengths(
+    requests: &ExecutionRequestsGloas,
 ) -> Result<(), BlockProcessingError> {
     let checks = [
         (
             "withdrawal_requests",
             requests.withdrawals.len(),
-            E::MaxWithdrawalRequestsPerPayload::to_usize(),
+            Spec::MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
         ),
         (
             "consolidation_requests",
             requests.consolidations.len(),
-            E::MaxConsolidationRequestsPerPayload::to_usize(),
+            Spec::MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
         ),
         (
             "builder_deposit_requests",
             requests.builder_deposits.len(),
-            E::MaxBuilderDepositRequestsPerPayload::to_usize(),
+            Spec::MAX_BUILDER_DEPOSIT_REQUESTS_PER_PAYLOAD,
         ),
         (
             "builder_exit_requests",
             requests.builder_exits.len(),
-            E::MaxBuilderExitRequestsPerPayload::to_usize(),
+            Spec::MAX_BUILDER_EXIT_REQUESTS_PER_PAYLOAD,
         ),
     ];
     for (kind, length, max) in checks {
@@ -686,8 +685,8 @@ pub fn verify_execution_request_list_lengths<E: EthSpec>(
 ///
 /// Moves a pending payment from `builder_pending_payments[payment_index]` into
 /// `builder_pending_withdrawals`, then clears the slot.
-pub fn settle_builder_payment<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn settle_builder_payment(
+    state: &mut BeaconState,
     payment_index: usize,
 ) -> Result<(), BlockProcessingError> {
     let payment_mut = state
@@ -710,9 +709,9 @@ pub fn settle_builder_payment<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_execution_payload_bid<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    signed_bid: &SignedExecutionPayloadBid<E>,
+pub fn process_execution_payload_bid(
+    state: &mut BeaconState,
+    signed_bid: &SignedExecutionPayloadBid,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -843,8 +842,8 @@ pub fn process_execution_payload_bid<E: EthSpec>(
             proposer_index,
         };
 
-        let payment_index = E::SlotsPerEpoch::to_usize()
-            .safe_add(bid.slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
+        let payment_index =
+            Spec::SLOTS_PER_EPOCH.safe_add(bid.slot.as_usize().safe_rem(Spec::SLOTS_PER_EPOCH)?)?;
 
         *state
             .builder_pending_payments_mut()?

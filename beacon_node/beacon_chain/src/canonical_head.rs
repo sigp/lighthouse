@@ -73,6 +73,7 @@ use store::{
 };
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, instrument, warn};
+use types::Spec;
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
@@ -108,7 +109,7 @@ impl<T> CanonicalHeadRwLock<T> {
 /// verification for the duration.
 const FORK_CHOICE_LOCK_HOLD_LOG_THRESHOLD: Duration = Duration::from_secs(1);
 
-type HeadSlotAssignments<E> = Option<Result<(BeaconState<E>, SlotAssignments), Error>>;
+type HeadSlotAssignments = Option<Result<(BeaconState, SlotAssignments), Error>>;
 
 /// Records a fork choice lock hold duration into `metric` when dropped.
 struct ForkChoiceHoldTimer {
@@ -277,9 +278,9 @@ struct FcrOutcome {
 /// This struct is designed to be cheap-to-clone, any large fields should be wrapped in an `Arc` (or
 /// similar).
 #[derive(Clone)]
-pub struct CachedHead<E: EthSpec> {
+pub struct CachedHead {
     /// Provides the head block and state from the last time the head was updated.
-    pub snapshot: Arc<BeaconSnapshot<E>>,
+    pub snapshot: Arc<BeaconSnapshot>,
     /// The justified checkpoint as per `self.fork_choice`.
     ///
     /// This value may be distinct to the `self.snapshot.beacon_state.justified_checkpoint`.
@@ -301,7 +302,7 @@ pub struct CachedHead<E: EthSpec> {
     finalized_hash: Option<ExecutionBlockHash>,
 }
 
-impl<E: EthSpec> CachedHead<E> {
+impl CachedHead {
     /// Returns root of the block at the head of the beacon chain.
     pub fn head_block_root(&self) -> Hash256 {
         self.snapshot.beacon_block_root
@@ -445,7 +446,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     ///
     /// Although `self.fork_choice` might be slightly more advanced that this value, it is safe to
     /// consider that these values represent the "canonical head" of the beacon chain.
-    cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
+    cached_head: CanonicalHeadRwLock<CachedHead>,
     /// A lock used to prevent concurrent runs of `BeaconChain::recompute_head`.
     ///
     /// This lock **should not be made public**, it should only be used inside this module.
@@ -464,7 +465,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// Instantiate `Self`.
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
-        snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
+        snapshot: Arc<BeaconSnapshot>,
         head_payload_status: proto_array::PayloadStatus,
         fast_confirmation: FastConfirmationMode,
         store: &BeaconStore<T>,
@@ -609,9 +610,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
     /// significantly past the cached `head_snapshot`. In such a scenario it is likely prudent to
     /// run `BeaconChain::recompute_head` to update the cached values.
-    pub fn head_and_execution_status(
-        &self,
-    ) -> Result<(CachedHead<T::EthSpec>, ExecutionStatus), Error> {
+    pub fn head_and_execution_status(&self) -> Result<(CachedHead, ExecutionStatus), Error> {
         let head = self.cached_head();
         let head_block_root = head.head_block_root();
         let execution_status = self
@@ -648,7 +647,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// `RwLockReadGuard`, which may cause deadlock issues (see module-level documentation).
     ///
     /// This function is safe to be public since it does not expose any locks.
-    pub fn cached_head(&self) -> CachedHead<T::EthSpec> {
+    pub fn cached_head(&self) -> CachedHead {
         self.cached_head_read_lock().clone()
     }
 
@@ -656,7 +655,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
-    fn cached_head_read_lock(&self) -> RwLockReadGuard<'_, CachedHead<T::EthSpec>> {
+    fn cached_head_read_lock(&self) -> RwLockReadGuard<'_, CachedHead> {
         self.cached_head.read()
     }
 
@@ -665,7 +664,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
     #[instrument(skip_all)]
-    fn cached_head_write_lock(&self) -> RwLockWriteGuard<'_, CachedHead<T::EthSpec>> {
+    fn cached_head_write_lock(&self) -> RwLockWriteGuard<'_, CachedHead> {
         self.cached_head.write()
     }
 
@@ -707,7 +706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// It is important to note that the `snapshot.beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head(&self) -> CachedHead<T::EthSpec> {
+    pub fn head(&self) -> CachedHead {
         self.canonical_head.cached_head()
     }
 
@@ -716,10 +715,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is a relic from an old implementation where the canonical head was not behind
     /// an `Arc` and the canonical head lock had to be held whenever it was read. This method is
     /// fine to be left here, it just seems a bit weird.
-    pub fn with_head<U, E>(
-        &self,
-        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, E>,
-    ) -> Result<U, E>
+    pub fn with_head<U, E>(&self, f: impl FnOnce(&BeaconSnapshot) -> Result<U, E>) -> Result<U, E>
     where
         E: From<Error>,
     {
@@ -749,14 +745,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns a `Arc` of the `BeaconSnapshot` at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.
-    pub fn head_snapshot(&self) -> Arc<BeaconSnapshot<T::EthSpec>> {
+    pub fn head_snapshot(&self) -> Arc<BeaconSnapshot> {
         self.canonical_head.cached_head_read_lock().snapshot.clone()
     }
 
     /// Returns the beacon block at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.
-    pub fn head_beacon_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+    pub fn head_beacon_block(&self) -> Arc<SignedBeaconBlock> {
         self.canonical_head
             .cached_head_read_lock()
             .snapshot
@@ -769,7 +765,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Cloning the head state is expensive and should generally be avoided outside of tests.
     ///
     /// See `Self::head` for more information.
-    pub fn head_beacon_state_cloned(&self) -> BeaconState<T::EthSpec> {
+    pub fn head_beacon_state_cloned(&self) -> BeaconState {
         // Don't clone whilst holding the read-lock, take an Arc-clone to reduce lock contention.
         let snapshot: Arc<_> = self.head_snapshot();
         snapshot.beacon_state.clone()
@@ -1171,7 +1167,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .canonical_head
                 .fork_choice_read_lock()
                 .get_block(&parent_root)
-                .map(|parent| parent.slot.epoch(T::EthSpec::slots_per_epoch()));
+                .map(|parent| parent.slot.epoch(Spec::slots_per_epoch()));
             let is_epoch_transition =
                 parent_epoch.is_some_and(|parent_epoch| head_epoch > parent_epoch);
 
@@ -1193,7 +1189,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         execution_optimistic: new_head_is_optimistic,
                     };
                     event_handler.register(EventKind::HeadV2(Box::new(ForkVersionedResponse {
-                        version: self.spec.fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                        version: self.spec.fork_name_at_slot(head_v2.slot),
                         metadata: Default::default(),
                         data: head_v2,
                     })));
@@ -1248,7 +1244,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
-    ) -> HeadSlotAssignments<T::EthSpec> {
+    ) -> HeadSlotAssignments {
         if head_slot.as_u64() + MAX_ADVANCE_DISTANCE < current_slot.as_u64() {
             return None;
         }
@@ -1293,15 +1289,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         current_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
-    ) -> Result<BeaconState<T::EthSpec>, Error> {
+    ) -> Result<BeaconState, Error> {
         let (state_root, mut head_state) = store
             .get_advanced_hot_state(head_root, current_slot, head_state_root)?
             .ok_or(Error::MissingBeaconState(head_state_root))?;
 
         // If a state is from a previous epoch we advance it to the current epoch boundary.
-        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
         if head_state.current_epoch() < current_epoch {
-            let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let epoch_start = current_epoch.start_slot(Spec::slots_per_epoch());
             complete_state_advance(&mut head_state, Some(state_root), epoch_start, &store.spec)?;
         }
         head_state.build_all_caches(&store.spec)?;
@@ -1314,7 +1310,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: &BeaconStore<T>,
         current_slot: Slot,
         head_root: Hash256,
-        head_state: &BeaconState<T::EthSpec>,
+        head_state: &BeaconState,
         slot_assignments: &SlotAssignments,
     ) -> Result<FcrOutcome, FastConfirmationError> {
         let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
@@ -1328,12 +1324,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Load the checkpoint state if it will be required.
         let checkpoint_state = fcr
-            .checkpoint_state_needed::<T::EthSpec>(current_slot)
+            .checkpoint_state_needed(current_slot)
             .map(|checkpoint| Self::load_fcr_checkpoint_state(store, checkpoint))
             .transpose()?;
 
         let old_update_slot = fcr.last_update_slot();
-        fcr.on_fast_confirmation::<T::EthSpec>(
+        fcr.on_fast_confirmation(
             head_root,
             &finalized_cp,
             &unrealized_justified_cp,
@@ -1378,14 +1374,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// otherwise the checkpoint state is loaded from the `store`.
     fn new_fast_confirmation_rule(
         finalized_checkpoint: Checkpoint,
-        snapshot: &BeaconSnapshot<T::EthSpec>,
+        snapshot: &BeaconSnapshot,
         slot_assignments: SlotAssignments,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<FastConfirmationRule, FastConfirmationError> {
         let target_slot = finalized_checkpoint
             .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
         let snapshot_is_checkpoint_state = snapshot.beacon_block_root == finalized_checkpoint.root
             && snapshot.beacon_state.slot() == target_slot;
         let loaded_checkpoint_state = if snapshot_is_checkpoint_state {
@@ -1417,7 +1413,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn load_fcr_checkpoint_state(
         store: &BeaconStore<T>,
         checkpoint: Checkpoint,
-    ) -> Result<BeaconState<T::EthSpec>, FastConfirmationError> {
+    ) -> Result<BeaconState, FastConfirmationError> {
         let block = store
             .get_blinded_block(&checkpoint.root)
             .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
@@ -1425,7 +1421,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block: checkpoint.root,
                 epoch: checkpoint.epoch,
             })?;
-        let target_slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let target_slot = checkpoint.epoch.start_slot(Spec::slots_per_epoch());
         let (state_root, mut state) = store
             .get_advanced_hot_state(checkpoint.root, target_slot, block.state_root())
             .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
@@ -1447,8 +1443,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     fn after_new_head(
         self: &Arc<Self>,
-        old_cached_head: &CachedHead<T::EthSpec>,
-        new_cached_head: &CachedHead<T::EthSpec>,
+        old_cached_head: &CachedHead,
+        new_cached_head: &CachedHead,
         new_head_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_NEW_HEAD_TIMES);
@@ -1477,11 +1473,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let is_epoch_transition = old_snapshot
             .beacon_block
             .slot()
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
             < new_snapshot
                 .beacon_state
                 .slot()
-                .epoch(T::EthSpec::slots_per_epoch());
+                .epoch(Spec::slots_per_epoch());
 
         // This field is used for server-sent events.
         let head_slot = new_snapshot.beacon_state.slot();
@@ -1537,7 +1533,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 old_head_state: old_snapshot.beacon_state_root(),
                 new_head_block: new_snapshot.beacon_block_root,
                 new_head_state: new_snapshot.beacon_state_root(),
-                epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                epoch: head_slot.epoch(Spec::slots_per_epoch()),
                 execution_optimistic: new_head_is_optimistic,
             }));
         }
@@ -1553,7 +1549,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     fn after_finalization(
         self: &Arc<Self>,
-        new_cached_head: &CachedHead<T::EthSpec>,
+        new_cached_head: &CachedHead,
         new_view: ForkChoiceView,
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
@@ -1567,21 +1563,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view
                 .finalized_checkpoint
                 .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
         );
 
         self.observed_column_sidecars.write().prune(
             new_view
                 .finalized_checkpoint
                 .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
         );
 
         self.observed_slashable.write().prune(
             new_view
                 .finalized_checkpoint
                 .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
+                .start_slot(Spec::slots_per_epoch()),
         );
 
         // Prune the Gloas pending-payload cache. Anything older than the data-availability
@@ -1591,7 +1587,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let current_epoch = new_snapshot
                 .beacon_state
                 .slot()
-                .epoch(T::EthSpec::slots_per_epoch());
+                .epoch(Spec::slots_per_epoch());
             if let Some(min_epochs_for_blobs) = self
                 .spec
                 .min_epoch_data_availability_boundary(current_epoch)
@@ -1623,7 +1619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_finalized_slot = new_view
             .finalized_checkpoint
             .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
         let new_finalized_state_root = if new_finalized_slot == finalized_proto_block.slot {
             // Fast-path for the common case where the finalized state is not at a skipped slot.
             finalized_proto_block.state_root
@@ -1865,10 +1861,10 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
 /// Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
 /// between calls to fork choice without swapping between chains. This seems like an
 /// extreme-enough scenario that a warning is fine.
-fn detect_reorg<E: EthSpec>(
-    old_state: &BeaconState<E>,
+fn detect_reorg(
+    old_state: &BeaconState,
     old_block_root: Hash256,
-    new_state: &BeaconState<E>,
+    new_state: &BeaconState,
     new_block_root: Hash256,
     spec: &ChainSpec,
 ) -> Option<Slot> {
@@ -1910,10 +1906,10 @@ fn detect_reorg<E: EthSpec>(
 /// Iterate through the current chain to find the slot intersecting with the given beacon state.
 /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
 /// and no intersection is found, the finalized slot will be returned.
-pub fn find_reorg_slot<E: EthSpec>(
-    old_state: &BeaconState<E>,
+pub fn find_reorg_slot(
+    old_state: &BeaconState,
     old_block_root: Hash256,
-    new_state: &BeaconState<E>,
+    new_state: &BeaconState,
     new_block_root: Hash256,
     spec: &ChainSpec,
 ) -> Result<Slot, Error> {
@@ -1968,16 +1964,16 @@ pub fn find_reorg_slot<E: EthSpec>(
     Ok(old_state
         .finalized_checkpoint()
         .epoch
-        .start_slot(E::slots_per_epoch()))
+        .start_slot(Spec::slots_per_epoch()))
 }
 
-fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
+fn observe_head_block_delays<S: SlotClock>(
     block_times_cache: &mut BlockTimesCache,
     head_block: &ProtoBlock,
     head_block_proposer_index: u64,
     head_block_graffiti: String,
     slot_clock: &S,
-    event_handler: Option<&ServerSentEventHandler<E>>,
+    event_handler: Option<&ServerSentEventHandler>,
     spec: &ChainSpec,
 ) {
     let Some(block_time_set_as_head) = slot_clock.now_duration() else {

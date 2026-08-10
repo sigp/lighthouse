@@ -6,7 +6,7 @@ use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas, upgrade_to_heze,
 };
-use types::BeaconState;
+use types::{BeaconState, Spec};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -20,13 +20,13 @@ impl Metadata {
 }
 
 #[derive(Debug)]
-pub struct ForkTest<E: EthSpec> {
+pub struct ForkTest {
     pub metadata: Metadata,
-    pub pre: BeaconState<E>,
-    pub post: BeaconState<E>,
+    pub pre: BeaconState,
+    pub post: BeaconState,
 }
 
-impl<E: EthSpec> LoadCase for ForkTest<E> {
+impl LoadCase for ForkTest {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         assert_eq!(metadata.fork_name(), fork_name);
@@ -35,11 +35,11 @@ impl<E: EthSpec> LoadCase for ForkTest<E> {
         let pre_spec = &fork_name
             .previous_fork()
             .unwrap_or(ForkName::Base)
-            .make_genesis_spec(E::default_spec());
+            .make_genesis_spec(Spec::default_spec());
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), pre_spec)?;
 
         // Decode post-state with target fork.
-        let post_spec = &fork_name.make_genesis_spec(E::default_spec());
+        let post_spec = &fork_name.make_genesis_spec(Spec::default_spec());
         let post = ssz_decode_state(&path.join("post.ssz_snappy"), post_spec)?;
 
         Ok(Self {
@@ -50,7 +50,7 @@ impl<E: EthSpec> LoadCase for ForkTest<E> {
     }
 }
 
-impl<E: EthSpec> Case for ForkTest<E> {
+impl Case for ForkTest {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Fork tests also need BLS.
@@ -60,7 +60,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut result_state = self.pre.clone();
         let mut expected = Some(self.post.clone());
-        let spec = &fork_name.make_genesis_spec(E::default_spec());
+        let spec = &fork_name.make_genesis_spec(Spec::default_spec());
 
         let mut result = match fork_name {
             ForkName::Base => panic!("phase0 not supported"),

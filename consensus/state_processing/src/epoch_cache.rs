@@ -6,7 +6,7 @@ use fixed_bytes::FixedBytesExtended;
 use safe_arith::SafeArith;
 use tracing::instrument;
 use types::state::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
+use types::{ActivationQueue, BeaconState, ChainSpec, ForkName, Hash256};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
@@ -16,9 +16,7 @@ pub struct PreEpochCache {
 }
 
 impl PreEpochCache {
-    pub fn new_for_next_epoch<E: EthSpec>(
-        state: &mut BeaconState<E>,
-    ) -> Result<Self, EpochCacheError> {
+    pub fn new_for_next_epoch(state: &mut BeaconState) -> Result<Self, EpochCacheError> {
         // The decision block root for the next epoch is the latest block root from this epoch.
         let latest_block_header = state.latest_block_header();
 
@@ -123,9 +121,7 @@ impl PreEpochCache {
     }
 }
 
-pub fn is_epoch_cache_initialized<E: EthSpec>(
-    state: &BeaconState<E>,
-) -> Result<bool, EpochCacheError> {
+pub fn is_epoch_cache_initialized(state: &BeaconState) -> Result<bool, EpochCacheError> {
     let current_epoch = state.current_epoch();
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
@@ -138,8 +134,8 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
 }
 
 #[instrument(skip_all, level = "debug")]
-pub fn initialize_epoch_cache<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn initialize_epoch_cache(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), EpochCacheError> {
     if is_epoch_cache_initialized(state)? {

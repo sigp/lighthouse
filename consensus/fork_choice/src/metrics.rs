@@ -1,6 +1,5 @@
 pub use metrics::*;
 use std::sync::LazyLock;
-use types::EthSpec;
 
 use crate::{ForkChoice, ForkChoiceStore};
 
@@ -46,7 +45,7 @@ pub static FORK_CHOICE_ON_ATTESTER_SLASHING_TIMES: LazyLock<Result<Histogram>> =
     });
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the fork choice.
-pub fn scrape_for_metrics<T: ForkChoiceStore<E>, E: EthSpec>(fork_choice: &ForkChoice<T, E>) {
+pub fn scrape_for_metrics<T: ForkChoiceStore>(fork_choice: &ForkChoice<T>) {
     set_gauge(
         &FORK_CHOICE_QUEUED_ATTESTATIONS,
         fork_choice

@@ -46,7 +46,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_execution_payload_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
-        unverified_envelope: GossipVerifiedEnvelope<T>,
+        unverified_envelope: GossipVerifiedEnvelope,
         notify_execution_layer: NotifyExecutionLayer,
         envelope_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
-        envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+        envelope: AvailabilityPendingExecutedEnvelope,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = envelope.envelope.slot();
         let availability = self
@@ -157,8 +157,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "debug")]
     async fn into_executed_payload_envelope(
         self: Arc<Self>,
-        pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, EnvelopeError> {
+        pending_envelope: ExecutionPendingEnvelope,
+    ) -> Result<AvailabilityPendingExecutedEnvelope, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
@@ -188,7 +188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
-        envelope: Box<AvailableExecutedEnvelope<T::EthSpec>>,
+        envelope: Box<AvailableExecutedEnvelope>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let AvailableExecutedEnvelope {
             envelope,
@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     fn import_execution_payload_envelope(
         &self,
-        signed_envelope: AvailableEnvelope<T::EthSpec>,
+        signed_envelope: AvailableEnvelope,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
@@ -321,7 +321,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn import_envelope_update_metrics_and_events(
         &self,
-        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope>,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
         envelope_time_imported: Duration,
@@ -377,9 +377,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "debug")]
     pub async fn process_range_sync_envelope(
         self: &Arc<Self>,
-        available_envelope: AvailableEnvelope<T::EthSpec>,
+        available_envelope: AvailableEnvelope,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock>,
     ) -> Result<(), EnvelopeError> {
         let signed_envelope = available_envelope.envelope().clone();
 

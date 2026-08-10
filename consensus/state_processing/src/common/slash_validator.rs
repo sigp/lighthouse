@@ -6,18 +6,18 @@ use crate::{
 };
 use safe_arith::SafeArith;
 use std::cmp;
-use typenum::Unsigned;
 use types::{
+    Spec,
     consts::altair::{PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     *,
 };
 
 /// Slash the validator with index `slashed_index`.
-pub fn slash_validator<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn slash_validator(
+    state: &mut BeaconState,
     slashed_index: usize,
     opt_whistleblower_index: Option<usize>,
-    ctxt: &mut ConsensusContext<E>,
+    ctxt: &mut ConsensusContext,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let epoch = state.current_epoch();
@@ -29,7 +29,7 @@ pub fn slash_validator<E: EthSpec>(
     validator.slashed = true;
     validator.withdrawable_epoch = cmp::max(
         validator.withdrawable_epoch,
-        epoch.safe_add(E::EpochsPerSlashingsVector::to_u64())?,
+        epoch.safe_add(Spec::epochs_per_slashings_vector())?,
     );
     let validator_effective_balance = validator.effective_balance;
     state.set_slashings(

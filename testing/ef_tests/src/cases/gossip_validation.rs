@@ -1,7 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use crate::type_name::TypeName;
 use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
@@ -19,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
-    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    Checkpoint, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
@@ -119,13 +118,13 @@ enum Topic {
 }
 
 #[derive(Debug)]
-pub struct GossipValidation<E: EthSpec> {
+pub struct GossipValidation {
     path: PathBuf,
     meta: Meta,
-    state: BeaconState<E>,
+    state: BeaconState,
 }
 
-impl<E: EthSpec> LoadCase for GossipValidation<E> {
+impl LoadCase for GossipValidation {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let meta: Meta = yaml_decode_file(&path.join("meta.yaml"))?;
         let spec = &Self::testing_spec(path, fork_name)?;
@@ -139,7 +138,7 @@ impl<E: EthSpec> LoadCase for GossipValidation<E> {
     }
 }
 
-impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
+impl Case for GossipValidation {
     fn description(&self) -> String {
         self.path
             .iter()
@@ -183,17 +182,17 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
     }
 }
 
-struct GossipTester<E: EthSpec> {
-    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    network_beacon_processor: Arc<NetworkBeaconProcessor<EphemeralHarnessType<E>>>,
-    network_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<NetworkMessage<E>>>,
+struct GossipTester {
+    harness: BeaconChainHarness<EphemeralHarnessType>,
+    network_beacon_processor: Arc<NetworkBeaconProcessor<EphemeralHarnessType>>,
+    network_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<NetworkMessage>>,
     spec: ChainSpec,
     genesis_time: u64,
     current_time_ms: u64,
 }
 
-impl<E: EthSpec> GossipTester<E> {
-    fn new(case: &GossipValidation<E>, spec: ChainSpec) -> Result<Self, Error> {
+impl GossipTester {
+    fn new(case: &GossipValidation, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let blocks = case.load_beacon_blocks(&spec)?;
         let current_time_ms = case.current_time_ms(&spec)?;
@@ -221,19 +220,19 @@ impl<E: EthSpec> GossipTester<E> {
     }
 
     fn build_harness(
-        case: &GossipValidation<E>,
+        case: &GossipValidation,
         spec: Arc<ChainSpec>,
-        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        blocks: &HashMap<String, SignedBeaconBlock>,
         genesis_time: u64,
         current_time_ms: u64,
-    ) -> Result<(BeaconChainHarness<EphemeralHarnessType<E>>, Option<usize>), Error> {
+    ) -> Result<(BeaconChainHarness<EphemeralHarnessType>, Option<usize>), Error> {
         // Timing-ignore fixtures advance the supplied state beyond their setup block. Anchor the
         // advanced state, then import the historical block through the normal path below.
         let initial_block_index =
             (!case.meta.blocks.is_empty() && !case.is_advanced_timing_ignore()).then_some(0);
 
         let harness_builder = || {
-            BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            BeaconChainHarness::<EphemeralHarnessType>::builder()
                 .spec(spec.clone())
                 .keypairs(vec![])
                 .mock_execution_layer()
@@ -298,8 +297,8 @@ impl<E: EthSpec> GossipTester<E> {
 
     fn import_setup_blocks(
         &self,
-        case: &GossipValidation<E>,
-        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        case: &GossipValidation,
+        blocks: &HashMap<String, SignedBeaconBlock>,
         initial_block_index: Option<usize>,
     ) -> Result<(), Error> {
         for (index, setup_block) in case.meta.blocks.iter().enumerate() {
@@ -410,7 +409,7 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
-        let slashing: AttesterSlashing<E> = if fork_name.gloas_enabled() {
+        let slashing: AttesterSlashing = if fork_name.gloas_enabled() {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Gloas)?
         } else if fork_name.electra_enabled() {
             ssz_decode_file(&ssz_path).map(AttesterSlashing::Electra)?
@@ -505,7 +504,7 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let aggregate = ssz_decode_file::<SignedAggregateAndProofElectra<E>>(
+        let aggregate = ssz_decode_file::<SignedAggregateAndProofElectra>(
             &path.join(format!("{}.ssz_snappy", message_meta.message)),
         )
         .map(SignedAggregateAndProof::Electra)?;
@@ -572,7 +571,7 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let contribution: SignedContributionAndProof<E> =
+        let contribution: SignedContributionAndProof =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
         let seen_timestamp = self.set_message_time(message_meta)?;
 
@@ -618,7 +617,7 @@ impl<E: EthSpec> GossipTester<E> {
 
     fn import_setup_block(
         &self,
-        block: SignedBeaconBlock<E>,
+        block: SignedBeaconBlock,
         payload_status: Option<PayloadStatus>,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
@@ -659,11 +658,7 @@ impl<E: EthSpec> GossipTester<E> {
         }
     }
 
-    fn configure_payload_status(
-        &self,
-        block: &SignedBeaconBlock<E>,
-        status: Option<PayloadStatus>,
-    ) {
+    fn configure_payload_status(&self, block: &SignedBeaconBlock, status: Option<PayloadStatus>) {
         let Some(mock_execution_layer) = self.harness.mock_execution_layer.as_ref() else {
             return;
         };
@@ -742,9 +737,9 @@ impl Topic {
     }
 }
 
-impl<E: EthSpec> GossipValidation<E> {
+impl GossipValidation {
     fn testing_spec(path: &Path, fork_name: ForkName) -> Result<ChainSpec, Error> {
-        let mut spec = testing_spec::<E>(fork_name);
+        let mut spec = testing_spec(fork_name);
         let config_path = path.join("config.yaml");
         if !config_path.exists() {
             return Ok(spec);
@@ -827,7 +822,7 @@ impl<E: EthSpec> GossipValidation<E> {
 
     fn finalized_checkpoint(
         &self,
-        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        blocks: &HashMap<String, SignedBeaconBlock>,
     ) -> Result<Option<Checkpoint>, Error> {
         if let Some(checkpoint) = &self.meta.finalized_checkpoint {
             return checkpoint.checkpoint(blocks).map(Some);
@@ -843,7 +838,7 @@ impl<E: EthSpec> GossipValidation<E> {
     fn load_beacon_blocks(
         &self,
         spec: &ChainSpec,
-    ) -> Result<HashMap<String, SignedBeaconBlock<E>>, Error> {
+    ) -> Result<HashMap<String, SignedBeaconBlock>, Error> {
         let mut block_names = HashSet::new();
         block_names.extend(self.meta.blocks.iter().map(|block| block.block.clone()));
         block_names.extend(
@@ -881,10 +876,7 @@ fn slot_time_ms(slot: Slot, spec: &ChainSpec) -> Result<u64, Error> {
 }
 
 impl FinalizedCheckpoint {
-    fn checkpoint<E: EthSpec>(
-        &self,
-        blocks: &HashMap<String, SignedBeaconBlock<E>>,
-    ) -> Result<Checkpoint, Error> {
+    fn checkpoint(&self, blocks: &HashMap<String, SignedBeaconBlock>) -> Result<Checkpoint, Error> {
         match self {
             FinalizedCheckpoint::Root { epoch, root } => Ok(Checkpoint {
                 epoch: (*epoch).into(),
@@ -903,20 +895,20 @@ impl FinalizedCheckpoint {
     }
 }
 
-fn load_beacon_block<E: EthSpec>(
+fn load_beacon_block(
     path: &Path,
     name: &str,
     spec: &ChainSpec,
-) -> Result<SignedBeaconBlock<E>, Error> {
+) -> Result<SignedBeaconBlock, Error> {
     ssz_decode_file_with(&path.join(format!("{name}.ssz_snappy")), |bytes| {
         SignedBeaconBlock::from_ssz_bytes(bytes, spec)
     })
 }
 
-fn synthetic_anchor<E: EthSpec>(
-    mut state: BeaconState<E>,
+fn synthetic_anchor(
+    mut state: BeaconState,
     spec: &ChainSpec,
-) -> Result<(BeaconState<E>, SignedBeaconBlock<E>), Error> {
+) -> Result<(BeaconState, SignedBeaconBlock), Error> {
     let mut block = BeaconBlock::empty(spec);
     *block.slot_mut() = state.slot();
     *block.proposer_index_mut() = state.latest_block_header().proposer_index;

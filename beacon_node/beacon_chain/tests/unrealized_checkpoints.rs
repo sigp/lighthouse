@@ -14,9 +14,7 @@ use beacon_chain::{
 };
 use state_processing::per_epoch_processing;
 use std::sync::Arc;
-use types::{Checkpoint, Epoch, EthSpec, MinimalEthSpec, consts::altair::TIMELY_TARGET_FLAG_INDEX};
-
-type E = MinimalEthSpec;
+use types::{Checkpoint, Epoch, Spec, consts::altair::TIMELY_TARGET_FLAG_INDEX};
 
 // Proposer slashings are limited to MaxProposerSlashings (16) per block. With 32 validators,
 // dropping below the 2/3 justification threshold requires only ~11 slashes, which fits.
@@ -27,7 +25,7 @@ fn ceil_two_thirds(value: u64) -> u64 {
 }
 
 struct SameEpochSlashingChild {
-    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType>,
     stored_parent_justified: Checkpoint,
     stored_parent_finalized: Checkpoint,
     stored_child_justified: Checkpoint,
@@ -59,7 +57,7 @@ async fn child_unrealized_checkpoints_recomputed_after_same_epoch_slashing() {
 #[tokio::test]
 async fn child_with_stale_voting_source_not_head_at_epoch_plus_two() {
     let scenario = same_epoch_attester_slashing_child().await;
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let divergence_slot = scenario
         .parent_epoch
         .saturating_add(2u64)
@@ -152,19 +150,18 @@ async fn same_epoch_slashing_child<F>(
     inject_slashings: F,
 ) -> SameEpochSlashingChild
 where
-    F: FnOnce(&BeaconChainHarness<EphemeralHarnessType<E>>, &[u64]),
+    F: FnOnce(&BeaconChainHarness<EphemeralHarnessType>, &[u64]),
 {
-    let spec = test_spec::<E>();
+    let spec = test_spec();
 
-    let harness: BeaconChainHarness<EphemeralHarnessType<E>> =
-        BeaconChainHarness::builder(E::default())
-            .spec(Arc::new(spec))
-            .deterministic_keypairs(validator_count)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
+    let harness: BeaconChainHarness<EphemeralHarnessType> = BeaconChainHarness::builder()
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(validator_count)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
 
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
 
     // Minimum warm-up for the parent to reach FFG steady state (justified == epoch, finalized ==
     // epoch - 1); 2 epochs is too few.

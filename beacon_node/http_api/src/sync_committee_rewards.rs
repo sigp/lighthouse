@@ -47,9 +47,9 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 
 pub fn get_state_before_applying_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block: &SignedBlindedBeaconBlock<T::EthSpec>,
-) -> Result<BeaconState<T::EthSpec>, warp::reject::Rejection> {
-    let parent_block: SignedBlindedBeaconBlock<T::EthSpec> = chain
+    block: &SignedBlindedBeaconBlock,
+) -> Result<BeaconState, warp::reject::Rejection> {
+    let parent_block: SignedBlindedBeaconBlock = chain
         .get_blinded_block(&block.parent_root())
         .and_then(|maybe_block| {
             maybe_block.ok_or_else(|| BeaconChainError::MissingBeaconBlock(block.parent_root()))

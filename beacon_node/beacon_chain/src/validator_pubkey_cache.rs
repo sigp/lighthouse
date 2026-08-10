@@ -1,5 +1,4 @@
 use crate::errors::BeaconChainError;
-use crate::{BeaconChainTypes, BeaconStore};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use bls::{PublicKey, PublicKeyBytes};
 use fixed_bytes::FixedBytesExtended;
@@ -8,8 +7,8 @@ use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use std::marker::PhantomData;
-use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
+use std::sync::Arc;
+use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem, StoreOp};
 use tracing::instrument;
 use types::{BeaconState, Hash256};
 
@@ -21,27 +20,25 @@ use types::{BeaconState, Hash256};
 /// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
 ///    keys in compressed form and they are needed in decompressed form for signature verification.
 ///    Decompression is expensive when many keys are involved.
-pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
+pub struct ValidatorPubkeyCache {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
     pubkey_bytes: Vec<PublicKeyBytes>,
-    _phantom: PhantomData<T>,
 }
 
-impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
+impl ValidatorPubkeyCache {
     /// Create a new public key cache using the keys in `state.validators`.
     ///
     /// The new cache will be updated with the keys from `state` and immediately written to disk.
     #[instrument(name = "validator_pubkey_cache_new", skip_all)]
-    pub fn new(
-        state: &BeaconState<T::EthSpec>,
-        store: BeaconStore<T>,
+    pub fn new<Hot: ItemStore, Cold: ItemStore>(
+        state: &BeaconState,
+        store: Arc<HotColdDB<Hot, Cold>>,
     ) -> Result<Self, BeaconChainError> {
         let mut cache = Self {
             pubkeys: vec![],
             indices: HashMap::new(),
             pubkey_bytes: vec![],
-            _phantom: PhantomData,
         };
 
         let store_ops = cache.import_new_pubkeys(state)?;
@@ -52,7 +49,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 
     /// Load the pubkey cache from the given on-disk database.
     #[instrument(name = "validator_pubkey_cache_load_from_store", skip_all)]
-    pub fn load_from_store(store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
+    pub fn load_from_store<Hot: ItemStore, Cold: ItemStore>(
+        store: Arc<HotColdDB<Hot, Cold>>,
+    ) -> Result<Self, BeaconChainError> {
         let mut pubkeys = vec![];
         let mut indices = HashMap::new();
         let mut pubkey_bytes = vec![];
@@ -74,7 +73,6 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys,
             indices,
             pubkey_bytes,
-            _phantom: PhantomData,
         })
     }
 
@@ -86,8 +84,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     #[instrument(skip_all)]
     pub fn import_new_pubkeys(
         &mut self,
-        state: &BeaconState<T::EthSpec>,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
+        state: &BeaconState,
+    ) -> Result<Vec<StoreOp<'static>>, BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
             self.import(
                 state
@@ -101,10 +99,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(
-        &mut self,
-        validator_keys: I,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError>
+    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<StoreOp<'static>>, BeaconChainError>
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
@@ -245,18 +240,18 @@ impl DatabasePubkey {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::BeaconStore;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use bls::Keypair;
     use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, MainnetEthSpec};
+    use types::Spec;
 
-    type E = MainnetEthSpec;
-    type T = EphemeralHarnessType<E>;
+    type T = EphemeralHarnessType;
 
-    fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    fn get_state(validator_count: usize) -> (BeaconState, Vec<Keypair>) {
+        let harness = BeaconChainHarness::builder()
             .default_spec()
             .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
@@ -269,11 +264,11 @@ mod test {
 
     fn get_store() -> BeaconStore<T> {
         create_test_tracing_subscriber();
-        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec())).unwrap())
+        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(Spec::default_spec())).unwrap())
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn check_cache_get(cache: &ValidatorPubkeyCache<T>, keypairs: &[Keypair]) {
+    fn check_cache_get(cache: &ValidatorPubkeyCache, keypairs: &[Keypair]) {
         let validator_count = keypairs.len();
 
         for i in 0..validator_count + 1 {
@@ -302,7 +297,7 @@ mod test {
 
     #[test]
     fn basic_operation() {
-        // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+        // >= 32 validators required for Gloas genesis with MainnetSpec (32 slots/epoch).
         let (state, keypairs) = get_state(32);
 
         let store = get_store();
@@ -363,7 +358,7 @@ mod test {
         let store = get_store();
 
         // Create cache from empty state (triggers parallel path)
-        let cache: ValidatorPubkeyCache<T> =
+        let cache: ValidatorPubkeyCache =
             ValidatorPubkeyCache::new(&state, store).expect("should create cache");
 
         check_cache_get(&cache, &keypairs[..]);

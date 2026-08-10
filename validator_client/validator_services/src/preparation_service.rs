@@ -11,7 +11,7 @@ use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use types::{
-    Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
+    Address, ChainSpec, Epoch, ProposerPreparationData, SignedValidatorRegistrationData, Spec,
     ValidatorRegistrationData,
 };
 use validator_store::{
@@ -244,9 +244,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
     /// This avoids spamming the BN with preparations before the Bellatrix fork epoch, which may
     /// cause errors if it doesn't support the preparation API.
     fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
-        let current_epoch = self.slot_clock.now().map_or(S::E::genesis_epoch(), |slot| {
-            slot.epoch(S::E::slots_per_epoch())
-        });
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .map_or(Epoch::new(Spec::genesis_epoch()), |slot| {
+                slot.epoch(Spec::slots_per_epoch())
+            });
         spec.bellatrix_fork_epoch.is_some_and(|fork_epoch| {
             current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
         })
@@ -367,7 +370,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
         // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
         if let Some(slot) = self.slot_clock.now() {
-            if slot % (S::E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0
+            if slot % (Spec::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0
             {
                 self.publish_validator_registration_data(registration_keys)
                     .await?;

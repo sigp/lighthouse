@@ -22,7 +22,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use logging::build_workspace_filter;
 use tokio::time::sleep;
 use tracing::Level;
-use types::{Epoch, EthSpec, MinimalEthSpec};
+use types::{Epoch, Spec};
 
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
@@ -178,7 +178,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
     slot_duration_ms /= speed_up_factor;
     slot_duration_ms = max(1_000, slot_duration_ms);
-    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+    spec = spec.set_slot_duration_ms(slot_duration_ms);
 
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
@@ -193,7 +193,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     env.eth2_config.spec = spec.clone();
 
     let slot_duration = spec.get_slot_duration();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
     let context = env.core_context();

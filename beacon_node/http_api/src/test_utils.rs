@@ -26,9 +26,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
-use types::{ChainSpec, EthSpec};
+use types::ChainSpec;
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -36,11 +35,11 @@ pub const SEQ_NUMBER: u64 = 0;
 pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// HTTP API tester that allows interaction with the underlying beacon chain harness.
-pub struct InteractiveTester<E: EthSpec> {
-    pub ctx: Arc<Context<EphemeralHarnessType<E>>>,
-    pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+pub struct InteractiveTester {
+    pub ctx: Arc<Context<EphemeralHarnessType>>,
+    pub harness: BeaconChainHarness<EphemeralHarnessType>,
     pub client: BeaconNodeHttpClient,
-    pub network_rx: NetworkReceivers<E>,
+    pub network_rx: NetworkReceivers,
 }
 
 /// The result of calling `create_api_server`.
@@ -50,16 +49,16 @@ pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
     pub ctx: Arc<Context<T>>,
     pub server: SFut,
     pub listening_socket: SocketAddr,
-    pub network_rx: NetworkReceivers<T::EthSpec>,
+    pub network_rx: NetworkReceivers,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
 }
 
-type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
-type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
-type Mutator<E> = BoxedMutator<E, MemoryStore, MemoryStore>;
+type HarnessBuilder = Builder<EphemeralHarnessType>;
+type Initializer = Box<dyn FnOnce(HarnessBuilder) -> HarnessBuilder>;
+type Mutator = BoxedMutator<EphemeralHarnessType>;
 
-impl<E: EthSpec> InteractiveTester<E> {
+impl InteractiveTester {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
         Self::new_with_initializer_and_mutator(
             spec,
@@ -89,13 +88,13 @@ impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new_with_initializer_and_mutator(
         spec: Option<ChainSpec>,
         validator_count: usize,
-        initializer: Option<Initializer<E>>,
-        mutator: Option<Mutator<E>>,
+        initializer: Option<Initializer>,
+        mutator: Option<Mutator>,
         config: Config,
         use_mock_builder: bool,
         node_custody_type: NodeCustodyType,
     ) -> Self {
-        let mut harness_builder = BeaconChainHarness::builder(E::default())
+        let mut harness_builder = BeaconChainHarness::builder()
             .spec_or_default(spec.map(Arc::new))
             .mock_execution_layer();
 
@@ -201,15 +200,15 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     let meta_data = if chain.spec.is_peer_das_scheduled() {
         MetaData::V3(MetaDataV3 {
             seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
+            attnets: EnrAttestationBitfield::default(),
+            syncnets: EnrSyncCommitteeBitfield::default(),
             custody_group_count: chain.spec.custody_requirement,
         })
     } else {
         MetaData::V2(MetaDataV2 {
             seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
+            attnets: EnrAttestationBitfield::default(),
+            syncnets: EnrSyncCommitteeBitfield::default(),
         })
     };
 

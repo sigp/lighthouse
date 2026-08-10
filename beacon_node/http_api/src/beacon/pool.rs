@@ -33,23 +33,14 @@ use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
 use warp_utils::reject::convert_rejection;
 
-pub type BeaconPoolPathFilter<T> = BoxedFilter<(
-    TaskSpawner<<T as BeaconChainTypes>::EthSpec>,
-    Arc<BeaconChain<T>>,
-)>;
-pub type BeaconPoolPathV2Filter<T> = BoxedFilter<(
-    TaskSpawner<<T as BeaconChainTypes>::EthSpec>,
-    Arc<BeaconChain<T>>,
-)>;
-pub type BeaconPoolPathAnyFilter<T> = BoxedFilter<(
-    EndpointVersion,
-    TaskSpawner<<T as BeaconChainTypes>::EthSpec>,
-    Arc<BeaconChain<T>>,
-)>;
+pub type BeaconPoolPathFilter<T> = BoxedFilter<(TaskSpawner, Arc<BeaconChain<T>>)>;
+pub type BeaconPoolPathV2Filter<T> = BoxedFilter<(TaskSpawner, Arc<BeaconChain<T>>)>;
+pub type BeaconPoolPathAnyFilter<T> =
+    BoxedFilter<(EndpointVersion, TaskSpawner, Arc<BeaconChain<T>>)>;
 
 /// POST beacon/pool/bls_to_execution_changes
 pub fn post_beacon_pool_bls_to_execution_changes<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -59,10 +50,10 @@ pub fn post_beacon_pool_bls_to_execution_changes<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              address_changes: Vec<SignedBlsToExecutionChange>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let mut failures = vec![];
 
@@ -146,20 +137,18 @@ pub fn get_beacon_pool_bls_to_execution_changes<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("bls_to_execution_changes"))
         .and(warp::path::end())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let address_changes = chain.op_pool.get_all_bls_to_execution_changes();
-                    Ok(GenericResponse::from(address_changes))
-                })
-            },
-        )
+        .then(|task_spawner: TaskSpawner, chain: Arc<BeaconChain<T>>| {
+            task_spawner.blocking_json_task(Priority::P1, move || {
+                let address_changes = chain.op_pool.get_all_bls_to_execution_changes();
+                Ok(GenericResponse::from(address_changes))
+            })
+        })
         .boxed()
 }
 
 /// POST beacon/pool/sync_committees
 pub fn post_beacon_pool_sync_committees<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -169,10 +158,10 @@ pub fn post_beacon_pool_sync_committees<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     sync_committees::process_sync_committee_signatures(
                         signatures, network_tx, &chain,
@@ -192,20 +181,18 @@ pub fn get_beacon_pool_voluntary_exits<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("voluntary_exits"))
         .and(warp::path::end())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let attestations = chain.op_pool.get_all_voluntary_exits();
-                    Ok(GenericResponse::from(attestations))
-                })
-            },
-        )
+        .then(|task_spawner: TaskSpawner, chain: Arc<BeaconChain<T>>| {
+            task_spawner.blocking_json_task(Priority::P1, move || {
+                let attestations = chain.op_pool.get_all_voluntary_exits();
+                Ok(GenericResponse::from(attestations))
+            })
+        })
         .boxed()
 }
 
 /// POST beacon/pool/voluntary_exits
 pub fn post_beacon_pool_voluntary_exits<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -215,10 +202,10 @@ pub fn post_beacon_pool_voluntary_exits<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              exit: SignedVoluntaryExit,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let outcome = chain
                         .verify_voluntary_exit_for_gossip(exit.clone())
@@ -259,20 +246,18 @@ pub fn get_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("proposer_slashings"))
         .and(warp::path::end())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let attestations = chain.op_pool.get_all_proposer_slashings();
-                    Ok(GenericResponse::from(attestations))
-                })
-            },
-        )
+        .then(|task_spawner: TaskSpawner, chain: Arc<BeaconChain<T>>| {
+            task_spawner.blocking_json_task(Priority::P1, move || {
+                let attestations = chain.op_pool.get_all_proposer_slashings();
+                Ok(GenericResponse::from(attestations))
+            })
+        })
         .boxed()
 }
 
 /// POST beacon/pool/proposer_slashings
 pub fn post_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -282,10 +267,10 @@ pub fn post_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              slashing: ProposerSlashing,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let outcome = chain
                         .verify_proposer_slashing_for_gossip(slashing.clone())
@@ -330,7 +315,7 @@ pub fn get_beacon_pool_attester_slashings<T: BeaconChainTypes>(
         .and(warp::path::end())
         .then(
             |endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let slashings = chain.op_pool.get_all_attester_slashings();
@@ -345,7 +330,7 @@ pub fn get_beacon_pool_attester_slashings<T: BeaconChainTypes>(
                             .ok_or(warp_utils::reject::custom_server_error(
                                 "unable to read slot clock".to_string(),
                             ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+                    let fork_name = chain.spec.fork_name_at_slot(current_slot);
                     let slashings = slashings
                         .into_iter()
                         .filter(|slashing| {
@@ -378,7 +363,7 @@ pub fn get_beacon_pool_attester_slashings<T: BeaconChainTypes>(
 
 // POST beacon/pool/attester_slashings
 pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     beacon_pool_path_any: &BeaconPoolPathAnyFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path_any
@@ -395,33 +380,30 @@ pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
             // structurally identical in JSON but merkleize differently, so untagged deserialization
             // cannot distinguish them.
             |_endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              slashing_json: serde_json::Value,
              consensus_version: Option<ForkName>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let fork_name = match consensus_version {
                         Some(fork_name) => fork_name,
                         None => chain
                             .slot_clock
                             .now()
-                            .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
+                            .map(|slot| chain.spec.fork_name_at_slot(slot))
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "unable to read slot clock".to_string(),
                                 )
                             })?,
                     };
-                    let slashing = AttesterSlashing::<T::EthSpec>::context_deserialize(
-                        &slashing_json,
-                        fork_name,
-                    )
-                    .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "invalid attester slashing: {e:?}"
-                        ))
-                    })?;
+                    let slashing = AttesterSlashing::context_deserialize(&slashing_json, fork_name)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "invalid attester slashing: {e:?}"
+                            ))
+                        })?;
                     let outcome = chain
                         .verify_attester_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -466,7 +448,7 @@ pub fn get_beacon_pool_attestations<T: BeaconChainTypes>(
         .and(warp::query::<AttestationPoolQuery>())
         .then(
             |endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              query: AttestationPoolQuery| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
@@ -498,7 +480,7 @@ pub fn get_beacon_pool_attestations<T: BeaconChainTypes>(
                             .ok_or(warp_utils::reject::custom_server_error(
                                 "unable to read slot clock".to_string(),
                             ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+                    let fork_name = chain.spec.fork_name_at_slot(current_slot);
                     let attestations = attestations
                         .into_iter()
                         .filter(|att| {
@@ -530,7 +512,7 @@ pub fn get_beacon_pool_attestations<T: BeaconChainTypes>(
 }
 
 pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     optional_consensus_version_header_filter: OptionalConsensusVersionHeaderFilter,
     beacon_pool_path_v2: &BeaconPoolPathV2Filter<T>,
 ) -> ResponseFilter {
@@ -542,11 +524,11 @@ pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
         .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<SingleAttestation>,
              _fork_name: Option<ForkName>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
+             network_tx: UnboundedSender<NetworkMessage>| async move {
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -564,7 +546,7 @@ pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
 
 /// POST beacon/pool/payload_attestations (JSON)
 pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
-    network_tx_filter: &NetworkTxFilter<T>,
+    network_tx_filter: &NetworkTxFilter,
     optional_consensus_version_header_filter: OptionalConsensusVersionHeaderFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
@@ -576,11 +558,11 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              messages: Vec<PayloadAttestationMessage>,
              _fork_name: Option<ForkName>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     publish_payload_attestation_messages(&chain, &network_tx, messages)
                 })
@@ -592,9 +574,9 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
 /// POST beacon/pool/payload_attestations (SSZ)
 pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
-    network_tx_filter: NetworkTxFilter<T>,
+    network_tx_filter: NetworkTxFilter,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -607,9 +589,9 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
         .and(network_tx_filter)
         .then(
             |body_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
                     if !body_bytes.len().is_multiple_of(item_len) {
@@ -639,7 +621,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
 
 fn publish_payload_attestation_messages<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage>,
     messages: Vec<PayloadAttestationMessage>,
 ) -> Result<(), warp::Rejection> {
     let mut failures = vec![];

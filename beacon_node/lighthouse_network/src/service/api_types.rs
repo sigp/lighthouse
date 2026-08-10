@@ -3,8 +3,8 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    BlobSidecar, DataColumnSidecar, Epoch, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope,
 };
 
@@ -160,40 +160,40 @@ pub enum AppRequestId {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<E: EthSpec> {
+pub enum Response {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
+    BlobsByRange(Option<Arc<BlobSidecar>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_Range request.
-    DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
+    DataColumnsByRange(Option<Arc<DataColumnSidecar>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock>>),
     /// A response to a get BEACON_BLOCKS_BY_HEAD request. A None response signals the end of the
     /// batch.
-    BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
+    BlocksByHead(Option<Arc<SignedBeaconBlock>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
-    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
-    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
+    BlobsByRoot(Option<Arc<BlobSidecar>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
-    DataColumnsByRoot(Option<Arc<DataColumnSidecar<E>>>),
+    DataColumnsByRoot(Option<Arc<DataColumnSidecar>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+    LightClientBootstrap(Arc<LightClientBootstrap>),
     /// A response to a LightClientOptimisticUpdate request.
-    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate>),
     /// A response to a LightClientFinalityUpdate request.
-    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate>),
     /// A response to a LightClientUpdatesByRange request.
-    LightClientUpdatesByRange(Option<Arc<LightClientUpdate<E>>>),
+    LightClientUpdatesByRange(Option<Arc<LightClientUpdate>>),
 }
 
-impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
-    fn from(resp: Response<E>) -> RpcResponse<E> {
+impl std::convert::From<Response> for RpcResponse {
+    fn from(resp: Response) -> RpcResponse {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),

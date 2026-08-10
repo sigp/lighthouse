@@ -1,5 +1,5 @@
 use crate::task_spawner::TaskSpawner;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChain;
 use eth2::types::EndpointVersion;
 use lighthouse_network::PubsubMessage;
 use lighthouse_network::rpc::methods::MetaData;
@@ -7,7 +7,7 @@ use network::{NetworkMessage, ValidatorSubscriptionMessage};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use types::{ChainSpec, EthSpec, ForkName};
+use types::{ChainSpec, ForkName};
 use warp::Rejection;
 use warp::filters::BoxedFilter;
 
@@ -16,16 +16,12 @@ pub type AnyVersionFilter = BoxedFilter<(EndpointVersion,)>;
 pub type EthV1Filter = BoxedFilter<()>;
 pub type ChainFilter<T> = BoxedFilter<(Arc<BeaconChain<T>>,)>;
 pub type NotWhileSyncingFilter = BoxedFilter<(Result<(), Rejection>,)>;
-pub type TaskSpawnerFilter<T> = BoxedFilter<(TaskSpawner<<T as BeaconChainTypes>::EthSpec>,)>;
+pub type TaskSpawnerFilter = BoxedFilter<(TaskSpawner,)>;
 pub type ValidatorSubscriptionTxFilter = BoxedFilter<(Sender<ValidatorSubscriptionMessage>,)>;
-pub type NetworkTxFilter<T> =
-    BoxedFilter<(UnboundedSender<NetworkMessage<<T as BeaconChainTypes>::EthSpec>>,)>;
+pub type NetworkTxFilter = BoxedFilter<(UnboundedSender<NetworkMessage>,)>;
 pub type OptionalConsensusVersionHeaderFilter = BoxedFilter<(Option<ForkName>,)>;
 
-pub fn from_meta_data<E: EthSpec>(
-    meta_data: &RwLock<MetaData<E>>,
-    spec: &ChainSpec,
-) -> eth2::types::MetaData {
+pub fn from_meta_data(meta_data: &RwLock<MetaData>, spec: &ChainSpec) -> eth2::types::MetaData {
     let meta_data = meta_data.read();
     let format_hex = |bytes: &[u8]| format!("0x{}", hex::encode(bytes));
 
@@ -56,9 +52,9 @@ pub fn from_meta_data<E: EthSpec>(
 }
 
 /// Publish a message to the libp2p pubsub network.
-pub fn publish_pubsub_message<E: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<E>>,
-    message: PubsubMessage<E>,
+pub fn publish_pubsub_message(
+    network_tx: &UnboundedSender<NetworkMessage>,
+    message: PubsubMessage,
 ) -> Result<(), warp::Rejection> {
     publish_network_message(
         network_tx,
@@ -69,17 +65,17 @@ pub fn publish_pubsub_message<E: EthSpec>(
 }
 
 /// Publish a message to the libp2p pubsub network.
-pub fn publish_pubsub_messages<E: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<E>>,
-    messages: Vec<PubsubMessage<E>>,
+pub fn publish_pubsub_messages(
+    network_tx: &UnboundedSender<NetworkMessage>,
+    messages: Vec<PubsubMessage>,
 ) -> Result<(), warp::Rejection> {
     publish_network_message(network_tx, NetworkMessage::Publish { messages })
 }
 
 /// Publish a message to the libp2p network.
-pub fn publish_network_message<E: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<E>>,
-    message: NetworkMessage<E>,
+pub fn publish_network_message(
+    network_tx: &UnboundedSender<NetworkMessage>,
+    message: NetworkMessage,
 ) -> Result<(), warp::Rejection> {
     network_tx.send(message).map_err(|e| {
         warp_utils::reject::custom_server_error(format!(

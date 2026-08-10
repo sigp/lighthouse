@@ -7,7 +7,7 @@ use hashlink::lru_cache::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use tracing::instrument;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, Epoch, Hash256, Slot, Spec};
 
 /// Fraction of the LRU cache to leave intact during culling.
 const CULL_EXEMPT_NUMERATOR: usize = 1;
@@ -18,9 +18,9 @@ const CULL_EXEMPT_DENOMINATOR: usize = 10;
 const EPOCH_FINALIZATION_LIMIT: u64 = 4;
 
 #[derive(Debug)]
-pub struct FinalizedState<E: EthSpec> {
+pub struct FinalizedState {
     state_root: Hash256,
-    state: BeaconState<E>,
+    state: BeaconState,
 }
 
 /// Map from block_root -> slot -> state_root.
@@ -36,11 +36,11 @@ pub struct SlotMap {
 }
 
 #[derive(Debug)]
-pub struct StateCache<E: EthSpec> {
-    finalized_state: Option<FinalizedState<E>>,
+pub struct StateCache {
+    finalized_state: Option<FinalizedState>,
     // Stores the tuple (state_root, state) as LruCache only returns the value on put and we need
     // the state_root
-    states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
+    states: LruCache<Hash256, (Hash256, BeaconState)>,
     block_map: BlockMap,
     hdiff_buffers: HotHDiffBufferCache,
     max_epoch: Epoch,
@@ -78,7 +78,7 @@ pub enum PutStateOutcome {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<E: EthSpec> StateCache<E> {
+impl StateCache {
     pub fn new(
         state_capacity: NonZeroUsize,
         headroom: NonZeroUsize,
@@ -128,10 +128,10 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
-        state: BeaconState<E>,
+        state: BeaconState,
         pre_finalized_slots_to_retain: &[Slot],
     ) -> Result<(), Error> {
-        if state.slot() % E::slots_per_epoch() != 0 {
+        if state.slot() % Spec::slots_per_epoch() != 0 {
             return Err(Error::FinalizedStateUnaligned);
         }
 
@@ -196,7 +196,7 @@ impl<E: EthSpec> StateCache<E> {
     /// If the finalized state is not initialized this function is a no-op.
     pub fn rebase_on_finalized(
         &self,
-        state: &mut BeaconState<E>,
+        state: &mut BeaconState,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         // Do not attempt to rebase states prior to the finalized state. This method might be called
@@ -216,7 +216,7 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
-        state: &BeaconState<E>,
+        state: &BeaconState,
     ) -> Result<PutStateOutcome, Error> {
         if let Some(ref finalized_state) = self.finalized_state {
             if finalized_state.state_root == state_root {
@@ -272,7 +272,7 @@ impl<E: EthSpec> StateCache<E> {
         Ok(PutStateOutcome::New(deleted_states))
     }
 
-    pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState<E>> {
+    pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState> {
         if let Some(ref finalized_state) = self.finalized_state
             && state_root == finalized_state.state_root
         {
@@ -317,7 +317,7 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         block_root: Hash256,
         slot: Slot,
-    ) -> Option<(Hash256, BeaconState<E>)> {
+    ) -> Option<(Hash256, BeaconState)> {
         let slot_map = self.block_map.blocks.get(&block_root)?;
 
         // Find the state at `slot`, or failing that the most recent ancestor.
@@ -371,7 +371,7 @@ impl<E: EthSpec> StateCache<E> {
         let num_cull_candidates = self.states.len().saturating_sub(cull_exempt);
         for (&state_root, (_, state)) in self.states.iter().take(num_cull_candidates) {
             let is_advanced = state.slot() > state.latest_block_header().slot;
-            let is_boundary = state.slot() % E::slots_per_epoch() == 0;
+            let is_boundary = state.slot() % Spec::slots_per_epoch() == 0;
             let could_finalize =
                 (self.max_epoch - state.current_epoch()) <= EPOCH_FINALIZATION_LIMIT;
 

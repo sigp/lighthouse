@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
-use types::EthSpec;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SystemHealth {
@@ -245,11 +244,11 @@ pub fn observe_nat() -> NatState {
 }
 
 /// Observes the Beacon Node system health.
-pub fn observe_system_health_bn<E: EthSpec>(
+pub fn observe_system_health_bn(
     sysinfo: Arc<RwLock<System>>,
     data_dir: PathBuf,
     app_uptime: u64,
-    network_globals: Arc<NetworkGlobals<E>>,
+    network_globals: Arc<NetworkGlobals>,
 ) -> SystemHealthBN {
     let system_health = observe_system_health(sysinfo.clone(), data_dir, app_uptime);
 

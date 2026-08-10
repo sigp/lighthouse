@@ -29,12 +29,13 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
+use types::Spec;
 use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
-    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
+    Address, BeaconState, ChainSpec, Epoch, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
     ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
     SignedValidatorRegistrationData, Slot, Uint256,
@@ -63,7 +64,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    fn apply<E: EthSpec, B: BidStuff<E>>(self, bid: &mut B) {
+    fn apply<B: BidStuff>(self, bid: &mut B) {
         match self {
             Operation::FeeRecipient(fee_recipient) => bid.set_fee_recipient(fee_recipient),
             Operation::GasLimit(gas_limit) => bid.set_gas_limit(gas_limit as u64),
@@ -77,7 +78,7 @@ impl Operation {
     }
 }
 
-pub fn mock_builder_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
+pub fn mock_builder_extra_data() -> VariableList<u8, typenum::U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
     "mock_builder".as_bytes().to_vec().try_into().unwrap()
 }
 
@@ -88,7 +89,7 @@ struct Custom(#[allow(dead_code)] String);
 impl warp::reject::Reject for Custom {}
 
 // contains functions we need for BuilderBids.. not sure what to call this
-pub trait BidStuff<E: EthSpec> {
+pub trait BidStuff {
     fn set_fee_recipient(&mut self, fee_recipient_address: Address);
     fn set_gas_limit(&mut self, gas_limit: u64);
     fn set_value(&mut self, value: Uint256);
@@ -103,7 +104,7 @@ pub trait BidStuff<E: EthSpec> {
     fn stamp_payload(&mut self);
 }
 
-impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
+impl BidStuff for BuilderBid {
     fn set_fee_recipient(&mut self, fee_recipient: Address) {
         match self.to_mut().header_mut() {
             ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
@@ -256,7 +257,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     // this helps differentiate a builder block from a regular block
     fn stamp_payload(&mut self) {
-        let extra_data = mock_builder_extra_data::<E>();
+        let extra_data = mock_builder_extra_data();
         match self.to_mut().header_mut() {
             ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.extra_data = extra_data;
@@ -294,8 +295,8 @@ pub struct PayloadParametersCloned {
 }
 
 #[derive(Clone)]
-pub struct MockBuilder<E: EthSpec> {
-    el: ExecutionLayer<E>,
+pub struct MockBuilder {
+    el: ExecutionLayer,
     beacon_client: BeaconNodeHttpClient,
     spec: Arc<ChainSpec>,
     val_registration_cache: Arc<RwLock<HashMap<PublicKeyBytes, SignedValidatorRegistrationData>>>,
@@ -321,7 +322,7 @@ pub struct MockBuilder<E: EthSpec> {
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
 }
 
-impl<E: EthSpec> MockBuilder<E> {
+impl MockBuilder {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
@@ -365,7 +366,7 @@ impl<E: EthSpec> MockBuilder<E> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        el: ExecutionLayer<E>,
+        el: ExecutionLayer,
         beacon_client: BeaconNodeHttpClient,
         validate_pubkey: bool,
         apply_operations: bool,
@@ -418,7 +419,7 @@ impl<E: EthSpec> MockBuilder<E> {
         *self.invalidate_signatures.write() = false;
     }
 
-    fn apply_operations<B: BidStuff<E>>(&self, bid: &mut B) {
+    fn apply_operations<B: BidStuff>(&self, bid: &mut B) {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
             op.apply(bid);
@@ -454,8 +455,8 @@ impl<E: EthSpec> MockBuilder<E> {
 
     pub async fn submit_blinded_block(
         &self,
-        block: SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, String> {
+        block: SignedBlindedBeaconBlock,
+    ) -> Result<FullPayloadContents, String> {
         let root = match &block {
             SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
                 return Err("invalid fork".to_string());
@@ -536,7 +537,7 @@ impl<E: EthSpec> MockBuilder<E> {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: PublicKeyBytes,
-    ) -> Result<SignedBuilderBid<E>, String> {
+    ) -> Result<SignedBuilderBid, String> {
         info!("In get_header");
         // Check if the pubkey has registered with the builder if required
         if self.validate_pubkey && !self.val_registration_cache.read().contains_key(&pubkey) {
@@ -590,10 +591,10 @@ impl<E: EthSpec> MockBuilder<E> {
             crate::GetPayloadResponseType::Full(payload_response) => {
                 #[allow(clippy::type_complexity)]
                 let (payload, value, maybe_blobs_bundle, maybe_requests): (
-                    ExecutionPayload<E>,
+                    ExecutionPayload,
                     Uint256,
-                    Option<BlobsBundle<E>>,
-                    Option<ExecutionRequests<E>>,
+                    Option<BlobsBundle>,
+                    Option<ExecutionRequests>,
                 ) = payload_response.into();
 
                 match fork {
@@ -685,7 +686,7 @@ impl<E: EthSpec> MockBuilder<E> {
     }
 
     fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
-        self.spec.fork_name_at_slot::<E>(slot)
+        self.spec.fork_name_at_slot(slot)
     }
 
     fn get_bid_value(&self, value: Uint256) -> Uint256 {
@@ -704,7 +705,7 @@ impl<E: EthSpec> MockBuilder<E> {
         info!("Starting a task to prepare the execution layer");
         let mut head_event_stream = self
             .beacon_client
-            .get_events::<E>(&[EventTopic::Head])
+            .get_events(&[EventTopic::Head])
             .await
             .map_err(|e| format!("Failed to get head event {:?}", e))?;
 
@@ -717,8 +718,8 @@ impl<E: EthSpec> MockBuilder<E> {
                     );
                     let next_slot = head.slot + 1;
                     // Find the next proposer index from the cached data or through a beacon api call
-                    let epoch = next_slot.epoch(E::slots_per_epoch());
-                    let position_in_slot = next_slot.as_u64() % E::slots_per_epoch();
+                    let epoch = next_slot.epoch(Spec::slots_per_epoch());
+                    let position_in_slot = next_slot.as_u64() % (Spec::slots_per_epoch());
                     let proposer_data = {
                         let proposers_opt = {
                             let proposers_cache = self.proposers_cache.read();
@@ -810,7 +811,7 @@ impl<E: EthSpec> MockBuilder<E> {
         };
         let head = self
             .beacon_client
-            .get_beacon_blocks::<E>(block_id)
+            .get_beacon_blocks(block_id)
             .await
             .map_err(|_| "couldn't get head".to_string())?
             .ok_or_else(|| "missing head block".to_string())?
@@ -832,7 +833,7 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let finalized_execution_hash = self
             .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Finalized)
+            .get_beacon_blocks(BlockId::Finalized)
             .await
             .map_err(|e| format!("couldn't get finalized block: {e:?}"))?
             .ok_or_else(|| "missing finalized block".to_string())?
@@ -845,7 +846,7 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let justified_execution_hash = self
             .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Justified)
+            .get_beacon_blocks(BlockId::Justified)
             .await
             .map_err(|e| format!("couldn't get justified block: {e:?}"))?
             .ok_or_else(|| "missing justified block".to_string())?
@@ -885,7 +886,7 @@ impl<E: EthSpec> MockBuilder<E> {
         let timestamp =
             (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
-        let head_state: BeaconState<E> = self
+        let head_state: BeaconState = self
             .beacon_client
             .get_debug_beacon_states(StateId::Head)
             .await
@@ -1004,10 +1005,10 @@ impl<E: EthSpec> MockBuilder<E> {
 /// the requests.
 ///
 /// We should eventually move this to axum when we move everything else.
-pub fn serve<E: EthSpec>(
+pub fn serve(
     listen_addr: Ipv4Addr,
     listen_port: u16,
-    builder: MockBuilder<E>,
+    builder: MockBuilder,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), crate::test_utils::Error> {
     let inner_ctx = builder.clone();
     let ctx_filter = warp::any().map(move || inner_ctx.clone());
@@ -1032,8 +1033,7 @@ pub fn serve<E: EthSpec>(
         .and(warp::path::end())
         .and(ctx_filter.clone())
         .and_then(
-            |registrations: Vec<SignedValidatorRegistrationData>,
-             builder: MockBuilder<E>| async move {
+            |registrations: Vec<SignedValidatorRegistrationData>, builder: MockBuilder| async move {
                 builder
                     .register_validators(registrations)
                     .await
@@ -1053,7 +1053,7 @@ pub fn serve<E: EthSpec>(
                 |endpoint_version,
                  block_bytes: Bytes,
                  fork_name: ForkName,
-                 builder: MockBuilder<E>| async move {
+                 builder: MockBuilder| async move {
                     if endpoint_version != EndpointVersion(1)
                         && endpoint_version != EndpointVersion(2)
                     {
@@ -1061,11 +1061,9 @@ pub fn serve<E: EthSpec>(
                             "Unsupported version: {endpoint_version}"
                         ))));
                     }
-                    let block = SignedBlindedBeaconBlock::<E>::from_ssz_bytes_by_fork(
-                        &block_bytes,
-                        fork_name,
-                    )
-                    .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
+                    let block =
+                        SignedBlindedBeaconBlock::from_ssz_bytes_by_fork(&block_bytes, fork_name)
+                            .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
                     let payload = builder
                         .submit_blinded_block(block)
                         .await
@@ -1097,9 +1095,9 @@ pub fn serve<E: EthSpec>(
         .and(ctx_filter.clone())
         .and_then(
             |endpoint_version,
-             block: SignedBlindedBeaconBlock<E>,
+             block: SignedBlindedBeaconBlock,
              fork_name: ForkName,
-             builder: MockBuilder<E>| async move {
+             builder: MockBuilder| async move {
                 if endpoint_version != EndpointVersion(1) && endpoint_version != EndpointVersion(2)
                 {
                     return Err(warp::reject::custom(Custom(format!(
@@ -1161,7 +1159,7 @@ pub fn serve<E: EthSpec>(
             |slot: Slot,
              parent_hash: ExecutionBlockHash,
              pubkey: PublicKeyBytes,
-             builder: MockBuilder<E>,
+             builder: MockBuilder,
              accept_header: Option<eth2::types::Accept>| async move {
                 let fork_name = builder.fork_name_at_slot(slot);
                 let signed_bid = builder

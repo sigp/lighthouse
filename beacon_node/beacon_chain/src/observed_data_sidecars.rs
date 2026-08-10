@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, PartialDataColumnHeader, Slot,
+    BlobSidecar, ChainSpec, DataColumnSidecar, Hash256, PartialDataColumnHeader, Slot, Spec,
 };
 
 type ValidatorIndex = u64;
@@ -38,7 +38,7 @@ pub trait ObservableDataSidecar {
     fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize;
 }
 
-impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
+impl ObservableDataSidecar for BlobSidecar {
     fn slot(&self) -> Slot {
         self.slot()
     }
@@ -56,11 +56,11 @@ impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
     }
 
     fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize {
-        spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize
+        spec.max_blobs_per_block(slot.epoch(Spec::slots_per_epoch())) as usize
     }
 }
 
-impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
+impl ObservableDataSidecar for DataColumnSidecar {
     fn slot(&self) -> Slot {
         self.slot()
     }
@@ -78,7 +78,7 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
     }
 
     fn max_num_of_items(_spec: &ChainSpec, _slot: Slot) -> usize {
-        E::number_of_columns()
+        Spec::NUMBER_OF_COLUMNS
     }
 }
 
@@ -89,13 +89,10 @@ pub enum ObservationKey {
 }
 
 impl ObservationKey {
-    pub fn new<T: ObservableDataSidecar, E: EthSpec>(
-        sidecar: &T,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
+    pub fn new<T: ObservableDataSidecar>(sidecar: &T, spec: &ChainSpec) -> Result<Self, Error> {
         let slot = sidecar.slot();
 
-        if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+        if spec.fork_name_at_slot(slot).gloas_enabled() {
             Ok(Self::new_block_root_key(sidecar.beacon_block_root(), slot))
         } else if let Some(proposer_index) = sidecar.proposer_index() {
             Ok(Self::new_proposer_key(proposer_index, slot))
@@ -104,14 +101,14 @@ impl ObservationKey {
         }
     }
 
-    pub fn from_partial_column_header<E: EthSpec>(
-        header: &PartialDataColumnHeader<E>,
+    pub fn from_partial_column_header(
+        header: &PartialDataColumnHeader,
         block_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
         let slot = header.slot();
 
-        if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+        if spec.fork_name_at_slot(slot).gloas_enabled() {
             Self::new_block_root_key(block_root, slot)
         } else {
             Self::new_proposer_key(header.signed_block_header.message.proposer_index, slot)
@@ -142,15 +139,15 @@ impl ObservationKey {
 ///
 /// Note: To prevent DoS attacks, this cache must include only items that have received some DoS resistance
 /// like checking the proposer signature.
-pub struct ObservedDataSidecars<T: ObservableDataSidecar, E: EthSpec> {
+pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
     /// Stores all received data indices for a given `ObservationKey`.
     items: HashMap<ObservationKey, HashSet<u64>>,
     spec: Arc<ChainSpec>,
-    _phantom: PhantomData<(T, E)>,
+    _phantom: PhantomData<T>,
 }
 
-impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
+impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     /// Instantiates `Self` with `finalized_slot == 0`.
     pub fn new(spec: Arc<ChainSpec>) -> Self {
         Self {
@@ -168,7 +165,7 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
     pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<Option<ObservationKey>, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
-        let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
+        let observation_key = ObservationKey::new::<T>(data_sidecar, &self.spec)?;
 
         let data_indices = self
             .items
@@ -188,7 +185,7 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
     ) -> Result<Option<ObservationKey>, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
-        let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
+        let observation_key = ObservationKey::new::<T>(data_sidecar, &self.spec)?;
 
         let is_known = self
             .items
@@ -265,11 +262,9 @@ mod tests {
     use bls::{FixedBytesExtended, Signature};
     use std::sync::Arc;
     use types::{
-        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName, MainnetEthSpec,
+        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName,
         SignedBeaconBlockHeader,
     };
-
-    type E = MainnetEthSpec;
 
     /// Creates a Fulu DataColumnSidecar for testing.
     /// Keyed by (proposer_index, slot) in the observation cache.
@@ -277,7 +272,7 @@ mod tests {
         slot: u64,
         proposer_index: u64,
         index: u64,
-    ) -> Arc<DataColumnSidecar<E>> {
+    ) -> Arc<DataColumnSidecar> {
         let signed_block_header = SignedBeaconBlockHeader {
             message: BeaconBlockHeader {
                 slot: slot.into(),
@@ -297,7 +292,7 @@ mod tests {
             signed_block_header,
             kzg_commitments_inclusion_proof: vec![
                 Hash256::ZERO;
-                E::kzg_commitments_inclusion_proof_depth()
+                Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH
             ]
             .try_into()
             .unwrap(),
@@ -310,7 +305,7 @@ mod tests {
         slot: u64,
         beacon_block_root: Hash256,
         index: u64,
-    ) -> Arc<DataColumnSidecar<E>> {
+    ) -> Arc<DataColumnSidecar> {
         Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
             column: vec![].try_into().unwrap(),
@@ -320,12 +315,7 @@ mod tests {
         }))
     }
 
-    fn get_sidecar(
-        slot: u64,
-        key: u64,
-        index: u64,
-        fork_name: ForkName,
-    ) -> Arc<DataColumnSidecar<E>> {
+    fn get_sidecar(slot: u64, key: u64, index: u64, fork_name: ForkName) -> Arc<DataColumnSidecar> {
         if fork_name.gloas_enabled() {
             get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
         } else {
@@ -335,10 +325,10 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let spec = Arc::new(test_spec::<E>());
-        let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+        let spec = Arc::new(test_spec());
+        let fork_name = spec.fork_name_at_slot(Slot::new(0));
 
-        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar>::new(spec.clone());
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 0, "no slots should be present");
@@ -367,7 +357,7 @@ mod tests {
         );
 
         let observation_key =
-            &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
+            &ObservationKey::new::<DataColumnSidecar>(sidecar_a.as_ref(), &spec).unwrap();
 
         let cached_indices = cache
             .items
@@ -382,7 +372,7 @@ mod tests {
         cache.prune(Slot::new(0));
 
         let observation_key =
-            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar>(sidecar_a.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
@@ -396,10 +386,10 @@ mod tests {
          * Check that a prune empties the cache
          */
 
-        cache.prune(E::slots_per_epoch().into());
+        cache.prune(Spec::slots_per_epoch().into());
         assert_eq!(
             cache.finalized_slot,
-            Slot::from(E::slots_per_epoch()),
+            Slot::from(Spec::slots_per_epoch()),
             "finalized slot is updated"
         );
         assert_eq!(cache.items.len(), 0, "no items left");
@@ -409,13 +399,13 @@ mod tests {
          */
 
         // First slot of finalized epoch
-        let sidecar_b = get_sidecar(E::slots_per_epoch(), 419, 0, fork_name);
+        let sidecar_b = get_sidecar(Spec::slots_per_epoch(), 419, 0, fork_name);
 
         assert_eq!(
             cache.observe_sidecar(sidecar_b.as_ref()),
             Err(Error::FinalizedDataSidecar {
-                slot: E::slots_per_epoch().into(),
-                finalized_slot: E::slots_per_epoch().into(),
+                slot: Spec::slots_per_epoch().into(),
+                finalized_slot: Spec::slots_per_epoch().into(),
             }),
             "cant insert finalized sidecar"
         );
@@ -426,7 +416,7 @@ mod tests {
          * Check that we _can_ insert a non-finalized sidecar
          */
 
-        let three_epochs = E::slots_per_epoch() * 3;
+        let three_epochs = Spec::slots_per_epoch() * 3;
 
         let key_b = 421;
         let sidecar_b = get_sidecar(three_epochs, key_b, 0, fork_name);
@@ -440,7 +430,7 @@ mod tests {
         );
 
         let observation_key =
-            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar>(sidecar_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_indices = cache
@@ -453,7 +443,7 @@ mod tests {
          * Check that a prune doesnt wipe later sidecars
          */
 
-        let two_epochs = E::slots_per_epoch() * 2;
+        let two_epochs = Spec::slots_per_epoch() * 2;
         cache.prune(two_epochs.into());
 
         assert_eq!(
@@ -463,7 +453,7 @@ mod tests {
         );
 
         let observation_key =
-            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar>(sidecar_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_indices = cache
@@ -475,10 +465,10 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let spec = Arc::new(test_spec::<E>());
-        let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+        let spec = Arc::new(test_spec());
+        let fork_name = spec.fork_name_at_slot(Slot::new(0));
 
-        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar>::new(spec.clone());
 
         // Slot 0, index 0
         let key_a = 420;
@@ -520,9 +510,7 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_indices = cache
             .items
-            .get(
-                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
-            )
+            .get(&ObservationKey::new::<DataColumnSidecar>(sidecar_a.as_ref(), &spec).unwrap())
             .expect("slot zero should be present");
         assert_eq!(cached_indices.len(), 1, "only one index should be present");
 
@@ -564,9 +552,7 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_indices = cache
             .items
-            .get(
-                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
-            )
+            .get(&ObservationKey::new::<DataColumnSidecar>(sidecar_a.as_ref(), &spec).unwrap())
             .expect("slot zero should be present");
         assert_eq!(
             cached_indices.len(),
@@ -575,9 +561,7 @@ mod tests {
         );
         let cached_indices = cache
             .items
-            .get(
-                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap(),
-            )
+            .get(&ObservationKey::new::<DataColumnSidecar>(sidecar_b.as_ref(), &spec).unwrap())
             .expect("slot one should be present");
         assert_eq!(
             cached_indices.len(),
@@ -621,9 +605,7 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_indices = cache
             .items
-            .get(
-                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
-            )
+            .get(&ObservationKey::new::<DataColumnSidecar>(sidecar_a.as_ref(), &spec).unwrap())
             .expect("slot zero should be present");
         assert_eq!(
             cached_indices.len(),
@@ -652,9 +634,7 @@ mod tests {
         );
         let cached_indices = cache
             .items
-            .get(
-                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_d.as_ref(), &spec).unwrap(),
-            )
+            .get(&ObservationKey::new::<DataColumnSidecar>(sidecar_d.as_ref(), &spec).unwrap())
             .expect("sidecar_d's observation key should be present");
         assert_eq!(
             cached_indices.len(),
@@ -663,7 +643,7 @@ mod tests {
         );
 
         // Try adding an out of bounds index
-        let invalid_index = E::number_of_columns() as u64;
+        let invalid_index = Spec::number_of_columns();
         let sidecar_e = get_sidecar(0, key_a, invalid_index, fork_name);
         assert_eq!(
             cache.observe_sidecar(sidecar_e.as_ref()),
@@ -676,10 +656,10 @@ mod tests {
     /// are tracked correctly.
     #[test]
     fn multiple_indices_same_key() {
-        let spec = Arc::new(test_spec::<E>());
-        let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+        let spec = Arc::new(test_spec());
+        let fork_name = spec.fork_name_at_slot(Slot::new(0));
 
-        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar>::new(spec.clone());
 
         let key = 420;
 
@@ -698,8 +678,7 @@ mod tests {
 
         let sidecar_for_key = get_sidecar(0, key, 0, fork_name);
         let observation_key =
-            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_for_key.as_ref(), &spec)
-                .unwrap();
+            ObservationKey::new::<DataColumnSidecar>(sidecar_for_key.as_ref(), &spec).unwrap();
         let cached_indices = cache.items.get(&observation_key).unwrap();
         assert_eq!(cached_indices.len(), 5, "five indices should be tracked");
 
@@ -717,15 +696,15 @@ mod tests {
     /// Test the known_for_observation_key method
     #[test]
     fn known_for_observation_key() {
-        let spec = Arc::new(test_spec::<E>());
-        let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+        let spec = Arc::new(test_spec());
+        let fork_name = spec.fork_name_at_slot(Slot::new(0));
 
-        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar>::new(spec.clone());
 
         let key = 420;
         let sidecar = get_sidecar(0, key, 0, fork_name);
         let observation_key =
-            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar>(sidecar.as_ref(), &spec).unwrap();
 
         // Before observation, should return None
         assert!(cache.known_for_observation_key(&observation_key).is_none());

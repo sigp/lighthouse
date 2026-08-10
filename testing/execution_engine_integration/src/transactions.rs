@@ -4,7 +4,7 @@ use alloy_rpc_types_eth::{AccessList, TransactionRequest};
 use bls::{Keypair, Signature};
 use deposit_contract::{BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS, encode_eth1_tx_data};
 use fixed_bytes::FixedBytesExtended;
-use types::{DepositData, EthSpec, Hash256};
+use types::{DepositData, Hash256, Spec};
 
 /// Hardcoded deposit contract address based on sender address and nonce
 pub const DEPOSIT_CONTRACT_ADDRESS: &str = "64f43BEc7F86526686C931d65362bB8698872F90";
@@ -22,24 +22,24 @@ pub enum Transaction {
 }
 
 /// Get a list of transactions to publish to the execution layer.
-pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<TransactionRequest> {
+pub fn transactions(account1: Address, account2: Address) -> Vec<TransactionRequest> {
     vec![
-        Transaction::Transfer(account1, account2).transaction::<E>(),
-        Transaction::TransferLegacy(account1, account2).transaction::<E>(),
-        Transaction::TransferAccessList(account1, account2).transaction::<E>(),
-        Transaction::DeployDepositContract(account1).transaction::<E>(),
+        Transaction::Transfer(account1, account2).transaction(),
+        Transaction::TransferLegacy(account1, account2).transaction(),
+        Transaction::TransferAccessList(account1, account2).transaction(),
+        Transaction::DeployDepositContract(account1).transaction(),
         Transaction::DepositDepositContract {
             sender: account1,
             deposit_contract_address: Address::from_slice(
                 &hex::decode(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
             ),
         }
-        .transaction::<E>(),
+        .transaction(),
     ]
 }
 
 impl Transaction {
-    pub fn transaction<E: EthSpec>(&self) -> TransactionRequest {
+    pub fn transaction(&self) -> TransactionRequest {
         match &self {
             Self::TransferLegacy(from, to) => TransactionRequest::default()
                 .from(*from)
@@ -83,7 +83,7 @@ impl Transaction {
                     amount,
                     signature: Signature::empty().into(),
                 };
-                deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
+                deposit.signature = deposit.create_signature(&keypair.sk, &Spec::default_spec());
                 TransactionRequest::default()
                     .from(*sender)
                     .to(*deposit_contract_address)

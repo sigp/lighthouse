@@ -11,15 +11,14 @@ mod state_root;
 mod transition_blocks;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{FLAG_HEADER, parse_optional};
+use clap_utils::{FLAG_HEADER, default_hardcoded_network, parse_optional};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::Eth2NetworkConfig;
+use eth2_network_config::{Eth2NetworkConfig, supported_hardcoded_net_names};
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
-use std::str::FromStr;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{EthSpec, EthSpecId};
+use types::{Spec, SpecId};
 
 fn main() {
     let matches = Command::new("Lighthouse CLI Tool")
@@ -33,8 +32,8 @@ fn main() {
                 .value_name("STRING")
                 .action(ArgAction::Set)
                 .value_parser(["minimal", "mainnet", "gnosis"])
-                .default_value("mainnet")
                 .global(true)
+                .help("Assert that this lcli binary was compiled for the given spec.")
                 .display_order(0)
         )
         .arg(
@@ -53,7 +52,8 @@ fn main() {
                 .value_name("NAME")
                 .action(ArgAction::Set)
                 .global(true)
-                .help("The network to use. Defaults to mainnet.")
+                .value_parser(supported_hardcoded_net_names().to_vec())
+                .help("The network to use. Defaults to the compiled spec's default network, if one exists.")
                 .conflicts_with("testnet-dir")
                 .display_order(0)
         )
@@ -636,7 +636,8 @@ fn main() {
                         .value_name("NAME")
                         .action(ArgAction::Set)
                         .global(true)
-                        .help("The network to use. Defaults to mainnet.")
+                        .value_parser(supported_hardcoded_net_names().to_vec())
+                        .help("The network to use. Defaults to the compiled spec's default network, if one exists.")
                         .conflicts_with("testnet-dir")
                         .display_order(0)
                 )
@@ -659,15 +660,8 @@ fn main() {
         )
         .get_matches();
 
-    let result = matches
-        .get_one::<String>("spec")
-        .ok_or_else(|| "Missing --spec flag".to_string())
-        .and_then(|s| FromStr::from_str(s))
-        .and_then(|eth_spec_id| match eth_spec_id {
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
-            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches),
-        });
+    let result = verify_requested_spec(&matches)
+        .and_then(|_| run(EnvironmentBuilder::from_spec_id(Spec::SPEC_ID), &matches));
 
     match result {
         Ok(()) => process::exit(0),
@@ -678,7 +672,26 @@ fn main() {
     }
 }
 
-fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {
+fn verify_requested_spec(matches: &ArgMatches) -> Result<(), String> {
+    if let Some(requested_spec) = matches
+        .get_one::<String>("spec")
+        .map(|spec| spec.parse::<SpecId>())
+        .transpose()?
+        && requested_spec != Spec::SPEC_ID
+    {
+        return Err(format!(
+            "This lcli binary was compiled for `{}` and cannot run with `--spec {}`. \
+             Use an lcli binary compiled for `{}`.",
+            Spec::PRESET_BASE,
+            requested_spec,
+            requested_spec,
+        ));
+    }
+
+    Ok(())
+}
+
+fn run(env_builder: EnvironmentBuilder, matches: &ArgMatches) -> Result<(), String> {
     let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
         env_builder
             .multi_threaded_tokio_runtime()
@@ -725,8 +738,13 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         if let Some(testnet_dir) = parse_optional::<PathBuf>(matches, "testnet-dir")? {
             (Some(testnet_dir), None)
         } else {
-            let network_name =
-                parse_optional(matches, "network")?.unwrap_or_else(|| "mainnet".to_string());
+            let network_name = parse_optional(matches, "network")?
+                .or_else(|| default_hardcoded_network().map(ToString::to_string))
+                .ok_or_else(|| {
+                    "This lcli binary was compiled for the minimal spec, which has no default \
+                     hardcoded network. Please specify --network or --testnet-dir."
+                        .to_string()
+                })?;
             (None, Some(network_name))
         };
 
@@ -748,44 +766,45 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
     match matches.subcommand() {
         Some(("transition-blocks", matches)) => {
             let network_config = get_network_config()?;
-            transition_blocks::run::<E>(env, network_config, matches)
+            transition_blocks::run(env, network_config, matches)
                 .map_err(|e| format!("Failed to transition blocks: {}", e))
         }
         Some(("skip-slots", matches)) => {
             let network_config = get_network_config()?;
-            skip_slots::run::<E>(env, network_config, matches)
+            skip_slots::run(env, network_config, matches)
                 .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         Some(("pretty-ssz", matches)) => {
             let network_config = get_network_config()?;
-            run_parse_ssz::<E>(network_config, matches)
+            run_parse_ssz(network_config, matches)
                 .map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         Some(("check-deposit-data", matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         Some(("generate-bootnode-enr", matches)) => {
-            generate_bootnode_enr::run::<E>(matches, &env.eth2_config.spec)
+            generate_bootnode_enr::run(matches, &env.eth2_config.spec)
                 .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e))
         }
         Some(("mnemonic-validators", matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
-        Some(("indexed-attestations", matches)) => indexed_attestations::run::<E>(matches)
+        Some(("indexed-attestations", matches)) => indexed_attestations::run(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         Some(("block-root", matches)) => {
             let network_config = get_network_config()?;
-            block_root::run::<E>(env, network_config, matches)
+            block_root::run(env, network_config, matches)
                 .map_err(|e| format!("Failed to run block-root command: {}", e))
         }
         Some(("state-root", matches)) => {
             let network_config = get_network_config()?;
-            state_root::run::<E>(env, network_config, matches)
+            state_root::run(env, network_config, matches)
                 .map_err(|e| format!("Failed to run state-root command: {}", e))
         }
-        Some(("mock-el", matches)) => mock_el::run::<E>(env, matches)
-            .map_err(|e| format!("Failed to run mock-el command: {}", e)),
+        Some(("mock-el", matches)) => {
+            mock_el::run(env, matches).map_err(|e| format!("Failed to run mock-el command: {}", e))
+        }
         Some(("http-sync", matches)) => {
             let network_config = get_network_config()?;
-            http_sync::run::<E>(env, network_config, matches)
+            http_sync::run(env, network_config, matches)
                 .map_err(|e| format!("Failed to run http-sync command: {}", e))
         }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),

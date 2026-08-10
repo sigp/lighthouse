@@ -5,28 +5,26 @@ use regex::Regex;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
 use ssz::{Decode, Encode};
-use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
+    BeaconBlock, ChainSpec, ConfigAndPreset, ExecutionPayloadEnvelope, ForkName, Hash256,
     PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-pub struct MockBeaconNode<E: EthSpec> {
+pub struct MockBeaconNode {
     server: ServerGuard,
     pub beacon_api_client: BeaconNodeHttpClient,
-    _phantom: PhantomData<E>,
-    pub received_blinded_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
-    pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
-    pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
+    pub received_blinded_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock>>>,
+    pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest>>>,
+    pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
 }
 
-impl<E: EthSpec> MockBeaconNode<E> {
+impl MockBeaconNode {
     pub async fn new() -> Self {
         // mock server logging
         let server = Server::new_async().await;
@@ -37,7 +35,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
         Self {
             server,
             beacon_api_client,
-            _phantom: PhantomData,
             received_blinded_blocks: Arc::new(Mutex::new(Vec::new())),
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
             execution_payload_envelope: Arc::new(Mutex::new(Vec::new())),
@@ -81,7 +78,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
     pub fn mock_get_config_spec(&mut self, spec: &ChainSpec) {
         let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
-        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec);
+        let config_and_preset = ConfigAndPreset::from_chain_spec(spec);
         let data = GenericResponse::from(config_and_preset);
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
@@ -105,7 +102,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `GET /eth/v4/validator/blocks/{slot}`
     pub fn mock_get_validator_blocks_v4(
         &mut self,
-        block: &BeaconBlock<E>,
+        block: &BeaconBlock,
         fork_name: ForkName,
         slot: Slot,
     ) -> Mock {
@@ -139,7 +136,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
     pub fn mock_get_validator_blocks_v4_ssz(
         &mut self,
-        block: &BeaconBlock<E>,
+        block: &BeaconBlock,
         fork_name: ForkName,
         slot: Slot,
     ) -> Mock {
@@ -227,7 +224,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` (SSZ)
     pub fn mock_get_validator_execution_payload_envelope_ssz(
         &mut self,
-        envelope: &ExecutionPayloadEnvelope<E>,
+        envelope: &ExecutionPayloadEnvelope,
         slot: Slot,
         beacon_block_root: Hash256,
     ) -> Mock {
@@ -292,7 +289,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 );
 
                 let body = request.body().expect("Failed to get request body");
-                let block: SignedBlindedBeaconBlock<E> =
+                let block: SignedBlindedBeaconBlock =
                     SignedBlindedBeaconBlock::any_from_ssz_bytes(body)
                         .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
 
@@ -316,7 +313,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let block = PublishBlockRequest::<E>::from_ssz_bytes(body, fork_name)
+                let block = PublishBlockRequest::from_ssz_bytes(body, fork_name)
                     .expect("Failed to deserialize PublishBlockRequest from SSZ");
                 received_full_blocks.lock().unwrap().push(block);
                 vec![]
@@ -404,7 +401,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let envelope = SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(body)
+                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(body)
                     .expect("Failed to deserialize SignedExecutionPayloadEnvelope from SSZ");
                 execution_payload_envelope.lock().unwrap().push(envelope);
                 vec![]

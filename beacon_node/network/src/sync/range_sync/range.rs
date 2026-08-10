@@ -57,7 +57,7 @@ use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
-use types::{Epoch, EthSpec, Hash256};
+use types::{Epoch, Hash256, Spec};
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
@@ -93,12 +93,12 @@ where
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn __failed_chains(&mut self) -> Vec<Hash256> {
         self.failed_chains.keys().copied().collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn metrics(&self) -> &super::chain_collection::ChainCollectionMetrics {
         self.chains.metrics()
     }
@@ -127,7 +127,7 @@ where
         // convenience variable
         let remote_finalized_slot = remote_info
             .finalized_epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
         // is OK since we since only one finalized chain at a time.
@@ -150,8 +150,7 @@ where
                 // to using exact epoch boundaries for batches (rather than one slot past the epoch
                 // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
                 // finalized slot in order to finalize the chain locally.
-                let target_head_slot =
-                    remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
+                let target_head_slot = remote_finalized_slot + (2 * Spec::slots_per_epoch()) + 1;
 
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
@@ -187,7 +186,7 @@ where
                 // earlier finalized chain from reaching here).
 
                 let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
-                    .epoch(T::EthSpec::slots_per_epoch());
+                    .epoch(Spec::slots_per_epoch());
                 self.chains.add_peer_or_create_chain(
                     start_epoch,
                     remote_info.head_root,
@@ -213,7 +212,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {

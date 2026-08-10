@@ -2,7 +2,6 @@ use beacon_processor::{BeaconProcessorSend, BlockingOrAsync, Work, WorkEvent};
 use serde::Serialize;
 use std::future::Future;
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
-use types::EthSpec;
 use warp::reply::{Reply, Response};
 use warp_utils::reject::convert_rejection;
 
@@ -17,7 +16,7 @@ pub enum Priority {
 
 impl Priority {
     /// Wrap `self` in a `WorkEvent` with an appropriate priority.
-    fn work_event<E: EthSpec>(&self, process_fn: BlockingOrAsync) -> WorkEvent<E> {
+    fn work_event(&self, process_fn: BlockingOrAsync) -> WorkEvent {
         let work = match self {
             Priority::P0 => Work::ApiRequestP0(process_fn),
             Priority::P1 => Work::ApiRequestP1(process_fn),
@@ -31,14 +30,14 @@ impl Priority {
 
 /// Spawns tasks on the `BeaconProcessor` or directly on the tokio executor.
 #[derive(Clone)]
-pub struct TaskSpawner<E: EthSpec> {
+pub struct TaskSpawner {
     /// Used to send tasks to the `BeaconProcessor`. The tokio executor will be
     /// used if this is `None`.
-    beacon_processor_send: Option<BeaconProcessorSend<E>>,
+    beacon_processor_send: Option<BeaconProcessorSend>,
 }
 
-impl<E: EthSpec> TaskSpawner<E> {
-    pub fn new(beacon_processor_send: Option<BeaconProcessorSend<E>>) -> Self {
+impl TaskSpawner {
+    pub fn new(beacon_processor_send: Option<BeaconProcessorSend>) -> Self {
         Self {
             beacon_processor_send,
         }
@@ -157,7 +156,7 @@ impl<E: EthSpec> TaskSpawner<E> {
         }
     }
 
-    pub fn try_send(&self, work_event: WorkEvent<E>) -> Result<(), warp::Rejection> {
+    pub fn try_send(&self, work_event: WorkEvent) -> Result<(), warp::Rejection> {
         if let Some(beacon_processor_send) = &self.beacon_processor_send {
             let error_message = match beacon_processor_send.try_send(work_event) {
                 Ok(()) => None,
@@ -188,8 +187,8 @@ impl<E: EthSpec> TaskSpawner<E> {
 ///
 /// If the task is not executed, return an `Err` with an error message
 /// for the API consumer.
-async fn send_to_beacon_processor<E: EthSpec, T>(
-    beacon_processor_send: &BeaconProcessorSend<E>,
+async fn send_to_beacon_processor<T>(
+    beacon_processor_send: &BeaconProcessorSend,
     priority: Priority,
     process_fn: BlockingOrAsync,
     rx: oneshot::Receiver<T>,

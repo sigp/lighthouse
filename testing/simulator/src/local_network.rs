@@ -16,7 +16,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use types::{ChainSpec, Epoch, EthSpec};
+use types::{ChainSpec, Epoch, Spec};
 
 const BOOTNODE_PORT: u16 = 42424;
 const QUIC_PORT: u16 = 43424;
@@ -60,10 +60,7 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config
 }
 
-fn default_mock_execution_config<E: EthSpec>(
-    spec: &ChainSpec,
-    genesis_time: u64,
-) -> MockExecutionConfig {
+fn default_mock_execution_config(spec: &ChainSpec, genesis_time: u64) -> MockExecutionConfig {
     let mut mock_execution_config = MockExecutionConfig {
         server_config: MockServerConfig {
             listen_port: EXECUTION_PORT,
@@ -76,7 +73,7 @@ fn default_mock_execution_config<E: EthSpec>(
         mock_execution_config.shanghai_time = Some(
             genesis_time
                 + (spec.get_slot_duration().as_secs())
-                    * E::slots_per_epoch()
+                    * Spec::slots_per_epoch()
                     * capella_fork_epoch.as_u64(),
         )
     }
@@ -84,7 +81,7 @@ fn default_mock_execution_config<E: EthSpec>(
         mock_execution_config.cancun_time = Some(
             genesis_time
                 + (spec.get_slot_duration().as_secs())
-                    * E::slots_per_epoch()
+                    * Spec::slots_per_epoch()
                     * deneb_fork_epoch.as_u64(),
         )
     }
@@ -92,7 +89,7 @@ fn default_mock_execution_config<E: EthSpec>(
         mock_execution_config.prague_time = Some(
             genesis_time
                 + (spec.get_slot_duration().as_secs())
-                    * E::slots_per_epoch()
+                    * Spec::slots_per_epoch()
                     * electra_fork_epoch.as_u64(),
         )
     }
@@ -100,7 +97,7 @@ fn default_mock_execution_config<E: EthSpec>(
         mock_execution_config.osaka_time = Some(
             genesis_time
                 + (spec.get_slot_duration().as_secs())
-                    * E::slots_per_epoch()
+                    * Spec::slots_per_epoch()
                     * fulu_fork_epoch.as_u64(),
         )
     }
@@ -109,7 +106,7 @@ fn default_mock_execution_config<E: EthSpec>(
         mock_execution_config.amsterdam_time = Some(
             genesis_time
                 + (spec.get_slot_duration().as_secs())
-                    * E::slots_per_epoch()
+                    * Spec::slots_per_epoch()
                     * gloas_fork_epoch.as_u64(),
         )
     }
@@ -118,22 +115,22 @@ fn default_mock_execution_config<E: EthSpec>(
 }
 
 /// Helper struct to reduce `Arc` usage.
-pub struct Inner<E: EthSpec> {
-    pub context: RuntimeContext<E>,
-    pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
-    pub execution_nodes: RwLock<Vec<LocalExecutionNode<E>>>,
+pub struct Inner {
+    pub context: RuntimeContext,
+    pub beacon_nodes: RwLock<Vec<LocalBeaconNode>>,
+    pub proposer_nodes: RwLock<Vec<LocalBeaconNode>>,
+    pub validator_clients: RwLock<Vec<LocalValidatorClient>>,
+    pub execution_nodes: RwLock<Vec<LocalExecutionNode>>,
 }
 
 /// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.
 ///
 /// Provides functions to allow adding new beacon nodes and validators.
-pub struct LocalNetwork<E: EthSpec> {
-    inner: Arc<Inner<E>>,
+pub struct LocalNetwork {
+    inner: Arc<Inner>,
 }
 
-impl<E: EthSpec> Clone for LocalNetwork<E> {
+impl Clone for LocalNetwork {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -141,21 +138,21 @@ impl<E: EthSpec> Clone for LocalNetwork<E> {
     }
 }
 
-impl<E: EthSpec> Deref for LocalNetwork<E> {
-    type Target = Inner<E>;
+impl Deref for LocalNetwork {
+    type Target = Inner;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<E: EthSpec> LocalNetwork<E> {
+impl LocalNetwork {
     pub async fn create_local_network(
         client_config: Option<ClientConfig>,
         mock_execution_config: Option<MockExecutionConfig>,
         network_params: LocalNetworkParams,
-        context: RuntimeContext<E>,
-    ) -> Result<(LocalNetwork<E>, ClientConfig, MockExecutionConfig), String> {
+        context: RuntimeContext,
+    ) -> Result<(LocalNetwork, ClientConfig, MockExecutionConfig), String> {
         let genesis_time: u64 = (SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "should get system time")?
@@ -171,7 +168,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         let execution_config = if let Some(config) = mock_execution_config {
             config
         } else {
-            default_mock_execution_config::<E>(&context.eth2_config().spec, genesis_time)
+            default_mock_execution_config(&context.eth2_config().spec, genesis_time)
         };
 
         let network = Self {
@@ -215,7 +212,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
-    ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
+    ) -> Result<(LocalBeaconNode, LocalExecutionNode), String> {
         beacon_config.network.set_ipv4_listening_address(
             std::net::Ipv4Addr::UNSPECIFIED,
             BOOTNODE_PORT,
@@ -246,7 +243,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
         mut mock_execution_config: MockExecutionConfig,
         is_proposer: bool,
-    ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
+    ) -> Result<(LocalBeaconNode, LocalExecutionNode), String> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
         // Set config.

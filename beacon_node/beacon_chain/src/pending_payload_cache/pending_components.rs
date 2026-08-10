@@ -11,27 +11,27 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
+use types::{ColumnIndex, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
 ///
 /// The columns are all gossip and kzg verified.
 /// The payload is considered "available" when all required columns are received.
-pub struct PendingComponents<E: EthSpec> {
+pub struct PendingComponents {
     pub block_root: Hash256,
-    pub bid: Arc<SignedExecutionPayloadBid<E>>,
+    pub bid: Arc<SignedExecutionPayloadBid>,
     /// a cached post executed payload envelope
-    pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
+    pub envelope: Option<AvailabilityPendingExecutedEnvelope>,
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
-    pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
+    pub verified_data_columns: HashMap<ColumnIndex, PendingColumn>,
     pub reconstruction_started: bool,
     pub(crate) span: Span,
 }
 
-impl<E: EthSpec> PendingComponents<E> {
+impl PendingComponents {
     pub fn num_columns_required<T>(&self, custody_context: &CustodyContext<T>) -> usize
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         if custody_context.data_columns_required_for_bid(&self.bid) {
             custody_context.num_of_data_columns_to_sample(self.bid.epoch())
@@ -41,7 +41,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns columns that have all cells present.
-    pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
+    pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar>> {
         let slot = self.bid.message.slot;
         let block_root = self.block_root;
         self.verified_data_columns
@@ -66,7 +66,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Merges a given set of data columns into the cache.
     pub(crate) fn merge_data_columns(
         &mut self,
-        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
+        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn],
     ) {
         let num_blobs_expected = self.bid.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
@@ -94,7 +94,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Inserts an executed payload envelope into the cache.
     pub fn insert_executed_payload_envelope(
         &mut self,
-        envelope: AvailabilityPendingExecutedEnvelope<E>,
+        envelope: AvailabilityPendingExecutedEnvelope,
     ) {
         self.envelope = Some(envelope);
     }
@@ -113,9 +113,9 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn make_available<T>(
         &self,
         custody_context: &CustodyContext<T>,
-    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError>
+    ) -> Result<Option<AvailableExecutedEnvelope>, AvailabilityCheckError>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         // Check if the payload has been received and executed
         let Some(envelope) = &self.envelope else {
@@ -173,7 +173,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Constructs a fresh `PendingComponents` with no envelope and no columns yet.
-    pub fn new(block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<E>>) -> Self {
+    pub fn new(block_root: Hash256, bid: Arc<SignedExecutionPayloadBid>) -> Self {
         let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
@@ -188,7 +188,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     pub fn status_str<T>(&self, custody_context: &CustodyContext<T>) -> String
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         let num_columns_required = self.num_columns_required(custody_context);
         format!(
@@ -204,7 +204,7 @@ impl<E: EthSpec> PendingComponents<E> {
 // readability, so it's OK to not box the variant value, and it shouldn't impact memory much with
 // the current usage, as it's deconstructed immediately.
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
-    Yes(Vec<Arc<DataColumnSidecar<E>>>),
+pub(crate) enum ReconstructColumnsDecision {
+    Yes(Vec<Arc<DataColumnSidecar>>),
     No(&'static str),
 }

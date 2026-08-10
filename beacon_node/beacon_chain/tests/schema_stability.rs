@@ -17,11 +17,10 @@ use store::{
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
+use types::{ChainSpec, Hash256, Slot};
 
-type E = MainnetEthSpec;
-type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+type Store = Arc<HotColdDB<BeaconNodeBackend, BeaconNodeBackend>>;
+type TestHarness = BeaconChainHarness<DiskHarnessType>;
 
 const VALIDATOR_COUNT: usize = 32;
 
@@ -29,7 +28,7 @@ const VALIDATOR_COUNT: usize = 32;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-fn get_store(db_path: &TempDir, config: StoreConfig, spec: Arc<ChainSpec>) -> Store<E> {
+fn get_store(db_path: &TempDir, config: StoreConfig, spec: Arc<ChainSpec>) -> Store {
     create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
@@ -63,7 +62,7 @@ fn get_store(db_path: &TempDir, config: StoreConfig, spec: Arc<ChainSpec>) -> St
 /// correct, you can update the hardcoded values here.
 #[tokio::test]
 async fn schema_stability() {
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(test_spec());
 
     let datadir = tempdir().unwrap();
     let store_config = StoreConfig::default();
@@ -74,7 +73,7 @@ async fn schema_stability() {
         ..ChainConfig::default()
     };
 
-    let harness = TestHarness::builder(MainnetEthSpec)
+    let harness = TestHarness::builder()
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store.clone())
@@ -112,7 +111,7 @@ fn check_db_columns() {
     assert_eq!(expected_columns, current_columns);
 }
 
-fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
+fn insert_data_column_custody_info(store: &Store, spec: &ChainSpec) {
     if spec.is_peer_das_scheduled() {
         store
             .put_data_column_custody_info(Some(Slot::new(0)))
@@ -123,7 +122,7 @@ fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
 /// Check the SSZ sizes of known on-disk metadata.
 ///
 /// New types can be added here as the schema evolves.
-fn check_metadata_sizes(store: &Store<E>) {
+fn check_metadata_sizes(store: &Store) {
     assert_eq!(Split::default().ssz_bytes_len(), 40);
     assert_eq!(store.get_anchor_info().ssz_bytes_len(), 64);
     assert_eq!(
@@ -138,9 +137,9 @@ fn check_metadata_sizes(store: &Store<E>) {
     assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
 }
 
-fn check_op_pool(store: &Store<E>) {
+fn check_op_pool(store: &Store) {
     let op_pool = store
-        .get_item::<PersistedOperationPool<E>>(&Hash256::ZERO)
+        .get_item::<PersistedOperationPool>(&Hash256::ZERO)
         .unwrap()
         .unwrap();
     assert!(matches!(op_pool, PersistedOperationPool::V20(_)));
@@ -148,7 +147,7 @@ fn check_op_pool(store: &Store<E>) {
     assert_eq!(op_pool.as_store_bytes().len(), 28);
 }
 
-fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
+fn check_custody_context(store: &Store, spec: &ChainSpec) {
     let custody_context_opt = store.get_item::<PersistedCustody>(&Hash256::ZERO).unwrap();
     if spec.is_peer_das_scheduled() {
         assert_eq!(custody_context_opt.unwrap().as_store_bytes().len(), 13);
@@ -157,7 +156,7 @@ fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
     }
 }
 
-fn check_custody_info(store: &Store<E>, spec: &ChainSpec) {
+fn check_custody_info(store: &Store, spec: &ChainSpec) {
     let data_column_custody_info = store.get_data_column_custody_info().unwrap();
     if spec.is_peer_das_scheduled() {
         assert_eq!(data_column_custody_info.unwrap().as_ssz_bytes().len(), 13);
@@ -166,7 +165,7 @@ fn check_custody_info(store: &Store<E>, spec: &ChainSpec) {
     }
 }
 
-fn check_persisted_chain(store: &Store<E>) {
+fn check_persisted_chain(store: &Store) {
     let chain = store
         .get_item::<PersistedBeaconChain>(&Hash256::ZERO)
         .unwrap()

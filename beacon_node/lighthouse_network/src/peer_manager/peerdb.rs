@@ -15,8 +15,9 @@ use std::{
 };
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
+use types::Spec;
 use types::data::compute_subnets_for_node;
-use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec, Hash256, Slot};
+use types::{ChainSpec, DataColumnSubnetId, Epoch, Hash256, Slot};
 
 pub mod client;
 pub mod peer_info;
@@ -37,9 +38,9 @@ const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 const DIAL_TIMEOUT: u64 = 15;
 
 /// Storage of known peers, their reputation and information
-pub struct PeerDB<E: EthSpec> {
+pub struct PeerDB {
     /// The collection of known connected peers, their status and reputation
-    peers: HashMap<PeerId, PeerInfo<E>>,
+    peers: HashMap<PeerId, PeerInfo>,
     /// The number of disconnected nodes in the database.
     disconnected_peers: usize,
     /// Counts banned peers in total and per ip
@@ -48,7 +49,7 @@ pub struct PeerDB<E: EthSpec> {
     disable_peer_scoring: bool,
 }
 
-impl<E: EthSpec> PeerDB<E> {
+impl PeerDB {
     pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
@@ -74,7 +75,7 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator over all peers in the db.
-    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
+    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo)> {
         self.peers.iter()
     }
 
@@ -111,14 +112,14 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns a peer's info, if known.
-    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<E>> {
+    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo> {
         self.peers.get(peer_id)
     }
 
     /// Returns a mutable reference to a peer's info if known.
     // VISIBILITY: The peer manager is able to modify some elements of the peer info, such as sync
     // status.
-    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<E>> {
+    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo> {
         self.peers.get_mut(peer_id)
     }
 
@@ -183,7 +184,7 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Checks if the peer's known addresses are currently banned.
-    fn ip_is_banned(&self, peer: &PeerInfo<E>) -> Option<IpAddr> {
+    fn ip_is_banned(&self, peer: &PeerInfo) -> Option<IpAddr> {
         peer.seen_ip_addresses()
             .find(|ip| self.banned_peers_count.ip_is_banned(ip))
     }
@@ -206,7 +207,7 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Gives the ids and info of all known connected peers.
-    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
+    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo)> {
         self.peers.iter().filter(|(_, info)| info.is_connected())
     }
 
@@ -258,7 +259,7 @@ impl<E: EthSpec> PeerDB<E> {
             .filter(move |(_, info)| {
                 info.is_connected()
                     && info.is_synced_or_advanced_with_available_slot(
-                        epoch.start_slot(E::slots_per_epoch()),
+                        epoch.start_slot(Spec::slots_per_epoch()),
                     )
             })
             .map(|(peer_id, _)| peer_id)
@@ -324,7 +325,7 @@ impl<E: EthSpec> PeerDB<E> {
         let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
             info.is_connected()
                 && info.is_synced_or_advanced_with_available_slot(
-                    epoch.start_slot(E::slots_per_epoch()),
+                    epoch.start_slot(Spec::slots_per_epoch()),
                 )
         });
 
@@ -390,7 +391,7 @@ impl<E: EthSpec> PeerDB<E> {
 
     /// Returns a vector of all connected peers sorted by score beginning with the worst scores.
     /// Ties get broken randomly.
-    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<E>)> {
+    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo)> {
         self.peers
             .iter()
             .filter(|(_, info)| info.is_connected())
@@ -400,9 +401,9 @@ impl<E: EthSpec> PeerDB<E> {
 
     /// Returns a vector containing peers (their ids and info), sorted by
     /// score from highest to lowest, and filtered using `is_status`
-    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<E>)>
+    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo)>
     where
-        F: Fn(&PeerInfo<E>) -> bool,
+        F: Fn(&PeerInfo) -> bool,
     {
         self.peers
             .iter()
@@ -414,7 +415,7 @@ impl<E: EthSpec> PeerDB<E> {
     /// Returns the peer with highest reputation that satisfies `is_status`
     pub fn best_by_status<F>(&self, is_status: F) -> Option<&PeerId>
     where
-        F: Fn(&PeerInfo<E>) -> bool,
+        F: Fn(&PeerInfo) -> bool,
     {
         self.peers
             .iter()
@@ -802,7 +803,7 @@ impl<E: EthSpec> PeerDB<E> {
                 .collect()
         } else {
             let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
+            compute_subnets_for_node(node_id.raw(), spec.custody_requirement, spec)
                 .expect("should compute custody subnets")
         };
 
@@ -1256,7 +1257,7 @@ impl<E: EthSpec> PeerDB<E> {
     fn handle_score_transition(
         previous_state: ScoreState,
         peer_id: &PeerId,
-        info: &PeerInfo<E>,
+        info: &PeerInfo,
     ) -> ScoreTransitionResult {
         match (info.score_state(), previous_state) {
             (ScoreState::Banned, ScoreState::Healthy | ScoreState::ForcedDisconnect) => {
@@ -1486,23 +1487,20 @@ mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
     use std::net::{Ipv4Addr, Ipv6Addr};
-    use types::MinimalEthSpec;
 
-    type M = MinimalEthSpec;
-
-    fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
+    fn add_score(db: &mut PeerDB, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.add_to_score(score);
         }
     }
 
-    fn reset_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId) {
+    fn reset_score(db: &mut PeerDB, peer_id: &PeerId) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.reset_score();
         }
     }
 
-    fn get_db() -> PeerDB<M> {
+    fn get_db() -> PeerDB {
         PeerDB::new(vec![], false)
     }
 
@@ -2024,7 +2022,7 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
     }
 
-    fn connect_peer_with_ips(pdb: &mut PeerDB<M>, ips: Vec<IpAddr>) -> PeerId {
+    fn connect_peer_with_ips(pdb: &mut PeerDB, ips: Vec<IpAddr>) -> PeerId {
         let p = PeerId::random();
 
         for ip in ips {
@@ -2201,7 +2199,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false);
+        let mut pdb: PeerDB = PeerDB::new(vec![trusted_peer], false);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2237,7 +2235,7 @@ mod tests {
             }
         }
 
-        let add_custody_peer = |pdb: &mut PeerDB<M>, sync_status: SyncStatus| {
+        let add_custody_peer = |pdb: &mut PeerDB, sync_status: SyncStatus| {
             let peer_id = PeerId::random();
             pdb.connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
             pdb.__set_custody_subnets(&peer_id, HashSet::from([subnet]))
@@ -2307,7 +2305,7 @@ mod tests {
     #[test]
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true);
+        let mut pdb: PeerDB = PeerDB::new(vec![], true);
 
         pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

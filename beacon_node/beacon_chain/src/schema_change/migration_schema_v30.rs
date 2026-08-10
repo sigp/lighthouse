@@ -14,7 +14,7 @@ use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 ///
 /// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn upgrade_to_v30<T: BeaconChainTypes>(
-    db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
+    db: &HotColdDB<T::HotStore, T::ColdStore>,
 ) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     let column = DBColumn::LightClientUpdate;
     let mut ops = vec![];
@@ -48,7 +48,7 @@ pub fn upgrade_to_v30<T: BeaconChainTypes>(
 ///
 /// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn downgrade_from_v30<T: BeaconChainTypes>(
-    db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
+    db: &HotColdDB<T::HotStore, T::ColdStore>,
 ) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     let column = DBColumn::LightClientUpdate;
     let mut ops = vec![];

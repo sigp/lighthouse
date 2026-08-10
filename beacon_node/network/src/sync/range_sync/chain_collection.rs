@@ -20,8 +20,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use tracing::{debug, error};
-use types::EthSpec;
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, Hash256, Slot, Spec};
 
 /// The number of head syncing chains to sync at a time.
 const PARALLEL_HEAD_CHAINS: usize = 2;
@@ -77,7 +76,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn metrics(&self) -> &ChainCollectionMetrics {
         &self.metrics
     }
@@ -222,7 +221,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         // Remove any outdated finalized/head chains
         self.purge_outdated_chains(local, awaiting_head_peers);
 
-        let local_head_epoch = local.head_slot.epoch(T::EthSpec::slots_per_epoch());
+        let local_head_epoch = local.head_slot.epoch(Spec::slots_per_epoch());
         // Choose the best finalized chain if one needs to be selected.
         self.update_finalized_chains(network, local.finalized_epoch, local_head_epoch);
 
@@ -246,7 +245,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .ok_or("Finalized syncing chain not found")?;
                 Ok(Some((
                     RangeSyncType::Finalized,
-                    chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    chain.start_epoch.start_slot(Spec::slots_per_epoch()),
                     chain.target_head_slot,
                 )))
             }
@@ -257,7 +256,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         .head_chains
                         .get(id)
                         .ok_or("Head syncing chain not found")?;
-                    let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    let start = chain.start_epoch.start_slot(Spec::slots_per_epoch());
                     let target = chain.target_head_slot;
 
                     range = range
@@ -425,7 +424,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ) {
         let local_finalized_slot = local_info
             .finalized_epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         let beacon_chain = &self.beacon_chain;
 

@@ -10,6 +10,7 @@ disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
 fake_crypto = ["bls/fake_crypto", "kzg/fake_crypto"]
 portable = ["beacon_chain/portable"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 alloy-primitives = { workspace = true }

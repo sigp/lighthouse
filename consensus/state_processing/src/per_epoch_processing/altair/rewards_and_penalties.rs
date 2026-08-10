@@ -3,13 +3,13 @@ use crate::per_epoch_processing::{
     single_pass::{SinglePassConfig, process_epoch_single_pass},
 };
 use types::consts::altair::PARTICIPATION_FLAG_WEIGHTS;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec};
 
 /// Apply attester and proposer rewards.
 ///
 /// This function should only be used for testing.
-pub fn process_rewards_and_penalties_slow<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn process_rewards_and_penalties_slow(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     process_epoch_single_pass(

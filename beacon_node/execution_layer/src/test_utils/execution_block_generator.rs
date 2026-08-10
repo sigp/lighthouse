@@ -24,10 +24,10 @@ use tracing::warn;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
+    Blob, ChainSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
+    ForkName, Hash256, KzgProofs, Spec, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -38,16 +38,16 @@ const GAS_USED: u64 = DEFAULT_GAS_LIMIT - 1;
 
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)] // This struct is only for testing.
-pub enum Block<E: EthSpec> {
+pub enum Block {
     PoW(PoWBlock),
-    PoS(ExecutionPayload<E>),
+    PoS(ExecutionPayload),
 }
 
-pub fn mock_el_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
+pub fn mock_el_extra_data() -> VariableList<u8, typenum::U<{ Spec::MAX_EXTRA_DATA_BYTES }>> {
     "block gen was here".as_bytes().to_vec().try_into().unwrap()
 }
 
-impl<E: EthSpec> Block<E> {
+impl Block {
     pub fn block_number(&self) -> u64 {
         match self {
             Block::PoW(block) => block.block_number,
@@ -109,7 +109,7 @@ impl<E: EthSpec> Block<E> {
         }
     }
 
-    pub fn as_execution_payload(&self) -> Option<ExecutionPayload<E>> {
+    pub fn as_execution_payload(&self) -> Option<ExecutionPayload> {
         match self {
             Block::PoS(payload) => Some(payload.clone()),
             Block::PoW(block) => Some(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
@@ -133,13 +133,13 @@ pub struct PoWBlock {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExecutionBlockGenerator<E: EthSpec> {
+pub struct ExecutionBlockGenerator {
     /*
      * Common database
      */
-    head_block: Option<Block<E>>,
+    head_block: Option<Block>,
     finalized_block_hash: Option<ExecutionBlockHash>,
-    blocks: HashMap<ExecutionBlockHash, Block<E>>,
+    blocks: HashMap<ExecutionBlockHash, Block>,
     block_hashes: HashMap<u64, Vec<ExecutionBlockHash>>,
     /*
      * PoW block parameters
@@ -150,9 +150,9 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /*
      * PoS block parameters
      */
-    pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload<E>>,
+    pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload>,
     pub next_payload_id: u64,
-    pub payload_ids: HashMap<PayloadId, ExecutionPayload<E>>,
+    pub payload_ids: HashMap<PayloadId, ExecutionPayload>,
     min_blobs_count: usize,
     /*
      * Post-merge fork triggers
@@ -166,17 +166,17 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /*
      * deneb stuff
      */
-    pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
+    pub blobs_bundles: HashMap<PayloadId, BlobsBundle>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
     /*
      * Execution requests (electra+)
      */
     /// Per-payload execution requests returned by `getPayload`.
-    execution_requests: HashMap<PayloadId, ExecutionRequests<E>>,
+    execution_requests: HashMap<PayloadId, ExecutionRequests>,
     /// If set, the next call to `build_new_execution_payload` will associate these
     /// execution requests with the generated payload ID.
-    next_execution_requests: Option<ExecutionRequests<E>>,
+    next_execution_requests: Option<ExecutionRequests>,
     generate_blobs: bool,
 }
 
@@ -186,7 +186,7 @@ fn make_rng() -> Arc<Mutex<StdRng>> {
     Arc::new(Mutex::new(StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64)))
 }
 
-impl<E: EthSpec> ExecutionBlockGenerator<E> {
+impl ExecutionBlockGenerator {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         shanghai_time: Option<u64>,
@@ -228,7 +228,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         generator
     }
 
-    pub fn latest_block(&self) -> Option<Block<E>> {
+    pub fn latest_block(&self) -> Option<Block> {
         self.head_block.clone()
     }
 
@@ -237,7 +237,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn genesis_block(&self) -> Option<Block<E>> {
+    pub fn genesis_block(&self) -> Option<Block> {
         if let Some(genesis_block_hash) = self.block_hashes.get(&0) {
             self.blocks.get(genesis_block_hash.first()?).cloned()
         } else {
@@ -250,7 +250,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn block_by_number(&self, number: u64) -> Option<Block<E>> {
+    pub fn block_by_number(&self, number: u64) -> Option<Block> {
         // Get the latest canonical head block
         let mut latest_block = self.latest_block()?;
         loop {
@@ -291,7 +291,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn block_by_hash(&self, hash: ExecutionBlockHash) -> Option<Block<E>> {
+    pub fn block_by_hash(&self, hash: ExecutionBlockHash) -> Option<Block> {
         self.blocks.get(&hash).cloned()
     }
 
@@ -300,15 +300,12 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn execution_payload_by_hash(
-        &self,
-        hash: ExecutionBlockHash,
-    ) -> Option<ExecutionPayload<E>> {
+    pub fn execution_payload_by_hash(&self, hash: ExecutionBlockHash) -> Option<ExecutionPayload> {
         self.block_by_hash(hash)
             .and_then(|block| block.as_execution_payload())
     }
 
-    pub fn execution_payload_by_number(&self, number: u64) -> Option<ExecutionPayload<E>> {
+    pub fn execution_payload_by_number(&self, number: u64) -> Option<ExecutionPayload> {
         self.block_by_number(number)
             .and_then(|block| block.as_execution_payload())
     }
@@ -422,7 +419,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     // This does not reject duplicate blocks inserted. This lets us re-use the same execution
     // block generator for multiple beacon chains which is useful in testing.
-    pub fn insert_block(&mut self, block: Block<E>) -> Result<ExecutionBlockHash, String> {
+    pub fn insert_block(&mut self, block: Block) -> Result<ExecutionBlockHash, String> {
         if block.parent_hash() != ExecutionBlockHash::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
@@ -432,7 +429,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         Ok(self.insert_block_without_checks(block))
     }
 
-    pub fn insert_block_without_checks(&mut self, block: Block<E>) -> ExecutionBlockHash {
+    pub fn insert_block_without_checks(&mut self, block: Block) -> ExecutionBlockHash {
         let block_hash = block.block_hash();
         self.block_hashes
             .entry(block.block_number())
@@ -443,7 +440,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         block_hash
     }
 
-    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<E>)) {
+    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block)) {
         if let Some(last_block_hash) = self
             .block_hashes
             .iter_mut()
@@ -477,25 +474,25 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         }
     }
 
-    pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<E>> {
+    pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload> {
         self.payload_ids.get(id).cloned()
     }
 
-    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
+    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle> {
         self.blobs_bundles.get(id).cloned()
     }
 
-    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests<E>> {
+    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests> {
         self.execution_requests.get(id).cloned()
     }
 
     /// Set execution requests to be returned alongside the next generated payload.
-    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
+    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests) {
         self.next_execution_requests = Some(requests);
     }
 
     /// Look up a blob and proof by versioned hash across all stored bundles.
-    pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
+    pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof> {
         self.blobs_bundles
             .iter()
             .find_map(|(payload_id, blobs_bundle)| {
@@ -510,8 +507,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 let is_fulu = self.payload_ids.get(payload_id)?.fork_name().fulu_enabled();
                 let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
                 if is_fulu {
-                    let start = blob_idx * E::cells_per_ext_blob();
-                    let end = start + E::cells_per_ext_blob();
+                    let start = blob_idx * Spec::CELLS_PER_EXT_BLOB;
+                    let end = start + Spec::CELLS_PER_EXT_BLOB;
                     let proofs = blobs_bundle
                         .proofs
                         .get(start..end)?
@@ -528,7 +525,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             })
     }
 
-    pub fn new_payload(&mut self, payload: ExecutionPayload<E>) -> PayloadStatusV1 {
+    pub fn new_payload(&mut self, payload: ExecutionPayload) -> PayloadStatusV1 {
         let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
@@ -669,10 +666,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     pub fn build_new_execution_payload(
         &mut self,
         head_block_hash: ExecutionBlockHash,
-        parent: &Block<E>,
+        parent: &Block,
         id: PayloadId,
         attributes: &PayloadAttributes,
-    ) -> Result<ExecutionPayload<E>, String> {
+    ) -> Result<ExecutionPayload, String> {
         let mut execution_payload = match attributes {
             PayloadAttributes::V1(pa) => ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                 parent_hash: head_block_hash,
@@ -685,7 +682,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 gas_limit: DEFAULT_GAS_LIMIT,
                 gas_used: GAS_USED,
                 timestamp: pa.timestamp,
-                extra_data: mock_el_extra_data::<E>(),
+                extra_data: mock_el_extra_data(),
                 base_fee_per_gas: Uint256::from(1u64),
                 block_hash: ExecutionBlockHash::zero(),
                 transactions: vec![].try_into().unwrap(),
@@ -702,7 +699,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
+                    extra_data: mock_el_extra_data(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].try_into().unwrap(),
@@ -718,7 +715,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
+                    extra_data: mock_el_extra_data(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].try_into().unwrap(),
@@ -738,7 +735,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
+                    extra_data: mock_el_extra_data(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].try_into().unwrap(),
@@ -757,7 +754,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
+                    extra_data: mock_el_extra_data(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].try_into().unwrap(),
@@ -879,9 +876,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 }
 
-pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String>
-{
-    let BlobsBundle::<E> {
+pub fn load_test_blobs_bundle_v1() -> Result<(KzgCommitment, KzgProof, Blob), String> {
+    let BlobsBundle {
         commitments,
         proofs,
         blobs,
@@ -904,9 +900,8 @@ pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProo
     ))
 }
 
-pub fn load_test_blobs_bundle_v2<E: EthSpec>()
--> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
-    let BlobsBundle::<E> {
+pub fn load_test_blobs_bundle_v2() -> Result<(KzgCommitment, KzgProofs, Blob), String> {
+    let BlobsBundle {
         commitments,
         proofs,
         blobs,
@@ -927,16 +922,16 @@ pub fn load_test_blobs_bundle_v2<E: EthSpec>()
     ))
 }
 
-pub fn generate_blobs<E: EthSpec>(
+pub fn generate_blobs(
     n_blobs: usize,
     fork_name: ForkName,
-) -> Result<(BlobsBundle<E>, Transactions<E>), String> {
-    let tx = static_valid_tx::<E>()
-        .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
+) -> Result<(BlobsBundle, Transactions), String> {
+    let tx =
+        static_valid_tx().map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
     let transactions = vec![tx; n_blobs];
 
     let bundle = if fork_name.fulu_enabled() {
-        let (kzg_commitment, kzg_proofs, blob) = load_test_blobs_bundle_v2::<E>()?;
+        let (kzg_commitment, kzg_proofs, blob) = load_test_blobs_bundle_v2()?;
         BlobsBundle {
             commitments: vec![kzg_commitment; n_blobs].try_into().unwrap(),
             proofs: vec![kzg_proofs.to_vec(); n_blobs]
@@ -948,7 +943,7 @@ pub fn generate_blobs<E: EthSpec>(
             blobs: vec![blob; n_blobs].try_into().unwrap(),
         }
     } else {
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1()?;
         BlobsBundle {
             commitments: vec![kzg_commitment; n_blobs].try_into().unwrap(),
             proofs: vec![kzg_proof; n_blobs].try_into().unwrap(),
@@ -959,7 +954,7 @@ pub fn generate_blobs<E: EthSpec>(
     Ok((bundle, transactions.try_into().unwrap()))
 }
 
-pub fn static_valid_tx<E: EthSpec>() -> Result<Transaction<E::MaxBytesPerTransaction>, String> {
+pub fn static_valid_tx() -> Result<Transaction, String> {
     // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
     let transaction: AlloyTransaction = serde_json::from_str(
         r#"{
@@ -989,12 +984,12 @@ fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
 }
 
-pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<ExecutionPayloadHeader<E>> {
-    let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
+pub fn generate_genesis_header(spec: &ChainSpec) -> Option<ExecutionPayloadHeader> {
+    let genesis_fork = spec.fork_name_at_slot(spec.genesis_slot);
     let genesis_block_hash = generate_genesis_block(Default::default(), 0)
         .ok()
         .map(|block| block.block_hash);
-    let empty_transactions_root = Transactions::<E>::empty().tree_hash_root();
+    let empty_transactions_root = Transactions::empty().tree_hash_root();
     match genesis_fork {
         ForkName::Base | ForkName::Altair => {
             // Pre-Bellatrix forks have no execution payload
@@ -1102,31 +1097,23 @@ pub fn generate_pow_block(
 mod test {
     use super::*;
     use kzg::{CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
-    use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
     fn valid_test_blobs_bundle_v1() {
         assert!(
-            validate_blob_bundle_v1::<MainnetEthSpec>().is_ok(),
-            "Mainnet preset test blobs bundle should contain valid proofs"
-        );
-        assert!(
-            validate_blob_bundle_v1::<MinimalEthSpec>().is_ok(),
-            "Minimal preset test blobs bundle should contain valid proofs"
+            validate_blob_bundle_v1().is_ok(),
+            "Test blobs bundle should contain valid proofs"
         );
     }
 
     #[test]
     fn valid_test_blobs_bundle_v2() {
-        validate_blob_bundle_v2::<MainnetEthSpec>()
-            .expect("Mainnet preset test blobs bundle v2 should contain valid proofs");
-        validate_blob_bundle_v2::<MinimalEthSpec>()
-            .expect("Minimal preset test blobs bundle v2 should contain valid proofs");
+        validate_blob_bundle_v2().expect("Test blobs bundle v2 should contain valid proofs");
     }
 
-    fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
+    fn validate_blob_bundle_v1() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1()?;
         let kzg_blob: KzgBlobRef = blob
             .as_ref()
             .try_into()
@@ -1135,10 +1122,10 @@ mod test {
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
-    fn validate_blob_bundle_v2<E: EthSpec>() -> Result<(), String> {
+    fn validate_blob_bundle_v2() -> Result<(), String> {
         let kzg = load_kzg()?;
         let (kzg_commitments, kzg_proofs, cells) =
-            load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
+            load_test_blobs_bundle_v2().map(|(commitment, proofs, blob)| {
                 let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
                 (
                     vec![commitment.0; proofs.len()],

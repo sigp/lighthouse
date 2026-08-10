@@ -15,12 +15,11 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{DataColumnSubnetId, EthSpec, Slot};
+use types::{DataColumnSubnetId, Slot};
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct PeerInfo<E: EthSpec> {
+pub struct PeerInfo {
     /// The peers reputation
     pub(crate) score: Score,
     /// Client managing this peer
@@ -38,7 +37,7 @@ pub struct PeerInfo<E: EthSpec> {
     sync_status: SyncStatus,
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
-    meta_data: Option<MetaData<E>>,
+    meta_data: Option<MetaData>,
     /// Subnets the peer is connected to.
     subnets: HashSet<Subnet>,
     /// Subnets the peer is connected to, requesting partial messages.
@@ -61,8 +60,8 @@ pub struct PeerInfo<E: EthSpec> {
     enr: Option<Enr>,
 }
 
-impl<E: EthSpec> Default for PeerInfo<E> {
-    fn default() -> PeerInfo<E> {
+impl Default for PeerInfo {
+    fn default() -> PeerInfo {
         PeerInfo {
             score: Score::default(),
             client: Client::default(),
@@ -82,7 +81,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
     }
 }
 
-impl<E: EthSpec> PeerInfo<E> {
+impl PeerInfo {
     /// Return a PeerInfo struct for a trusted peer.
     pub fn trusted_peer_info() -> Self {
         PeerInfo {
@@ -152,7 +151,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns the metadata for the peer if currently known.
-    pub fn meta_data(&self) -> Option<&MetaData<E>> {
+    pub fn meta_data(&self) -> Option<&MetaData> {
         self.meta_data.as_ref()
     }
 
@@ -196,7 +195,7 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
             }
         } else if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = enr.attestation_bitfield::<E>() {
+            if let Ok(attnets) = enr.attestation_bitfield() {
                 for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
                     if attnets.get(subnet).unwrap_or(false) {
                         long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
@@ -204,7 +203,7 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
             }
 
-            if let Ok(syncnets) = enr.sync_committee_bitfield::<E>() {
+            if let Ok(syncnets) = enr.sync_committee_bitfield() {
                 for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
                     if syncnets.get(subnet).unwrap_or(false) {
                         long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
@@ -258,7 +257,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
         // We may not have the metadata but may have an ENR. Lets check that
         if let Some(enr) = self.enr.as_ref()
-            && let Ok(attnets) = enr.attestation_bitfield::<E>()
+            && let Ok(attnets) = enr.attestation_bitfield()
             && !attnets.is_zero()
             && !self.subnets.is_empty()
         {
@@ -412,7 +411,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Sets an explicit value for the meta data.
     // VISIBILITY: The peer manager is able to adjust the meta_data
-    pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
+    pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData) {
         self.meta_data = Some(meta_data);
     }
 
@@ -684,11 +683,9 @@ impl From<PeerConnectionStatus> for PeerState {
 mod tests {
     use super::*;
     use crate::types::Subnet;
-    use types::{DataColumnSubnetId, MainnetEthSpec};
+    use types::DataColumnSubnetId;
 
-    type E = MainnetEthSpec;
-
-    fn create_test_peer_info() -> PeerInfo<E> {
+    fn create_test_peer_info() -> PeerInfo {
         PeerInfo::default()
     }
 

@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+use types::Spec;
 use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -42,7 +43,7 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkGlobals<T::EthSpec>>,
+    network: Arc<NetworkGlobals>,
     slot_duration: Duration,
 ) -> Result<(), String> {
     let speedo = Mutex::new(Speedo::default());
@@ -144,7 +145,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 }
             };
 
-            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+            let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
 
             // The default is for regular sync but this gets modified if backfill sync is in
             // progress.
@@ -176,7 +177,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                                     .column_data_availability_boundary()
                             {
                                 sync_distance = earliest_data_column_slot.saturating_sub(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                                    da_boundary.start_slot(Spec::slots_per_epoch()),
                                 );
 
                                 // We keep track of our starting point for custody backfill sync
@@ -302,9 +303,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         .column_data_availability_boundary(),
                     original_earliest_data_column_slot,
                 ) {
-                    let target = original_slot.saturating_sub(
-                        da_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                    );
+                    let target = original_slot
+                        .saturating_sub(da_boundary_epoch.start_slot(Spec::slots_per_epoch()));
                     speedo.estimated_time_till_slot(target)
                 } else {
                     None
@@ -495,7 +495,7 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
 
         // Find the first fork that is scheduled and close to happen
         if let Some(fork_epoch) = fork_epoch {
-            let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let fork_slot = fork_epoch.start_slot(Spec::slots_per_epoch());
             let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
                 / beacon_chain.spec.get_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;

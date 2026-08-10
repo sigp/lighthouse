@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
-use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
+use types::{AttestationData, ChainSpec, CommitteeIndex, Hash256, Slot, Spec};
 use validator_store::{AggregateToSign, AttestationToSign, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -152,7 +152,7 @@ impl<S, T> Deref for AttestationService<S, T> {
     }
 }
 
-fn attestation_deadline<E: EthSpec>(
+fn attestation_deadline(
     slot_clock: &impl SlotClock,
     chain_spec: &ChainSpec,
     now: Duration,
@@ -163,7 +163,7 @@ fn attestation_deadline<E: EthSpec>(
     let duration_to_attestation_deadline = slot_clock
         .start_of(attestation_slot)
         .and_then(|slot_start| {
-            slot_start.checked_add(chain_spec.get_attestation_due::<E>(attestation_slot))
+            slot_start.checked_add(chain_spec.get_attestation_due(attestation_slot))
         })
         .and_then(|deadline| deadline.checked_sub(now));
     (attestation_slot, duration_to_attestation_deadline)
@@ -198,7 +198,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
                 let (attestation_slot, duration_to_attestation_deadline) =
-                    attestation_deadline::<S::E>(&self.slot_clock, &self.chain_spec, now);
+                    attestation_deadline(&self.slot_clock, &self.chain_spec, now);
                 let Some(duration_to_attestation_deadline) = duration_to_attestation_deadline
                 else {
                     error!(%attestation_slot, "Failed to determine attestation deadline");
@@ -336,8 +336,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 .slot_clock
                 .duration_to_slot(slot + 1)
                 .and_then(|duration_to_next_slot| {
-                    duration_to_next_slot
-                        .checked_add(self.chain_spec.get_attestation_due::<S::E>(slot))
+                    duration_to_next_slot.checked_add(self.chain_spec.get_attestation_due(slot))
                 })
                 .map(|next_slot_deadline| {
                     next_slot_deadline.saturating_sub(self.chain_spec.get_slot_duration())
@@ -533,7 +532,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .slot_clock
             .now()
             .ok_or("Unable to determine current slot from clock")?
-            .epoch(S::E::slots_per_epoch());
+            .epoch(Spec::slots_per_epoch());
 
         // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
         if attestation_data.target.epoch > current_epoch {
@@ -550,7 +549,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             let duty = &duty_and_proof.duty;
 
             // Ensure that the attestation matches the duties.
-            if !duty.match_attestation_data::<S::E>(&attestation_data, &self.chain_spec) {
+            if !duty.match_attestation_data(&attestation_data, &self.chain_spec) {
                 crit!(
                     validator = ?duty.pubkey,
                     duty_slot = %duty.slot,
@@ -578,9 +577,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let attestation_stream = self.validator_store.sign_attestations(attestations_to_sign);
         tokio::pin!(attestation_stream);
 
-        let fork_name = self
-            .chain_spec
-            .fork_name_at_slot::<S::E>(attestation_data.slot);
+        let fork_name = self.chain_spec.fork_name_at_slot(attestation_data.slot);
 
         // Publish each batch as it arrives from the stream.
         let mut received_non_empty_batch = false;
@@ -606,7 +603,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             );
 
                             beacon_node
-                                .post_beacon_pool_attestations_v2::<S::E>(
+                                .post_beacon_pool_attestations_v2(
                                     single_attestations.clone(),
                                     fork_name,
                                 )
@@ -675,9 +672,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
-        let fork_name = self
-            .chain_spec
-            .fork_name_at_slot::<S::E>(attestation_data.slot);
+        let fork_name = self.chain_spec.fork_name_at_slot(attestation_data.slot);
 
         let aggregated_attestation = &self
             .beacon_nodes
@@ -724,7 +719,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 let duty = &duty_and_proof.duty;
                 let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-                if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
+                if !duty.match_attestation_data(attestation_data, &self.chain_spec) {
                     crit!("Inconsistent validator duties during signing");
                     return None;
                 }
@@ -826,7 +821,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
         let attestation_service = self.clone();
         let executor = self.inner.executor.clone();
-        let current_epoch = slot.epoch(S::E::slots_per_epoch());
+        let current_epoch = slot.epoch(Spec::slots_per_epoch());
 
         // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
         self.inner.executor.spawn(
@@ -853,20 +848,20 @@ mod tests {
     use futures::future::FutureExt;
     use parking_lot::RwLock;
     use slot_clock::ManualSlotClock;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, Spec};
 
     #[test]
     fn duration_to_attestation_deadline_is_fork_aware() {
-        type E = MainnetEthSpec;
-
-        let mut spec = E::default_spec();
+        // Pin the mainnet chain spec so the hardcoded millisecond expectations below hold
+        // regardless of the compiled preset (minimal has 6s slots).
+        let mut spec = ChainSpec::mainnet();
         let gloas_fork_epoch = Epoch::new(1);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
         let slot_duration = spec.get_slot_duration();
         let genesis_time = slot_duration;
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
-        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let first_gloas_slot = gloas_fork_epoch.start_slot(Spec::slots_per_epoch());
         let last_pre_gloas_slot = first_gloas_slot - 1;
 
         let test_cases = [
@@ -892,7 +887,7 @@ mod tests {
 
         for (case, now, expected_slot, expected_duration) in test_cases {
             assert_eq!(
-                attestation_deadline::<E>(&slot_clock, &spec, now),
+                attestation_deadline(&slot_clock, &spec, now),
                 (expected_slot, Some(expected_duration)),
                 "{case}"
             );

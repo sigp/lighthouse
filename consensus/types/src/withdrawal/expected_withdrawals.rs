@@ -1,4 +1,4 @@
-use crate::{EthSpec, Withdrawals};
+use crate::Withdrawals;
 use superstruct::superstruct;
 
 #[superstruct(
@@ -6,8 +6,8 @@ use superstruct::superstruct;
     variant_attributes(derive(Debug, PartialEq, Clone))
 )]
 #[derive(Debug, PartialEq, Clone)]
-pub struct ExpectedWithdrawals<E: EthSpec> {
-    pub withdrawals: Withdrawals<E>,
+pub struct ExpectedWithdrawals {
+    pub withdrawals: Withdrawals,
     #[superstruct(only(Gloas, Heze), partial_getter(copy))]
     pub processed_builder_withdrawals_count: u64,
     #[superstruct(only(Electra, Gloas, Heze), partial_getter(copy))]
@@ -18,8 +18,8 @@ pub struct ExpectedWithdrawals<E: EthSpec> {
     pub processed_sweep_withdrawals_count: u64,
 }
 
-impl<E: EthSpec> From<ExpectedWithdrawals<E>> for Withdrawals<E> {
-    fn from(expected_withdrawals: ExpectedWithdrawals<E>) -> Withdrawals<E> {
+impl From<ExpectedWithdrawals> for Withdrawals {
+    fn from(expected_withdrawals: ExpectedWithdrawals) -> Withdrawals {
         match expected_withdrawals {
             ExpectedWithdrawals::Capella(ew) => ew.withdrawals,
             ExpectedWithdrawals::Electra(ew) => ew.withdrawals,

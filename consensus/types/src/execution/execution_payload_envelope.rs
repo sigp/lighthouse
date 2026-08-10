@@ -1,37 +1,31 @@
+use crate::core::Spec;
 use crate::execution::{ExecutionPayloadGloas, ExecutionRequestsGloas};
-use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
+use crate::{ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
-use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{BYTES_PER_LENGTH_OFFSET, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, PartialEq, Hash)]
 #[context_deserialize(ForkName)]
-#[serde(bound = "E: EthSpec")]
 #[tree_hash(
     struct_behaviour = "progressive_container",
     active_fields(1, 1, 1, 1, 1)
 )]
-pub struct ExecutionPayloadEnvelope<E: EthSpec> {
-    pub payload: ExecutionPayloadGloas<E>,
+pub struct ExecutionPayloadEnvelope {
+    pub payload: ExecutionPayloadGloas,
     // [Modified in Gloas:EIP7688]
-    pub execution_requests: ExecutionRequestsGloas<E>,
+    pub execution_requests: ExecutionRequestsGloas,
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
     pub parent_beacon_block_root: Hash256,
 }
 
-impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
+impl ExecutionPayloadEnvelope {
     /// Returns an empty envelope with all fields zeroed. Used for SSZ size calculations.
     pub fn empty() -> Self {
         Self {
@@ -53,17 +47,17 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
     pub fn max_size() -> usize {
         Self::min_size()
             // ExecutionPayloadGloas variable-length fields:
-            + (E::max_extra_data_bytes() * <u8 as SszEncode>::ssz_fixed_len())
-            + (E::max_transactions_per_payload()
-                * (BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            + (E::max_withdrawals_per_payload()
+            + (Spec::MAX_EXTRA_DATA_BYTES * <u8 as SszEncode>::ssz_fixed_len())
+            + (Spec::MAX_TRANSACTIONS_PER_PAYLOAD
+                * (BYTES_PER_LENGTH_OFFSET + Spec::MAX_BYTES_PER_TRANSACTION))
+            + (Spec::MAX_WITHDRAWALS_PER_PAYLOAD
                 * <crate::Withdrawal as SszEncode>::ssz_fixed_len())
             // ExecutionRequests variable-length fields:
-            + (E::max_deposit_requests_per_payload()
+            + (Spec::MAX_DEPOSIT_REQUESTS_PER_PAYLOAD
                 * <crate::DepositRequest as SszEncode>::ssz_fixed_len())
-            + (E::max_withdrawal_requests_per_payload()
+            + (Spec::MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD
                 * <crate::WithdrawalRequest as SszEncode>::ssz_fixed_len())
-            + (E::max_consolidation_requests_per_payload()
+            + (Spec::MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD
                 * <crate::ConsolidationRequest as SszEncode>::ssz_fixed_len())
     }
 
@@ -72,12 +66,11 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
     }
 }
 
-impl<E: EthSpec> SignedRoot for ExecutionPayloadEnvelope<E> {}
+impl SignedRoot for ExecutionPayloadEnvelope {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope);
 }

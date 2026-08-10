@@ -6,12 +6,12 @@ use itertools::Itertools;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::DataColumnsByRangeRequestId;
 use std::sync::Arc;
-use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Slot};
+use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, Slot, Spec};
 
 pub struct RangeDataColumnBatchRequest<T: BeaconChainTypes> {
     requests: HashMap<
         DataColumnsByRangeRequestId,
-        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<T::EthSpec>>,
+        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList>,
     >,
     /// The column indices corresponding to the request
     column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
@@ -53,7 +53,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
     pub fn add_custody_columns(
         &mut self,
         req_id: DataColumnsByRangeRequestId,
-        columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+        columns: Vec<Arc<DataColumnSidecar>>,
     ) -> Result<(), String> {
         let req = self
             .requests
@@ -62,11 +62,8 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         req.finish(req_id, columns)
     }
 
-    pub fn responses(
-        &mut self,
-    ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, CouplingError>> {
-        let mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>> =
-            HashMap::new();
+    pub fn responses(&mut self) -> Option<Result<DataColumnSidecarList, CouplingError>> {
+        let mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList> = HashMap::new();
         let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
 
         for req in self.requests.values() {
@@ -117,18 +114,18 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
     fn responses_with_custody_columns(
         &self,
-        mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>>,
+        mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList>,
         column_to_peer: HashMap<ColumnIndex, PeerId>,
         expected_custody_columns: &HashSet<ColumnIndex>,
-    ) -> Result<DataColumnSidecarList<T::EthSpec>, CouplingError> {
+    ) -> Result<DataColumnSidecarList, CouplingError> {
         let mut naughty_peers = vec![];
-        let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
+        let mut result: DataColumnSidecarList = vec![];
 
         let forward_blocks_iter = self
             .beacon_chain
             .forwards_iter_block_roots_until(
-                self.epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                self.epoch.end_slot(T::EthSpec::slots_per_epoch()),
+                self.epoch.start_slot(Spec::slots_per_epoch()),
+                self.epoch.end_slot(Spec::slots_per_epoch()),
             )
             .map_err(|_| {
                 CouplingError::InternalError("Failed to fetch block root iterator".to_string())

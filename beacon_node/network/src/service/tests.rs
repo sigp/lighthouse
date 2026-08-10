@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 #![cfg(test)]
+#![cfg(feature = "spec-minimal")]
 use crate::persisted_dht::load_dht;
 use crate::{NetworkConfig, NetworkService};
 use beacon_chain::BeaconChainTypes;
@@ -13,7 +14,7 @@ use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use types::{Epoch, EthSpec, MinimalEthSpec, SubnetId};
+use types::{Epoch, Spec, SubnetId};
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     fn get_topic_params(&self, topic: GossipTopic) -> Option<&gossipsub::TopicScoreParams> {
@@ -23,7 +24,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
 #[test]
 fn test_dht_persistence() {
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+    let beacon_chain = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -91,13 +92,13 @@ fn test_removing_topic_weight_on_old_topics() {
     let runtime = Arc::new(Runtime::new().unwrap());
 
     // Capella spec
-    let mut spec = MinimalEthSpec::default_spec();
+    let mut spec = Spec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(Epoch::new(1));
 
     // Build beacon chain.
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+    let beacon_chain = BeaconChainHarness::builder()
         .spec(spec.clone().into())
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -180,7 +181,7 @@ fn test_removing_topic_weight_on_old_topics() {
     assert!(old_topic_params2.topic_weight > 0.0);
 
     // Advance slot to the next fork
-    for _ in 0..MinimalEthSpec::slots_per_epoch() {
+    for _ in 0..Spec::slots_per_epoch() {
         beacon_chain.slot_clock.advance_slot();
     }
 

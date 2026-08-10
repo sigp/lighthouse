@@ -24,8 +24,8 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{Span, debug, error, instrument};
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    PartialDataColumnSidecarRef,
+    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256,
+    PartialDataColumnSidecarRef, Spec,
 };
 
 mod pending_column;
@@ -52,12 +52,12 @@ const AVAILABILITY_CACHE_CAPACITY: usize = 32;
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
 /// Indicates if the payloads data is fully `Available` or if we need more columns.
-pub enum Availability<E: EthSpec> {
+pub enum Availability {
     MissingComponents(Hash256),
-    Available(Box<AvailableExecutedEnvelope<E>>),
+    Available(Box<AvailableExecutedEnvelope>),
 }
 
-impl<E: EthSpec> Debug for Availability<E> {
+impl Debug for Availability {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingComponents(block_root) => {
@@ -70,11 +70,11 @@ impl<E: EthSpec> Debug for Availability<E> {
     }
 }
 
-pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
+pub type AvailabilityAndReconstructedColumns = (Availability, DataColumnSidecarList);
 
 #[derive(Debug)]
-pub enum DataColumnReconstructionResult<E: EthSpec> {
-    Success(AvailabilityAndReconstructedColumns<E>),
+pub enum DataColumnReconstructionResult {
+    Success(AvailabilityAndReconstructedColumns),
     NotStarted(&'static str),
     RecoveredColumnsNotImported(&'static str),
 }
@@ -90,7 +90,7 @@ pub enum DataColumnReconstructionResult<E: EthSpec> {
 /// publish its data, or there are network issues. Components are only removed via LRU eviction.
 pub struct PendingPayloadCache<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
-    availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
+    availability_cache: RwLock<LruCache<Hash256, PendingComponents>>,
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
@@ -116,10 +116,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
     /// Returns all cached data columns for the given block root, if any.
     #[instrument(skip_all, level = "trace")]
-    pub fn get_data_columns(
-        &self,
-        block_root: Hash256,
-    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList> {
         self.peek_pending_components(&block_root, |components| {
             components.map(|c| c.get_cached_data_columns())
         })
@@ -149,10 +146,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     }
 
     /// Return the cached Gloas payload bid for `block_root`, if present.
-    pub fn get_bid(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>> {
+    pub fn get_bid(&self, block_root: &Hash256) -> Option<Arc<SignedExecutionPayloadBid>> {
         self.peek_pending_components(block_root, |components| {
             components.map(|components| components.bid.clone())
         })
@@ -163,7 +157,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn get_executed_payload_envelope(
         &self,
         block_root: &Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>> {
+    ) -> Option<Arc<SignedExecutionPayloadEnvelope>> {
         self.peek_pending_components(block_root, |components| {
             components.and_then(|components| {
                 components
@@ -179,8 +173,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn missing_cells_for_column_sidecar<'a>(
         &'_ self,
-        data_column: &'a DataColumnSidecar<T::EthSpec>,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        data_column: &'a DataColumnSidecar,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a>>, MissingCellsError> {
         let block_root = data_column.block_root();
         let column_index = *data_column.index();
 
@@ -203,8 +197,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// Insert an executed payload envelope into the cache and performs an availability check
     pub fn put_executed_payload_envelope(
         &self,
-        executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        executed_envelope: AvailabilityPendingExecutedEnvelope,
+    ) -> Result<Availability, AvailabilityCheckError> {
         let beacon_block_root = executed_envelope.envelope.beacon_block_root();
         let bid = self
             .get_bid(&beacon_block_root)
@@ -228,7 +222,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
     /// Inserts a bid into the pending payload cache.
     /// This will silently drop the bid if a bid for this block root already exists in the cache.
-    pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
+    pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid>) {
         let mut write_lock = self.availability_cache.write();
         write_lock
             .entry(block_root)
@@ -241,8 +235,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
-        custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        custody_columns: DataColumnSidecarList,
+    ) -> Result<Availability, AvailabilityCheckError> {
         let bid = self
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
@@ -253,7 +247,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         )
         .map_err(AvailabilityCheckError::InvalidColumn)?;
 
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
+        let epoch = bid.message.slot.epoch(Spec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -270,12 +264,12 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn put_gossip_verified_data_columns<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
-        data_columns: Vec<GossipVerifiedDataColumn<T, O>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        data_columns: Vec<GossipVerifiedDataColumn<O>>,
+    ) -> Result<Availability, AvailabilityCheckError> {
         let bid = self
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
-        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
+        let epoch = bid.message.slot.epoch(Spec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
             .into_iter()
@@ -291,8 +285,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn put_kzg_verified_custody_data_columns(
         &self,
         block_root: Hash256,
-        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<T::EthSpec>],
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn],
+    ) -> Result<Availability, AvailabilityCheckError> {
         let bid = self
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
@@ -317,7 +311,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
-    ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<DataColumnReconstructionResult, AvailabilityCheckError> {
         let bid = self
             .get_bid(block_root)
             .ok_or(AvailabilityCheckError::MissingBid(*block_root))?;
@@ -356,7 +350,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let slot = bid.message.slot;
         let columns_to_sample = self
             .custody_context()
-            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
+            .sampling_columns_for_epoch(slot.epoch(Spec::slots_per_epoch()));
 
         let data_columns_to_import_and_publish = all_data_columns
             .into_iter()
@@ -403,8 +397,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     fn check_availability(
         &self,
         block_root: Hash256,
-        pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        pending_components: MappedRwLockReadGuard<'_, PendingComponents>,
+    ) -> Result<Availability, AvailabilityCheckError> {
         if let Some(available_envelope) =
             pending_components.make_available(&self.custody_context)?
         {
@@ -430,11 +424,11 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     fn update_pending_components<F>(
         &self,
         block_root: Hash256,
-        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        bid: Arc<SignedExecutionPayloadBid>,
         update_fn: F,
-    ) -> Result<MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>, AvailabilityCheckError>
+    ) -> Result<MappedRwLockReadGuard<'_, PendingComponents>, AvailabilityCheckError>
     where
-        F: FnOnce(&mut PendingComponents<T::EthSpec>),
+        F: FnOnce(&mut PendingComponents),
     {
         let mut write_lock = self.availability_cache.write();
 
@@ -453,7 +447,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
-    fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
+    fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents>) -> R>(
         &self,
         block_root: &Hash256,
         f: F,
@@ -466,7 +460,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     fn check_and_set_reconstruction_started(
         &self,
         block_root: &Hash256,
-    ) -> ReconstructColumnsDecision<T::EthSpec> {
+    ) -> ReconstructColumnsDecision {
         let mut write_lock = self.availability_cache.write();
         let Some(pending_components) = write_lock.get_mut(block_root) else {
             return ReconstructColumnsDecision::No("block already imported");
@@ -474,7 +468,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let epoch = pending_components.bid.epoch();
 
-        let total_column_count = T::EthSpec::number_of_columns();
+        let total_column_count = Spec::NUMBER_OF_COLUMNS;
         let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         if pending_components.reconstruction_started {
@@ -535,11 +529,10 @@ mod data_availability_checker_tests {
     use std::time::Duration;
     use types::{
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
+        SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
     };
 
-    type E = MinimalEthSpec;
-    type T = DiskHarnessType<E>;
+    type T = DiskHarnessType;
 
     const NUM_BLOBS: usize = 1;
 
@@ -555,7 +548,7 @@ mod data_availability_checker_tests {
 
     fn setup_with(node_custody: NodeCustodyType, num_blobs: NumBlobs) -> Setup {
         create_test_tracing_subscriber();
-        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(Spec::default_spec()));
         let kzg = get_kzg(&spec);
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -565,7 +558,7 @@ mod data_availability_checker_tests {
         let complete_blob_backfill = false;
         let custody_context = Arc::new(CustodyContext::<T>::new(
             node_custody,
-            generate_data_column_indices_rand_order::<E>(),
+            generate_data_column_indices_rand_order(),
             slot_clock,
             complete_blob_backfill,
             spec.clone(),
@@ -577,7 +570,7 @@ mod data_availability_checker_tests {
 
         let mut u = test_unstructured();
         let (block, columns) =
-            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut u, &spec)
+            generate_rand_block_and_data_columns(ForkName::Gloas, num_blobs, &mut u, &spec)
                 .expect("generate test block");
         let block_root = block.canonical_root();
         let bid = Arc::new(
@@ -590,7 +583,7 @@ mod data_availability_checker_tests {
         );
         cache.insert_bid(block_root, bid.clone());
 
-        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
+        let epoch = bid.message.slot.epoch(Spec::slots_per_epoch());
         let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()
@@ -607,23 +600,23 @@ mod data_availability_checker_tests {
     struct Setup {
         cache: Arc<PendingPayloadCache<T>>,
         block_root: Hash256,
-        custody: DataColumnSidecarList<E>,
+        custody: DataColumnSidecarList,
     }
 
     impl Setup {
-        fn put_envelope(&self) -> Availability<E> {
+        fn put_envelope(&self) -> Availability {
             self.cache
                 .put_executed_payload_envelope(executed_envelope(self.block_root))
                 .expect("put envelope")
         }
 
-        fn put_columns(&self, columns: DataColumnSidecarList<E>) -> Availability<E> {
+        fn put_columns(&self, columns: DataColumnSidecarList) -> Availability {
             self.cache
                 .put_rpc_custody_columns(self.block_root, columns)
                 .expect("put columns")
         }
 
-        fn reconstruct(&self) -> Result<DataColumnReconstructionResult<E>, AvailabilityCheckError> {
+        fn reconstruct(&self) -> Result<DataColumnReconstructionResult, AvailabilityCheckError> {
             self.cache.reconstruct_data_columns(&self.block_root)
         }
 
@@ -636,7 +629,7 @@ mod data_availability_checker_tests {
 
     /// Hand-rolled executed envelope with bypassed verification; the cache only inspects
     /// `beacon_block_root` and the verification outcome, never the signature or payload.
-    fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
+    fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope {
         AvailabilityPendingExecutedEnvelope {
             envelope: Arc::new(SignedExecutionPayloadEnvelope {
                 message: ExecutionPayloadEnvelope {
@@ -656,7 +649,7 @@ mod data_availability_checker_tests {
     }
 
     #[track_caller]
-    fn assert_missing(availability: Availability<E>) {
+    fn assert_missing(availability: Availability) {
         assert!(
             matches!(availability, Availability::MissingComponents(_)),
             "expected MissingComponents, got {availability:?}",
@@ -664,7 +657,7 @@ mod data_availability_checker_tests {
     }
 
     #[track_caller]
-    fn assert_available(availability: Availability<E>) -> Box<AvailableExecutedEnvelope<E>> {
+    fn assert_available(availability: Availability) -> Box<AvailableExecutedEnvelope> {
         match availability {
             Availability::Available(env) => env,
             other => panic!("expected Available, got {other:?}"),
@@ -741,7 +734,7 @@ mod data_availability_checker_tests {
     #[tokio::test]
     async fn reconstruction_below_threshold_is_not_started() {
         let s = setup(NodeCustodyType::Supernode);
-        let half = E::number_of_columns() / 2;
+        let half = Spec::NUMBER_OF_COLUMNS / 2;
         s.put_columns(s.custody.iter().take(half - 1).cloned().collect());
         assert!(matches!(
             s.reconstruct().expect("reconstruct call"),

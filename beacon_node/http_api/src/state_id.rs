@@ -4,7 +4,7 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
 use std::fmt;
 use std::str::FromStr;
-use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
+use types::{BeaconState, Checkpoint, Fork, Hash256, Slot, Spec};
 
 /// Wraps `eth2::types::StateId` and provides common state-access functionality. E.g., reading
 /// states or parts of states from the database.
@@ -63,7 +63,7 @@ impl StateId {
                         .cached_head()
                         .finalized_checkpoint()
                         .epoch
-                        .start_slot(T::EthSpec::slots_per_epoch()),
+                        .start_slot(Spec::slots_per_epoch()),
             ),
             CoreStateId::Root(root) => {
                 if let Some(hot_summary) = chain
@@ -172,7 +172,7 @@ impl StateId {
     pub fn state<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(BeaconState<T::EthSpec>, ExecutionOptimistic, Finalized), warp::Rejection> {
+    ) -> Result<(BeaconState, ExecutionOptimistic, Finalized), warp::Rejection> {
         let ((state_root, execution_optimistic, finalized), slot_opt) = match &self.0 {
             CoreStateId::Head => {
                 let (cached_head, execution_status) = chain
@@ -219,7 +219,7 @@ impl StateId {
         func: F,
     ) -> Result<U, warp::Rejection>
     where
-        F: Fn(&BeaconState<T::EthSpec>, bool, bool) -> Result<U, warp::Rejection>,
+        F: Fn(&BeaconState, bool, bool) -> Result<U, warp::Rejection>,
     {
         let (state, execution_optimistic, finalized) = match &self.0 {
             CoreStateId::Head => {
@@ -260,7 +260,7 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     checkpoint: Checkpoint,
 ) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
-    let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+    let slot = checkpoint.epoch.start_slot(Spec::slots_per_epoch());
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
     let finalized_checkpoint = fork_choice.cached_fork_choice_view().finalized_checkpoint;
 

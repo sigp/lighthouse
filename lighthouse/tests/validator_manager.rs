@@ -143,7 +143,7 @@ pub fn validator_create_defaults() {
                 output_path: PathBuf::from("./meow"),
                 first_index: 0,
                 count: 1,
-                deposit_gwei: MainnetEthSpec::default_spec().max_effective_balance,
+                deposit_gwei: Spec::default_spec().max_effective_balance,
                 mnemonic_path: None,
                 stdin_inputs: cfg!(windows),
                 disable_deposits: false,

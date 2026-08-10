@@ -42,15 +42,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
+    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch,
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256,
-    MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, data::BlobIdentifier,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot, SignedVoluntaryExit,
+    SingleAttestation, Slot, Spec, SubnetId, data::BlobIdentifier,
 };
 
-type E = MainnetEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralHarnessType;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
@@ -65,18 +64,18 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 /// Provides utilities for testing the `BeaconProcessor`.
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
-    next_block: Arc<SignedBeaconBlock<E>>,
-    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
-    next_data_columns: Option<DataColumnSidecarList<E>>,
+    next_block: Arc<SignedBeaconBlock>,
+    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelope>>,
+    next_data_columns: Option<DataColumnSidecarList>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
-    next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
-    attester_slashing: AttesterSlashing<E>,
+    next_block_aggregate_attestations: Vec<SignedAggregateAndProof>,
+    attester_slashing: AttesterSlashing,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    beacon_processor_tx: BeaconProcessorSend<E>,
+    beacon_processor_tx: BeaconProcessorSend,
     work_journal_rx: mpsc::Receiver<&'static str>,
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_rx: mpsc::UnboundedReceiver<NetworkMessage>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -103,7 +102,7 @@ pub struct TestRigParams {
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.shard_committee_period = 2;
         Self::new_parametric(TestRigParams {
             chain_length,
@@ -117,7 +116,7 @@ impl TestRig {
 
     pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.shard_committee_period = 2;
         Self::new_parametric(TestRigParams {
             chain_length,
@@ -130,7 +129,7 @@ impl TestRig {
     }
 
     pub async fn new_with_skip_slots(chain_length: u64, skip_slots: &HashSet<u64>) -> Self {
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.shard_committee_period = 2;
         Self::new_parametric_with_skip_slots(chain_length, skip_slots, spec).await
     }
@@ -142,7 +141,7 @@ impl TestRig {
     ) -> Self {
         let spec = Arc::new(spec);
         let beacon_processor_config = BeaconProcessorConfig::default();
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder()
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -189,7 +188,7 @@ impl TestRig {
         } = params;
 
         let spec = Arc::new(spec);
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder()
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -310,15 +309,15 @@ impl TestRig {
         let meta_data = if spec.is_peer_das_scheduled() {
             MetaData::V3(MetaDataV3 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::default(),
+                syncnets: EnrSyncCommitteeBitfield::default(),
                 custody_group_count: spec.custody_requirement,
             })
         } else {
             MetaData::V2(MetaDataV2 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::default(),
+                syncnets: EnrSyncCommitteeBitfield::default(),
             })
         };
 
@@ -374,9 +373,9 @@ impl TestRig {
         let data_columns = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
-                let epoch = block.slot().epoch(E::slots_per_epoch());
+                let epoch = block.slot().epoch(Spec::slots_per_epoch());
                 let sampling_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
-                let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
+                let custody_columns: DataColumnSidecarList = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
                     &block,
@@ -687,7 +686,7 @@ impl TestRig {
             blob_data_available: true,
         };
         let domain = self.chain.spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             Domain::PTCAttester,
             &state.fork(),
             state.genesis_validators_root(),
@@ -917,7 +916,7 @@ impl TestRig {
         &mut self,
         timeout: Duration,
         count: Option<usize>,
-    ) -> Option<Vec<NetworkMessage<E>>> {
+    ) -> Option<Vec<NetworkMessage>> {
         let mut events = vec![];
 
         let timeout_future = tokio::time::sleep(timeout);
@@ -962,7 +961,7 @@ fn junk_message_id() -> MessageId {
 // at the beginning of the slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_slot_start() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
@@ -1013,7 +1012,7 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-    let spec = test_spec::<E>();
+    let spec = test_spec();
     // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
     // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
     if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
@@ -1036,7 +1035,7 @@ async fn data_column_reconstruction_at_deadline() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = (Spec::number_of_columns() / 2) as usize;
 
     // Enqueue all columns first - at deadline, reconstruction races with gossip drain
     for i in 0..min_columns_for_reconstruction {
@@ -1056,7 +1055,7 @@ async fn data_column_reconstruction_at_deadline() {
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_next_slot() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
@@ -1203,7 +1202,7 @@ async fn import_gossip_block_unacceptably_early() {
 /// Data columns that have already been processed but unobserved should be propagated without re-importing.
 #[tokio::test]
 async fn accept_processed_gossip_data_columns_without_import() {
-    let spec = test_spec::<E>();
+    let spec = test_spec();
     // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
     // harness produces no block-level data columns and this gossip flow doesn't apply.
     // TODO(gloas): re-enable this test
@@ -1224,7 +1223,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .map(|data_column| {
             let subnet_id =
                 DataColumnSubnetId::from_column_index(*data_column.index(), &rig.chain.spec);
-            GossipVerifiedDataColumn::<_, DoNotObserve>::new(data_column, subnet_id, &rig.chain)
+            GossipVerifiedDataColumn::<DoNotObserve>::new(data_column, subnet_id, &rig.chain)
                 .expect("should be valid data column")
         })
         .collect();
@@ -1283,13 +1282,13 @@ async fn import_gossip_block_at_current_slot() {
 }
 
 fn fork_from_env_starts_at_fulu_or_later(spec: &ChainSpec) -> bool {
-    spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+    spec.fork_name_at_slot(Slot::new(0)).fulu_enabled()
 }
 
 /// Initialise a test rig with blobs disabled when the fork-from-env spec starts pre-Fulu.
 /// This is used for pre-Fulu tests, where importing gossip & rpc lookup blobs is no longer supported.
 async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
-    let spec = test_spec::<E>();
+    let spec = test_spec();
     let enable_blobs = fork_from_env_starts_at_fulu_or_later(&spec);
 
     TestRig::new_parametric(TestRigParams {
@@ -1486,7 +1485,7 @@ async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
 
 async fn payload_attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
     // Only test when the Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     }
 
@@ -1594,7 +1593,7 @@ async fn payload_attestation_to_unknown_block_processed_after_rpc_block() {
 #[tokio::test]
 async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     // Only test when the Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     }
 
@@ -1641,7 +1640,7 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 #[tokio::test]
 async fn requeue_early_gossip_payload_envelope() {
     // Only test when the Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     }
 
@@ -1946,7 +1945,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         beacon_processor_config,
         node_custody_type: NodeCustodyType::Fullnode,
         generate_blobs: true,
-        spec: test_spec::<E>(),
+        spec: test_spec(),
     })
     .await;
 
@@ -1970,7 +1969,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
 
 #[tokio::test]
 async fn test_blobs_by_range() {
-    if test_spec::<E>().deneb_fork_epoch.is_none() {
+    if test_spec().deneb_fork_epoch.is_none() {
         return;
     };
     let mut rig = TestRig::new(64).await;
@@ -2010,7 +2009,7 @@ async fn test_blobs_by_range() {
             panic!("unexpected message {:?}", next);
         }
     }
-    if test_spec::<E>().fulu_fork_epoch.is_some() {
+    if test_spec().fulu_fork_epoch.is_some() {
         assert_eq!(0, actual_count, "Post-Fulu should return 0 blobs");
     } else {
         assert_eq!(blob_count, actual_count);
@@ -2020,10 +2019,10 @@ async fn test_blobs_by_range() {
 #[tokio::test]
 async fn test_blobs_by_range_spans_fulu_fork() {
     // Only test for Electra & Fulu fork transition
-    if test_spec::<E>().electra_fork_epoch.is_none() {
+    if test_spec().electra_fork_epoch.is_none() {
         return;
     };
-    let mut spec = test_spec::<E>();
+    let mut spec = test_spec();
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
@@ -2082,7 +2081,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
 
 #[tokio::test]
 async fn test_blobs_by_root() {
-    if test_spec::<E>().deneb_fork_epoch.is_none() {
+    if test_spec().deneb_fork_epoch.is_none() {
         return;
     };
 
@@ -2147,7 +2146,7 @@ async fn test_blobs_by_root() {
 #[tokio::test]
 async fn test_blobs_by_root_post_fulu_should_return_empty() {
     // Only test for Fulu fork
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
@@ -2192,7 +2191,7 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
 
 #[tokio::test]
 async fn test_data_columns_by_range_request_only_returns_requested_columns() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
@@ -2252,7 +2251,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
 /// duplicate data columns for the same block.
 #[tokio::test]
 async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
@@ -2331,15 +2330,15 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
 /// with a server error (https://github.com/sigp/lighthouse/issues/9638).
 #[tokio::test]
 async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    if test_spec().fulu_fork_epoch.is_none() {
         return;
     };
 
-    let mut spec = test_spec::<E>();
+    let mut spec = test_spec();
     spec.shard_committee_period = 2;
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
-    let gloas_fork_slot = Epoch::new(2).start_slot(E::slots_per_epoch());
+    let gloas_fork_slot = Epoch::new(2).start_slot(Spec::slots_per_epoch());
 
     // Skip the Gloas fork slot so the last block before the requested range is a Fulu block.
     // Build 160 slots (5 epochs) so finalized_epoch=3 (finalized_slot=96) and a request for
@@ -2441,7 +2440,7 @@ async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
 fn make_test_payload_envelope(
     slot: Slot,
     beacon_block_root: Hash256,
-) -> SignedExecutionPayloadEnvelope<E> {
+) -> SignedExecutionPayloadEnvelope {
     SignedExecutionPayloadEnvelope {
         message: ExecutionPayloadEnvelope {
             payload: ExecutionPayloadGloas {
@@ -2460,7 +2459,7 @@ fn make_test_payload_envelope(
 #[tokio::test]
 async fn test_payload_envelopes_by_range() {
     // Only test when Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     };
 
@@ -2518,7 +2517,7 @@ async fn test_payload_envelopes_by_range() {
 #[tokio::test]
 async fn test_payload_envelopes_by_root() {
     // Only test when Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     };
 
@@ -2563,7 +2562,7 @@ async fn test_payload_envelopes_by_root() {
 #[tokio::test]
 async fn test_payload_envelopes_by_root_unknown_root_returns_empty() {
     // Only test when Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     };
 
@@ -2599,7 +2598,7 @@ async fn test_payload_envelopes_by_root_unknown_root_returns_empty() {
 #[tokio::test]
 async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
     // Only test when Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    if test_spec().gloas_fork_epoch.is_none() {
         return;
     };
 

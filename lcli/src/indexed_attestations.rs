@@ -17,19 +17,19 @@ fn read_file_bytes(filename: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let spec = &E::default_spec();
+pub fn run(matches: &ArgMatches) -> Result<(), String> {
+    let spec = &Spec::default_spec();
 
     let state_file: PathBuf = parse_required(matches, "state")?;
     let attestations_file: PathBuf = parse_required(matches, "attestations")?;
 
-    let mut state = BeaconState::<E>::from_ssz_bytes(&read_file_bytes(&state_file)?, spec)
+    let mut state = BeaconState::from_ssz_bytes(&read_file_bytes(&state_file)?, spec)
         .map_err(|e| format!("Invalid state: {:?}", e))?;
     state
         .build_all_committee_caches(spec)
         .map_err(|e| format!("{:?}", e))?;
 
-    let attestations: Vec<Attestation<E>> =
+    let attestations: Vec<Attestation> =
         serde_json::from_slice(&read_file_bytes(&attestations_file)?)
             .map_err(|e| format!("Invalid attestation list: {:?}", e))?;
 

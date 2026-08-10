@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
-    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, ForkContext, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
     PartialDataColumnHeader, PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
@@ -17,18 +17,18 @@ use types::{
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
     SignedBeaconBlockGloas, SignedBeaconBlockHeze, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Spec, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PubsubMessage<E: EthSpec> {
+pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
-    BeaconBlock(Arc<SignedBeaconBlock<E>>),
+    BeaconBlock(Arc<SignedBeaconBlock>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
-    DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
+    DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
-    AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
+    AggregateAndProofAttestation(Box<SignedAggregateAndProof>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
     Attestation(Box<(SubnetId, SingleAttestation)>),
     /// Gossipsub message providing notification of a voluntary exit.
@@ -36,42 +36,42 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a new proposer slashing.
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
-    AttesterSlashing(Box<AttesterSlashing<E>>),
+    AttesterSlashing(Box<AttesterSlashing>),
     /// Gossipsub message providing notification of partially aggregated sync committee signatures.
-    SignedContributionAndProof(Box<SignedContributionAndProof<E>>),
+    SignedContributionAndProof(Box<SignedContributionAndProof>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
     /// Gossipsub message for BLS to execution change messages.
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     /// Gossipsub message providing notification of a signed execution payload envelope.
-    ExecutionPayload(Box<SignedExecutionPayloadEnvelope<E>>),
+    ExecutionPayload(Box<SignedExecutionPayloadEnvelope>),
     /// Gossipsub message providing notification of a payload attestation message.
     PayloadAttestation(Box<PayloadAttestationMessage>),
     /// Gossipsub message providing notification of a signed execution payload bid.
-    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBid>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Arc<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
-    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate>),
     /// Gossipsub message providing notification of a light client optimistic update.
-    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate>),
 }
 
 /// A message published via the partial gossipsub protocol.
 #[derive(Debug, Clone)]
-pub enum PubsubPartialMessage<E: EthSpec> {
+pub enum PubsubPartialMessage {
     /// A partial data column sidecar from the Fulu fork.
     DataColumnFulu {
         /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
         /// asks for data within it.
-        column: Arc<PartialDataColumn<E>>,
+        column: Arc<PartialDataColumn>,
         /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
         /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
         /// requested to conserve bandwidth.
-        request_cells: CellBitmap<E>,
+        request_cells: CellBitmap,
         /// The header associated with the column above. This is set separately here, as the column
         /// to be published does not contain the header - it is stored without.
-        header: Arc<PartialDataColumnHeader<E>>,
+        header: Arc<PartialDataColumnHeader>,
     },
 }
 
@@ -142,7 +142,7 @@ impl DataTransform for SnappyTransform {
     }
 }
 
-impl<E: EthSpec> PubsubMessage<E> {
+impl PubsubMessage {
     /// Returns the topics that each pubsub message will be sent across, given a supported
     /// gossipsub encoding and fork version.
     pub fn topics(&self, encoding: GossipEncoding, fork_version: [u8; 4]) -> Vec<GossipTopic> {
@@ -205,11 +205,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 // SSZ bytes but different hash tree roots, so the variant must be
                                 // chosen by fork.
                                 if fork_name.gloas_enabled() {
-                                    if data.len() > E::max_signed_aggregate_and_proof_size() {
+                                    if data.len() > Spec::MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE {
                                         return Err(format!(
                                             "SignedAggregateAndProof size {} exceeds MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE {}",
                                             data.len(),
-                                            E::max_signed_aggregate_and_proof_size()
+                                            Spec::MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE
                                         ));
                                     }
                                     SignedAggregateAndProof::Gloas(
@@ -251,39 +251,39 @@ impl<E: EthSpec> PubsubMessage<E> {
                         let beacon_block = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
-                            Some(ForkName::Base) => SignedBeaconBlock::<E>::Base(
+                            Some(ForkName::Base) => SignedBeaconBlock::Base(
                                 SignedBeaconBlockBase::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Altair) => SignedBeaconBlock::<E>::Altair(
+                            Some(ForkName::Altair) => SignedBeaconBlock::Altair(
                                 SignedBeaconBlockAltair::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Bellatrix) => SignedBeaconBlock::<E>::Bellatrix(
+                            Some(ForkName::Bellatrix) => SignedBeaconBlock::Bellatrix(
                                 SignedBeaconBlockBellatrix::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
+                            Some(ForkName::Capella) => SignedBeaconBlock::Capella(
                                 SignedBeaconBlockCapella::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Deneb) => SignedBeaconBlock::<E>::Deneb(
+                            Some(ForkName::Deneb) => SignedBeaconBlock::Deneb(
                                 SignedBeaconBlockDeneb::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
+                            Some(ForkName::Electra) => SignedBeaconBlock::Electra(
                                 SignedBeaconBlockElectra::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(
+                            Some(ForkName::Fulu) => SignedBeaconBlock::Fulu(
                                 SignedBeaconBlockFulu::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
+                            Some(ForkName::Gloas) => SignedBeaconBlock::Gloas(
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                            Some(ForkName::Heze) => SignedBeaconBlock::Heze(
                                 SignedBeaconBlockHeze::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
@@ -300,12 +300,12 @@ impl<E: EthSpec> PubsubMessage<E> {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 if fork.gloas_enabled()
-                                    && data.len() > E::max_data_column_sidecar_size()
+                                    && data.len() > Spec::MAX_DATA_COLUMN_SIDECAR_SIZE
                                 {
                                     return Err(format!(
                                         "DataColumnSidecar size {} exceeds MAX_DATA_COLUMN_SIDECAR_SIZE {}",
                                         data.len(),
-                                        E::max_data_column_sidecar_size()
+                                        Spec::MAX_DATA_COLUMN_SIDECAR_SIZE
                                     ));
                                 }
                                 let col_sidecar = Arc::new(
@@ -340,11 +340,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                             Some(&fork_name) => {
                                 // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
                                 if fork_name.gloas_enabled() {
-                                    if data.len() > E::max_attester_slashing_size() {
+                                    if data.len() > Spec::MAX_ATTESTER_SLASHING_SIZE {
                                         return Err(format!(
                                             "AttesterSlashing size {} exceeds MAX_ATTESTER_SLASHING_SIZE {}",
                                             data.len(),
-                                            E::max_attester_slashing_size()
+                                            Spec::MAX_ATTESTER_SLASHING_SIZE
                                         ));
                                     }
                                     AttesterSlashing::Gloas(
@@ -404,11 +404,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
-                        if data.len() > E::max_signed_execution_payload_bid_size() {
+                        if data.len() > Spec::MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {
                             return Err(format!(
                                 "SignedExecutionPayloadBid size {} exceeds MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {}",
                                 data.len(),
-                                E::max_signed_execution_payload_bid_size()
+                                Spec::MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE
                             ));
                         }
                         let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
@@ -505,23 +505,23 @@ impl<E: EthSpec> PubsubMessage<E> {
 /// Decodes incoming partial data column sidecar from gossipsub partial protocol.
 /// Note: Currently, data columns are the only supported partial messages. In future this could
 /// return an enum.
-pub fn decode_partial<E: EthSpec>(
+pub fn decode_partial(
     topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
     fork_context: &ForkContext,
-) -> Result<PartialDataColumn<E>, String> {
+) -> Result<PartialDataColumn, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
             match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
                 Some(fork) if fork.fulu_enabled() => {
                     if fork.gloas_enabled()
-                        && data.len() > E::max_partial_data_column_sidecar_size()
+                        && data.len() > Spec::MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE
                     {
                         return Err(format!(
                             "PartialDataColumnSidecar size {} exceeds MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE {}",
                             data.len(),
-                            E::max_partial_data_column_sidecar_size()
+                            Spec::MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE
                         ));
                     }
                 }
@@ -551,7 +551,7 @@ pub fn decode_partial<E: EthSpec>(
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
+impl std::fmt::Display for PubsubMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PubsubMessage::BeaconBlock(block) => write!(
@@ -639,12 +639,10 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
-
-    type E = MainnetEthSpec;
+    use types::{Epoch, Slot, data::DataColumnSubnetId};
 
     fn gloas_fork_context() -> ForkContext {
-        let mut spec = E::default_spec();
+        let mut spec = Spec::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -652,10 +650,10 @@ mod tests {
         spec.electra_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         spec.gloas_fork_epoch = Some(Epoch::new(0));
-        ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+        ForkContext::new(Slot::new(0), Hash256::ZERO, &spec)
     }
 
-    fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
+    fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage, String> {
         let fork_context = gloas_fork_context();
         let topic = GossipTopic::new(
             kind,
@@ -669,7 +667,7 @@ mod tests {
 
     #[test]
     fn gloas_aggregate_and_proof_size_bound() {
-        let max = E::max_signed_aggregate_and_proof_size();
+        let max = Spec::MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE;
         let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max + 1).unwrap_err();
         assert!(err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"), "{err}");
         let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max).unwrap_err();
@@ -681,7 +679,7 @@ mod tests {
 
     #[test]
     fn gloas_attester_slashing_size_bound() {
-        let max = E::max_attester_slashing_size();
+        let max = Spec::MAX_ATTESTER_SLASHING_SIZE;
         let err = decode_oversized(GossipKind::AttesterSlashing, max + 1).unwrap_err();
         assert!(err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
         let err = decode_oversized(GossipKind::AttesterSlashing, max).unwrap_err();
@@ -690,7 +688,7 @@ mod tests {
 
     #[test]
     fn gloas_data_column_sidecar_size_bound() {
-        let max = E::max_data_column_sidecar_size();
+        let max = Spec::MAX_DATA_COLUMN_SIDECAR_SIZE;
         let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
         let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
         assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
@@ -711,17 +709,17 @@ mod tests {
             group.extend_from_slice(Hash256::ZERO.as_slice());
             group
         };
-        let max = E::max_partial_data_column_sidecar_size();
+        let max = Spec::MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE;
 
         let data = vec![0u8; max + 1];
-        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        let err = decode_partial(&topic, &group, &data, &fork_context).unwrap_err();
         assert!(
             err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
             "{err}"
         );
 
         let data = vec![0u8; max];
-        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        let err = decode_partial(&topic, &group, &data, &fork_context).unwrap_err();
         assert!(
             !err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
             "{err}"
@@ -730,7 +728,7 @@ mod tests {
 
     #[test]
     fn gloas_execution_payload_bid_size_bound() {
-        let max = E::max_signed_execution_payload_bid_size();
+        let max = Spec::MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE;
         let err = decode_oversized(GossipKind::ExecutionPayloadBid, max + 1).unwrap_err();
         assert!(
             err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),

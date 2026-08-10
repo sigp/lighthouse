@@ -12,14 +12,13 @@ use mockall_double::double;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
-use types::{EthSpec, Hash256, SignedExecutionPayloadEnvelope};
+use types::{Hash256, SignedExecutionPayloadEnvelope};
 
 #[cfg(not(test))]
 use crate::BeaconChain;
 use crate::{BeaconChainError, BeaconChainTypes};
 
-type PayloadEnvelopeResult<E> =
-    Result<Option<Arc<SignedExecutionPayloadEnvelope<E>>>, BeaconChainError>;
+type PayloadEnvelopeResult = Result<Option<Arc<SignedExecutionPayloadEnvelope>>, BeaconChainError>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -55,7 +54,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     fn check_payload_envelope_cache(
         &self,
         _beacon_block_root: &Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>> {
+    ) -> Option<Arc<SignedExecutionPayloadEnvelope>> {
         // if self.check_caches == CheckCaches::Yes
         None
     }
@@ -63,7 +62,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     fn load_envelope(
         self: &Arc<Self>,
         beacon_block_root: &Hash256,
-    ) -> Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, BeaconChainError> {
+    ) -> Result<Option<Arc<SignedExecutionPayloadEnvelope>>, BeaconChainError> {
         if let Some(cached_envelope) = self.check_payload_envelope_cache(beacon_block_root) {
             Ok(Some(cached_envelope))
         } else {
@@ -79,7 +78,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     async fn load_envelopes(
         self: &Arc<Self>,
         block_roots: &[Hash256],
-    ) -> Result<Vec<(Hash256, PayloadEnvelopeResult<T::EthSpec>)>, BeaconChainError> {
+    ) -> Result<Vec<(Hash256, PayloadEnvelopeResult)>, BeaconChainError> {
         let streamer = self.clone();
         let block_roots = block_roots.to_vec();
         let split_slot = streamer.adapter.get_split_slot();
@@ -88,7 +87,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .executor()
             .spawn_blocking_handle(
                 move || {
-                    let mut results: Vec<(Hash256, PayloadEnvelopeResult<T::EthSpec>)> = Vec::new();
+                    let mut results: Vec<(Hash256, PayloadEnvelopeResult)> = Vec::new();
                     for root in block_roots.iter() {
                         // TODO(gloas) we are loading the full envelope from the db.
                         // in a future PR we will only be storing the blinded envelope.
@@ -152,7 +151,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     async fn stream_payload_envelopes(
         self: Arc<Self>,
         beacon_block_roots: Vec<Hash256>,
-        sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>,
+        sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult>)>,
     ) {
         let results = match self.load_envelopes(&beacon_block_roots).await {
             Ok(results) => results,
@@ -173,7 +172,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     pub fn launch_stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
-    ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
+    ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult>)> {
         let (envelope_tx, envelope_rx) = mpsc::unbounded_channel();
         debug!(
             envelopes = block_roots.len(),
@@ -194,14 +193,14 @@ pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_roots: Vec<Hash256>,
     request_source: EnvelopeRequestSource,
-) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
+) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult>)> {
     let adapter = beacon_chain_adapter::EnvelopeStreamerBeaconAdapter::new(chain);
     PayloadEnvelopeStreamer::new(adapter, request_source).launch_stream(block_roots)
 }
 
-async fn send_errors<E: EthSpec>(
+async fn send_errors(
     block_roots: &[Hash256],
-    sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<E>>)>,
+    sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult>)>,
     beacon_chain_error: BeaconChainError,
 ) {
     let result = Arc::new(Err(beacon_chain_error));

@@ -2,9 +2,7 @@ use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
 use bls::PublicKeyBytes;
 use std::sync::Arc;
-use types::{Address, MinimalEthSpec, Slot, WithdrawalRequest};
-
-type E = MinimalEthSpec;
+use types::{Address, Slot, WithdrawalRequest};
 
 /// An envelope whose `execution_requests` don't hash to the bid's committed
 /// `execution_requests_root` must be rejected by the full gossip verification path.
@@ -14,7 +12,7 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(64)
         .fresh_ephemeral_store()

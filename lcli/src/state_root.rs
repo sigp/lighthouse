@@ -7,18 +7,18 @@ use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing::info;
-use types::{BeaconState, EthSpec};
+use types::{BeaconState, Spec};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<E: EthSpec>(
-    env: Environment<E>,
+pub fn run(
+    env: Environment,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
     let executor = env.core_context().executor;
 
-    let spec = &network_config.chain_spec::<E>()?;
+    let spec = &network_config.chain_spec()?;
 
     let state_path: Option<PathBuf> = parse_optional(matches, "state-path")?;
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
@@ -27,7 +27,7 @@ pub fn run<E: EthSpec>(
     info!(
         "Using {} network ({} spec)",
         spec.config_name.as_deref().unwrap_or("unknown"),
-        E::spec_name()
+        Spec::PRESET_BASE
     );
     info!("Doing {} runs", runs);
 
@@ -44,7 +44,7 @@ pub fn run<E: EthSpec>(
                 .ok_or("shutdown in progress")?
                 .block_on(async move {
                     client
-                        .get_debug_beacon_states::<E>(state_id)
+                        .get_debug_beacon_states(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))
                 })

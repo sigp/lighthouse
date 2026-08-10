@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -181,11 +181,23 @@ test-release:
 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
 		--exclude http_api
 
+# Runs the full workspace tests in **release** with the minimal spec feature enabled,
+# without downloading any additional test vectors.
+test-release-minimal:
+	cargo nextest run --workspace --release --features "spec-minimal,$(TEST_FEATURES)" \
+		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
+		--exclude http_api
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
+
+# Runs the full workspace tests in **debug** with the minimal spec feature enabled,
+# without downloading any additional test vectors.
+test-debug-minimal:
+	cargo nextest run --workspace --features "spec-minimal,$(TEST_FEATURES)" \
 		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
 # Runs cargo-fmt (linter).
@@ -197,18 +209,31 @@ check-benches:
 	cargo check --workspace --benches --features "$(TEST_FEATURES)"
 
 
-# Runs EF test vectors
-run-ef-tests:
-	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+# Runs EF test vectors against the mainnet spec.
+run-ef-tests-mainnet:
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+
+# Runs EF test vectors against the minimal spec.
+run-ef-tests-minimal:
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES)"
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES),fake_crypto"
+
+# Runs all EF test vector presets and checks that no vectors were missed.
+run-ef-tests:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	$(MAKE) run-ef-tests-mainnet
+	$(MAKE) run-ef-tests-minimal
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
+#
+# The integration tests are split by spec preset, so we do two runs for each.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast -E 'binary(beacon_chain_tests)'
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,spec-minimal,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast -E 'binary(beacon_chain_spec_minimal_tests) or kind(lib)'
 
 # Run the tests in the `http_api` crate for recent forks.
 test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
@@ -226,14 +251,22 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for all known forks.
-test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
+test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS)) $(patsubst %,test-network-spec-minimal-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
 		-p network
+
+# Run the network tests that should be run on minimal spec.
+test-network-spec-minimal: $(patsubst %,test-network-spec-minimal-%,$(TEST_NETWORK_FORKS))
+
+test-network-spec-minimal-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+		--features "fork_from_env,fake_crypto,spec-minimal,$(TEST_FEATURES)" \
+		-p network -E 'test(/^persisted_dht::tests::/) | test(/^service::tests::/) | test(/^sync::backfill_sync::tests::/) | test(/^sync::batch::tests::/) | test(/^sync::block_sidecar_coupling::tests::/) | test(/^sync::tests::/)'
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,spec-minimal,$(TEST_FEATURES)" \
 		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
@@ -243,12 +276,33 @@ test-slasher:
 	cargo nextest run --release -p slasher --no-default-features --features "mdbx,$(TEST_FEATURES)"
 	cargo nextest run --release -p slasher --features "lmdb,mdbx,redb,$(TEST_FEATURES)" # all backends enabled
 
+# Run tests that require the spec-minimal feature (Spec = MinimalSpec).
+# #1: run the dedicated `*spec_minimal*` integration test binaries.
+# #2: run library unit tests in crates that have minimal-only tests.
+test-spec-minimal:
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		--test '*spec_minimal*'
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		-p genesis -p deposit_contract -p state_processing -p types -p network -p beacon_chain \
+		-p lighthouse_network --lib
+
+
+# Run tests that require the spec-gnosis feature (Spec = GnosisSpec).
+test-spec-gnosis:
+	cargo nextest run --release --features "spec-gnosis,$(TEST_FEATURES)" \
+		-p types -p eth2_network_config --lib
+
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
 	make -C $(STATE_TRANSITION_VECTORS) test
 
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
+
+# Downloads and runs the EF test vectors against the minimal spec only. Does not check if all files were accessed.
+test-ef-minimal: make-ef-tests
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	$(MAKE) run-ef-tests-minimal
 
 # Downloads and runs the nightly EF test vectors.
 test-ef-nightly: make-ef-tests-nightly run-ef-tests
@@ -279,6 +333,9 @@ mdlint:
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
+# Runs the entire test suite with the minimal spec, downloading test vectors if required. Excludes exec-engine tests.
+test-full-spec-minimal: cargo-fmt test-release-minimal test-debug-minimal test-ef-minimal
+
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
@@ -295,6 +352,10 @@ lint:
 		-A clippy::uninlined-format-args \
 		-A clippy::enum_variant_names
 
+# Lint the workspace with a non-default spec feature (e.g. make lint-spec-minimal, make lint-spec-gnosis).
+lint-spec-%:
+	TEST_FEATURES="spec-$*,$(TEST_FEATURES)" $(MAKE) lint
+
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
 	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint-full
@@ -302,6 +363,10 @@ lint-fix:
 # Also run the lints on the optimized-only tests
 lint-full:
 	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+
+# Lint the workspace with a non-default spec feature, including optimized-only tests.
+lint-full-spec-%:
+	TEST_FEATURES="spec-$*,$(TEST_FEATURES)" $(MAKE) lint-full
 
 # Runs the makefile in the `ef_tests` repo.
 #

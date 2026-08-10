@@ -4,7 +4,7 @@ use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
-    DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
+    DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR, default_network_dir_name,
     get_network_dir,
 };
 use eth2::types::{Graffiti, GraffitiPolicy};
@@ -104,7 +104,7 @@ impl Default for Config {
         let base_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
-            .join(DEFAULT_HARDCODED_NETWORK);
+            .join(default_network_dir_name());
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
 

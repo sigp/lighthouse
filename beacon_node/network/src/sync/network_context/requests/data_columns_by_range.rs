@@ -1,16 +1,16 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
 use std::sync::Arc;
-use types::{DataColumnSidecar, EthSpec};
+use types::DataColumnSidecar;
 
 /// Accumulates results of a data_columns_by_range request. Only returns items after receiving the
 /// stream termination.
-pub struct DataColumnsByRangeRequestItems<E: EthSpec> {
+pub struct DataColumnsByRangeRequestItems {
     request: DataColumnsByRangeRequest,
-    items: Vec<Arc<DataColumnSidecar<E>>>,
+    items: Vec<Arc<DataColumnSidecar>>,
 }
 
-impl<E: EthSpec> DataColumnsByRangeRequestItems<E> {
+impl DataColumnsByRangeRequestItems {
     pub fn new(request: DataColumnsByRangeRequest) -> Self {
         Self {
             request,
@@ -19,8 +19,8 @@ impl<E: EthSpec> DataColumnsByRangeRequestItems<E> {
     }
 }
 
-impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
-    type Item = Arc<DataColumnSidecar<E>>;
+impl ActiveRequestItems for DataColumnsByRangeRequestItems {
+    type Item = Arc<DataColumnSidecar>;
 
     fn add(&mut self, data_column: Self::Item) -> Result<bool, LookupVerifyError> {
         if data_column.slot() < self.request.start_slot

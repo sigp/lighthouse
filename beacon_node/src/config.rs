@@ -28,7 +28,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
 use types::graffiti::GraffitiString;
-use types::{Checkpoint, Epoch, EthSpec, Hash256};
+use types::{Checkpoint, Epoch, Hash256, Spec};
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
@@ -39,10 +39,7 @@ const PURGE_DB_CONFIRMATION: &str = "confirm";
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-pub fn get_config<E: EthSpec>(
-    cli_args: &ArgMatches,
-    context: &RuntimeContext<E>,
-) -> Result<ClientConfig, String> {
+pub fn get_config(cli_args: &ArgMatches, context: &RuntimeContext) -> Result<ClientConfig, String> {
     let spec = &context.eth2_config.spec;
 
     let mut client_config = ClientConfig::default();
@@ -118,13 +115,13 @@ pub fn get_config<E: EthSpec>(
     if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
         // Check this here to avoid weird issues on networks where this is not the case.
-        if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
+        if spec.data_column_sidecar_subnet_count == Spec::number_of_columns() {
             client_config.network.enable_partial_columns = true;
             client_config.chain.enable_partial_columns = true;
         } else {
             warn!(
                 subnets = spec.data_column_sidecar_subnet_count,
-                columns = E::number_of_columns(),
+                columns = Spec::number_of_columns(),
                 "Not enabling partial columns on networks with multiple columns per subnet"
             )
         }

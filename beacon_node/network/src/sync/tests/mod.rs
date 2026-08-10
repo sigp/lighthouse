@@ -21,12 +21,12 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
+use types::{ForkName, Hash256, Slot};
 
 mod lookups;
 mod range;
 
-type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
+type T = Witness<ManualSlotClock, MemoryStore, MemoryStore>;
 
 /// This test utility enables integration testing of Lighthouse sync components.
 ///
@@ -55,33 +55,33 @@ type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 ///                       +-----------------+
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
-    beacon_processor_rx_queue: Vec<WorkEvent<E>>,
+    beacon_processor_rx: mpsc::Receiver<WorkEvent>,
+    beacon_processor_rx_queue: Vec<WorkEvent>,
     /// Receiver for `NetworkMessage` (e.g. outgoing RPC requests from sync)
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_rx: mpsc::UnboundedReceiver<NetworkMessage>,
     /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
-    network_rx_queue: Vec<NetworkMessage<E>>,
+    network_rx_queue: Vec<NetworkMessage>,
     /// Receiver for `SyncMessage` from the network
-    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<SyncMessage>,
     /// Stores all `SyncMessage`s received from `sync_rx`
-    sync_rx_queue: Vec<SyncMessage<E>>,
+    sync_rx_queue: Vec<SyncMessage>,
     /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
     sync_manager: SyncManager<T>,
     /// To manipulate sync state and peer connection status
-    network_globals: Arc<NetworkGlobals<E>>,
+    network_globals: Arc<NetworkGlobals>,
     /// Beacon chain harness
-    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType>,
     rng_08: rand_chacha_03::ChaCha20Rng,
     unstructured: arbitrary::Unstructured<'static>,
     fork_name: ForkName,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
-    network_blocks_by_root: HashMap<Hash256, RangeSyncBlock<E>>,
-    network_blocks_by_slot: HashMap<Slot, RangeSyncBlock<E>>,
+    network_blocks_by_root: HashMap<Hash256, RangeSyncBlock>,
+    network_blocks_by_slot: HashMap<Slot, RangeSyncBlock>,
     penalties: Vec<ReportedPenalty>,
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
     /// Registry of all requests done by the test
-    requests: Vec<(RequestType<E>, AppRequestId)>,
+    requests: Vec<(RequestType, AppRequestId)>,
     /// Persistent config on how to complete request
     complete_strategy: SimulateConfig,
     /// Metrics values to allow a reset

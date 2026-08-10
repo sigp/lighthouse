@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{BlockImportSource, EthSpec, ForkName, KzgProofs, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, ForkName, KzgProofs, SignedExecutionPayloadEnvelope, Spec};
 use warp::{
     Filter, Rejection,
     http::response::Builder,
@@ -37,13 +37,13 @@ use warp::{
 
 /// Request body for `POST beacon/execution_payload_envelopes`, selected via the
 /// `Eth-Blob-Data-Included` header.
-pub enum SignedEnvelopeSubmission<E: EthSpec> {
+pub enum SignedEnvelopeSubmission {
     /// Envelope only (stateful flow); blobs and KZG proofs are taken from the node's
     /// pending payload envelope cache.
-    EnvelopeOnly(Box<SignedExecutionPayloadEnvelope<E>>),
+    EnvelopeOnly(Box<SignedExecutionPayloadEnvelope>),
     /// Full envelope bundled with blobs and KZG proofs (stateless flow), allowing
     /// publication via a beacon node that did not build the payload.
-    EnvelopeAndBlobData(Box<SignedExecutionPayloadEnvelopeContents<E>>),
+    EnvelopeAndBlobData(Box<SignedExecutionPayloadEnvelopeContents>),
 }
 
 fn ensure_gloas_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
@@ -55,7 +55,7 @@ fn ensure_gloas_consensus_version(fork_name: ForkName) -> Result<(), Rejection> 
     Ok(())
 }
 
-impl<E: EthSpec> SignedEnvelopeSubmission<E> {
+impl SignedEnvelopeSubmission {
     fn from_ssz_bytes(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
         Ok(if blob_data_included {
@@ -88,9 +88,9 @@ impl<E: EthSpec> SignedEnvelopeSubmission<E> {
 // POST beacon/execution_payload_envelopes (SSZ)
 pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
-    network_tx_filter: NetworkTxFilter<T>,
+    network_tx_filter: NetworkTxFilter,
     not_while_syncing_filter: NotWhileSyncingFilter,
 ) -> ResponseFilter {
     eth_v1
@@ -111,9 +111,9 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
              blob_data_included: bool,
              body_bytes: Bytes,
              not_synced_filter: Result<(), Rejection>,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
@@ -135,9 +135,9 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
 // POST beacon/execution_payload_envelopes
 pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
-    network_tx_filter: NetworkTxFilter<T>,
+    network_tx_filter: NetworkTxFilter,
     not_while_syncing_filter: NotWhileSyncingFilter,
 ) -> ResponseFilter {
     eth_v1
@@ -158,9 +158,9 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
              blob_data_included: bool,
              body_bytes: Bytes,
              not_synced_filter: Result<(), Rejection>,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             network_tx: UnboundedSender<NetworkMessage>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
@@ -184,10 +184,10 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
 /// <https://github.com/ethereum/beacon-APIs/pull/580> and
 /// <https://github.com/ethereum/beacon-APIs/pull/624>.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
-    submission: SignedEnvelopeSubmission<T::EthSpec>,
+    submission: SignedEnvelopeSubmission,
     validation_level: BroadcastValidation,
     chain: Arc<BeaconChain<T>>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage>,
 ) -> Result<Response, Rejection> {
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(
@@ -206,7 +206,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                 kzg_proofs,
                 blobs,
             } = *contents;
-            let expected_proofs = blobs.len() * T::EthSpec::number_of_columns();
+            let expected_proofs = blobs.len() * Spec::NUMBER_OF_COLUMNS;
             if kzg_proofs.len() != expected_proofs {
                 return Err(warp_utils::reject::custom_bad_request(format!(
                     "invalid number of kzg proofs: expected {}, got {}",
@@ -412,9 +412,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 /// Returns `Err` on publication failure.
 async fn publish_and_import_columns<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage>,
     slot: types::Slot,
-    gossip_verified_columns: Vec<GossipVerifiedDataColumn<T>>,
+    gossip_verified_columns: Vec<GossipVerifiedDataColumn>,
 ) -> Result<bool, Rejection> {
     if gossip_verified_columns.is_empty() {
         return Ok(false);
@@ -431,7 +431,7 @@ async fn publish_and_import_columns<T: BeaconChainTypes>(
         )));
     }
 
-    let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+    let epoch = slot.epoch(Spec::slots_per_epoch());
     let sampling_column_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
     let sampling_columns = gossip_verified_columns
         .into_iter()
@@ -474,9 +474,9 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     beacon_block_root: types::Hash256,
     slot: types::Slot,
-    blobs: Arc<types::BlobsList<T::EthSpec>>,
-    cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
+    blobs: Arc<types::BlobsList>,
+    cell_proofs: Option<KzgProofs>,
+) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn>, Rejection>>, Rejection> {
     let chain_for_build = chain.clone();
     let handle = chain
         .task_executor
@@ -505,9 +505,9 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     beacon_block_root: types::Hash256,
     slot: types::Slot,
-    blobs: &types::BlobsList<T::EthSpec>,
-    cell_proofs: Option<KzgProofs<T::EthSpec>>,
-) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
+    blobs: &types::BlobsList,
+    cell_proofs: Option<KzgProofs>,
+) -> Result<Vec<GossipVerifiedDataColumn>, Rejection> {
     let blob_refs: Vec<_> = blobs.iter().collect();
     let data_column_sidecars = match cell_proofs {
         Some(proofs) => beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas_with_proofs(
@@ -572,7 +572,7 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     + Send
     + Sync
     + 'static,
-    task_spawner_filter: TaskSpawnerFilter<T>,
+    task_spawner_filter: TaskSpawnerFilter,
     chain_filter: ChainFilter<T>,
 ) -> ResponseFilter {
     eth_v1
@@ -585,7 +585,7 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |block_id: BlockId,
-             task_spawner: TaskSpawner<T::EthSpec>,
+             task_spawner: TaskSpawner,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
@@ -600,7 +600,7 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                             ))
                         })?;
 
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
+                    let fork_name = chain.spec.fork_name_at_slot(envelope.slot());
 
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Builder::new()

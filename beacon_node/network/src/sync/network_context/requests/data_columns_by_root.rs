@@ -1,9 +1,7 @@
 use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
 use ssz_types::VariableList;
 use std::sync::Arc;
-use types::{
-    ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkName, Hash256,
-};
+use types::{ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, ForkName, Hash256};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -14,11 +12,11 @@ pub struct DataColumnsByRootRequestParams {
 }
 
 impl DataColumnsByRootRequestParams {
-    pub fn try_into_request<E: EthSpec>(
+    pub fn try_into_request(
         self,
         fork_name: ForkName,
         spec: &ChainSpec,
-    ) -> Result<DataColumnsByRootRequest<E>, &'static str> {
+    ) -> Result<DataColumnsByRootRequest, &'static str> {
         let columns = VariableList::new(self.indices)
             .map_err(|_| "Number of indices exceeds total number of columns")?;
         let data_column_ids = self
@@ -33,12 +31,12 @@ impl DataColumnsByRootRequestParams {
     }
 }
 
-pub struct DataColumnsByRootRequestItems<E: EthSpec> {
+pub struct DataColumnsByRootRequestItems {
     request: DataColumnsByRootRequestParams,
-    items: Vec<Arc<DataColumnSidecar<E>>>,
+    items: Vec<Arc<DataColumnSidecar>>,
 }
 
-impl<E: EthSpec> DataColumnsByRootRequestItems<E> {
+impl DataColumnsByRootRequestItems {
     pub fn new(request: DataColumnsByRootRequestParams) -> Self {
         Self {
             request,
@@ -47,8 +45,8 @@ impl<E: EthSpec> DataColumnsByRootRequestItems<E> {
     }
 }
 
-impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
-    type Item = Arc<DataColumnSidecar<E>>;
+impl ActiveRequestItems for DataColumnsByRootRequestItems {
+    type Item = Arc<DataColumnSidecar>;
 
     /// Appends a chunk to this multi-item request. If all expected chunks are received, this
     /// method returns `Some`, resolving the request before the stream terminator.
@@ -93,23 +91,23 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
 mod tests {
     use super::*;
     use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns, test_spec};
-    use types::{Epoch, ForkName, MinimalEthSpec as E};
+    use types::{Epoch, ForkName};
 
     /// A response missing any requested `(block_root, index)` must not report the request complete,
     /// whether it covers all roots but misses an index, or all indices but misses a root.
     #[test]
     fn partial_response_does_not_complete() {
         // This test builds Fulu data columns, which is incompatible with a Gloas genesis.
-        if test_spec::<E>()
+        if test_spec()
             .fork_name_at_epoch(Epoch::new(0))
             .gloas_enabled()
         {
             return;
         }
-        let mut spec = test_spec::<E>();
+        let mut spec = test_spec();
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let mut u = types::test_utils::test_unstructured();
-        let a = generate_rand_block_and_data_columns::<E>(
+        let a = generate_rand_block_and_data_columns(
             ForkName::Fulu,
             NumBlobs::Number(1),
             &mut u,
@@ -117,7 +115,7 @@ mod tests {
         )
         .unwrap()
         .1;
-        let b = generate_rand_block_and_data_columns::<E>(
+        let b = generate_rand_block_and_data_columns(
             ForkName::Fulu,
             NumBlobs::Number(1),
             &mut u,
@@ -133,17 +131,17 @@ mod tests {
         };
 
         // All block roots, but index 1 missing.
-        let mut items = DataColumnsByRootRequestItems::<E>::new(params.clone());
+        let mut items = DataColumnsByRootRequestItems::new(params.clone());
         assert_eq!(items.add(a[0].clone()), Ok(false));
         assert_eq!(items.add(b[0].clone()), Ok(false));
 
         // All indices, but block root `b` missing.
-        let mut items = DataColumnsByRootRequestItems::<E>::new(params.clone());
+        let mut items = DataColumnsByRootRequestItems::new(params.clone());
         assert_eq!(items.add(a[0].clone()), Ok(false));
         assert_eq!(items.add(a[1].clone()), Ok(false));
 
         // The complete set resolves the request.
-        let mut items = DataColumnsByRootRequestItems::<E>::new(params);
+        let mut items = DataColumnsByRootRequestItems::new(params);
         assert_eq!(items.add(a[0].clone()), Ok(false));
         assert_eq!(items.add(a[1].clone()), Ok(false));
         assert_eq!(items.add(b[0].clone()), Ok(false));

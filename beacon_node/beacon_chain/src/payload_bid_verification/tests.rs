@@ -12,10 +12,9 @@ use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
-    SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
-    consts::gloas::PAYLOAD_BUILDER_VERSION,
+    Address, ChainSpec, Checkpoint, Domain, Epoch, ExecutionBlockHash, ExecutionPayloadBid,
+    Hash256, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedProposerPreferences, SignedRoot, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
@@ -38,10 +37,9 @@ use crate::{
     test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 
-type E = MinimalEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralHarnessType;
 
-/// Number of regular validators (must be >= min_genesis_active_validator_count for MinimalEthSpec).
+/// Number of regular validators (must be >= min_genesis_active_validator_count for MinimalSpec).
 const NUM_VALIDATORS: usize = 64;
 /// Number of builders to register.
 const NUM_BUILDERS: usize = 4;
@@ -50,7 +48,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
-    bid_cache: GossipVerifiedPayloadBidCache<E>,
+    bid_cache: GossipVerifiedPayloadBidCache,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
@@ -69,7 +67,7 @@ fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> 
 
 impl TestContext {
     fn new() -> Self {
-        let spec = test_spec::<E>();
+        let spec = test_spec();
         let store = Arc::new(
             HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
                 .expect("should open ephemeral store"),
@@ -78,7 +76,7 @@ impl TestContext {
         let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
 
         let mut state =
-            interop_genesis_state::<E>(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
+            interop_genesis_state(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
                 .expect("should build genesis state");
 
         // Register builders in the builder registry.
@@ -122,7 +120,7 @@ impl TestContext {
                 PAYLOAD_BUILDER_VERSION,
                 inactive_creds,
                 BUILDER_BALANCE,
-                Slot::new(E::slots_per_epoch()),
+                Slot::new(Spec::slots_per_epoch()),
                 &spec,
             )
             .expect("should register inactive builder");
@@ -175,11 +173,11 @@ impl TestContext {
         }
     }
 
-    fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
+    fn sign_bid(&self, bid: ExecutionPayloadBid) -> Arc<SignedExecutionPayloadBid> {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.spec.get_domain(
-            bid.slot.epoch(E::slots_per_epoch()),
+            bid.slot.epoch(Spec::slots_per_epoch()),
             Domain::BeaconBuilder,
             &state.fork(),
             state.genesis_validators_root(),
@@ -208,7 +206,7 @@ impl TestContext {
         *head
             .snapshot
             .beacon_state
-            .get_randao_mix(current_slot.epoch(E::slots_per_epoch()))
+            .get_randao_mix(current_slot.epoch(Spec::slots_per_epoch()))
             .expect("should read current epoch randao mix")
     }
 
@@ -220,7 +218,7 @@ impl TestContext {
         gas_limit: u64,
         value: u64,
         parent_block_root: Hash256,
-    ) -> Arc<SignedExecutionPayloadBid<E>> {
+    ) -> Arc<SignedExecutionPayloadBid> {
         Arc::new(SignedExecutionPayloadBid {
             message: ExecutionPayloadBid {
                 slot,
@@ -244,7 +242,7 @@ impl TestContext {
         let fork_block_root = Hash256::repeat_byte(0xab);
         let mut fc = self.canonical_head.fork_choice_write_lock();
         fc.proto_array_mut()
-            .process_block::<E>(
+            .process_block(
                 ProtoBlock {
                     slot: Slot::new(1),
                     root: fork_block_root,
@@ -304,7 +302,7 @@ fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_l
     let head_state = &cached_head.snapshot.beacon_state;
     let dependent_root = head_state
         .proposer_shuffling_decision_root_at_epoch(
-            slot.epoch(E::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             cached_head.head_block_root(),
             &ctx.spec,
         )
@@ -656,7 +654,7 @@ fn invalid_blob_kzg_commitments() {
 
     let max_blobs = ctx
         .spec
-        .max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
+        .max_blobs_per_block(slot.epoch(Spec::slots_per_epoch())) as usize;
     let commitments: Vec<KzgCommitment> = (0..=max_blobs)
         .map(|_| KzgCommitment::empty_for_testing())
         .collect();

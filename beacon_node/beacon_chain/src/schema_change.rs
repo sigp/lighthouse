@@ -15,7 +15,7 @@ use store::metadata::{CURRENT_SCHEMA_VERSION, SchemaVersion};
 /// All migrations for schema versions up to and including v28 have been removed. Nodes on live
 /// networks are already running v28, so only the current version check remains.
 pub fn migrate_schema<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: Arc<HotColdDB<T::HotStore, T::ColdStore>>,
     from: SchemaVersion,
     to: SchemaVersion,
 ) -> Result<(), StoreError> {

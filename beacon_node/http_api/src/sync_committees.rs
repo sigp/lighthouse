@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SlotData, SyncCommitteeMessage,
+    BeaconStateError, Epoch, SignedContributionAndProof, SlotData, Spec, SyncCommitteeMessage,
     SyncDuty, SyncSubnetId,
 };
 
@@ -91,7 +91,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)
         .map_err(Box::new)?
-        .epoch(T::EthSpec::slots_per_epoch());
+        .epoch(Spec::slots_per_epoch());
 
     let max_sync_committee_period = tolerant_current_epoch
         .sync_committee_period(&chain.spec)
@@ -115,7 +115,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
             chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
             altair_fork_epoch,
         )
-        .start_slot(T::EthSpec::slots_per_epoch());
+        .start_slot(Spec::slots_per_epoch());
 
         let state = chain.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)?;
 
@@ -150,7 +150,7 @@ fn verify_unknown_validators<T: BeaconChainTypes>(
                     let request_epoch_state = match &mut request_epoch_state {
                         Some(state) => state,
                         None => request_epoch_state.insert(chain.state_at_slot(
-                            request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                            request_epoch.start_slot(Spec::slots_per_epoch()),
                             StateSkipConfig::WithoutStateRoots,
                         )?),
                     };
@@ -180,7 +180,7 @@ fn convert_to_response(duties: Vec<Option<SyncDuty>>, execution_optimistic: bool
 /// Receive sync committee duties, storing them in the pools & broadcasting them.
 pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
     sync_committee_signatures: Vec<SyncCommitteeMessage>,
-    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: UnboundedSender<NetworkMessage>,
     chain: &BeaconChain<T>,
 ) -> Result<(), warp::reject::Rejection> {
     let mut failures = vec![];
@@ -309,8 +309,8 @@ pub fn get_subnet_positions_for_sync_committee_message<T: BeaconChainTypes>(
 
 /// Receive signed contributions and proofs, storing them in the op pool and broadcasting.
 pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
-    signed_contribution_and_proofs: Vec<SignedContributionAndProof<T::EthSpec>>,
-    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    signed_contribution_and_proofs: Vec<SignedContributionAndProof>,
+    network_tx: UnboundedSender<NetworkMessage>,
     chain: &BeaconChain<T>,
 ) -> Result<(), warp::reject::Rejection> {
     let mut verified_contributions = Vec::with_capacity(signed_contribution_and_proofs.len());

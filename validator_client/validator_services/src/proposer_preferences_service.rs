@@ -9,7 +9,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences, Slot};
+use types::{ChainSpec, Epoch, ForkName, Hash256, ProposerPreferences, Slot, Spec};
 use validator_store::{ProposalData, ValidatorStore};
 
 /// `(validator_index, proposal_slot)` duties already published, keyed by epoch and dependent
@@ -93,7 +93,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             return;
         };
 
-        let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+        let current_epoch = current_slot.epoch(Spec::slots_per_epoch());
 
         self.poll_and_publish_preferences(current_epoch, published_preferences)
             .await;

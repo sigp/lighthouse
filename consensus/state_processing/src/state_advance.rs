@@ -7,7 +7,7 @@
 use crate::*;
 use fixed_bytes::FixedBytesExtended;
 use tracing::instrument;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -27,8 +27,8 @@ pub enum Error {
 ///
 /// This state advance method is "complete"; it outputs a perfectly valid `BeaconState` and doesn't
 /// do anything hacky like the "partial" method (see `partial_state_advance`).
-pub fn complete_state_advance<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn complete_state_advance(
+    state: &mut BeaconState,
     mut state_root_opt: Option<Hash256>,
     target_slot: Slot,
     spec: &ChainSpec,
@@ -61,8 +61,8 @@ pub fn complete_state_advance<E: EthSpec>(
 /// - If `state.slot > target_slot`, an error will be returned.
 /// - If `state_root_opt.is_none()` but the latest block header requires a state root.
 #[instrument(skip_all, level = "debug")]
-pub fn partial_state_advance<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn partial_state_advance(
+    state: &mut BeaconState,
     state_root_opt: Option<Hash256>,
     target_slot: Slot,
     spec: &ChainSpec,

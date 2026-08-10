@@ -5,18 +5,15 @@ use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
 use std::{collections::HashMap, mem};
 use tree_hash::TreeHash;
-use typenum::Unsigned;
+
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork, PendingDeposit,
+    DepositData, ExecutionPayloadBid, ExecutionRequestsGloas, Fork, PendingDeposit, Spec,
     consts::gloas::PAYLOAD_BUILDER_VERSION, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
-pub fn upgrade_to_gloas<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_gloas(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let post = upgrade_state_to_gloas(pre_state, spec)?;
 
     *pre_state = post;
@@ -24,10 +21,10 @@ pub fn upgrade_to_gloas<E: EthSpec>(
     Ok(())
 }
 
-pub fn upgrade_state_to_gloas<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
+pub fn upgrade_state_to_gloas(
+    pre_state: &mut BeaconState,
     spec: &ChainSpec,
-) -> Result<BeaconState<E>, Error> {
+) -> Result<BeaconState, Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_fulu_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
@@ -82,7 +79,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
-            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
+            execution_requests_root: ExecutionRequestsGloas::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella
@@ -110,7 +107,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // All bits set to true per spec:
         // execution_payload_availability = [0b1 for _ in range(SLOTS_PER_HISTORICAL_ROOT)]
         execution_payload_availability: BitVector::from_bytes(
-            vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
+            vec![0xFFu8; Spec::SLOTS_PER_HISTORICAL_ROOT / 8].into(),
         )
         .map_err(|_| Error::InvalidBitfield)?,
         builder_pending_payments: Vector::from_elem(BuilderPendingPayment::default())?,
@@ -139,13 +136,11 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
 /// The window contains:
 /// - One epoch of empty entries (previous epoch)
 /// - Computed PTC for the current epoch through `1 + MIN_SEED_LOOKAHEAD` epochs
-fn initialize_ptc_window<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let slots_per_epoch = E::slots_per_epoch() as usize;
+fn initialize_ptc_window(state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
+    let slots_per_epoch = Spec::SLOTS_PER_EPOCH;
 
-    let empty_previous_epoch = vec![FixedVector::<u64, E::PTCSize>::from_elem(0); slots_per_epoch];
+    let empty_previous_epoch =
+        vec![FixedVector::<u64, typenum::U<{ Spec::PTC_SIZE }>>::from_elem(0); slots_per_epoch];
     let mut ptcs = empty_previous_epoch;
 
     // Compute PTC for current epoch + lookahead epochs
@@ -153,7 +148,7 @@ fn initialize_ptc_window<E: EthSpec>(
     for e in 0..=spec.min_seed_lookahead.as_u64() {
         let epoch = current_epoch.safe_add(e)?;
         let committee_cache = state.initialize_committee_cache_for_lookahead(epoch, spec)?;
-        let start_slot = epoch.start_slot(E::slots_per_epoch());
+        let start_slot = epoch.start_slot(Spec::slots_per_epoch());
         for i in 0..slots_per_epoch {
             let slot = start_slot.safe_add(i as u64)?;
             let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
@@ -169,8 +164,8 @@ fn initialize_ptc_window<E: EthSpec>(
 }
 
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.
-fn onboard_builders_from_pending_deposits<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn onboard_builders_from_pending_deposits(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Clone pending deposits to avoid borrow conflicts when mutating state.

@@ -46,28 +46,26 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Hash256,
+    SignedBeaconBlock, Slot, Spec,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
-    PhantomData<(TSlotClock, E, THotStore, TColdStore)>,
+pub struct Witness<TSlotClock, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, E, THotStore, TColdStore>
+impl<TSlotClock, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, THotStore, TColdStore>
 where
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
-    type EthSpec = E;
 }
 
 /// Builds a `BeaconChain` by either creating anew from genesis, or, resuming from an existing chain
@@ -80,26 +78,24 @@ where
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
-    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
+    store: Option<Arc<HotColdDB<T::HotStore, T::ColdStore>>>,
     store_migrator_config: Option<MigratorConfig>,
     pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
     genesis_state_root: Option<Hash256>,
     #[allow(clippy::type_complexity)]
-    fork_choice: Option<
-        ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
-    >,
-    op_pool: Option<OperationPool<T::EthSpec>>,
-    execution_layer: Option<ExecutionLayer<T::EthSpec>>,
-    event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
+    fork_choice: Option<ForkChoice<BeaconForkChoiceStore<T::HotStore, T::ColdStore>>>,
+    op_pool: Option<OperationPool>,
+    execution_layer: Option<ExecutionLayer>,
+    event_handler: Option<ServerSentEventHandler>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
-    light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
+    light_client_server_tx: Option<Sender<LightClientProducerEvent>>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
     beacon_graffiti: GraffitiOrigin,
-    slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    slasher: Option<Arc<Slasher>>,
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
@@ -111,19 +107,16 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
+impl<TSlotClock, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, THotStore, TColdStore>>
 where
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
 {
     /// Returns a new builder.
     ///
-    /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
-    /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: E, kzg: Arc<Kzg>) -> Self {
+    pub fn new(kzg: Arc<Kzg>) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -138,7 +131,7 @@ where
             shutdown_sender: None,
             light_client_server_tx: None,
             validator_pubkey_cache: None,
-            spec: Arc::new(E::default_spec()),
+            spec: Arc::new(Spec::default_spec()),
             chain_config: ChainConfig::default(),
             beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
@@ -178,7 +171,7 @@ where
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
-    pub fn store(mut self, store: Arc<HotColdDB<E, THotStore, TColdStore>>) -> Self {
+    pub fn store(mut self, store: Arc<HotColdDB<THotStore, TColdStore>>) -> Self {
         self.store = Some(store);
         self
     }
@@ -190,7 +183,7 @@ where
     }
 
     /// Sets the slasher.
-    pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
+    pub fn slasher(mut self, slasher: Arc<Slasher>) -> Self {
         self.slasher = Some(slasher);
         self
     }
@@ -233,7 +226,7 @@ where
                     .to_string()
             })?;
 
-        let fork_choice = BeaconChain::<Witness<TSlotClock, _, _, _>>::load_fork_choice(
+        let fork_choice = BeaconChain::<Witness<TSlotClock, _, _>>::load_fork_choice(
             store.clone(),
             ResetPayloadStatuses::always_reset_conditionally(
                 self.chain_config.always_reset_payload_statuses,
@@ -261,7 +254,7 @@ where
 
         self.op_pool = Some(
             store
-                .get_item::<PersistedOperationPool<E>>(&OP_POOL_DB_KEY)
+                .get_item::<PersistedOperationPool>(&OP_POOL_DB_KEY)
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(PersistedOperationPool::into_operation_pool)
                 .transpose()
@@ -292,8 +285,8 @@ where
     /// Return the `BeaconSnapshot` representing genesis as well as the mutated builder.
     fn set_genesis_state(
         mut self,
-        mut beacon_state: BeaconState<E>,
-    ) -> Result<(BeaconSnapshot<E>, Self), String> {
+        mut beacon_state: BeaconState,
+    ) -> Result<(BeaconSnapshot, Self), String> {
         let store = self
             .store
             .clone()
@@ -345,7 +338,7 @@ where
     }
 
     /// Starts a new chain from a genesis state.
-    pub fn genesis_state(mut self, mut beacon_state: BeaconState<E>) -> Result<Self, String> {
+    pub fn genesis_state(mut self, mut beacon_state: BeaconState) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
         // Initialize anchor info before attempting to write the genesis state.
@@ -401,10 +394,10 @@ where
     /// Start the chain from a weak subjectivity state.
     pub fn weak_subjectivity_state(
         mut self,
-        mut weak_subj_state: BeaconState<E>,
-        weak_subj_block: SignedBeaconBlock<E>,
-        weak_subj_blobs: Option<BlobSidecarList<E>>,
-        genesis_state: BeaconState<E>,
+        mut weak_subj_state: BeaconState,
+        weak_subj_block: SignedBeaconBlock,
+        weak_subj_blobs: Option<BlobSidecarList>,
+        genesis_state: BeaconState,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -412,7 +405,7 @@ where
             .ok_or("weak_subjectivity_state requires a store")?;
 
         // Ensure the state is advanced to an epoch boundary.
-        let slots_per_epoch = E::slots_per_epoch();
+        let slots_per_epoch = Spec::slots_per_epoch();
         if weak_subj_state.slot() % slots_per_epoch != 0 {
             debug!(
                 state_slot = %weak_subj_state.slot(),
@@ -621,7 +614,7 @@ where
     }
 
     /// Sets the `BeaconChain` execution layer.
-    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
+    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer>) -> Self {
         self.execution_layer = execution_layer;
         self
     }
@@ -645,7 +638,7 @@ where
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
-    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler<E>>) -> Self {
+    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler>) -> Self {
         self.event_handler = handler;
         self
     }
@@ -672,7 +665,7 @@ where
     }
 
     /// Sets a `Sender` to allow the beacon chain to trigger light_client update production.
-    pub fn light_client_server_tx(mut self, sender: Sender<LightClientProducerEvent<E>>) -> Self {
+    pub fn light_client_server_tx(mut self, sender: Sender<LightClientProducerEvent>) -> Self {
         self.light_client_server_tx = Some(sender);
         self
     }
@@ -720,7 +713,7 @@ where
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         mut self,
-    ) -> Result<BeaconChain<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
+    ) -> Result<BeaconChain<Witness<TSlotClock, THotStore, TColdStore>>, String> {
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
@@ -814,8 +807,8 @@ where
                 head_state.slot()
             ));
         };
-        if current_slot.epoch(E::slots_per_epoch())
-            > head_state.slot().epoch(E::slots_per_epoch()) + ws_period
+        if current_slot.epoch(Spec::slots_per_epoch())
+            > head_state.slot().epoch(Spec::slots_per_epoch()) + ws_period
         {
             if self.chain_config.ignore_ws_check {
                 warn!(
@@ -864,7 +857,7 @@ where
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
-                slot.epoch(E::slots_per_epoch()),
+                slot.epoch(Spec::slots_per_epoch()),
                 &head_snapshot.beacon_state,
                 &self.spec,
             );
@@ -886,12 +879,12 @@ where
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock,  E, THotStore, TColdStore>,
+            Witness<TSlotClock, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock,  E, THotStore, TColdStore>,
+            Witness<TSlotClock, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice,
             store.get_config(),
@@ -932,9 +925,9 @@ where
             match slot_clock.now() {
                 Some(current_slot) => {
                     let genesis_backfill_epoch = current_slot
-                        .epoch(E::slots_per_epoch())
+                        .epoch(Spec::slots_per_epoch())
                         .saturating_sub(backfill_epoch_range);
-                    genesis_backfill_epoch.start_slot(E::slots_per_epoch())
+                    genesis_backfill_epoch.start_slot(Spec::slots_per_epoch())
                 }
                 None => {
                     // The slot clock cannot derive the current slot. We therefore assume we are
@@ -946,34 +939,33 @@ where
 
         // Load the persisted custody context from the db and initialize
         // the context for this run
-        let (custody_context, cgc_changed_opt) = if let Some(custody) =
-            load_custody_context::<E, THotStore, TColdStore>(store.clone())
-        {
-            let head_epoch = canonical_head
-                .cached_head()
-                .head_slot()
-                .epoch(E::slots_per_epoch());
-            CustodyContext::new_from_persisted_custody_context(
-                custody,
-                self.node_custody_type,
-                head_epoch,
-                ordered_custody_column_indices,
-                slot_clock.clone(),
-                complete_blob_backfill,
-                self.spec.clone(),
-            )
-        } else {
-            (
-                CustodyContext::new(
+        let (custody_context, cgc_changed_opt) =
+            if let Some(custody) = load_custody_context::<THotStore, TColdStore>(store.clone()) {
+                let head_epoch = canonical_head
+                    .cached_head()
+                    .head_slot()
+                    .epoch(Spec::slots_per_epoch());
+                CustodyContext::new_from_persisted_custody_context(
+                    custody,
                     self.node_custody_type,
+                    head_epoch,
                     ordered_custody_column_indices,
                     slot_clock.clone(),
                     complete_blob_backfill,
                     self.spec.clone(),
-                ),
-                None,
-            )
-        };
+                )
+            } else {
+                (
+                    CustodyContext::new(
+                        self.node_custody_type,
+                        ordered_custody_column_indices,
+                        slot_clock.clone(),
+                        complete_blob_backfill,
+                        self.spec.clone(),
+                    ),
+                    None,
+                )
+            };
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
@@ -1042,7 +1034,7 @@ where
             graffiti_calculator: GraffitiCalculator::new(
                 self.beacon_graffiti,
                 self.execution_layer,
-                slot_clock.slot_duration() * E::slots_per_epoch() as u32,
+                slot_clock.slot_duration() * Spec::slots_per_epoch() as u32,
             ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
@@ -1095,8 +1087,9 @@ where
         if let Some(cgc_changed) = cgc_changed_opt {
             // Update data column custody info if there's a CGC change from CLI flags.
             // This will trigger column backfill.
-            let cgc_change_effective_slot =
-                cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
+            let cgc_change_effective_slot = cgc_changed
+                .effective_epoch
+                .start_slot(Spec::slots_per_epoch());
             beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
 
             // Persist change to disk.
@@ -1143,12 +1136,10 @@ where
     }
 }
 
-impl<E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
+impl<THotStore, TColdStore> BeaconChainBuilder<Witness<TestingSlotClock, THotStore, TColdStore>>
 where
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
-    E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
@@ -1169,10 +1160,7 @@ where
 }
 
 #[cfg(any(test, feature = "ef_tests"))]
-impl<E> BeaconChainBuilder<crate::test_utils::EphemeralHarnessType<E>>
-where
-    E: EthSpec + 'static,
-{
+impl BeaconChainBuilder<crate::test_utils::EphemeralHarnessType> {
     /// Start an ephemeral test chain from an existing block and its post-state.
     ///
     /// EF networking tests provide `state.ssz_snappy` and setup blocks, not a full replayable chain
@@ -1184,8 +1172,8 @@ where
     /// remains intact.
     pub fn testing_initial_state(
         mut self,
-        mut initial_state: BeaconState<E>,
-        initial_block: SignedBeaconBlock<E>,
+        mut initial_state: BeaconState,
+        initial_block: SignedBeaconBlock,
         finalized_checkpoint: Option<types::Checkpoint>,
     ) -> Result<Self, String> {
         let store = self
@@ -1229,8 +1217,8 @@ where
 
         let fork_choice_epoch = finalized_checkpoint
             .map(|checkpoint| checkpoint.epoch)
-            .unwrap_or_else(|| initial_block.slot().epoch(E::slots_per_epoch()));
-        let fork_choice_slot = fork_choice_epoch.start_slot(E::slots_per_epoch());
+            .unwrap_or_else(|| initial_block.slot().epoch(Spec::slots_per_epoch()));
+        let fork_choice_slot = fork_choice_epoch.start_slot(Spec::slots_per_epoch());
 
         // Keep two state views: `initial_state` is the exact post-state from the vector and must
         // remain loadable by `initial_block.state_root()` for child block validation. Fork choice
@@ -1317,7 +1305,7 @@ where
 
         // Write the state and block non-atomically, it doesn't matter if they're forgotten about on
         // a crash restart.
-        if initial_state.slot() % E::slots_per_epoch() == 0 {
+        if initial_state.slot() % Spec::slots_per_epoch() == 0 {
             store
                 .update_finalized_state(
                     initial_state_root,
@@ -1403,10 +1391,10 @@ where
     }
 }
 
-fn make_genesis_block<E: EthSpec>(
-    genesis_state: &mut BeaconState<E>,
+fn make_genesis_block(
+    genesis_state: &mut BeaconState,
     spec: &ChainSpec,
-) -> Result<SignedBeaconBlock<E>, String> {
+) -> Result<SignedBeaconBlock, String> {
     let mut block = genesis_block(genesis_state, spec)
         .map_err(|e| format!("Error building genesis block: {:?}", e))?;
 
@@ -1438,12 +1426,12 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 }
 
 /// Build data columns and proofs from blobs.
-fn build_data_columns_from_blobs<E: EthSpec>(
-    block: &SignedBeaconBlock<E>,
-    blobs: &BlobSidecarList<E>,
+fn build_data_columns_from_blobs(
+    block: &SignedBeaconBlock,
+    blobs: &BlobSidecarList,
     kzg: &Kzg,
     spec: &ChainSpec,
-) -> Result<DataColumnSidecarList<E>, String> {
+) -> Result<DataColumnSidecarList, String> {
     let blob_cells_and_proofs_vec = blobs
         .into_par_iter()
         .map(|blob_sidecar| {
@@ -1493,7 +1481,7 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 }
 
 #[cfg(not(debug_assertions))]
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 mod test {
     use super::*;
     use crate::test_utils::{
@@ -1510,19 +1498,18 @@ mod test {
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
-    use types::{EthSpec, MinimalEthSpec, Slot};
+    use types::Spec;
 
-    type TestEthSpec = MinimalEthSpec;
-    type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
+    type Builder = BeaconChainBuilder<EphemeralHarnessType>;
 
     #[test]
     fn recent_genesis() {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
-        let spec = MinimalEthSpec::default_spec();
+        let store: HotColdDB<MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), Spec::default_spec().into()).unwrap();
+        let spec = Spec::default_spec();
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -1538,7 +1525,7 @@ mod test {
 
         let kzg = get_kzg(&spec);
 
-        let chain = Builder::new(MinimalEthSpec, kzg)
+        let chain = Builder::new(kzg)
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
@@ -1547,9 +1534,7 @@ mod test {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
-            .ordered_custody_column_indices(
-                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
-            )
+            .ordered_custody_column_indices(generate_data_column_indices_rand_order())
             .build()
             .expect("should build");
 
@@ -1594,11 +1579,11 @@ mod test {
     fn interop_state() {
         let validator_count = 16;
         let genesis_time = 42;
-        let spec = &TestEthSpec::default_spec();
+        let spec = &Spec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state::<TestEthSpec>(
+        let state = interop_genesis_state(
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),

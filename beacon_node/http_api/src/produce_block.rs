@@ -97,7 +97,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let payload_contents = include_payload.then_some(payload_contents).flatten();
 
-    build_response_v4::<T>(
+    build_response_v4(
         block,
         consensus_block_value,
         execution_payload_value,
@@ -151,11 +151,11 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
     build_response_v3(chain, block_response_type, accept_header)
 }
 
-pub fn build_response_v4<T: BeaconChainTypes>(
-    block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+pub fn build_response_v4(
+    block: BeaconBlock<FullPayload>,
     consensus_block_value: u64,
     execution_payload_value: Uint256,
-    payload_contents: Option<PayloadEnvelopeContents<T::EthSpec>>,
+    payload_contents: Option<PayloadEnvelopeContents>,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
 ) -> Result<Response, warp::Rejection> {
@@ -233,7 +233,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
 
 pub fn build_response_v3<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block_response: BeaconBlockResponseWrapper<T::EthSpec>,
+    block_response: BeaconBlockResponseWrapper,
     accept_header: Option<api_types::Accept>,
 ) -> Result<Response, warp::Rejection> {
     let fork_name = block_response
@@ -346,7 +346,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
 
 pub fn build_response_v2<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block_response: BeaconBlockResponseWrapper<T::EthSpec>,
+    block_response: BeaconBlockResponseWrapper,
     accept_header: Option<api_types::Accept>,
 ) -> Result<Response, warp::Rejection> {
     let fork_name = block_response

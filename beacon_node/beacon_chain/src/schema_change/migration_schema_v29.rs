@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use tracing::warn;
-use types::EthSpec;
+use types::Spec;
 
 /// Upgrade from schema v28 to v29.
 ///
@@ -15,12 +15,12 @@ use types::EthSpec;
 ///
 /// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn upgrade_to_v29<T: BeaconChainTypes>(
-    db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
+    db: &HotColdDB<T::HotStore, T::ColdStore>,
 ) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     let gloas_fork_slot = db
         .spec
         .gloas_fork_epoch
-        .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
+        .map(|epoch| epoch.start_slot(Spec::slots_per_epoch()));
 
     // Load the persisted fork choice (v28 format).
     let Some(fc_bytes) = db
@@ -108,7 +108,7 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
 ///
 /// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn downgrade_from_v29<T: BeaconChainTypes>(
-    db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
+    db: &HotColdDB<T::HotStore, T::ColdStore>,
 ) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     // Load the persisted fork choice (v29 format, compressed).
     let Some(fc_bytes) = db

@@ -9,7 +9,7 @@ use swap_or_not_shuffle::shuffle_list;
 
 use crate::{
     attestation::{AttestationDuty, BeaconCommittee, CommitteeIndex},
-    core::{ChainSpec, Domain, Epoch, EthSpec, Slot},
+    core::{ChainSpec, Domain, Epoch, Slot, Spec},
     state::{BeaconState, BeaconStateError},
     validator::Validator,
 };
@@ -66,8 +66,8 @@ impl CommitteeCache {
     /// available randao data, up to `current_epoch + 1` (the "next" epoch).
     ///
     /// Spec v0.12.1
-    pub fn initialized<E: EthSpec>(
-        state: &BeaconState<E>,
+    pub fn initialized(
+        state: &BeaconState,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
@@ -100,8 +100,8 @@ impl CommitteeCache {
     ///
     /// This is used by PTC window computation, which needs committee shufflings for
     /// `current_epoch + 1 + MIN_SEED_LOOKAHEAD`.
-    pub fn initialized_for_lookahead<E: EthSpec>(
-        state: &BeaconState<E>,
+    pub fn initialized_for_lookahead(
+        state: &BeaconState,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
@@ -117,13 +117,13 @@ impl CommitteeCache {
     }
 
     /// Core committee cache construction. Callers are responsible for bounds-checking `epoch`.
-    fn initialized_unchecked<E: EthSpec>(
-        state: &BeaconState<E>,
+    fn initialized_unchecked(
+        state: &BeaconState,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
         // May cause divide-by-zero errors.
-        if E::slots_per_epoch() == 0 {
+        if Spec::slots_per_epoch() == 0 {
             return Err(BeaconStateError::ZeroSlotsPerEpoch);
         }
 
@@ -138,9 +138,11 @@ impl CommitteeCache {
             return Err(BeaconStateError::InsufficientValidators);
         }
 
-        let committees_per_slot =
-            E::get_committee_count_per_slot(active_validator_indices.len(), spec)
-                .map_err(BeaconStateError::ArithError)? as u64;
+        let committees_per_slot = Spec::get_committee_count_per_slot(
+            active_validator_indices.len(),
+            spec.max_committees_per_slot,
+            spec.target_committee_size,
+        )? as u64;
 
         let seed = state.get_seed(epoch, Domain::BeaconAttester, spec)?;
 
@@ -165,7 +167,7 @@ impl CommitteeCache {
             shuffling,
             shuffling_positions,
             committees_per_slot,
-            slots_per_epoch: E::slots_per_epoch(),
+            slots_per_epoch: Spec::slots_per_epoch(),
         }))
     }
 

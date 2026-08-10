@@ -35,26 +35,26 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+pub enum SignableMessage<'a, Payload: AbstractExecPayload = FullPayload> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<E, Payload>),
+    BeaconBlock(&'a BeaconBlock<Payload>),
     AttestationData(&'a AttestationData),
-    SignedAggregateAndProof(AggregateAndProofRef<'a, E>),
+    SignedAggregateAndProof(AggregateAndProofRef<'a>),
     SelectionProof(Slot),
     SyncSelectionProof(&'a SyncAggregatorSelectionData),
     SyncCommitteeSignature {
         beacon_block_root: Hash256,
         slot: Slot,
     },
-    SignedContributionAndProof(&'a ContributionAndProof<E>),
+    SignedContributionAndProof(&'a ContributionAndProof),
     ValidatorRegistration(&'a ValidatorRegistrationData),
     VoluntaryExit(&'a VoluntaryExit),
-    ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
+    ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope),
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
+impl<Payload: AbstractExecPayload> SignableMessage<'_, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -140,9 +140,9 @@ impl SigningMethod {
 
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
     #[instrument(skip_all, level = "debug")]
-    pub async fn get_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    pub async fn get_signature<Payload: AbstractExecPayload>(
         &self,
-        signable_message: SignableMessage<'_, E, Payload>,
+        signable_message: SignableMessage<'_, Payload>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -161,18 +161,13 @@ impl SigningMethod {
             genesis_validators_root,
         });
 
-        self.get_signature_from_root::<E, Payload>(
-            signable_message,
-            signing_root,
-            executor,
-            fork_info,
-        )
-        .await
+        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
+            .await
     }
 
-    pub async fn get_signature_from_root<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    pub async fn get_signature_from_root<Payload: AbstractExecPayload>(
         &self,
-        signable_message: SignableMessage<'_, E, Payload>,
+        signable_message: SignableMessage<'_, Payload>,
         signing_root: Hash256,
         executor: &TaskExecutor,
         fork_info: Option<ForkInfo>,

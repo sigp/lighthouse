@@ -1,5 +1,6 @@
 use ssz_types::BitVector;
-use types::{BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256};
+use typenum::U;
+use types::{BeaconState, BeaconStateError, Checkpoint, Epoch, Hash256, Spec};
 
 /// This is a subset of the `BeaconState` which is used to compute justification and finality
 /// without modifying the `BeaconState`.
@@ -7,7 +8,7 @@ use types::{BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256};
 /// A `JustificationAndFinalizationState` can be created from a `BeaconState` to compute
 /// justification/finality changes and then applied to a `BeaconState` to enshrine those changes.
 #[must_use = "this value must be applied to a state or explicitly dropped"]
-pub struct JustificationAndFinalizationState<E: EthSpec> {
+pub struct JustificationAndFinalizationState {
     /*
      * Immutable fields.
      */
@@ -21,11 +22,11 @@ pub struct JustificationAndFinalizationState<E: EthSpec> {
     previous_justified_checkpoint: Checkpoint,
     current_justified_checkpoint: Checkpoint,
     finalized_checkpoint: Checkpoint,
-    justification_bits: BitVector<E::JustificationBitsLength>,
+    justification_bits: BitVector<U<{ Spec::JUSTIFICATION_BITS_LENGTH }>>,
 }
 
-impl<E: EthSpec> JustificationAndFinalizationState<E> {
-    pub fn new(state: &BeaconState<E>) -> Self {
+impl JustificationAndFinalizationState {
+    pub fn new(state: &BeaconState) -> Self {
         let previous_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
         Self {
@@ -40,7 +41,7 @@ impl<E: EthSpec> JustificationAndFinalizationState<E> {
         }
     }
 
-    pub fn apply_changes_to_state(self, state: &mut BeaconState<E>) {
+    pub fn apply_changes_to_state(self, state: &mut BeaconState) {
         let Self {
             /*
              * Immutable fields do not need to be used.
@@ -106,11 +107,13 @@ impl<E: EthSpec> JustificationAndFinalizationState<E> {
         &mut self.finalized_checkpoint
     }
 
-    pub fn justification_bits(&self) -> &BitVector<E::JustificationBitsLength> {
+    pub fn justification_bits(&self) -> &BitVector<U<{ Spec::JUSTIFICATION_BITS_LENGTH }>> {
         &self.justification_bits
     }
 
-    pub fn justification_bits_mut(&mut self) -> &mut BitVector<E::JustificationBitsLength> {
+    pub fn justification_bits_mut(
+        &mut self,
+    ) -> &mut BitVector<U<{ Spec::JUSTIFICATION_BITS_LENGTH }>> {
         &mut self.justification_bits
     }
 }

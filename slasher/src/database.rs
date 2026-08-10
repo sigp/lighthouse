@@ -17,14 +17,14 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{ProgressiveVariableList, VariableList};
 use std::borrow::{Borrow, Cow};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::info;
 use tree_hash::TreeHash;
+use typenum::U;
 use types::{
-    AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas, ProposerSlashing,
-    SignedBeaconBlockHeader, Slot,
+    AttestationData, ChainSpec, Epoch, Hash256, IndexedAttestation, IndexedAttestationBase,
+    IndexedAttestationElectra, IndexedAttestationGloas, ProposerSlashing, SignedBeaconBlockHeader,
+    Slot, Spec,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -69,14 +69,13 @@ const INDEXED_ATTESTATION_ID_SIZE: usize = 6;
 const INDEXED_ATTESTATION_ID_KEY_SIZE: usize = 40;
 
 #[derive(Debug)]
-pub struct SlasherDB<E: EthSpec> {
+pub struct SlasherDB {
     pub(crate) env: &'static Environment,
     pub(crate) databases: OpenDatabases<'static>,
     /// LRU cache mapping indexed attestation IDs to their attestation data roots.
     attestation_root_cache: Mutex<LruCache<IndexedAttestationId, Hash256>>,
     pub(crate) config: Arc<Config>,
     pub(crate) spec: Arc<ChainSpec>,
-    _phantom: PhantomData<E>,
 }
 
 /// Database key for the `attesters` database.
@@ -256,22 +255,19 @@ pub struct IndexedAttestationOnDisk {
 }
 
 impl IndexedAttestationOnDisk {
-    fn into_indexed_attestation<E: EthSpec>(
-        self,
-        spec: &ChainSpec,
-    ) -> Result<IndexedAttestation<E>, Error> {
+    fn into_indexed_attestation(self, spec: &ChainSpec) -> Result<IndexedAttestation, Error> {
         let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
         if fork_at_target_epoch.gloas_enabled() {
             // Build a regular `VariableList` with a type-level bound to enforce the
             // pre-Gloas length check, then convert to the `Progressive` version.
-            let attesting_indices =
-                VariableList::<u64, E::MaxValidatorsPerSlot>::new(self.attesting_indices)?;
+            let attesting_indices = VariableList::<u64, U<{ Spec::MAX_VALIDATORS_PER_SLOT }>>::new(
+                self.attesting_indices,
+            )?;
             let attesting_indices = ProgressiveVariableList::new(attesting_indices.into());
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
                 attesting_indices,
                 data: self.data,
                 signature: self.signature,
-                _phantom: std::marker::PhantomData,
             }))
         } else if fork_at_target_epoch.electra_enabled() {
             let attesting_indices = VariableList::new(self.attesting_indices)?;
@@ -300,7 +296,7 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
     Ok(T::from_ssz_bytes(bytes.borrow())?)
 }
 
-impl<E: EthSpec> SlasherDB<E> {
+impl SlasherDB {
     pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>) -> Result<Self, Error> {
         info!(backend = %config.backend, "Opening slasher database");
 
@@ -326,7 +322,6 @@ impl<E: EthSpec> SlasherDB<E> {
             attestation_root_cache,
             config,
             spec,
-            _phantom: PhantomData,
         };
 
         db = db.migrate()?;
@@ -504,7 +499,7 @@ impl<E: EthSpec> SlasherDB<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         indexed_attestation_hash: Hash256,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: &IndexedAttestation,
     ) -> Result<u64, Error> {
         // Look-up ID by hash.
         let id_key = IndexedAttestationIdKey::new(
@@ -541,7 +536,7 @@ impl<E: EthSpec> SlasherDB<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         indexed_attestation_id: IndexedAttestationId,
-    ) -> Result<IndexedAttestation<E>, Error> {
+    ) -> Result<IndexedAttestation, Error> {
         let bytes = txn
             .get(
                 &self.databases.indexed_attestation_db,
@@ -558,7 +553,7 @@ impl<E: EthSpec> SlasherDB<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         indexed_id: IndexedAttestationId,
-    ) -> Result<(Hash256, Option<IndexedAttestation<E>>), Error> {
+    ) -> Result<(Hash256, Option<IndexedAttestation>), Error> {
         metrics::inc_counter(&metrics::SLASHER_NUM_ATTESTATION_ROOT_QUERIES);
 
         // If the value already exists in the cache, return it.
@@ -601,10 +596,10 @@ impl<E: EthSpec> SlasherDB<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
-        attestation: &IndexedAttestation<E>,
+        attestation: &IndexedAttestation,
         record: &AttesterRecord,
         indexed_attestation_id: IndexedAttestationId,
-    ) -> Result<AttesterSlashingStatus<E>, Error> {
+    ) -> Result<AttesterSlashingStatus, Error> {
         // See if there's an existing attestation for this attester.
         let target_epoch = attestation.data().target.epoch;
 
@@ -661,7 +656,7 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         target_epoch: Epoch,
-    ) -> Result<IndexedAttestation<E>, Error> {
+    ) -> Result<IndexedAttestation, Error> {
         let max_target = self.get_attester_max_target(validator_index, txn)?;
 
         let record = self
@@ -760,7 +755,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let min_slot = current_epoch
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length)
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         let mut cursor = txn.cursor(&self.databases.proposers_db)?;
 
@@ -875,18 +870,11 @@ impl<E: EthSpec> SlasherDB<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use typenum::Unsigned;
-    use types::{Checkpoint, ForkName, MainnetEthSpec};
-
-    type E = MainnetEthSpec;
+    use types::{Checkpoint, ForkName, Spec};
 
     fn indexed_attestation_on_disk_roundtrip_test(
         spec: &ChainSpec,
-        make_attestation: fn(
-            Vec<u64>,
-            AttestationData,
-            AggregateSignature,
-        ) -> IndexedAttestation<E>,
+        make_attestation: fn(Vec<u64>, AttestationData, AggregateSignature) -> IndexedAttestation,
         committee_len: u64,
     ) {
         let attestation_data = AttestationData {
@@ -930,9 +918,9 @@ mod test {
     /// Check that `IndexedAttestationOnDisk` and `IndexedAttestation` have compatible encodings.
     #[test]
     fn indexed_attestation_on_disk_roundtrip_base() {
-        let spec = ForkName::Base.make_genesis_spec(E::default_spec());
+        let spec = ForkName::Base.make_genesis_spec(Spec::default_spec());
         let make_attestation = |attesting_indices, data, signature| {
-            IndexedAttestation::<E>::Base(IndexedAttestationBase {
+            IndexedAttestation::Base(IndexedAttestationBase {
                 attesting_indices: VariableList::new(attesting_indices).unwrap(),
                 data,
                 signature,
@@ -941,15 +929,15 @@ mod test {
         indexed_attestation_on_disk_roundtrip_test(
             &spec,
             make_attestation,
-            <E as EthSpec>::MaxValidatorsPerCommittee::to_u64(),
+            Spec::MAX_VALIDATORS_PER_COMMITTEE as u64,
         )
     }
 
     #[test]
     fn indexed_attestation_on_disk_roundtrip_electra() {
-        let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+        let spec = ForkName::Electra.make_genesis_spec(Spec::default_spec());
         let make_attestation = |attesting_indices, data, signature| {
-            IndexedAttestation::<E>::Electra(IndexedAttestationElectra {
+            IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(attesting_indices).unwrap(),
                 data,
                 signature,
@@ -958,7 +946,7 @@ mod test {
         indexed_attestation_on_disk_roundtrip_test(
             &spec,
             make_attestation,
-            <E as EthSpec>::MaxValidatorsPerSlot::to_u64(),
+            Spec::MAX_VALIDATORS_PER_SLOT as u64,
         )
     }
 }

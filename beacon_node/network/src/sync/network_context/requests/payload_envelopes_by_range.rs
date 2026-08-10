@@ -1,16 +1,16 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::PayloadEnvelopesByRangeRequest;
 use std::sync::Arc;
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::SignedExecutionPayloadEnvelope;
 
 /// Accumulates results of a payload_envelopes_by_range request. Only returns items after
 /// receiving the stream termination.
-pub struct PayloadEnvelopesByRangeRequestItems<E: EthSpec> {
+pub struct PayloadEnvelopesByRangeRequestItems {
     request: PayloadEnvelopesByRangeRequest,
-    items: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    items: Vec<Arc<SignedExecutionPayloadEnvelope>>,
 }
 
-impl<E: EthSpec> PayloadEnvelopesByRangeRequestItems<E> {
+impl PayloadEnvelopesByRangeRequestItems {
     pub fn new(request: PayloadEnvelopesByRangeRequest) -> Self {
         Self {
             request,
@@ -19,8 +19,8 @@ impl<E: EthSpec> PayloadEnvelopesByRangeRequestItems<E> {
     }
 }
 
-impl<E: EthSpec> ActiveRequestItems for PayloadEnvelopesByRangeRequestItems<E> {
-    type Item = Arc<SignedExecutionPayloadEnvelope<E>>;
+impl ActiveRequestItems for PayloadEnvelopesByRangeRequestItems {
+    type Item = Arc<SignedExecutionPayloadEnvelope>;
 
     fn add(&mut self, envelope: Self::Item) -> Result<bool, LookupVerifyError> {
         if envelope.slot().as_u64() < self.request.start_slot

@@ -6,7 +6,7 @@ use crate::{
 };
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
-use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, DataColumnSidecarList, Epoch, Hash256, Slot, Spec};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -53,7 +53,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn import_historical_data_column_batch(
         &self,
         epoch: Epoch,
-        historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
+        historical_data_column_sidecar_list: DataColumnSidecarList,
         expected_cgc: u64,
     ) -> Result<usize, HistoricalDataColumnError> {
         let mut total_imported = 0;
@@ -71,8 +71,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let forward_blocks_iter = self
             .forwards_iter_block_roots_until(
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                epoch.end_slot(T::EthSpec::slots_per_epoch()),
+                epoch.start_slot(Spec::slots_per_epoch()),
+                epoch.end_slot(Spec::slots_per_epoch()),
             )
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
@@ -95,7 +95,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 continue;
             }
 
-            let fork_name = self.spec.fork_name_at_slot::<T::EthSpec>(slot);
+            let fork_name = self.spec.fork_name_at_slot(slot);
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))

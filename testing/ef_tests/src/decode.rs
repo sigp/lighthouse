@@ -110,18 +110,15 @@ pub fn ssz_decode_file<T: ssz::Decode>(path: &Path) -> Result<T, Error> {
     ssz_decode_file_with(path, T::from_ssz_bytes)
 }
 
-pub fn ssz_decode_state<E: EthSpec>(
-    path: &Path,
-    spec: &ChainSpec,
-) -> Result<BeaconState<E>, Error> {
+pub fn ssz_decode_state(path: &Path, spec: &ChainSpec) -> Result<BeaconState, Error> {
     log_file_access(path);
     ssz_decode_file_with(path, |bytes| BeaconState::from_ssz_bytes(bytes, spec))
 }
 
-pub fn ssz_decode_light_client_update<E: EthSpec>(
+pub fn ssz_decode_light_client_update(
     path: &Path,
     fork_name: &ForkName,
-) -> Result<LightClientUpdate<E>, Error> {
+) -> Result<LightClientUpdate, Error> {
     log_file_access(path);
     ssz_decode_file_with(path, |bytes| {
         LightClientUpdate::from_ssz_bytes(bytes, fork_name)

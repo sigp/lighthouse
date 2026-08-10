@@ -4,7 +4,7 @@ use state_processing::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyO
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashing,
+    AttesterSlashing, BeaconState, ChainSpec, Epoch, ForkName, ProposerSlashing,
     SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
 };
 
@@ -15,8 +15,8 @@ pub const SMALL_VEC_SIZE: usize = 8;
 ///
 /// Implements the conditions for gossip verification of exits and slashings from the P2P spec.
 #[derive(Debug, Educe)]
-#[educe(Default(bound(T: ObservableOperation<E>, E: EthSpec)))]
-pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
+#[educe(Default(bound(T: ObservableOperation, )))]
+pub struct ObservedOperations<T: ObservableOperation> {
     /// Indices of validators for whom we have already seen an instance of an operation `T`.
     ///
     /// For voluntary exits, this is the set of all `signed_voluntary_exit.message.validator_index`.
@@ -28,37 +28,37 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// The name of the current fork. The default will be overwritten on first use.
     #[educe(Default(expression = ForkName::Base))]
     current_fork: ForkName,
-    _phantom: PhantomData<(T, E)>,
+    _phantom: PhantomData<T>,
 }
 
 /// Was the observed operation new and valid for further processing, or a useless duplicate?
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ObservationOutcome<T: TransformPersist, E: EthSpec> {
-    New(SigVerifiedOp<T, E>),
+pub enum ObservationOutcome<T: TransformPersist> {
+    New(SigVerifiedOp<T>),
     AlreadyKnown,
 }
 
 /// Trait for operations which can be observed using `ObservedOperations`.
-pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
+pub trait ObservableOperation: VerifyOperation + Sized {
     /// The set of validator indices involved in this operation.
     ///
     /// See the comment on `observed_validator_indices` above for detail.
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]>;
 }
 
-impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
+impl ObservableOperation for SignedVoluntaryExit {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.message.validator_index]
     }
 }
 
-impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
+impl ObservableOperation for ProposerSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.signed_header_1.message.proposer_index]
     }
 }
 
-impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
+impl ObservableOperation for AttesterSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         let attestation_1_indices = self
             .attestation_1()
@@ -77,22 +77,22 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
     }
 }
 
-impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
+impl ObservableOperation for SignedBlsToExecutionChange {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.message.validator_index]
     }
 }
 
-impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
+impl<T: ObservableOperation> ObservedOperations<T> {
     pub fn verify_and_observe_parametric<F>(
         &mut self,
         op: T,
         validate: F,
-        head_state: &BeaconState<E>,
+        head_state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T, E>, T::Error>
+    ) -> Result<ObservationOutcome<T>, T::Error>
     where
-        F: Fn(T) -> Result<SigVerifiedOp<T, E>, T::Error>,
+        F: Fn(T) -> Result<SigVerifiedOp<T>, T::Error>,
     {
         self.reset_at_fork_boundary(head_state.slot(), spec);
 
@@ -125,9 +125,9 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     pub fn verify_and_observe(
         &mut self,
         op: T,
-        head_state: &BeaconState<E>,
+        head_state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+    ) -> Result<ObservationOutcome<T>, T::Error> {
         let validate = |op: T| op.validate(head_state, spec);
         self.verify_and_observe_parametric(op, validate, head_state, spec)
     }
@@ -144,7 +144,7 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     /// In future we could check slashing relevance against the op pool itself, but that would
     /// require indexing the attester slashings in the op pool by validator index.
     fn reset_at_fork_boundary(&mut self, head_slot: Slot, spec: &ChainSpec) {
-        let head_fork = spec.fork_name_at_slot::<E>(head_slot);
+        let head_fork = spec.fork_name_at_slot(head_slot);
         if head_fork != self.current_fork {
             self.observed_validator_indices.clear();
             self.current_fork = head_fork;
@@ -157,14 +157,14 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     }
 }
 
-impl<T: ObservableOperation<E> + VerifyOperationAt<E>, E: EthSpec> ObservedOperations<T, E> {
+impl<T: ObservableOperation + VerifyOperationAt> ObservedOperations<T> {
     pub fn verify_and_observe_at(
         &mut self,
         op: T,
         verify_at_epoch: Epoch,
-        head_state: &BeaconState<E>,
+        head_state: &BeaconState,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+    ) -> Result<ObservationOutcome<T>, T::Error> {
         let validate = |op: T| op.validate_at(head_state, verify_at_epoch, spec);
         self.verify_and_observe_parametric(op, validate, head_state, spec)
     }

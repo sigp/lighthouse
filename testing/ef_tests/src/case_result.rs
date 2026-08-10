@@ -32,9 +32,9 @@ impl CaseResult {
 
 /// Same as `compare_result_detailed`, however it drops the caches on both states before
 /// comparison.
-pub fn compare_beacon_state_results_without_caches<E: EthSpec, T: Debug>(
-    result: &mut Result<BeaconState<E>, T>,
-    expected: &mut Option<BeaconState<E>>,
+pub fn compare_beacon_state_results_without_caches<T: Debug>(
+    result: &mut Result<BeaconState, T>,
+    expected: &mut Option<BeaconState>,
 ) -> Result<(), Error> {
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
         result.drop_all_caches().unwrap();

@@ -16,14 +16,13 @@ use metrics::set_gauge_vec;
 use network_utils::discovery_metrics::NAT_OPEN;
 use network_utils::enr_ext::EnrExt;
 use tracing::{debug, error, trace};
-use types::EthSpec;
 
 use crate::types::SyncState;
 use crate::{ClearDialError, metrics};
 
 use super::{ConnectingType, PeerManager, PeerManagerEvent};
 
-impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
+impl NetworkBehaviour for PeerManager {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = PeerManagerEvent;
 
@@ -251,7 +250,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     }
 }
 
-impl<E: EthSpec> PeerManager<E> {
+impl PeerManager {
     fn on_connection_established(
         &mut self,
         peer_id: PeerId,

@@ -1,10 +1,10 @@
-use crate::EthSpec;
+use crate::core::Spec;
 use ssz_types::FixedVector;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PTC<E: EthSpec>(pub FixedVector<usize, E::PTCSize>);
+pub struct PTC(pub FixedVector<usize, typenum::U<{ Spec::PTC_SIZE }>>);
 
-impl<'a, E: EthSpec> IntoIterator for &'a PTC<E> {
+impl<'a> IntoIterator for &'a PTC {
     type Item = &'a usize;
     type IntoIter = std::slice::Iter<'a, usize>;
 
@@ -13,7 +13,7 @@ impl<'a, E: EthSpec> IntoIterator for &'a PTC<E> {
     }
 }
 
-impl<E: EthSpec> IntoIterator for PTC<E> {
+impl IntoIterator for PTC {
     type Item = usize;
     type IntoIter = std::vec::IntoIter<usize>;
 

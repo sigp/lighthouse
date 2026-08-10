@@ -10,9 +10,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, net::Ipv4Addr};
 use std::{fs::File, num::NonZeroU16};
-use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
+use types::{ChainSpec, EnrForkId, Epoch, Hash256};
 
-pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), String> {
+pub fn run(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), String> {
     let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;
     let udp_port: NonZeroU16 = clap_utils::parse_required(matches, "udp-port")?;
     let tcp_port: NonZeroU16 = clap_utils::parse_required(matches, "tcp-port")?;
@@ -40,7 +40,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    let enr = build_enr::<E>(
+    let enr = build_enr(
         &enr_key,
         &config,
         &enr_fork_id,

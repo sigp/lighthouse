@@ -1,5 +1,4 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
@@ -10,7 +9,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
+    core::{Address, ExecutionBlockHash, Hash256, Spec, Uint256},
     execution::{
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
         ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef, Transactions,
@@ -32,15 +31,11 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            Educe,
+            PartialEq,
+            Hash,
         ),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         context_deserialize(ForkName),
     ),
     ref_attributes(
@@ -57,17 +52,12 @@ use crate::{
     ),
     map_ref_into(ExecutionPayloadHeader)
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec", untagged)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, PartialEq, Hash)]
+#[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct ExecutionPayloadHeader<E: EthSpec> {
+pub struct ExecutionPayloadHeader {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
@@ -78,7 +68,7 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
+    pub logs_bloom: FixedVector<u8, typenum::U<{ Spec::BYTES_PER_LOGS_BLOOM }>>,
     #[superstruct(getter(copy))]
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -94,7 +84,7 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
+    pub extra_data: VariableList<u8, typenum::U<{ Spec::MAX_EXTRA_DATA_BYTES }>>,
     #[serde(with = "serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
@@ -112,8 +102,8 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub excess_blob_gas: u64,
 }
 
-impl<E: EthSpec> ExecutionPayloadHeader<E> {
-    pub fn transactions(&self) -> Option<&Transactions<E>> {
+impl ExecutionPayloadHeader {
+    pub fn transactions(&self) -> Option<&Transactions> {
         None
     }
 
@@ -147,7 +137,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             0
         } else if fork_name.bellatrix_enabled() {
             // Max size of variable length `extra_data` field
-            E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
+            Spec::MAX_EXTRA_DATA_BYTES * <u8 as Encode>::ssz_fixed_len()
         } else {
             0
         }
@@ -164,7 +154,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     }
 }
 
-impl<'a, E: EthSpec> ExecutionPayloadHeaderRef<'a, E> {
+impl<'a> ExecutionPayloadHeaderRef<'a> {
     pub fn is_default_with_zero_roots(self) -> bool {
         map_execution_payload_header_ref!(&'a _, self, |inner, cons| {
             cons(inner);
@@ -173,8 +163,8 @@ impl<'a, E: EthSpec> ExecutionPayloadHeaderRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderBellatrix<E> {
-    pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<E> {
+impl ExecutionPayloadHeaderBellatrix {
+    pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella {
         ExecutionPayloadHeaderCapella {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -195,8 +185,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderBellatrix<E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderCapella<E> {
-    pub fn upgrade_to_deneb(&self) -> ExecutionPayloadHeaderDeneb<E> {
+impl ExecutionPayloadHeaderCapella {
+    pub fn upgrade_to_deneb(&self) -> ExecutionPayloadHeaderDeneb {
         ExecutionPayloadHeaderDeneb {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -219,8 +209,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderCapella<E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
-    pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra<E> {
+impl ExecutionPayloadHeaderDeneb {
+    pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra {
         ExecutionPayloadHeaderElectra {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -243,8 +233,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderElectra<E> {
-    pub fn upgrade_to_fulu(&self) -> ExecutionPayloadHeaderFulu<E> {
+impl ExecutionPayloadHeaderElectra {
+    pub fn upgrade_to_fulu(&self) -> ExecutionPayloadHeaderFulu {
         ExecutionPayloadHeaderFulu {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -267,8 +257,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderElectra<E> {
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadBellatrix<E>> for ExecutionPayloadHeaderBellatrix<E> {
-    fn from(payload: &'a ExecutionPayloadBellatrix<E>) -> Self {
+impl<'a> From<&'a ExecutionPayloadBellatrix> for ExecutionPayloadHeaderBellatrix {
+    fn from(payload: &'a ExecutionPayloadBellatrix) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -288,30 +278,8 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadBellatrix<E>> for ExecutionPayload
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadCapella<E>> for ExecutionPayloadHeaderCapella<E> {
-    fn from(payload: &'a ExecutionPayloadCapella<E>) -> Self {
-        Self {
-            parent_hash: payload.parent_hash,
-            fee_recipient: payload.fee_recipient,
-            state_root: payload.state_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom.clone(),
-            prev_randao: payload.prev_randao,
-            block_number: payload.block_number,
-            gas_limit: payload.gas_limit,
-            gas_used: payload.gas_used,
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data.clone(),
-            base_fee_per_gas: payload.base_fee_per_gas,
-            block_hash: payload.block_hash,
-            transactions_root: payload.transactions.tree_hash_root(),
-            withdrawals_root: payload.withdrawals.tree_hash_root(),
-        }
-    }
-}
-
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadDeneb<E>> for ExecutionPayloadHeaderDeneb<E> {
-    fn from(payload: &'a ExecutionPayloadDeneb<E>) -> Self {
+impl<'a> From<&'a ExecutionPayloadCapella> for ExecutionPayloadHeaderCapella {
+    fn from(payload: &'a ExecutionPayloadCapella) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -328,14 +296,12 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadDeneb<E>> for ExecutionPayloadHead
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
-            blob_gas_used: payload.blob_gas_used,
-            excess_blob_gas: payload.excess_blob_gas,
         }
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHeaderElectra<E> {
-    fn from(payload: &'a ExecutionPayloadElectra<E>) -> Self {
+impl<'a> From<&'a ExecutionPayloadDeneb> for ExecutionPayloadHeaderDeneb {
+    fn from(payload: &'a ExecutionPayloadDeneb) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -358,8 +324,32 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadFulu<E>> for ExecutionPayloadHeaderFulu<E> {
-    fn from(payload: &'a ExecutionPayloadFulu<E>) -> Self {
+impl<'a> From<&'a ExecutionPayloadElectra> for ExecutionPayloadHeaderElectra {
+    fn from(payload: &'a ExecutionPayloadElectra) -> Self {
+        Self {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom.clone(),
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data.clone(),
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions_root: payload.transactions.tree_hash_root(),
+            withdrawals_root: payload.withdrawals.tree_hash_root(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
+impl<'a> From<&'a ExecutionPayloadFulu> for ExecutionPayloadHeaderFulu {
+    fn from(payload: &'a ExecutionPayloadFulu) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -384,38 +374,38 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadFulu<E>> for ExecutionPayloadHeade
 
 // These impls are required to work around an inelegance in `to_execution_payload_header`.
 // They only clone headers so they should be relatively cheap.
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderBellatrix<E> {
+impl<'a> From<&'a Self> for ExecutionPayloadHeaderBellatrix {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
 }
 
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<E> {
+impl<'a> From<&'a Self> for ExecutionPayloadHeaderCapella {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
 }
 
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderDeneb<E> {
+impl<'a> From<&'a Self> for ExecutionPayloadHeaderDeneb {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
 }
 
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<E> {
+impl<'a> From<&'a Self> for ExecutionPayloadHeaderElectra {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
 }
 
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderFulu<E> {
+impl<'a> From<&'a Self> for ExecutionPayloadHeaderFulu {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
 }
 
-impl<'a, E: EthSpec> From<ExecutionPayloadRef<'a, E>> for ExecutionPayloadHeader<E> {
-    fn from(payload: ExecutionPayloadRef<'a, E>) -> Self {
+impl<'a> From<ExecutionPayloadRef<'a>> for ExecutionPayloadHeader {
+    fn from(payload: ExecutionPayloadRef<'a>) -> Self {
         map_execution_payload_ref_into_execution_payload_header!(
             &'a _,
             payload,
@@ -424,9 +414,9 @@ impl<'a, E: EthSpec> From<ExecutionPayloadRef<'a, E>> for ExecutionPayloadHeader
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderBellatrix<E> {
+impl TryFrom<ExecutionPayloadHeader> for ExecutionPayloadHeaderBellatrix {
     type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         match header {
             ExecutionPayloadHeader::Bellatrix(execution_payload_header) => {
                 Ok(execution_payload_header)
@@ -435,9 +425,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderBe
         }
     }
 }
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderCapella<E> {
+impl TryFrom<ExecutionPayloadHeader> for ExecutionPayloadHeaderCapella {
     type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         match header {
             ExecutionPayloadHeader::Capella(execution_payload_header) => {
                 Ok(execution_payload_header)
@@ -446,9 +436,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderCa
         }
     }
 }
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDeneb<E> {
+impl TryFrom<ExecutionPayloadHeader> for ExecutionPayloadHeaderDeneb {
     type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         match header {
             ExecutionPayloadHeader::Deneb(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
@@ -456,9 +446,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
+impl ExecutionPayloadHeaderRefMut<'_> {
     /// Mutate through
-    pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
+    pub fn replace(self, header: ExecutionPayloadHeader) -> Result<(), BeaconStateError> {
         match self {
             ExecutionPayloadHeaderRefMut::Bellatrix(mut_ref) => {
                 *mut_ref = header.try_into()?;
@@ -480,9 +470,9 @@ impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderElectra<E> {
+impl TryFrom<ExecutionPayloadHeader> for ExecutionPayloadHeaderElectra {
     type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         match header {
             ExecutionPayloadHeader::Electra(execution_payload_header) => {
                 Ok(execution_payload_header)
@@ -492,9 +482,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderEl
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderFulu<E> {
+impl TryFrom<ExecutionPayloadHeader> for ExecutionPayloadHeaderFulu {
     type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+    fn try_from(header: ExecutionPayloadHeader) -> Result<Self, Self::Error> {
         match header {
             ExecutionPayloadHeader::Fulu(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
@@ -502,7 +492,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderFu
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHeader<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for ExecutionPayloadHeader {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

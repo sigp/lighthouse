@@ -6,10 +6,10 @@ use store::{
     StoreConfig,
     hdiff::{HDiff, HDiffBuffer},
 };
-use types::{BeaconState, Epoch, Eth1Data, EthSpec, MainnetEthSpec as E, Validator};
+use types::{BeaconState, Epoch, Eth1Data, Spec, Validator};
 
 pub fn all_benches(c: &mut Criterion) {
-    let spec = E::default_spec();
+    let spec = Spec::default_spec();
     let genesis_time = 0;
     let eth1_data = Eth1Data::default();
     let mut rng = rand::rng();
@@ -17,7 +17,7 @@ pub fn all_benches(c: &mut Criterion) {
     let validator_additions = 100;
 
     for n in [1_000_000, 1_500_000, 2_000_000] {
-        let mut source_state = BeaconState::<E>::new(genesis_time, eth1_data.clone(), &spec);
+        let mut source_state = BeaconState::new(genesis_time, eth1_data.clone(), &spec);
 
         for _ in 0..n {
             append_validator(&mut source_state, &mut rng);
@@ -50,8 +50,8 @@ pub fn all_benches(c: &mut Criterion) {
 
 fn bench_against_states(
     c: &mut Criterion,
-    source_state: BeaconState<E>,
-    target_state: BeaconState<E>,
+    source_state: BeaconState,
+    target_state: BeaconState,
     id: &str,
 ) {
     let slot_diff = target_state.slot() - source_state.slot();
@@ -94,7 +94,7 @@ fn rand_validator(mut rng: impl Rng) -> Validator {
     }
 }
 
-fn append_validator(state: &mut BeaconState<E>, mut rng: impl Rng) {
+fn append_validator(state: &mut BeaconState, mut rng: impl Rng) {
     state
         .balances_mut()
         .push(32_000_000_000 + rng.random_range(1..=1_000_000_000))

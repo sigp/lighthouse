@@ -16,28 +16,27 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
 use tracing::{info, warn};
-use types::{ChainSpec, Epoch, EthSpec, ForkName};
+use types::{ChainSpec, Epoch, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>;
+pub type ProductionClient =
+    Client<Witness<SystemTimeSlotClock, BeaconNodeBackend, BeaconNodeBackend>>;
 
 /// The beacon node `Client` that is used in production.
 ///
-/// Generic over some `EthSpec`.
-pub struct ProductionBeaconNode<E: EthSpec>(ProductionClient<E>);
+pub struct ProductionBeaconNode(ProductionClient);
 
-impl<E: EthSpec> ProductionBeaconNode<E> {
+impl ProductionBeaconNode {
     /// Starts a new beacon node `Client` in the given `environment`.
     ///
     /// Identical to `start_from_client_config`, however the `client_config` is generated from the
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
     pub async fn new_from_cli(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         matches: ArgMatches,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(&matches, &context)?;
+        let client_config = get_config(&matches, &context)?;
         Self::new(context, client_config).await
     }
 
@@ -45,7 +44,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     ///
     /// Client behaviour is defined by the given `client_config`.
     pub async fn new(
-        context: RuntimeContext<E>,
+        context: RuntimeContext,
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
         let spec = context.eth2_config().spec.clone();
@@ -74,7 +73,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             );
         }
 
-        let builder = ClientBuilder::new(context.eth_spec_instance.clone())
+        let builder = ClientBuilder::new()
             .runtime_context(context)
             .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
@@ -143,7 +142,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .map(Self)
     }
 
-    pub fn into_inner(self) -> ProductionClient<E> {
+    pub fn into_inner(self) -> ProductionClient {
         self.0
     }
 }
@@ -170,15 +169,15 @@ fn validator_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>>
     }
 }
 
-impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
-    type Target = ProductionClient<E>;
+impl Deref for ProductionBeaconNode {
+    type Target = ProductionClient;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
+impl DerefMut for ProductionBeaconNode {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -197,21 +196,24 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     #[test]
     fn test_validator_fork_epoch_alignments() {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = Spec::default_spec();
+        // Derive the test epochs from the spec's sync committee period so the test is
+        // preset-agnostic (the period differs per preset: 256 mainnet, 8 minimal, 512 gnosis).
+        // A fork epoch that is a multiple of the period is aligned; one offset by 1 is not.
+        let period = spec.epochs_per_sync_committee_period.as_u64();
+        let aligned_epoch = Epoch::new(period);
+        let misaligned_epoch = Epoch::new(period + 1);
         spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(256));
-        spec.deneb_fork_epoch = Some(Epoch::new(257));
+        spec.bellatrix_fork_epoch = Some(aligned_epoch);
+        spec.deneb_fork_epoch = Some(misaligned_epoch);
         spec.electra_fork_epoch = None;
         spec.fulu_fork_epoch = None;
         spec.gloas_fork_epoch = None;
         let result = validator_fork_epochs(&spec);
-        assert_eq!(
-            result,
-            Err(vec![(ForkName::Deneb, spec.deneb_fork_epoch.unwrap())])
-        );
+        assert_eq!(result, Err(vec![(ForkName::Deneb, misaligned_epoch)]));
     }
 }

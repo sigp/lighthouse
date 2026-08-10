@@ -4,7 +4,6 @@ use common::write_to_json_file;
 use environment::Environment;
 use serde::Serialize;
 use std::path::PathBuf;
-use types::EthSpec;
 
 pub mod common;
 pub mod create_validators;
@@ -56,7 +55,7 @@ pub fn cli_app() -> Command {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
+pub fn run(matches: &ArgMatches, env: Environment) -> Result<(), String> {
     let context = env.core_context();
     let spec = context.eth2_config.spec;
     let dump_config = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
@@ -72,7 +71,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
             async {
                 match matches.subcommand() {
                     Some((create_validators::CMD, matches)) => {
-                        create_validators::cli_run::<E>(matches, &spec, dump_config).await
+                        create_validators::cli_run(matches, &spec, dump_config).await
                     }
                     Some((import_validators::CMD, matches)) => {
                         import_validators::cli_run(matches, dump_config).await
@@ -81,13 +80,13 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                         move_validators::cli_run(matches, dump_config).await
                     }
                     Some((list_validators::CMD, matches)) => {
-                        list_validators::cli_run::<E>(matches, dump_config).await
+                        list_validators::cli_run(matches, dump_config).await
                     }
                     Some((delete_validators::CMD, matches)) => {
                         delete_validators::cli_run(matches, dump_config).await
                     }
                     Some((exit_validators::CMD, matches)) => {
-                        exit_validators::cli_run::<E>(matches, dump_config).await
+                        exit_validators::cli_run(matches, dump_config).await
                     }
                     Some(("", _)) => Err("No command supplied. See --help.".to_string()),
                     Some((unknown, _)) => Err(format!(

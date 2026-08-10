@@ -5,7 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types, PtcDuty};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Epoch, Hash256, Spec};
 
 type ApiDuties = api_types::DutiesResponse<Vec<PtcDuty>>;
 
@@ -17,7 +17,7 @@ pub fn ptc_duties<T: BeaconChainTypes>(
     let current_epoch = chain
         .slot_clock
         .now_or_genesis()
-        .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+        .map(|slot| slot.epoch(Spec::slots_per_epoch()))
         .ok_or(BeaconChainError::UnableToReadSlot)
         .map_err(warp_utils::reject::unhandled_error)?;
 
@@ -30,7 +30,7 @@ pub fn ptc_duties<T: BeaconChainTypes>(
             .ok_or_else(|| {
                 warp_utils::reject::custom_server_error("unable to read slot clock".into())
             })?
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
     };
 
     let is_within_clock_tolerance = request_epoch == current_epoch
@@ -108,21 +108,21 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
         }
     };
 
-    let (state, execution_optimistic) =
-        if let Some((state_root, mut state, execution_optimistic)) = state_opt {
-            ensure_state_knows_ptc_duties_for_epoch(
-                &mut state,
-                state_root,
-                request_epoch,
-                &chain.spec,
-            )?;
-            (state, execution_optimistic)
-        } else {
-            let (state, execution_optimistic, _finalized) =
-                StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                    .state(chain)?;
-            (state, execution_optimistic)
-        };
+    let (state, execution_optimistic) = if let Some((state_root, mut state, execution_optimistic)) =
+        state_opt
+    {
+        ensure_state_knows_ptc_duties_for_epoch(
+            &mut state,
+            state_root,
+            request_epoch,
+            &chain.spec,
+        )?;
+        (state, execution_optimistic)
+    } else {
+        let (state, execution_optimistic, _finalized) =
+            StateId::from_slot(request_epoch.start_slot(Spec::slots_per_epoch())).state(chain)?;
+        (state, execution_optimistic)
+    };
 
     if !(state.current_epoch() == request_epoch || state.current_epoch() + 1 == request_epoch) {
         return Err(warp_utils::reject::custom_server_error(format!(
@@ -144,8 +144,8 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
     convert_to_api_response(duties, dependent_root, execution_optimistic)
 }
 
-fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn ensure_state_knows_ptc_duties_for_epoch(
+    state: &mut BeaconState,
     state_root: Hash256,
     target_epoch: Epoch,
     spec: &ChainSpec,
@@ -159,7 +159,7 @@ fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
     } else if state.current_epoch() + 1 < target_epoch {
         let target_slot = target_epoch
             .saturating_sub(1_u64)
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         partial_state_advance(state, Some(state_root), target_slot, spec)
             .map_err(BeaconChainError::from)

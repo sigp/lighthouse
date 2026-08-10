@@ -4,8 +4,8 @@ use std::time::Duration;
 use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
 use types::{
-    Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, SignedRoot, Slot,
+    Domain, Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    SignedRoot, Slot, Spec,
 };
 
 use crate::{
@@ -21,8 +21,7 @@ use crate::{
     },
 };
 
-type E = MinimalEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralHarnessType;
 
 const NUM_VALIDATORS: usize = 64;
 
@@ -37,13 +36,13 @@ impl TestContext {
     }
 
     fn with_validator_count(num_validators: usize) -> Self {
-        let spec = Arc::new(test_spec::<E>());
+        let spec = Arc::new(test_spec());
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
             spec.get_slot_duration(),
         );
-        let harness = BeaconChainHarness::builder(E::default())
+        let harness = BeaconChainHarness::builder()
             .spec(spec)
             .deterministic_keypairs(num_validators)
             .fresh_ephemeral_store()
@@ -85,7 +84,7 @@ impl TestContext {
         let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.harness.spec.get_domain(
-            data.slot.epoch(E::slots_per_epoch()),
+            data.slot.epoch(Spec::slots_per_epoch()),
             Domain::PTCAttester,
             &state.fork(),
             state.genesis_validators_root(),
@@ -455,7 +454,7 @@ async fn harness_packs_payload_attestation_messages_by_ptc_weight() {
 #[tokio::test]
 async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
     // Only run this test once, when FORK_NAME=gloas exactly.
-    let mut spec = test_spec::<E>();
+    let mut spec = test_spec();
     if spec.fork_name_at_epoch(Epoch::new(0)) != ForkName::Gloas {
         return;
     }
@@ -468,13 +467,13 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
     );
     assert_eq!(spec.fork_name_at_epoch(gloas_fork_epoch), ForkName::Gloas);
 
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let fork_boundary_slot = gloas_fork_epoch.start_slot(slots_per_epoch);
     let test_slots = (fork_boundary_slot.as_u64()
         ..fork_boundary_slot.as_u64() + slots_per_epoch * 2)
         .map(Slot::new);
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .spec(Arc::new(spec))
         .deterministic_keypairs(NUM_VALIDATORS)
         .fresh_ephemeral_store()
@@ -536,7 +535,7 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
         return;
     }
 
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     // Head at epoch 1, message at epoch 5: 4 epochs of missed slots.
     let head_slot = Slot::new(slots_per_epoch);
     let missed_epochs = 4;
@@ -544,7 +543,7 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
 
     // Given a chain with blocks through epoch 1, then a slot clock advanced 4 epochs without
     // producing blocks (simulating missed slots).
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(64)
         .fresh_ephemeral_store()
@@ -586,12 +585,12 @@ async fn side_chain_payload_attestation_uses_side_chain_ptc() {
         return;
     }
 
-    let slots_per_epoch = E::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let fork_slot = Slot::new(slots_per_epoch);
     let target_slot = Slot::new(slots_per_epoch * 4);
     let target_epoch = target_slot.epoch(slots_per_epoch);
 
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(NUM_VALIDATORS)
         .fresh_ephemeral_store()

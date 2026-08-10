@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use strum::{Display, EnumString, VariantNames};
 use types::new_non_zero_usize;
-use types::{Epoch, EthSpec, IndexedAttestation};
+use types::{Epoch, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
@@ -165,9 +165,9 @@ impl Config {
     }
 
     /// Iterate over the attesting indices which belong to the `validator_chunk_index` chunk.
-    pub fn attesting_validators_in_chunk<'a, E: EthSpec>(
+    pub fn attesting_validators_in_chunk<'a>(
         &'a self,
-        attestation: &'a IndexedAttestation<E>,
+        attestation: &'a IndexedAttestation,
         validator_chunk_index: usize,
     ) -> impl Iterator<Item = u64> + 'a {
         attestation

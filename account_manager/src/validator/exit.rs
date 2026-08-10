@@ -16,7 +16,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
+use types::{ChainSpec, Epoch, Spec, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -87,7 +87,7 @@ pub fn cli_app() -> Command {
         )
 }
 
-pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches, env: Environment) -> Result<(), String> {
     let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
@@ -110,7 +110,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         .clone()
         .expect("network should have a valid config");
 
-    env.runtime().block_on(publish_voluntary_exit::<E>(
+    env.runtime().block_on(publish_voluntary_exit(
         &keystore_path,
         password_file_path.as_ref(),
         &client,
@@ -127,7 +127,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
 
 /// Gets the keypair and validator_index for every validator and calls `publish_voluntary_exit` on it.
 #[allow(clippy::too_many_arguments)]
-async fn publish_voluntary_exit<E: EthSpec>(
+async fn publish_voluntary_exit(
     keystore_path: &Path,
     password_file_path: Option<&PathBuf>,
     client: &BeaconNodeHttpClient,
@@ -140,7 +140,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
-        .genesis_validators_root::<E>()?
+        .genesis_validators_root()?
         .ok_or("Genesis state is unknown")?;
 
     // Verify that the beacon node and validator being exited are on the same network.
@@ -159,7 +159,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
 
     let keypair = load_voting_keypair(keystore_path, password_file_path, stdin_inputs)?;
 
-    let epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
+    let epoch = get_current_epoch(genesis_data.genesis_time, spec)
         .ok_or("Failed to get current epoch. Please check your system time")?;
     let validator_index = get_validator_index_for_exit(client, &keypair.pk, epoch, spec).await?;
 
@@ -237,7 +237,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
             ValidatorStatus::ActiveExiting => {
                 let exit_epoch = validator_data.validator.exit_epoch;
                 let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
-                let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
+                let current_epoch = get_current_epoch(genesis_data.genesis_time, spec)
                     .ok_or("Failed to get current epoch. Please check your system time")?;
                 eprintln!(
                     "Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
@@ -253,7 +253,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
                     "Exit epoch in approximately {} secs",
                     (exit_epoch - current_epoch)
                         * spec.get_slot_duration().as_secs()
-                        * E::slots_per_epoch()
+                        * Spec::slots_per_epoch()
                 );
                 break;
             }
@@ -348,13 +348,13 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
 }
 
 /// Calculates the current epoch from the genesis time and current time.
-fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
+fn get_current_epoch(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
         spec.get_slot_duration(),
     );
-    slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
+    slot_clock.now().map(|s| s.epoch(Spec::slots_per_epoch()))
 }
 
 /// Load the voting keypair by loading and decrypting the keystore.

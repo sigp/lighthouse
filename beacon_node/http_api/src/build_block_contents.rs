@@ -1,12 +1,12 @@
 use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseWrapper, BlockProductionError};
 use eth2::types::{BlockContents, FullBlockContents, ProduceBlockV3Response};
-use types::{EthSpec, ForkName};
+use types::ForkName;
 type Error = warp::reject::Rejection;
 
-pub fn build_block_contents<E: EthSpec>(
+pub fn build_block_contents(
     fork_name: ForkName,
-    block_response: BeaconBlockResponseWrapper<E>,
-) -> Result<ProduceBlockV3Response<E>, Error> {
+    block_response: BeaconBlockResponseWrapper,
+) -> Result<ProduceBlockV3Response, Error> {
     match block_response {
         BeaconBlockResponseWrapper::Blinded(block) => {
             Ok(ProduceBlockV3Response::Blinded(block.block))

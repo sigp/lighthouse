@@ -1,11 +1,8 @@
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, Fork};
 
 /// Transform a `Gloas` state into a `Heze` state.
-pub fn upgrade_to_heze<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_heze(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let post = upgrade_state_to_heze(pre_state, spec)?;
 
     *pre_state = post;
@@ -13,10 +10,10 @@ pub fn upgrade_to_heze<E: EthSpec>(
     Ok(())
 }
 
-pub fn upgrade_state_to_heze<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
+pub fn upgrade_state_to_heze(
+    pre_state: &mut BeaconState,
     spec: &ChainSpec,
-) -> Result<BeaconState<E>, Error> {
+) -> Result<BeaconState, Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_gloas_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut

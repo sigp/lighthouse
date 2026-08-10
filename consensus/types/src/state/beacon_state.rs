@@ -20,7 +20,7 @@ use swap_or_not_shuffle::compute_shuffled_index;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use typenum::Unsigned;
+use typenum::U;
 
 use crate::{
     Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
@@ -31,12 +31,12 @@ use crate::{
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
     builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
-    core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
+    core::{ChainSpec, Domain, Epoch, Hash256, RelativeEpoch, RelativeEpochError, Slot, Spec},
     deposit::PendingDeposit,
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, FullPayload,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -70,9 +70,9 @@ const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
 const SAFETY_DECAY: u64 = 10;
 
-pub type Validators<E> =
-    List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators =
+    List<Validator, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>, BTreeMap<usize, Validator>>;
+pub type Balances = List<u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
 pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
@@ -80,15 +80,15 @@ pub type BalancesGloas = ProgressiveList<u64>;
 
 // Views over list fields that are (fixed-capacity) `List`s pre-Gloas and `ProgressiveList`s
 // from Gloas onwards (EIP-7688).
-pub type ValidatorsRef<'a, E> =
-    AnyListRef<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type ValidatorsMut<'a, E> =
-    AnyListMut<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesRef<'a, E> = AnyListRef<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type BalancesMut<'a, E> = AnyListMut<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type ValidatorsOwned<E> =
-    AnyList<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesOwned<E> = AnyList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type ValidatorsRef<'a> =
+    AnyListRef<'a, Validator, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>, BTreeMap<usize, Validator>>;
+pub type ValidatorsMut<'a> =
+    AnyListMut<'a, Validator, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>, BTreeMap<usize, Validator>>;
+pub type BalancesRef<'a> = AnyListRef<'a, u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>;
+pub type BalancesMut<'a> = AnyListMut<'a, u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>;
+pub type ValidatorsOwned =
+    AnyList<Validator, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>, BTreeMap<usize, Validator>>;
+pub type BalancesOwned = AnyList<u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconStateError {
@@ -308,12 +308,8 @@ impl From<BeaconStateHash> for Hash256 {
             TreeHash,
             CompareFields,
         ),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec")
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
         educe(Clone),
     ),
     specific_variant_attributes(
@@ -472,19 +468,11 @@ impl From<BeaconStateHash> for Hash256 {
     ),
     map_ref_mut_into(BeaconStateRef)
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode)]
 #[serde(untagged)]
-#[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconState<E>
-where
-    E: EthSpec,
-{
+pub struct BeaconState {
     // Versioning
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -505,20 +493,20 @@ where
     pub latest_block_header: BeaconBlockHeader,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
-    pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
+    pub block_roots: Vector<Hash256, U<{ Spec::SLOTS_PER_HISTORICAL_ROOT }>>,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
-    pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
+    pub state_roots: Vector<Hash256, U<{ Spec::SLOTS_PER_HISTORICAL_ROOT }>>,
     // Frozen in Capella, replaced by historical_summaries
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
-    pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
+    pub historical_roots: List<Hash256, U<{ Spec::HISTORICAL_ROOTS_LIMIT }>>,
 
     // Ethereum 1.0 chain data
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: List<Eth1Data, U<{ Spec::SLOTS_PER_ETH1_VOTING_PERIOD }>>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -531,7 +519,7 @@ where
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "validators_basic")
     )]
-    pub validators: Validators<E>,
+    pub validators: Validators,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "validators_progressive"))]
@@ -543,7 +531,7 @@ where
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "balances_basic")
     )]
-    pub balances: List<u64, E::ValidatorRegistryLimit>,
+    pub balances: List<u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -552,20 +540,21 @@ where
 
     // Randomness
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub randao_mixes: Vector<Hash256, E::EpochsPerHistoricalVector>,
+    pub randao_mixes: Vector<Hash256, U<{ Spec::EPOCHS_PER_HISTORICAL_VECTOR }>>,
 
     // Slashings
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
-    pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
+    pub slashings: Vector<u64, U<{ Spec::EPOCHS_PER_SLASHINGS_VECTOR }>>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub previous_epoch_attestations:
+        List<PendingAttestation, U<{ Spec::MAX_PENDING_ATTESTATIONS }>>,
     #[superstruct(only(Base))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub current_epoch_attestations: List<PendingAttestation, U<{ Spec::MAX_PENDING_ATTESTATIONS }>>,
 
     // Participation (Altair and later)
     #[compare_fields(as_iter)]
@@ -574,7 +563,8 @@ where
         partial_getter(rename = "previous_epoch_participation_basic")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub previous_epoch_participation:
+        List<ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
     #[compare_fields(as_iter)]
     #[superstruct(
         only(Gloas, Heze),
@@ -587,7 +577,8 @@ where
         partial_getter(rename = "current_epoch_participation_basic")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub current_epoch_participation:
+        List<ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
     #[superstruct(
         only(Gloas, Heze),
         partial_getter(rename = "current_epoch_participation_progressive")
@@ -598,7 +589,7 @@ where
     // Finality
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude_from(tree_lists))]
-    pub justification_bits: BitVector<E::JustificationBitsLength>,
+    pub justification_bits: BitVector<U<{ Spec::JUSTIFICATION_BITS_LENGTH }>>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub previous_justified_checkpoint: Checkpoint,
@@ -616,7 +607,7 @@ where
         partial_getter(rename = "inactivity_scores_basic")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
+    pub inactivity_scores: List<u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(
         only(Gloas, Heze),
@@ -628,10 +619,10 @@ where
     // Light-client sync committees
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
-    pub current_sync_committee: Arc<SyncCommittee<E>>,
+    pub current_sync_committee: Arc<SyncCommittee>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
-    pub next_sync_committee: Arc<SyncCommittee<E>>,
+    pub next_sync_committee: Arc<SyncCommittee>,
 
     // Execution
     #[superstruct(
@@ -639,31 +630,31 @@ where
         partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella,
     #[superstruct(
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb,
     #[superstruct(
         only(Electra),
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra,
     #[superstruct(
         only(Fulu),
         partial_getter(rename = "latest_execution_payload_header_fulu")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
@@ -679,7 +670,7 @@ where
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
+    pub historical_summaries: List<HistoricalSummary, U<{ Spec::HISTORICAL_ROOTS_LIMIT }>>,
 
     // Electra
     #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
@@ -707,7 +698,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Electra, Fulu), partial_getter(rename = "pending_deposits_basic"))]
-    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
+    pub pending_deposits: List<PendingDeposit, U<{ Spec::PENDING_DEPOSITS_LIMIT }>>,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
@@ -722,7 +713,7 @@ where
         partial_getter(rename = "pending_partial_withdrawals_basic")
     )]
     pub pending_partial_withdrawals:
-        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+        List<PendingPartialWithdrawal, U<{ Spec::PENDING_PARTIAL_WITHDRAWALS_LIMIT }>>,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
@@ -736,7 +727,8 @@ where
         only(Electra, Fulu),
         partial_getter(rename = "pending_consolidations_basic")
     )]
-    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+    pub pending_consolidations:
+        List<PendingConsolidation, U<{ Spec::PENDING_CONSOLIDATIONS_LIMIT }>>,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
@@ -750,7 +742,7 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Fulu, Gloas, Heze))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
-    pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
+    pub proposer_lookahead: Vector<u64, U<{ Spec::PROPOSER_LOOKAHEAD_SLOTS }>>,
     // Gloas
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -765,12 +757,13 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
-    pub execution_payload_availability: BitVector<E::SlotsPerHistoricalRoot>,
+    pub execution_payload_availability: BitVector<U<{ Spec::SLOTS_PER_HISTORICAL_ROOT }>>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
-    pub builder_pending_payments: Vector<BuilderPendingPayment, E::BuilderPendingPaymentsLimit>,
+    pub builder_pending_payments:
+        Vector<BuilderPendingPayment, U<{ Spec::BUILDER_PENDING_PAYMENTS_LIMIT }>>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -780,7 +773,7 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_execution_payload_bid: ExecutionPayloadBid,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -790,7 +783,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
-    pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
+    pub ptc_window: Vector<FixedVector<u64, U<{ Spec::PTC_SIZE }>>, U<{ Spec::PTC_WINDOW_LENGTH }>>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -886,15 +879,15 @@ macro_rules! impl_any_list_accessors {
     };
 }
 
-impl<E: EthSpec> BeaconState<E> {
+impl BeaconState {
     // Accessors for the dual-representation (EIP-7688) list fields. These intentionally use the
     // same names as the getters superstruct used to generate, so that call sites which only use
     // the API common to `List` and `ProgressiveList` keep working unchanged.
     impl_any_list_accessors!(
         validators,
         validators_mut,
-        ValidatorsRef<'_, E>,
-        ValidatorsMut<'_, E>,
+        ValidatorsRef<'_>,
+        ValidatorsMut<'_>,
         basic(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         progressive(Gloas, Heze)
     );
@@ -902,8 +895,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         balances,
         balances_mut,
-        BalancesRef<'_, E>,
-        BalancesMut<'_, E>,
+        BalancesRef<'_>,
+        BalancesMut<'_>,
         basic(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         progressive(Gloas, Heze)
     );
@@ -911,8 +904,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         previous_epoch_participation,
         previous_epoch_participation_mut,
-        AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
+        AnyListRef<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+        AnyListMut<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base)
@@ -921,8 +914,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         current_epoch_participation,
         current_epoch_participation_mut,
-        AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
+        AnyListRef<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+        AnyListMut<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base)
@@ -931,8 +924,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         inactivity_scores,
         inactivity_scores_mut,
-        AnyListRef<'_, u64, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
+        AnyListRef<'_, u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+        AnyListMut<'_, u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base)
@@ -941,8 +934,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         pending_deposits,
         pending_deposits_mut,
-        AnyListRef<'_, PendingDeposit, E::PendingDepositsLimit>,
-        AnyListMut<'_, PendingDeposit, E::PendingDepositsLimit>,
+        AnyListRef<'_, PendingDeposit, U<{ Spec::PENDING_DEPOSITS_LIMIT }>>,
+        AnyListMut<'_, PendingDeposit, U<{ Spec::PENDING_DEPOSITS_LIMIT }>>,
         basic(Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
@@ -951,8 +944,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         pending_partial_withdrawals,
         pending_partial_withdrawals_mut,
-        AnyListRef<'_, PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-        AnyListMut<'_, PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+        AnyListRef<'_, PendingPartialWithdrawal, U<{ Spec::PENDING_PARTIAL_WITHDRAWALS_LIMIT }>>,
+        AnyListMut<'_, PendingPartialWithdrawal, U<{ Spec::PENDING_PARTIAL_WITHDRAWALS_LIMIT }>>,
         basic(Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
@@ -961,8 +954,8 @@ impl<E: EthSpec> BeaconState<E> {
     impl_any_list_accessors!(
         pending_consolidations,
         pending_consolidations_mut,
-        AnyListRef<'_, PendingConsolidation, E::PendingConsolidationsLimit>,
-        AnyListMut<'_, PendingConsolidation, E::PendingConsolidationsLimit>,
+        AnyListRef<'_, PendingConsolidation, U<{ Spec::PENDING_CONSOLIDATIONS_LIMIT }>>,
+        AnyListMut<'_, PendingConsolidation, U<{ Spec::PENDING_CONSOLIDATIONS_LIMIT }>>,
         basic(Electra, Fulu),
         progressive(Gloas, Heze),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
@@ -981,11 +974,11 @@ impl<E: EthSpec> BeaconState<E> {
             fork: Fork {
                 previous_version: spec.genesis_fork_version,
                 current_version: spec.genesis_fork_version,
-                epoch: E::genesis_epoch(),
+                epoch: Epoch::new(Spec::genesis_epoch()),
             },
 
             // History
-            latest_block_header: BeaconBlock::<E>::empty(spec).temporary_block_header(),
+            latest_block_header: BeaconBlock::<FullPayload>::empty(spec).temporary_block_header(),
             block_roots: Vector::default(),
             state_roots: Vector::default(),
             historical_roots: List::default(),
@@ -1070,7 +1063,7 @@ impl<E: EthSpec> BeaconState<E> {
         self.update_tree_hash_cache()
     }
 
-    pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, BeaconStateError> {
+    pub fn historical_batch(&mut self) -> Result<HistoricalBatch, BeaconStateError> {
         // Updating before cloning makes the clone cheap and saves repeated hashing.
         self.block_roots_mut().apply_updates()?;
         self.state_roots_mut().apply_updates()?;
@@ -1094,7 +1087,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// The epoch corresponding to `self.slot()`.
     pub fn current_epoch(&self) -> Epoch {
-        self.slot().epoch(E::slots_per_epoch())
+        self.slot().epoch(Spec::slots_per_epoch())
     }
 
     /// The epoch prior to `self.current_epoch()`.
@@ -1190,7 +1183,7 @@ impl<E: EthSpec> BeaconState<E> {
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<BeaconCommittee<'_>, BeaconStateError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         let cache = self.committee_cache(relative_epoch)?;
 
@@ -1237,7 +1230,7 @@ impl<E: EthSpec> BeaconState<E> {
         block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<Hash256, BeaconStateError> {
-        let decision_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+        let decision_slot = spec.proposer_shuffling_decision_slot(epoch);
         if self.slot() <= decision_slot {
             Ok(block_root)
         } else {
@@ -1253,7 +1246,7 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         head_block_root: Hash256,
     ) -> Result<Hash256, BeaconStateError> {
-        let decision_slot = epoch.saturating_sub(1u64).end_slot(E::slots_per_epoch());
+        let decision_slot = epoch.saturating_sub(1u64).end_slot(Spec::slots_per_epoch());
         if self.slot() <= decision_slot {
             Ok(head_block_root)
         } else {
@@ -1313,7 +1306,7 @@ impl<E: EthSpec> BeaconState<E> {
             RelativeEpoch::Current => self.previous_epoch(),
             RelativeEpoch::Previous => self.previous_epoch().saturating_sub(1_u64),
         }
-        .start_slot(E::slots_per_epoch())
+        .start_slot(Spec::slots_per_epoch())
         .saturating_sub(1_u64)
     }
 
@@ -1397,7 +1390,7 @@ impl<E: EthSpec> BeaconState<E> {
             // (`upgrade_to_fulu`/`initialize_proposer_lookahead`), in which case the state is not
             // yet the Fulu variant, and we omit the check.
             if self.fork_name_unchecked().fulu_enabled() {
-                let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+                let dependent_slot = spec.proposer_shuffling_decision_slot(epoch);
                 if self.slot() != dependent_slot {
                     return Err(
                         BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
@@ -1421,7 +1414,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         let gloas_enabled = self.fork_name_unchecked().gloas_enabled();
         epoch
-            .slot_iter(E::slots_per_epoch())
+            .slot_iter(Spec::slots_per_epoch())
             .map(|slot| {
                 let mut preimage = seed.to_vec();
                 preimage.append(&mut int_to_bytes8(slot.as_u64()));
@@ -1483,7 +1476,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
     pub fn latest_execution_payload_header(
         &self,
-    ) -> Result<ExecutionPayloadHeaderRef<'_, E>, BeaconStateError> {
+    ) -> Result<ExecutionPayloadHeaderRef<'_>, BeaconStateError> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => {
                 Err(BeaconStateError::IncorrectStateVariant)
@@ -1511,7 +1504,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn latest_execution_payload_header_mut(
         &mut self,
-    ) -> Result<ExecutionPayloadHeaderRefMut<'_, E>, BeaconStateError> {
+    ) -> Result<ExecutionPayloadHeaderRefMut<'_>, BeaconStateError> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => {
                 Err(BeaconStateError::IncorrectStateVariant)
@@ -1573,7 +1566,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<usize, BeaconStateError> {
         // Proposer indices are only known for the current epoch, due to the dependence on the
         // effective balances of validators, which change at every epoch transition.
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         // TODO(EIP-7917): Explore allowing this function to be called with a slot one epoch in the future.
         if epoch != self.current_epoch() {
             return Err(BeaconStateError::SlotOutOfBounds);
@@ -1581,7 +1574,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         if let Ok(proposer_lookahead) = self.proposer_lookahead() {
             // Post-Fulu
-            let index = slot.as_usize().safe_rem(E::slots_per_epoch() as usize)?;
+            let index = slot.as_usize().safe_rem(Spec::SLOTS_PER_EPOCH)?;
             proposer_lookahead
                 .get(index)
                 .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index })
@@ -1609,7 +1602,7 @@ impl<E: EthSpec> BeaconState<E> {
             && epoch >= self.current_epoch()
             && epoch <= self.next_epoch()?
         {
-            let slots_per_epoch = E::slots_per_epoch() as usize;
+            let slots_per_epoch = Spec::SLOTS_PER_EPOCH;
             let start_offset = if epoch == self.current_epoch() {
                 0
             } else {
@@ -1645,7 +1638,7 @@ impl<E: EthSpec> BeaconState<E> {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Vec<u8>, BeaconStateError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let mut preimage = self
             .get_seed(epoch, Domain::BeaconProposer, spec)?
             .as_slice()
@@ -1659,7 +1652,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<&Arc<SyncCommittee<E>>, BeaconStateError> {
+    ) -> Result<&Arc<SyncCommittee>, BeaconStateError> {
         let sync_committee_period = epoch.sync_committee_period(spec)?;
         let current_sync_committee_period = self.current_epoch().sync_committee_period(spec)?;
         let next_sync_committee_period = current_sync_committee_period.safe_add(1)?;
@@ -1679,7 +1672,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Get the validator indices of all validators from `sync_committee`.
     pub fn get_sync_committee_indices(
         &mut self,
-        sync_committee: &SyncCommittee<E>,
+        sync_committee: &SyncCommittee,
     ) -> Result<Vec<usize>, BeaconStateError> {
         self.update_pubkey_cache()?;
         sync_committee
@@ -1707,7 +1700,7 @@ impl<E: EthSpec> BeaconState<E> {
             self.compute_balance_weighted_selection(
                 &active_validator_indices,
                 seed.as_slice(),
-                E::SyncCommitteeSize::to_usize(),
+                Spec::SYNC_COMMITTEE_SIZE,
                 true,
                 spec,
             )
@@ -1722,8 +1715,8 @@ impl<E: EthSpec> BeaconState<E> {
             };
 
             let mut i = 0;
-            let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
-            while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
+            let mut sync_committee_indices = Vec::with_capacity(Spec::SYNC_COMMITTEE_SIZE);
+            while sync_committee_indices.len() < Spec::SYNC_COMMITTEE_SIZE {
                 let shuffled_index = compute_shuffled_index(
                     i.safe_rem(active_validator_count)?,
                     active_validator_count,
@@ -1751,7 +1744,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_next_sync_committee(
         &self,
         spec: &ChainSpec,
-    ) -> Result<SyncCommittee<E>, BeaconStateError> {
+    ) -> Result<SyncCommittee, BeaconStateError> {
         let sync_committee_indices = self.get_next_sync_committee_indices(spec)?;
 
         let pubkeys = sync_committee_indices
@@ -1830,7 +1823,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Returns an iterator across the past block roots of `state` in descending slot-order.
     ///
     /// See the docs for `BlockRootsIter` for more detail.
-    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, E> {
+    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a> {
         BlockRootsIter::new(self, spec.genesis_slot)
     }
 
@@ -1846,7 +1839,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Note that the spec calls this `get_block_root`.
     pub fn get_block_root_at_epoch(&self, epoch: Epoch) -> Result<&Hash256, BeaconStateError> {
-        self.get_block_root(epoch.start_slot(E::slots_per_epoch()))
+        self.get_block_root(epoch.start_slot(Spec::slots_per_epoch()))
     }
 
     /// Sets the block root for some given slot.
@@ -1878,7 +1871,7 @@ impl<E: EthSpec> BeaconState<E> {
         allow_next_epoch: AllowNextEpoch,
     ) -> Result<usize, BeaconStateError> {
         let current_epoch = self.current_epoch();
-        let len = E::EpochsPerHistoricalVector::to_u64();
+        let len = Spec::epochs_per_historical_vector();
 
         if current_epoch < epoch.safe_add(len)?
             && epoch <= allow_next_epoch.upper_bound_of(current_epoch)?
@@ -1893,7 +1886,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn min_randao_epoch(&self) -> Epoch {
         self.current_epoch()
             .saturating_add(1u64)
-            .saturating_sub(E::EpochsPerHistoricalVector::to_u64())
+            .saturating_sub(Spec::epochs_per_historical_vector())
     }
 
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
@@ -1908,7 +1901,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<(), BeaconStateError> {
         let i = epoch
             .as_usize()
-            .safe_rem(E::EpochsPerHistoricalVector::to_usize())?;
+            .safe_rem(Spec::EPOCHS_PER_HISTORICAL_VECTOR)?;
 
         let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
 
@@ -1962,7 +1955,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Gets the state root for the start slot of some epoch.
     pub fn get_state_root_at_epoch_start(&self, epoch: Epoch) -> Result<Hash256, BeaconStateError> {
-        self.get_state_root(epoch.start_slot(E::slots_per_epoch()))
+        self.get_state_root(epoch.start_slot(Spec::slots_per_epoch()))
             .copied()
     }
 
@@ -2001,19 +1994,19 @@ impl<E: EthSpec> BeaconState<E> {
         // We allow the slashings vector to be accessed at any cached epoch at or before
         // the current epoch, or the next epoch if `AllowNextEpoch::True` is passed.
         let current_epoch = self.current_epoch();
-        if current_epoch < epoch.safe_add(E::EpochsPerSlashingsVector::to_u64())?
+        if current_epoch < epoch.safe_add(Spec::epochs_per_slashings_vector())?
             && epoch <= allow_next_epoch.upper_bound_of(current_epoch)?
         {
             Ok(epoch
                 .as_usize()
-                .safe_rem(E::EpochsPerSlashingsVector::to_usize())?)
+                .safe_rem(Spec::EPOCHS_PER_SLASHINGS_VECTOR)?)
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
         }
     }
 
     /// Get a reference to the entire `slashings` vector.
-    pub fn get_all_slashings(&self) -> &Vector<u64, E::EpochsPerSlashingsVector> {
+    pub fn get_all_slashings(&self) -> &Vector<u64, U<{ Spec::EPOCHS_PER_SLASHINGS_VECTOR }>> {
         self.slashings()
     }
 
@@ -2040,8 +2033,8 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn validators_and_balances_and_progressive_balances_mut<'a>(
         &'a mut self,
     ) -> (
-        ValidatorsMut<'a, E>,
-        BalancesMut<'a, E>,
+        ValidatorsMut<'a>,
+        BalancesMut<'a>,
         &'a mut ProgressiveBalancesCache,
     ) {
         macro_rules! validators_and_balances {
@@ -2072,11 +2065,11 @@ impl<E: EthSpec> BeaconState<E> {
         &mut self,
     ) -> Result<
         (
-            ValidatorsMut<'_, E>,
-            BalancesMut<'_, E>,
-            AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-            AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-            AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
+            ValidatorsMut<'_>,
+            BalancesMut<'_>,
+            AnyListRef<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+            AnyListRef<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+            AnyListMut<'_, u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
             &mut ProgressiveBalancesCache,
             &mut ExitCache,
             &mut EpochCache,
@@ -2114,7 +2107,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the validators list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing.
-    pub fn take_validators(&mut self) -> ValidatorsOwned<E> {
+    pub fn take_validators(&mut self) -> ValidatorsOwned {
         match self {
             Self::Base(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
             Self::Altair(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
@@ -2150,7 +2143,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the balances list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing.
-    pub fn take_balances(&mut self) -> BalancesOwned<E> {
+    pub fn take_balances(&mut self) -> BalancesOwned {
         match self {
             Self::Base(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
             Self::Altair(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
@@ -2188,7 +2181,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Used by the database layer for efficient diffing. Errors on Base states (no such field).
     pub fn take_inactivity_scores(
         &mut self,
-    ) -> Result<AnyList<u64, E::ValidatorRegistryLimit>, BeaconStateError> {
+    ) -> Result<AnyList<u64, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>, BeaconStateError> {
         match self {
             Self::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Altair(state) => Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores))),
@@ -2321,7 +2314,7 @@ impl<E: EthSpec> BeaconState<E> {
         // == 0`.
         let mix = {
             let i = epoch
-                .safe_add(E::EpochsPerHistoricalVector::to_u64())?
+                .safe_add(Spec::epochs_per_historical_vector())?
                 .safe_sub(spec.min_seed_lookahead)?
                 .safe_sub(1)?;
             let i_mod = i.as_usize().safe_rem(self.randao_mixes().len())?;
@@ -2444,7 +2437,7 @@ impl<E: EthSpec> BeaconState<E> {
             version,
             execution_address,
             balance: amount,
-            deposit_epoch: slot.epoch(E::slots_per_epoch()),
+            deposit_epoch: slot.epoch(Spec::slots_per_epoch()),
             withdrawable_epoch: spec.far_future_epoch,
         };
 
@@ -2689,8 +2682,10 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         previous_epoch: Epoch,
         current_epoch: Epoch,
-    ) -> Result<AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>, BeaconStateError>
-    {
+    ) -> Result<
+        AnyListMut<'_, ParticipationFlags, U<{ Spec::VALIDATOR_REGISTRY_LIMIT }>>,
+        BeaconStateError,
+    > {
         if epoch == current_epoch {
             self.current_epoch_participation_mut()
         } else if epoch == previous_epoch {
@@ -2855,7 +2850,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         slot: Slot,
     ) -> Result<&Arc<CommitteeCache>, BeaconStateError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         self.committee_cache(relative_epoch)
     }
@@ -3062,11 +3057,11 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_sync_committee_for_next_slot(
         &self,
         spec: &ChainSpec,
-    ) -> Result<Arc<SyncCommittee<E>>, BeaconStateError> {
+    ) -> Result<Arc<SyncCommittee>, BeaconStateError> {
         let next_slot_epoch = self
             .slot()
             .saturating_add(Slot::new(1))
-            .epoch(E::slots_per_epoch());
+            .epoch(Spec::slots_per_epoch());
 
         let sync_committee = if self.current_epoch().sync_committee_period(spec)
             == next_slot_epoch.sync_committee_period(spec)
@@ -3536,11 +3531,11 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Get the payload timeliness committee for the given `slot` from the `ptc_window`.
-    pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
+    pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC, BeaconStateError> {
         let ptc_window = self.ptc_window()?;
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let state_epoch = self.current_epoch();
-        let slots_per_epoch = E::slots_per_epoch() as usize;
+        let slots_per_epoch = Spec::SLOTS_PER_EPOCH;
         let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
 
         let index = if epoch < state_epoch {
@@ -3564,7 +3559,7 @@ impl<E: EthSpec> BeaconState<E> {
             .get(index)
             .ok_or(BeaconStateError::SlotOutOfBounds)?;
 
-        // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
+        // Convert from FixedVector<u64, PTCSize> to PTC (FixedVector<usize, PTCSize>)
         let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
         Ok(PTC(FixedVector::new(indices)?))
     }
@@ -3572,7 +3567,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the payload timeliness committee for the given `slot` from scratch.
     ///
     /// Requires the committee cache to be initialized for the slot's epoch.
-    pub fn compute_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
+    pub fn compute_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC, BeaconStateError> {
         let committee_cache = self.committee_cache_at_slot(slot)?;
         self.compute_ptc_with_cache(slot, committee_cache, spec)
     }
@@ -3583,7 +3578,7 @@ impl<E: EthSpec> BeaconState<E> {
         slot: Slot,
         committee_cache: &CommitteeCache,
         spec: &ChainSpec,
-    ) -> Result<PTC<E>, BeaconStateError> {
+    ) -> Result<PTC, BeaconStateError> {
         let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
 
         let seed = self.get_ptc_attester_seed(slot, spec)?;
@@ -3595,7 +3590,7 @@ impl<E: EthSpec> BeaconState<E> {
         let selected_indices = self.compute_balance_weighted_selection(
             &committee_indices,
             &seed,
-            E::ptc_size(),
+            Spec::PTC_SIZE,
             false,
             spec,
         )?;
@@ -3609,7 +3604,7 @@ impl<E: EthSpec> BeaconState<E> {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Vec<u8>, BeaconStateError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let mut preimage = self
             .get_seed(epoch, Domain::PTCAttester, spec)?
             .as_slice()
@@ -3630,7 +3625,7 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Option<Slot>, BeaconStateError> {
-        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+        for slot in epoch.slot_iter(Spec::slots_per_epoch()) {
             let ptc = self.get_ptc(slot, spec)?;
             if ptc.0.contains(&validator_index) {
                 return Ok(Some(slot));
@@ -3737,34 +3732,34 @@ impl<E: EthSpec> BeaconState<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
-    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+impl ForkVersionDecode for BeaconState {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
     }
 }
 
-impl<E: EthSpec> BeaconState<E> {
+impl BeaconState {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
     /// This is relevant to tree-hashing of the `BeaconState`.
     pub fn num_fields_pow2(&self) -> usize {
         let fork_name = self.fork_name_unchecked();
         match fork_name {
-            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Bellatrix => BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Heze => BeaconStateHeze::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Base => BeaconStateBase::NUM_FIELDS.next_power_of_two(),
+            ForkName::Altair => BeaconStateAltair::NUM_FIELDS.next_power_of_two(),
+            ForkName::Bellatrix => BeaconStateBellatrix::NUM_FIELDS.next_power_of_two(),
+            ForkName::Capella => BeaconStateCapella::NUM_FIELDS.next_power_of_two(),
+            ForkName::Deneb => BeaconStateDeneb::NUM_FIELDS.next_power_of_two(),
+            ForkName::Electra => BeaconStateElectra::NUM_FIELDS.next_power_of_two(),
+            ForkName::Fulu => BeaconStateFulu::NUM_FIELDS.next_power_of_two(),
+            ForkName::Gloas => BeaconStateGloas::NUM_FIELDS.next_power_of_two(),
+            ForkName::Heze => BeaconStateHeze::NUM_FIELDS.next_power_of_two(),
         }
     }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
         let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
         let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
@@ -3777,7 +3772,7 @@ impl<E: EthSpec> BeaconState<E> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
+        let fork_at_slot = spec.fork_name_at_slot(slot);
 
         Ok(map_fork_name!(
             fork_at_slot,
@@ -4003,7 +3998,7 @@ impl From<milhouse::Error> for BeaconStateError {
     }
 }
 
-impl<E: EthSpec> CompareFields for BeaconState<E> {
+impl CompareFields for BeaconState {
     fn compare_fields(&self, other: &Self) -> Vec<compare_fields::Comparison> {
         match (self, other) {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
@@ -4020,7 +4015,7 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for BeaconState {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -4075,14 +4070,18 @@ pub fn compute_weak_subjectivity_period_gloas(
 
 #[cfg(test)]
 mod weak_subjectivity_tests {
+    #[cfg(not(feature = "spec-non-mainnet"))]
     use crate::state::beacon_state::compute_weak_subjectivity_period_electra;
-    use crate::{ChainSpec, Epoch, EthSpec, MainnetEthSpec};
+    #[cfg(not(feature = "spec-non-mainnet"))]
+    use crate::{ChainSpec, Epoch, Spec};
 
+    #[cfg(not(feature = "spec-non-mainnet"))]
     const GWEI_PER_ETH: u64 = 1_000_000_000;
 
+    #[cfg(not(feature = "spec-non-mainnet"))]
     #[test]
     fn test_compute_weak_subjectivity_period_electra() {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = Spec::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -4120,6 +4119,7 @@ mod weak_subjectivity_tests {
 
     // caclulate the balance_churn_limit without dealing with states
     // and without initializing the active balance cache
+    #[cfg(not(feature = "spec-non-mainnet"))]
     fn get_balance_churn_limit(total_active_balance: u64, spec: &ChainSpec) -> u64 {
         let churn = std::cmp::max(
             spec.min_per_epoch_churn_limit_electra,

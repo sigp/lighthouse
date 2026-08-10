@@ -10,7 +10,7 @@ use eth2::types::{
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{EthSpec, ForkName, Hash256, LightClientBootstrap};
+use types::{ForkName, Hash256, LightClientBootstrap, Spec};
 use warp::{
     Rejection,
     http::response::Builder,
@@ -56,7 +56,7 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
             let fork_versioned_response = light_client_updates
                 .iter()
                 .map(|update| map_light_client_update_to_json_response::<T>(&chain, update.clone()))
-                .collect::<Vec<BeaconResponse<LightClientUpdate<T::EthSpec>>>>();
+                .collect::<Vec<BeaconResponse<LightClientUpdate>>>();
             Ok(warp::reply::json(&fork_versioned_response).into_response())
         }
     }
@@ -93,7 +93,7 @@ pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
             }),
         _ => {
             let fork_versioned_response =
-                map_light_client_bootstrap_to_json_response::<T>(fork_name, light_client_bootstrap);
+                map_light_client_bootstrap_to_json_response(fork_name, light_client_bootstrap);
             Ok(warp::reply::json(&fork_versioned_response).into_response())
         }
     }
@@ -151,11 +151,11 @@ pub fn validate_light_client_updates_request<T: BeaconChainTypes>(
 
 fn map_light_client_update_to_response_chunk<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    light_client_update: LightClientUpdate<T::EthSpec>,
-) -> LightClientUpdateResponseChunk<T::EthSpec> {
+    light_client_update: LightClientUpdate,
+) -> LightClientUpdateResponseChunk {
     let epoch = light_client_update
         .attested_header_slot()
-        .epoch(T::EthSpec::slots_per_epoch());
+        .epoch(Spec::slots_per_epoch());
     let fork_digest = chain.compute_fork_digest(epoch);
 
     let response_chunk_len = fork_digest.len() + light_client_update.ssz_bytes_len();
@@ -171,10 +171,10 @@ fn map_light_client_update_to_response_chunk<T: BeaconChainTypes>(
     }
 }
 
-fn map_light_client_bootstrap_to_json_response<T: BeaconChainTypes>(
+fn map_light_client_bootstrap_to_json_response(
     fork_name: ForkName,
-    light_client_bootstrap: LightClientBootstrap<T::EthSpec>,
-) -> BeaconResponse<LightClientBootstrap<T::EthSpec>> {
+    light_client_bootstrap: LightClientBootstrap,
+) -> BeaconResponse<LightClientBootstrap> {
     beacon_response(
         ResponseIncludesVersion::Yes(fork_name),
         light_client_bootstrap,
@@ -183,11 +183,11 @@ fn map_light_client_bootstrap_to_json_response<T: BeaconChainTypes>(
 
 fn map_light_client_update_to_json_response<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    light_client_update: LightClientUpdate<T::EthSpec>,
-) -> BeaconResponse<LightClientUpdate<T::EthSpec>> {
+    light_client_update: LightClientUpdate,
+) -> BeaconResponse<LightClientUpdate> {
     let fork_name = chain
         .spec
-        .fork_name_at_slot::<T::EthSpec>(*light_client_update.signature_slot());
+        .fork_name_at_slot(*light_client_update.signature_slot());
 
     beacon_response(ResponseIncludesVersion::Yes(fork_name), light_client_update)
 }

@@ -1,14 +1,14 @@
 use kzg::KzgProof;
 use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
-use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, EthSpec, Hash256, Slot};
+use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, Hash256, Slot};
 
 #[derive(Clone)]
-pub struct PendingColumn<E: EthSpec> {
-    cells: Vec<Option<(Cell<E>, KzgProof)>>,
+pub struct PendingColumn {
+    cells: Vec<Option<(Cell, KzgProof)>>,
 }
 
-impl<E: EthSpec> PendingColumn<E> {
+impl PendingColumn {
     /// Allocate a `PendingColumn` whose `cells` vec has space for `blob_count` entries, all
     /// initialised to `None`. Required so that `insert(idx, ...)` can write into `cells[idx]`.
     pub fn new_with_capacity(blob_count: usize) -> Self {
@@ -17,7 +17,7 @@ impl<E: EthSpec> PendingColumn<E> {
         }
     }
 
-    pub fn insert(&mut self, index: usize, cell: &Cell<E>, proof: &KzgProof) {
+    pub fn insert(&mut self, index: usize, cell: &Cell, proof: &KzgProof) {
         if let Some(existing_cell) = self.cells.get_mut(index)
             && existing_cell.is_none()
         {
@@ -25,7 +25,7 @@ impl<E: EthSpec> PendingColumn<E> {
         }
     }
 
-    pub fn cell_matches(&self, index: usize, cell: &Cell<E>, proof: &KzgProof) -> Option<bool> {
+    pub fn cell_matches(&self, index: usize, cell: &Cell, proof: &KzgProof) -> Option<bool> {
         self.cells
             .get(index)?
             .as_ref()
@@ -38,7 +38,7 @@ impl<E: EthSpec> PendingColumn<E> {
         index: ColumnIndex,
         slot: Slot,
         beacon_block_root: Hash256,
-    ) -> Option<Arc<DataColumnSidecar<E>>> {
+    ) -> Option<Arc<DataColumnSidecar>> {
         let mut column = Vec::with_capacity(self.cells.len());
         let mut kzg_proofs = Vec::with_capacity(self.cells.len());
 

@@ -1,15 +1,11 @@
 use milhouse::List;
 use std::mem;
 use types::{
-    BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork,
+    BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EpochCache, Fork,
 };
 
 /// Transform a `Bellatrix` state into an `Capella` state.
-pub fn upgrade_to_capella<E: EthSpec>(
-    pre_state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
+pub fn upgrade_to_capella(pre_state: &mut BeaconState, spec: &ChainSpec) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_bellatrix_mut()?;
 

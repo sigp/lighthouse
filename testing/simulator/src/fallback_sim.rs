@@ -19,7 +19,7 @@ use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{Epoch, EthSpec, MinimalEthSpec};
+use types::{Epoch, Spec};
 
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
@@ -183,7 +183,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
     slot_duration_ms /= speed_up_factor;
     slot_duration_ms = max(1_000, slot_duration_ms);
-    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+    spec = spec.set_slot_duration_ms(slot_duration_ms);
 
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
@@ -198,7 +198,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     env.eth2_config.spec = spec.clone();
 
     let slot_duration = spec.get_slot_duration();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
 
     let disconnection_epoch = 1;
     let epochs_disconnected = 14;

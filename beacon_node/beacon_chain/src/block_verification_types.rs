@@ -11,25 +11,25 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, Hash256, SignedBeaconBlock,
     SignedBeaconBlockHeader, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
 /// when lookup sync only fetches a single block. It does not contain
 /// any blobs or data columns.
-pub struct LookupBlock<E: EthSpec> {
-    block: Arc<SignedBeaconBlock<E>>,
+pub struct LookupBlock {
+    block: Arc<SignedBeaconBlock>,
     block_root: Hash256,
 }
 
-impl<E: EthSpec> LookupBlock<E> {
-    pub fn new(block: Arc<SignedBeaconBlock<E>>) -> Self {
+impl LookupBlock {
+    pub fn new(block: Arc<SignedBeaconBlock>) -> Self {
         let block_root = block.canonical_root();
         Self { block, block_root }
     }
 
-    pub fn block(&self) -> &SignedBeaconBlock<E> {
+    pub fn block(&self) -> &SignedBeaconBlock {
         &self.block
     }
 
@@ -37,7 +37,7 @@ impl<E: EthSpec> LookupBlock<E> {
         self.block_root
     }
 
-    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         self.block.clone()
     }
 }
@@ -51,27 +51,27 @@ impl<E: EthSpec> LookupBlock<E> {
 /// If `envelope` is None, then there is no guarantee that the canonical chain also contains
 /// an empty payload. The only way to ensure that is to process the next block.
 #[derive(Clone)]
-pub enum RangeSyncBlock<E: EthSpec> {
-    Base(AvailableBlock<E>),
+pub enum RangeSyncBlock {
+    Base(AvailableBlock),
     Gloas {
-        block: Arc<SignedBeaconBlock<E>>,
-        envelope: Option<AvailableEnvelope<E>>,
+        block: Arc<SignedBeaconBlock>,
+        envelope: Option<AvailableEnvelope>,
     },
 }
 
-impl<E: EthSpec> Hash for RangeSyncBlock<E> {
+impl Hash for RangeSyncBlock {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.block_root().hash(state);
     }
 }
 
-impl<E: EthSpec> Debug for RangeSyncBlock<E> {
+impl Debug for RangeSyncBlock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RpcBlock({:?})", self.block_root())
     }
 }
 
-impl<E: EthSpec> RangeSyncBlock<E> {
+impl RangeSyncBlock {
     pub fn block_root(&self) -> Hash256 {
         match self {
             Self::Base(block) => block.block_root(),
@@ -79,21 +79,21 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         }
     }
 
-    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+    pub fn as_block(&self) -> &SignedBeaconBlock {
         match self {
             Self::Base(block) => block.block(),
             Self::Gloas { block, .. } => block,
         }
     }
 
-    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         match self {
             Self::Base(block) => block.block_cloned(),
             Self::Gloas { block, .. } => block.clone(),
         }
     }
 
-    pub fn block_data(&self) -> &AvailableBlockData<E> {
+    pub fn block_data(&self) -> &AvailableBlockData {
         match self {
             Self::Base(block) => block.data(),
             Self::Gloas { .. } => &AvailableBlockData::NoData,
@@ -102,7 +102,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
 
     /// Returns the data columns associated with this block. For Gloas blocks the columns are
     /// carried by the payload envelope rather than `block_data`, so this unwraps that case.
-    pub fn data_columns(&self) -> Option<types::DataColumnSidecarList<E>> {
+    pub fn data_columns(&self) -> Option<types::DataColumnSidecarList> {
         match self {
             Self::Base(block) => block.data().data_columns(),
             Self::Gloas { envelope, .. } => envelope
@@ -113,15 +113,15 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     }
 }
 
-impl<E: EthSpec> RangeSyncBlock<E> {
+impl RangeSyncBlock {
     /// Constructs a `RangeSyncBlock` from a block and availability data (pre-Gloas).
     pub fn new<T>(
-        block: Arc<SignedBeaconBlock<E>>,
-        block_data: AvailableBlockData<E>,
+        block: Arc<SignedBeaconBlock>,
+        block_data: AvailableBlockData,
         custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
-        T: BeaconChainTypes<EthSpec = E>,
+        T: BeaconChainTypes,
     {
         if block.fork_name_unchecked().gloas_enabled() {
             return Err(AvailabilityCheckError::InvalidVariant);
@@ -140,8 +140,8 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     ///
     /// Expects `block.canonical_root() == envelope.beacon_block_root` as they are coupled.
     pub fn new_gloas(
-        block: Arc<SignedBeaconBlock<E>>,
-        envelope: Option<AvailableEnvelope<E>>,
+        block: Arc<SignedBeaconBlock>,
+        envelope: Option<AvailableEnvelope>,
     ) -> Result<Self, String> {
         if let Some(envelope) = envelope.as_ref() {
             let execution_bid = &block
@@ -177,7 +177,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
+    pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock>, AvailableBlockData) {
         match self {
             Self::Base(block) => block.deconstruct(),
             Self::Gloas { block, .. } => {
@@ -211,7 +211,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     #[allow(clippy::type_complexity)]
     pub fn into_available_block(
         self,
-    ) -> Result<(AvailableBlock<E>, Option<AvailableEnvelope<E>>), AvailabilityCheckError> {
+    ) -> Result<(AvailableBlock, Option<AvailableEnvelope>), AvailabilityCheckError> {
         match self {
             Self::Base(block) => Ok((block, None)),
             Self::Gloas { block, envelope } => {
@@ -233,15 +233,15 @@ impl<E: EthSpec> RangeSyncBlock<E> {
 ///    required blobs.
 /// 2. `AvailabilityPending`: This block hasn't received all required blobs to consider it a
 ///    fully available block.
-pub enum ExecutedBlock<E: EthSpec> {
-    Available(AvailableExecutedBlock<E>),
-    AvailabilityPending(AvailabilityPendingExecutedBlock<E>),
+pub enum ExecutedBlock {
+    Available(AvailableExecutedBlock),
+    AvailabilityPending(AvailabilityPendingExecutedBlock),
 }
 
-impl<E: EthSpec> ExecutedBlock<E> {
+impl ExecutedBlock {
     pub fn new(
-        block: MaybeAvailableBlock<E>,
-        import_data: BlockImportData<E>,
+        block: MaybeAvailableBlock,
+        import_data: BlockImportData,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         match block {
@@ -263,7 +263,7 @@ impl<E: EthSpec> ExecutedBlock<E> {
         }
     }
 
-    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+    pub fn as_block(&self) -> &SignedBeaconBlock {
         match self {
             Self::Available(available) => available.block.block(),
             Self::AvailabilityPending(pending) => &pending.block,
@@ -280,16 +280,16 @@ impl<E: EthSpec> ExecutedBlock<E> {
 
 /// A block that has completed all pre-deneb block processing checks including verification
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
-pub struct AvailableExecutedBlock<E: EthSpec> {
-    pub block: AvailableBlock<E>,
-    pub import_data: BlockImportData<E>,
+pub struct AvailableExecutedBlock {
+    pub block: AvailableBlock,
+    pub import_data: BlockImportData,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> AvailableExecutedBlock<E> {
+impl AvailableExecutedBlock {
     pub fn new(
-        block: AvailableBlock<E>,
-        import_data: BlockImportData<E>,
+        block: AvailableBlock,
+        import_data: BlockImportData,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
@@ -320,16 +320,16 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
 /// A block that has completed all pre-deneb block processing checks, verification
 /// by an EL client but does not have all requisite blob data to get imported into
 /// fork choice.
-pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
-    pub block: Arc<SignedBeaconBlock<E>>,
-    pub import_data: BlockImportData<E>,
+pub struct AvailabilityPendingExecutedBlock {
+    pub block: Arc<SignedBeaconBlock>,
+    pub import_data: BlockImportData,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
+impl AvailabilityPendingExecutedBlock {
     pub fn new(
-        block: Arc<SignedBeaconBlock<E>>,
-        import_data: BlockImportData<E>,
+        block: Arc<SignedBeaconBlock>,
+        import_data: BlockImportData,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
@@ -339,7 +339,7 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         }
     }
 
-    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+    pub fn as_block(&self) -> &SignedBeaconBlock {
         &self.block
     }
 
@@ -353,27 +353,27 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct BlockImportData<E: EthSpec> {
+pub struct BlockImportData {
     pub block_root: Hash256,
-    pub state: BeaconState<E>,
-    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub consensus_context: ConsensusContext<E>,
+    pub state: BeaconState,
+    pub parent_block: SignedBeaconBlock<BlindedPayload>,
+    pub consensus_context: ConsensusContext,
 }
 
 /// Trait for common block operations.
-pub trait AsBlock<E: EthSpec> {
+pub trait AsBlock {
     fn slot(&self) -> Slot;
     fn epoch(&self) -> Epoch;
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
-    fn message(&self) -> BeaconBlockRef<'_, E>;
-    fn as_block(&self) -> &SignedBeaconBlock<E>;
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
+    fn message(&self) -> BeaconBlockRef<'_>;
+    fn as_block(&self) -> &SignedBeaconBlock;
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock>;
     fn canonical_root(&self) -> Hash256;
 }
 
-impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
+impl AsBlock for Arc<SignedBeaconBlock> {
     fn slot(&self) -> Slot {
         SignedBeaconBlock::slot(self)
     }
@@ -394,16 +394,16 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
         SignedBeaconBlock::signed_block_header(self)
     }
 
-    fn message(&self) -> BeaconBlockRef<'_, E> {
+    fn message(&self) -> BeaconBlockRef<'_> {
         SignedBeaconBlock::message(self)
     }
 
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
+    fn as_block(&self) -> &SignedBeaconBlock {
         self
     }
 
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        Arc::<SignedBeaconBlock<E>>::clone(self)
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
+        Arc::<SignedBeaconBlock>::clone(self)
     }
 
     fn canonical_root(&self) -> Hash256 {
@@ -411,7 +411,7 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
+impl AsBlock for MaybeAvailableBlock {
     fn slot(&self) -> Slot {
         self.as_block().slot()
     }
@@ -427,16 +427,16 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<'_, E> {
+    fn message(&self) -> BeaconBlockRef<'_> {
         self.as_block().message()
     }
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
+    fn as_block(&self) -> &SignedBeaconBlock {
         match &self {
             MaybeAvailableBlock::Available(block) => block.as_block(),
             MaybeAvailableBlock::AvailabilityPending { block, .. } => block,
         }
     }
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         match &self {
             MaybeAvailableBlock::Available(block) => block.block_cloned(),
             MaybeAvailableBlock::AvailabilityPending { block, .. } => block.clone(),
@@ -447,7 +447,7 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
+impl AsBlock for AvailableBlock {
     fn slot(&self) -> Slot {
         self.block().slot()
     }
@@ -468,15 +468,15 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
         self.block().signed_block_header()
     }
 
-    fn message(&self) -> BeaconBlockRef<'_, E> {
+    fn message(&self) -> BeaconBlockRef<'_> {
         self.block().message()
     }
 
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
+    fn as_block(&self) -> &SignedBeaconBlock {
         self.block()
     }
 
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         AvailableBlock::block_cloned(self)
     }
 
@@ -485,7 +485,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for RangeSyncBlock<E> {
+impl AsBlock for RangeSyncBlock {
     fn slot(&self) -> Slot {
         self.as_block().slot()
     }
@@ -501,13 +501,13 @@ impl<E: EthSpec> AsBlock<E> for RangeSyncBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<'_, E> {
+    fn message(&self) -> BeaconBlockRef<'_> {
         self.as_block().message()
     }
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
+    fn as_block(&self) -> &SignedBeaconBlock {
         RangeSyncBlock::as_block(self)
     }
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         RangeSyncBlock::block_cloned(self)
     }
     fn canonical_root(&self) -> Hash256 {
@@ -515,7 +515,7 @@ impl<E: EthSpec> AsBlock<E> for RangeSyncBlock<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
+impl AsBlock for LookupBlock {
     fn slot(&self) -> Slot {
         self.block().slot()
     }
@@ -531,13 +531,13 @@ impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<'_, E> {
+    fn message(&self) -> BeaconBlockRef<'_> {
         self.block().message()
     }
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
+    fn as_block(&self) -> &SignedBeaconBlock {
         self.block()
     }
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock> {
         self.block_cloned()
     }
     fn canonical_root(&self) -> Hash256 {
@@ -551,9 +551,7 @@ mod tests {
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::test_custody_context;
     use bls::Signature;
-    use types::{BeaconBlockGloas, ChainSpec, EmptyBlock, MainnetEthSpec};
-
-    type E = MainnetEthSpec;
+    use types::{BeaconBlockGloas, ChainSpec, EmptyBlock};
 
     /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
     /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
@@ -564,7 +562,7 @@ mod tests {
             BeaconBlockGloas::empty(&spec).into(),
             Signature::empty(),
         ));
-        let custody_context = test_custody_context::<E>(NodeCustodyType::Supernode, spec);
+        let custody_context = test_custody_context(NodeCustodyType::Supernode, spec);
 
         let result = RangeSyncBlock::new(block, AvailableBlockData::NoData, &custody_context);
 

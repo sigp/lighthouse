@@ -14,16 +14,16 @@ use crate::{
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    envelope: Arc<SignedExecutionPayloadEnvelope>,
+    block: Arc<SignedBeaconBlock>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
 
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub fn new(
         chain: Arc<BeaconChain<T>>,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelope>,
+        block: Arc<SignedBeaconBlock>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
         let payload_verification_status = {
@@ -70,9 +70,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     }
 
     fn build_new_payload_request<'a>(
-        envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
-        block: &'a SignedBeaconBlock<T::EthSpec>,
-    ) -> Result<NewPayloadRequest<'a, T::EthSpec>, PayloadVerificationError> {
+        envelope: &'a SignedExecutionPayloadEnvelope,
+        block: &'a SignedBeaconBlock,
+    ) -> Result<NewPayloadRequest<'a>, PayloadVerificationError> {
         let bid = &block
             .message()
             .body()

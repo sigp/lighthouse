@@ -9,7 +9,8 @@ use std::sync::{
 };
 use tree_hash::TreeHash as _;
 use tree_hash_derive::TreeHash;
-use types::{EthSpec, Hash256, IndexedAttestation};
+use typenum::U;
+use types::{Hash256, IndexedAttestation, Spec};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AttesterRecord {
@@ -54,14 +55,14 @@ impl CompactAttesterRecord {
 ///
 /// This struct gets `Arc`d and passed around between each stage of queueing and processing.
 #[derive(Debug)]
-pub struct IndexedAttesterRecord<E: EthSpec> {
-    pub indexed: IndexedAttestation<E>,
+pub struct IndexedAttesterRecord {
+    pub indexed: IndexedAttestation,
     pub record: AttesterRecord,
     pub indexed_attestation_id: AtomicU64,
 }
 
-impl<E: EthSpec> IndexedAttesterRecord<E> {
-    pub fn new(indexed: IndexedAttestation<E>, record: AttesterRecord) -> Arc<Self> {
+impl IndexedAttesterRecord {
+    pub fn new(indexed: IndexedAttestation, record: AttesterRecord) -> Arc<Self> {
         Arc::new(IndexedAttesterRecord {
             indexed,
             record,
@@ -81,18 +82,18 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 }
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
-struct IndexedAttestationHeader<E: EthSpec> {
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
+struct IndexedAttestationHeader {
+    pub attesting_indices: VariableList<u64, U<{ Spec::MAX_VALIDATORS_PER_SLOT }>>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
 }
 
-impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
-    fn from(indexed_attestation: IndexedAttestation<E>) -> AttesterRecord {
+impl From<IndexedAttestation> for AttesterRecord {
+    fn from(indexed_attestation: IndexedAttestation) -> AttesterRecord {
         let attestation_data_hash = indexed_attestation.data().tree_hash_root();
         let attesting_indices =
             VariableList::new(indexed_attestation.attesting_indices_to_vec()).unwrap_or_default();
-        let header = IndexedAttestationHeader::<E> {
+        let header = IndexedAttestationHeader {
             attesting_indices,
             data_root: attestation_data_hash,
             signature: indexed_attestation.signature().clone(),

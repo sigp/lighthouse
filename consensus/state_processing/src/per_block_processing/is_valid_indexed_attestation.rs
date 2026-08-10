@@ -2,7 +2,6 @@ use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
 use super::signature_sets::{get_pubkey_from_state, indexed_attestation_signature_set};
 use crate::VerifySignatures;
 use itertools::Itertools;
-use typenum::Unsigned;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -12,9 +11,9 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 }
 
 /// Verify an `IndexedAttestation`.
-pub fn is_valid_indexed_attestation<E: EthSpec>(
-    state: &BeaconState<E>,
-    indexed_attestation: IndexedAttestationRef<E>,
+pub fn is_valid_indexed_attestation(
+    state: &BeaconState,
+    indexed_attestation: IndexedAttestationRef,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
@@ -27,10 +26,10 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
     // spec's maximum here. Pre-Gloas attestation types already enforce an equal or tighter bound
     // in SSZ.
     verify!(
-        indices.len() <= E::MaxValidatorsPerSlot::to_usize(),
+        indices.len() <= Spec::MAX_VALIDATORS_PER_SLOT,
         Invalid::IndicesExceedMaxLength {
             length: indices.len(),
-            max: E::MaxValidatorsPerSlot::to_usize(),
+            max: Spec::MAX_VALIDATORS_PER_SLOT,
         }
     );
 

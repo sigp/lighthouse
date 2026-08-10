@@ -7,7 +7,7 @@ use safe_arith::SafeArith;
 
 use crate::{
     attestation::AttestationShufflingId,
-    core::{ChainSpec, Epoch, EthSpec, Hash256, RelativeEpoch, Slot},
+    core::{ChainSpec, Epoch, Hash256, RelativeEpoch, Slot, Spec},
     state::{BeaconState, BeaconStateError, CommitteeCache},
 };
 
@@ -20,7 +20,7 @@ enum WindowEpoch {
 }
 
 impl WindowEpoch {
-    fn epoch<E: EthSpec>(self, state: &BeaconState<E>) -> Epoch {
+    fn epoch(self, state: &BeaconState) -> Epoch {
         match self {
             Self::PrevPrev => state.previous_epoch().saturating_sub(1u64),
             Self::Previous => state.previous_epoch(),
@@ -37,10 +37,7 @@ impl WindowEpoch {
         }
     }
 
-    fn shuffling_id<E: EthSpec>(
-        self,
-        state: &BeaconState<E>,
-    ) -> Result<AttestationShufflingId, BeaconStateError> {
+    fn shuffling_id(self, state: &BeaconState) -> Result<AttestationShufflingId, BeaconStateError> {
         // Block root is only used for genesis so we use zero.
         let block_root = Hash256::ZERO;
         if let Some(relative_epoch) = self.relative_epoch() {
@@ -49,7 +46,7 @@ impl WindowEpoch {
         let epoch = self.epoch(state);
         let shuffling_decision_slot = epoch
             .saturating_sub(1u64)
-            .start_slot(E::slots_per_epoch())
+            .start_slot(Spec::slots_per_epoch())
             .saturating_sub(1u64);
         let shuffling_decision_root = state
             .get_block_root(shuffling_decision_slot)
@@ -63,9 +60,9 @@ impl WindowEpoch {
 
     /// `Current`/`Previous` come from the state's caches when built; `PrevPrev` is always
     /// recomputed.
-    fn committee_cache<E: EthSpec>(
+    fn committee_cache(
         self,
-        state: &BeaconState<E>,
+        state: &BeaconState,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
         if let Some(relative_epoch) = self.relative_epoch()
@@ -87,8 +84,8 @@ struct SlotAssignment {
 
 impl SlotAssignment {
     /// Re-uses a matching cache from `prev` when the shuffling is unchanged.
-    fn new<E: EthSpec>(
-        state: &BeaconState<E>,
+    fn new(
+        state: &BeaconState,
         window_epoch: WindowEpoch,
         spec: &ChainSpec,
         prev: Option<&SlotAssignments>,
@@ -103,8 +100,8 @@ impl SlotAssignment {
         Ok(Self {
             key,
             committee_cache: window_epoch.committee_cache(state, spec)?,
-            epoch_start_slot: epoch.start_slot(E::slots_per_epoch()),
-            epoch_end_slot: epoch.end_slot(E::slots_per_epoch()),
+            epoch_start_slot: epoch.start_slot(Spec::slots_per_epoch()),
+            epoch_end_slot: epoch.end_slot(Spec::slots_per_epoch()),
         })
     }
 }
@@ -118,8 +115,8 @@ pub struct SlotAssignments {
 impl SlotAssignments {
     /// Build the `[current-2, current]` committee caches for `state`, re-using unchanged
     /// epochs from `prev`.
-    pub fn new<E: EthSpec>(
-        state: &BeaconState<E>,
+    pub fn new(
+        state: &BeaconState,
         spec: &ChainSpec,
         prev: Option<&Self>,
     ) -> Result<Self, BeaconStateError> {

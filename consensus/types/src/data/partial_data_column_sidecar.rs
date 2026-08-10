@@ -1,6 +1,6 @@
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
-    core::{EthSpec, Hash256, Slot},
+    core::{Hash256, Slot, Spec},
     data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu},
     execution::AbstractExecPayload,
     kzg_ext::KzgCommitments,
@@ -16,32 +16,28 @@ use std::fmt::Display;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type CellBitmap = BitList<typenum::U<{ Spec::MAX_BLOB_COMMITMENTS_PER_BLOCK }>>;
 
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Encode, Decode, TreeHash, Educe)]
-#[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
-pub struct PartialDataColumnSidecar<E: EthSpec> {
-    pub cells_present_bitmap: CellBitmap<E>,
-    pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
-    pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
-    pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
+#[educe(PartialEq, Eq, Hash)]
+pub struct PartialDataColumnSidecar {
+    pub cells_present_bitmap: CellBitmap,
+    pub column: VariableList<Cell, typenum::U<{ Spec::MAX_BLOB_COMMITMENTS_PER_BLOCK }>>,
+    pub kzg_proofs: VariableList<KzgProof, typenum::U<{ Spec::MAX_BLOB_COMMITMENTS_PER_BLOCK }>>,
+    pub header: ListEncodedOption<PartialDataColumnHeader>,
 }
 
 /// Equivalent to `PartialDataColumnSidecar`, but containing references to the cells. This is done
 /// so that we can get a part of a sidecar without expensively cloning all the contents.
 #[derive(Debug, Clone, Encode)]
-pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
-    pub cells_present_bitmap: CellBitmap<E>,
+pub struct PartialDataColumnSidecarRef<'a> {
+    pub cells_present_bitmap: CellBitmap,
     // It is fine to use `Vec` here as we never decode directly into this type, and only create
     // this from the `PartialDataColumnSidecar` type above. This avoids a few ugly `expect` calls.
-    pub column: Vec<&'a Cell<E>>,
+    pub column: Vec<&'a Cell>,
     pub kzg_proofs: Vec<&'a KzgProof>,
-    pub header: ListEncodedOption<&'a PartialDataColumnHeader<E>>,
+    pub header: ListEncodedOption<&'a PartialDataColumnHeader>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,12 +48,12 @@ pub enum PartialDataColumnSidecarError {
     ConflictingData,
 }
 
-impl<E: EthSpec> PartialDataColumnSidecar<E> {
+impl PartialDataColumnSidecar {
     pub fn is_complete(&self) -> bool {
         self.cells_present_bitmap.num_set_bits() == self.cells_present_bitmap.len()
     }
 
-    pub fn get(&self, idx: usize) -> Option<(&Cell<E>, &KzgProof)> {
+    pub fn get(&self, idx: usize) -> Option<(&Cell, &KzgProof)> {
         if !self.cells_present_bitmap.get(idx).unwrap_or(false) {
             return None;
         }
@@ -77,9 +73,9 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     pub fn try_filter<F, Err>(
         &self,
         filter: F,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'_, E>>, Err>
+    ) -> Result<Option<PartialDataColumnSidecarRef<'_>>, Err>
     where
-        F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
+        F: Fn(usize, &Cell, &KzgProof) -> Result<bool, Err>,
         Err: From<PartialDataColumnSidecarError>,
     {
         let len = self.verify_len()?;
@@ -128,20 +124,17 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     }
 }
 
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Encode, Decode, TreeHash, Educe)]
-#[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
-pub struct PartialDataColumnHeader<E: EthSpec> {
-    pub kzg_commitments: KzgCommitments<E>,
+#[educe(PartialEq, Eq, Hash)]
+pub struct PartialDataColumnHeader {
+    pub kzg_commitments: KzgCommitments,
     pub signed_block_header: SignedBeaconBlockHeader,
-    pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    pub kzg_commitments_inclusion_proof:
+        FixedVector<Hash256, typenum::U<{ Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH }>>,
 }
 
-impl<E: EthSpec> PartialDataColumnHeader<E> {
+impl PartialDataColumnHeader {
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
     }
@@ -152,19 +145,17 @@ impl<E: EthSpec> PartialDataColumnHeader<E> {
         verify_merkle_proof(
             blob_kzg_commitments_root,
             &self.kzg_commitments_inclusion_proof,
-            E::kzg_commitments_inclusion_proof_depth(),
+            Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH,
             BLOB_KZG_COMMITMENTS_INDEX,
             self.signed_block_header.message.body_root,
         )
     }
 }
 
-impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
-    for PartialDataColumnHeader<E>
-{
+impl<P: AbstractExecPayload> TryFrom<&SignedBeaconBlock<P>> for PartialDataColumnHeader {
     type Error = BeaconStateError;
 
-    fn try_from(block: &SignedBeaconBlock<E, P>) -> Result<Self, Self::Error> {
+    fn try_from(block: &SignedBeaconBlock<P>) -> Result<Self, Self::Error> {
         Ok(Self {
             kzg_commitments: block.message().body().blob_kzg_commitments()?.clone(),
             signed_block_header: block.signed_block_header(),
@@ -177,12 +168,12 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
-pub struct PartialDataColumnPartsMetadata<E: EthSpec> {
-    pub available: CellBitmap<E>,
-    pub requests: CellBitmap<E>,
+pub struct PartialDataColumnPartsMetadata {
+    pub available: CellBitmap,
+    pub requests: CellBitmap,
 }
 
-impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
+impl Display for PartialDataColumnPartsMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -193,19 +184,16 @@ impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PartialDataColumn<E: EthSpec> {
+pub struct PartialDataColumn {
     pub block_root: Hash256,
     pub index: ColumnIndex,
-    pub sidecar: PartialDataColumnSidecar<E>,
+    pub sidecar: PartialDataColumnSidecar,
 }
 
-impl<E: EthSpec> PartialDataColumn<E> {
+impl PartialDataColumn {
     /// Equivalent to a call to `clone` followed by `try_into_full`, but returns early if conversion
     /// is not possible.
-    pub fn try_clone_full(
-        &self,
-        header: &PartialDataColumnHeader<E>,
-    ) -> Option<DataColumnSidecar<E>> {
+    pub fn try_clone_full(&self, header: &PartialDataColumnHeader) -> Option<DataColumnSidecar> {
         if !self.sidecar.is_complete() {
             return None;
         }
@@ -220,10 +208,7 @@ impl<E: EthSpec> PartialDataColumn<E> {
         }))
     }
 
-    pub fn try_into_full(
-        self,
-        header: &PartialDataColumnHeader<E>,
-    ) -> Option<DataColumnSidecar<E>> {
+    pub fn try_into_full(self, header: &PartialDataColumnHeader) -> Option<DataColumnSidecar> {
         if !self.sidecar.is_complete() {
             return None;
         }
@@ -242,16 +227,13 @@ impl<E: EthSpec> PartialDataColumn<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MinimalEthSpec;
     use bls::Signature;
     use fixed_bytes::FixedBytesExtended;
     use kzg::KzgCommitment;
     use ssz::Encode;
 
-    type E = MinimalEthSpec;
-
-    fn make_cell(marker: u8) -> Cell<E> {
-        let mut cell = Cell::<E>::default();
+    fn make_cell(marker: u8) -> Cell {
+        let mut cell = Cell::default();
         cell[0] = marker;
         cell
     }
@@ -260,8 +242,8 @@ mod tests {
         total_blobs: usize,
         present_indices: &[usize],
         marker_base: u8,
-    ) -> PartialDataColumnSidecar<E> {
-        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+    ) -> PartialDataColumnSidecar {
+        let mut bitmap = CellBitmap::with_capacity(total_blobs).unwrap();
         for &idx in present_indices {
             bitmap.set(idx, true).unwrap();
         }
@@ -287,11 +269,11 @@ mod tests {
         }
     }
 
-    fn make_sidecar(total_blobs: usize, present_indices: &[usize]) -> PartialDataColumnSidecar<E> {
+    fn make_sidecar(total_blobs: usize, present_indices: &[usize]) -> PartialDataColumnSidecar {
         make_sidecar_with_marker(total_blobs, present_indices, 0)
     }
 
-    fn make_header(num_commitments: usize) -> PartialDataColumnHeader<E> {
+    fn make_header(num_commitments: usize) -> PartialDataColumnHeader {
         PartialDataColumnHeader {
             kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
                 .try_into()
@@ -307,7 +289,7 @@ mod tests {
                 signature: Signature::empty(),
             },
             kzg_commitments_inclusion_proof: FixedVector::new(
-                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+                vec![Hash256::zero(); Spec::KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH],
             )
             .unwrap(),
         }

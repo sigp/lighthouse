@@ -8,7 +8,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{ChainSpec, EthSpec, SignedRoot, Uint256},
+    core::{ChainSpec, SignedRoot, Uint256},
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -25,69 +25,65 @@ use crate::{
             PartialEq,
             Debug,
             Encode,
+            Decode,
+            TreeHash,
             Serialize,
             Deserialize,
-            TreeHash,
-            Decode,
             Clone,
         ),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
-        cfg_attr(
-            feature = "arbitrary",
-            derive(arbitrary::Arbitrary),
-            arbitrary(bound = "E: EthSpec"),
-        ),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary),),
     ),
     map_ref_into(ExecutionPayloadHeaderRef),
     map_ref_mut_into(ExecutionPayloadHeaderRefMut)
 )]
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
+#[serde(deny_unknown_fields, untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct BuilderBid<E: EthSpec> {
+pub struct BuilderBid {
     #[superstruct(only(Bellatrix), partial_getter(rename = "header_bellatrix"))]
-    pub header: ExecutionPayloadHeaderBellatrix<E>,
+    pub header: ExecutionPayloadHeaderBellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
-    pub header: ExecutionPayloadHeaderCapella<E>,
+    pub header: ExecutionPayloadHeaderCapella,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
-    pub header: ExecutionPayloadHeaderDeneb<E>,
+    pub header: ExecutionPayloadHeaderDeneb,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
-    pub header: ExecutionPayloadHeaderElectra<E>,
+    pub header: ExecutionPayloadHeaderElectra,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
-    pub header: ExecutionPayloadHeaderFulu<E>,
+    pub header: ExecutionPayloadHeaderFulu,
     #[superstruct(only(Deneb, Electra, Fulu))]
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blob_kzg_commitments: KzgCommitments,
     #[superstruct(only(Electra, Fulu))]
-    pub execution_requests: ExecutionRequestsElectra<E>,
+    pub execution_requests: ExecutionRequestsElectra,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
 }
 
-impl<E: EthSpec> BuilderBid<E> {
-    pub fn header(&self) -> ExecutionPayloadHeaderRef<'_, E> {
+impl BuilderBid {
+    pub fn header(&self) -> ExecutionPayloadHeaderRef<'_> {
         self.to_ref().header()
     }
 }
 
-impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
-    pub fn header(&self) -> ExecutionPayloadHeaderRef<'a, E> {
+impl<'a> BuilderBidRef<'a> {
+    pub fn header(&self) -> ExecutionPayloadHeaderRef<'a> {
         map_builder_bid_ref_into_execution_payload_header_ref!(&'a _, self, |bid, cons| cons(
             &bid.header
         ))
     }
 }
 
-impl<'a, E: EthSpec> BuilderBidRefMut<'a, E> {
-    pub fn header_mut(self) -> ExecutionPayloadHeaderRefMut<'a, E> {
+impl<'a> BuilderBidRefMut<'a> {
+    pub fn header_mut(self) -> ExecutionPayloadHeaderRefMut<'a> {
         map_builder_bid_ref_mut_into_execution_payload_header_ref_mut!(&'a _, self, |bid, cons| {
             cons(&mut bid.header)
         })
     }
 }
 
-impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
+impl ForkVersionDecode for BuilderBid {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let builder_bid = match fork_name {
@@ -108,17 +104,16 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     }
 }
 
-impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
+impl SignedRoot for BuilderBid {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, Clone)]
-#[serde(bound = "E: EthSpec")]
-pub struct SignedBuilderBid<E: EthSpec> {
-    pub message: BuilderBid<E>,
+pub struct SignedBuilderBid {
+    pub message: BuilderBid,
     pub signature: Signature,
 }
 
-impl<E: EthSpec> ForkVersionDecode for SignedBuilderBid<E> {
+impl ForkVersionDecode for SignedBuilderBid {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
@@ -135,7 +130,7 @@ impl<E: EthSpec> ForkVersionDecode for SignedBuilderBid<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for BuilderBid {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -168,7 +163,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
     }
 }
 
-impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBuilderBid<E> {
+impl<'de> ContextDeserialize<'de, ForkName> for SignedBuilderBid {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -182,7 +177,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBuilderBid<E> 
         let helper = Helper::deserialize(deserializer)?;
 
         // Deserialize `data` using ContextDeserialize
-        let message = BuilderBid::<E>::context_deserialize(helper.message, context)
+        let message = BuilderBid::context_deserialize(helper.message, context)
             .map_err(serde::de::Error::custom)?;
 
         Ok(SignedBuilderBid {
@@ -192,7 +187,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBuilderBid<E> 
     }
 }
 
-impl<E: EthSpec> SignedBuilderBid<E> {
+impl SignedBuilderBid {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
             .pubkey()

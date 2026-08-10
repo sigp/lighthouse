@@ -5,50 +5,50 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::instrument;
-use types::{BlobSidecar, EthSpec};
+use types::BlobSidecar;
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
 #[derive(Debug, Educe, Clone, Encode, Decode)]
 #[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedBlob<E: EthSpec> {
-    blob: Arc<BlobSidecar<E>>,
+pub struct KzgVerifiedBlob {
+    blob: Arc<BlobSidecar>,
     #[ssz(skip_serializing, skip_deserializing)]
     seen_timestamp: Duration,
 }
 
-impl<E: EthSpec> PartialOrd for KzgVerifiedBlob<E> {
+impl PartialOrd for KzgVerifiedBlob {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<E: EthSpec> Ord for KzgVerifiedBlob<E> {
+impl Ord for KzgVerifiedBlob {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.blob.cmp(&other.blob)
     }
 }
 
-impl<E: EthSpec> KzgVerifiedBlob<E> {
+impl KzgVerifiedBlob {
     pub fn new(
-        blob: Arc<BlobSidecar<E>>,
+        blob: Arc<BlobSidecar>,
         kzg: &Kzg,
         seen_timestamp: Duration,
     ) -> Result<Self, KzgError> {
         verify_kzg_for_blob(blob, kzg, seen_timestamp)
     }
-    pub fn to_blob(self) -> Arc<BlobSidecar<E>> {
+    pub fn to_blob(self) -> Arc<BlobSidecar> {
         self.blob
     }
-    pub fn as_blob(&self) -> &BlobSidecar<E> {
+    pub fn as_blob(&self) -> &BlobSidecar {
         &self.blob
     }
     pub fn get_commitment(&self) -> &KzgCommitment {
         &self.blob.kzg_commitment
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_blob(&self) -> Arc<BlobSidecar<E>> {
+    pub fn clone_blob(&self) -> Arc<BlobSidecar> {
         self.blob.clone()
     }
     pub fn blob_index(&self) -> u64 {
@@ -61,7 +61,7 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
     ///
     /// This should ONLY be used for testing.
     #[cfg(test)]
-    pub fn __assumed_valid(blob: Arc<BlobSidecar<E>>) -> Self {
+    pub fn __assumed_valid(blob: Arc<BlobSidecar>) -> Self {
         Self {
             blob,
             seen_timestamp: Duration::from_secs(0),
@@ -69,7 +69,7 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
     }
     /// Mark a blob as KZG verified. Caller must ONLY use this on blob sidecars constructed
     /// from EL blobs.
-    pub fn from_execution_verified(blob: Arc<BlobSidecar<E>>, seen_timestamp: Duration) -> Self {
+    pub fn from_execution_verified(blob: Arc<BlobSidecar>, seen_timestamp: Duration) -> Self {
         Self {
             blob,
             seen_timestamp,
@@ -80,24 +80,24 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
 /// Complete kzg verification for a `BlobSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
-pub fn verify_kzg_for_blob<E: EthSpec>(
-    blob: Arc<BlobSidecar<E>>,
+pub fn verify_kzg_for_blob(
+    blob: Arc<BlobSidecar>,
     kzg: &Kzg,
     seen_timestamp: Duration,
-) -> Result<KzgVerifiedBlob<E>, KzgError> {
-    validate_blob::<E>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
+) -> Result<KzgVerifiedBlob, KzgError> {
+    validate_blob(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
     Ok(KzgVerifiedBlob {
         blob,
         seen_timestamp,
     })
 }
 
-pub struct KzgVerifiedBlobList<E: EthSpec> {
-    verified_blobs: Vec<KzgVerifiedBlob<E>>,
+pub struct KzgVerifiedBlobList {
+    verified_blobs: Vec<KzgVerifiedBlob>,
 }
 
-impl<E: EthSpec> KzgVerifiedBlobList<E> {
-    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+impl KzgVerifiedBlobList {
+    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar>>>(
         blob_list: I,
         kzg: &Kzg,
         seen_timestamp: Duration,
@@ -116,15 +116,15 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
     }
 
     /// Create a `KzgVerifiedBlobList` from `blobs` that are already KZG verified.
-    pub fn from_verified<I: IntoIterator<Item = KzgVerifiedBlob<E>>>(blobs: I) -> Self {
+    pub fn from_verified<I: IntoIterator<Item = KzgVerifiedBlob>>(blobs: I) -> Self {
         Self {
             verified_blobs: blobs.into_iter().collect(),
         }
     }
 }
 
-impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
-    type Item = KzgVerifiedBlob<E>;
+impl IntoIterator for KzgVerifiedBlobList {
+    type Item = KzgVerifiedBlob;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -138,15 +138,12 @@ impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 #[instrument(skip_all, level = "debug")]
-pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
-    blob_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), KzgError>
+pub fn verify_kzg_for_blob_list<'a, I>(blob_iter: I, kzg: &'a Kzg) -> Result<(), KzgError>
 where
-    I: Iterator<Item = &'a Arc<BlobSidecar<E>>>,
+    I: Iterator<Item = &'a Arc<BlobSidecar>>,
 {
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
         .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
-    validate_blobs::<E>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
+    validate_blobs(kzg, commitments.as_slice(), blobs, proofs.as_slice())
 }

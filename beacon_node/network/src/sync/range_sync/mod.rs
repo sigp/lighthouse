@@ -8,7 +8,7 @@ mod sync_type;
 #[cfg(test)]
 pub use chain::RangeSyncBatchConfig;
 pub use chain::{ChainId, EPOCHS_PER_BATCH};
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 pub use chain_collection::SyncChainStatus;
 pub use range::RangeSync;
 pub use sync_type::RangeSyncType;

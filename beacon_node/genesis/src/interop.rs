@@ -4,7 +4,7 @@ use ethereum_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
-use types::{BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256};
+use types::{BeaconState, ChainSpec, DepositData, ExecutionPayloadHeader, Hash256};
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
@@ -30,7 +30,7 @@ pub type WithdrawalCredentialsFn =
 /// Reference:
 /// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
 #[derive(Default)]
-pub struct InteropGenesisBuilder<E: EthSpec> {
+pub struct InteropGenesisBuilder {
     /// Mapping from validator index to initial balance for each validator.
     ///
     /// If `None`, then the default balance of 32 ETH will be used.
@@ -42,10 +42,10 @@ pub struct InteropGenesisBuilder<E: EthSpec> {
     withdrawal_credentials_fn: Option<WithdrawalCredentialsFn>,
 
     /// The execution payload header to embed in the genesis state.
-    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    execution_payload_header: Option<ExecutionPayloadHeader>,
 }
 
-impl<E: EthSpec> InteropGenesisBuilder<E> {
+impl InteropGenesisBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -69,14 +69,14 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
 
     pub fn set_execution_payload_header(
         self,
-        execution_payload_header: ExecutionPayloadHeader<E>,
+        execution_payload_header: ExecutionPayloadHeader,
     ) -> Self {
         self.set_opt_execution_payload_header(Some(execution_payload_header))
     }
 
     pub fn set_opt_execution_payload_header(
         mut self,
-        execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+        execution_payload_header: Option<ExecutionPayloadHeader>,
     ) -> Self {
         self.execution_payload_header = execution_payload_header;
         self
@@ -88,7 +88,7 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
         genesis_time: u64,
         eth1_block_hash: Hash256,
         spec: &ChainSpec,
-    ) -> Result<BeaconState<E>, String> {
+    ) -> Result<BeaconState, String> {
         // Generate withdrawal credentials using provided function, or default BLS.
         let withdrawal_credentials_fn = self.withdrawal_credentials_fn.unwrap_or_else(|| {
             Box::new(|_, pubkey, spec| bls_withdrawal_credentials(pubkey, spec))
@@ -150,13 +150,13 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
     }
 }
 
-pub fn interop_genesis_state<E: EthSpec>(
+pub fn interop_genesis_state(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    execution_payload_header: Option<ExecutionPayloadHeader>,
     spec: &ChainSpec,
-) -> Result<BeaconState<E>, String> {
+) -> Result<BeaconState, String> {
     InteropGenesisBuilder::new()
         .set_opt_execution_payload_header(execution_payload_header)
         .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
@@ -176,35 +176,33 @@ fn alternating_eth1_withdrawal_credentials_fn<'a>(
 
 // returns an interop genesis state except every other
 // validator has eth1 withdrawal credentials
-pub fn interop_genesis_state_with_eth1<E: EthSpec>(
+pub fn interop_genesis_state_with_eth1(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    execution_payload_header: Option<ExecutionPayloadHeader>,
     spec: &ChainSpec,
-) -> Result<BeaconState<E>, String> {
+) -> Result<BeaconState, String> {
     InteropGenesisBuilder::new()
         .set_alternating_eth1_withdrawal_credentials()
         .set_opt_execution_payload_header(execution_payload_header)
         .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 mod test {
     use super::*;
-    use types::{MinimalEthSpec, test_utils::generate_deterministic_keypairs};
-
-    type TestEthSpec = MinimalEthSpec;
+    use types::{Spec, test_utils::generate_deterministic_keypairs};
 
     #[test]
     fn interop_state() {
         let validator_count = 16;
         let genesis_time = 42;
-        let spec = &TestEthSpec::default_spec();
+        let spec = &Spec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state::<TestEthSpec>(
+        let state = interop_genesis_state(
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -270,11 +268,11 @@ mod test {
 
         let validator_count = 16;
         let genesis_time = 42;
-        let spec = &types::ForkName::Gloas.make_genesis_spec(TestEthSpec::default_spec());
+        let spec = &types::ForkName::Gloas.make_genesis_spec(Spec::default_spec());
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let mut state = interop_genesis_state::<TestEthSpec>(
+        let mut state = interop_genesis_state(
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -358,11 +356,11 @@ mod test {
     fn interop_state_with_eth1() {
         let validator_count = 16;
         let genesis_time = 42;
-        let spec = &TestEthSpec::default_spec();
+        let spec = &Spec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state_with_eth1::<TestEthSpec>(
+        let state = interop_genesis_state_with_eth1(
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec, PayloadAttestationData, Slot};
+use types::{ChainSpec, PayloadAttestationData, Slot, Spec};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -130,14 +130,14 @@ where
 
         if !self
             .chain_spec
-            .fork_name_at_slot::<S::E>(current_slot)
+            .fork_name_at_slot(current_slot)
             .gloas_enabled()
         {
             let duration_to_next_epoch = self
                 .slot_clock
-                .duration_to_next_epoch(S::E::slots_per_epoch())
+                .duration_to_next_epoch(Spec::slots_per_epoch())
                 .unwrap_or_else(|| {
-                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
+                    self.chain_spec.get_slot_duration() * Spec::slots_per_epoch() as u32
                 });
             sleep(duration_to_next_epoch).await;
             return None;
@@ -243,7 +243,7 @@ where
         }
 
         let count = messages.len();
-        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+        let fork_name = self.chain_spec.fork_name_at_slot(slot);
         let result = self
             .beacon_nodes
             .first_success(|beacon_node| {

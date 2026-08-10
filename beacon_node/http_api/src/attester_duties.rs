@@ -5,7 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
-use types::{AttestationDuty, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, RelativeEpoch};
+use types::{AttestationDuty, BeaconState, ChainSpec, Epoch, Hash256, RelativeEpoch, Spec};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::AttesterData>>;
@@ -19,7 +19,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
     let current_epoch = chain
         .slot_clock
         .now_or_genesis()
-        .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+        .map(|slot| slot.epoch(Spec::slots_per_epoch()))
         .ok_or(BeaconChainError::UnableToReadSlot)
         .map_err(warp_utils::reject::unhandled_error)?;
 
@@ -38,7 +38,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
             .ok_or_else(|| {
                 warp_utils::reject::custom_server_error("unable to read slot clock".into())
             })?
-            .epoch(T::EthSpec::slots_per_epoch())
+            .epoch(Spec::slots_per_epoch())
     };
 
     if request_epoch == current_epoch
@@ -118,7 +118,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
             (state, execution_optimistic)
         } else {
             let (state, execution_optimistic, _finalized) =
-                StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                StateId::from_slot(request_epoch.start_slot(Spec::slots_per_epoch()))
                     .state(chain)?;
             (state, execution_optimistic)
         };
@@ -167,8 +167,8 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     )
 }
 
-fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
-    state: &mut BeaconState<E>,
+fn ensure_state_knows_attester_duties_for_epoch(
+    state: &mut BeaconState,
     state_root: Hash256,
     target_epoch: Epoch,
     spec: &ChainSpec,
@@ -185,7 +185,7 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
         // the prior epoch.
         let target_slot = target_epoch
             .saturating_sub(1_u64)
-            .start_slot(E::slots_per_epoch());
+            .start_slot(Spec::slots_per_epoch());
 
         // A "partial" state advance is adequate since attester duties don't rely on state roots.
         partial_state_advance(state, Some(state_root), target_slot, spec)

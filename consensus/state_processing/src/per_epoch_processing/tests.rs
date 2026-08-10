@@ -1,12 +1,11 @@
-#![cfg(test)]
+#![cfg(all(test, feature = "spec-minimal"))]
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
-use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use types::Slot;
+use types::{Epoch, Slot, Spec};
 
 #[tokio::test]
 async fn runs_without_error() {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder()
         .default_spec()
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -14,8 +13,7 @@ async fn runs_without_error() {
         .build();
     harness.advance_slot();
 
-    let target_slot =
-        (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
+    let target_slot = (Epoch::new(Spec::genesis_epoch()) + 4).end_slot(Spec::slots_per_epoch());
 
     let state = harness.get_current_state();
     harness
@@ -41,17 +39,17 @@ mod release_tests {
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use std::sync::Arc;
-    use types::{Epoch, ForkName, InconsistentFork, MainnetEthSpec};
+    use types::{Epoch, ForkName, InconsistentFork};
 
     #[tokio::test]
     async fn altair_state_on_base_fork() {
-        let mut spec = MainnetEthSpec::default_spec();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let mut spec = Spec::default_spec();
+        let slots_per_epoch = Spec::slots_per_epoch();
         // The Altair fork happens at epoch 1.
         spec.altair_fork_epoch = Some(Epoch::new(1));
 
         let altair_state = {
-            let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            let harness = BeaconChainHarness::builder()
                 .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()
@@ -105,13 +103,13 @@ mod release_tests {
 
     #[tokio::test]
     async fn base_state_on_altair_fork() {
-        let mut spec = MainnetEthSpec::default_spec();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let mut spec = Spec::default_spec();
+        let slots_per_epoch = Spec::slots_per_epoch();
         // The Altair fork never happens.
         spec.altair_fork_epoch = None;
 
         let base_state = {
-            let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            let harness = BeaconChainHarness::builder()
                 .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()

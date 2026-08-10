@@ -1,11 +1,11 @@
 use super::*;
 use decode::ssz_decode_light_client_update;
 use serde::Deserialize;
-use types::{LightClientUpdate, Slot};
+use types::{LightClientUpdate, Slot, Spec};
 
 #[derive(Debug, Clone)]
-pub struct LightClientVerifyIsBetterUpdate<E: EthSpec> {
-    light_client_updates: Vec<LightClientUpdate<E>>,
+pub struct LightClientVerifyIsBetterUpdate {
+    light_client_updates: Vec<LightClientUpdate>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -13,7 +13,7 @@ pub struct Metadata {
     updates_count: u64,
 }
 
-impl<E: EthSpec> LoadCase for LightClientVerifyIsBetterUpdate<E> {
+impl LoadCase for LightClientVerifyIsBetterUpdate {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let mut light_client_updates = vec![];
         let metadata: Metadata = decode::yaml_decode_file(path.join("meta.yaml").as_path())?;
@@ -31,13 +31,13 @@ impl<E: EthSpec> LoadCase for LightClientVerifyIsBetterUpdate<E> {
     }
 }
 
-impl<E: EthSpec> Case for LightClientVerifyIsBetterUpdate<E> {
+impl Case for LightClientVerifyIsBetterUpdate {
     // Light client updates in `self.light_client_updates` are ordered in descending precedence
     // where the update at index = 0 is considered the best update. This test iterates through
     // all light client updates in a nested loop to make all possible comparisons. If a light client update
     // at index `i`` is considered 'better' than a light client update at index `j`` when `i > j`, this test fails.
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = fork_name.make_genesis_spec(E::default_spec());
+        let spec = fork_name.make_genesis_spec(Spec::default_spec());
         for (i, ith_light_client_update) in self.light_client_updates.iter().enumerate() {
             for (j, jth_light_client_update) in self.light_client_updates.iter().enumerate() {
                 eprintln!("{i} {j}");
@@ -93,7 +93,7 @@ struct LightClientUpdateSummary {
 }
 
 impl LightClientUpdateSummary {
-    fn from_update<E: EthSpec>(update: &LightClientUpdate<E>, spec: &ChainSpec) -> Self {
+    fn from_update(update: &LightClientUpdate, spec: &ChainSpec) -> Self {
         let max_participants = update.sync_aggregate().sync_committee_bits.len();
         let participants = update.sync_aggregate().sync_committee_bits.num_set_bits();
         Self {

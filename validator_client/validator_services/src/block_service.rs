@@ -14,7 +14,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot};
+use types::{BlockType, ChainSpec, Graffiti, Hash256, Slot, Spec};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]
@@ -338,7 +338,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
-        unsigned_block: UnsignedBlock<S::E>,
+        unsigned_block: UnsignedBlock,
     ) -> Result<(), BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
@@ -420,7 +420,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         let randao_reveal = match self
             .validator_store
-            .randao_reveal(validator_pubkey, slot.epoch(S::E::slots_per_epoch()))
+            .randao_reveal(validator_pubkey, slot.epoch(Spec::slots_per_epoch()))
             .await
         {
             Ok(signature) => signature.into(),
@@ -461,7 +461,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
         // Check if Gloas fork is active at this slot
-        let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
+        let fork_name = self_ref.chain_spec.fork_name_at_slot(slot);
 
         let (block_proposer, unsigned_block) = if fork_name.gloas_enabled() {
             // Use V4 block production for Gloas
@@ -474,7 +474,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                     );
                     beacon_node
-                        .get_validator_blocks_v4_ssz::<S::E>(
+                        .get_validator_blocks_v4_ssz(
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
@@ -502,7 +502,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                             );
                             let (json_block_response, _metadata) = beacon_node
-                                .get_validator_blocks_v4::<S::E>(
+                                .get_validator_blocks_v4(
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
@@ -545,7 +545,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                     );
                     beacon_node
-                        .get_validator_blocks_v3_ssz::<S::E>(
+                        .get_validator_blocks_v3_ssz(
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
@@ -572,7 +572,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                             );
                             let (json_block_response, _metadata) = beacon_node
-                                .get_validator_blocks_v3::<S::E>(
+                                .get_validator_blocks_v3(
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
@@ -669,7 +669,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             .beacon_nodes
             .first_success(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelopes_ssz::<S::E>(slot, beacon_block_root)
+                    .get_validator_execution_payload_envelopes_ssz(slot, beacon_block_root)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
@@ -703,7 +703,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             "Signed execution payload envelope, publishing"
         );
 
-        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+        let fork_name = self.chain_spec.fork_name_at_slot(slot);
 
         // Publish the signed envelope
         // TODO(gloas): Use proposer_fallback once multi-BN is supported.
@@ -740,7 +740,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all)]
     async fn publish_signed_block_contents(
         &self,
-        signed_block: &SignedBlock<S::E>,
+        signed_block: &SignedBlock,
         beacon_node: BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
         match signed_block {
@@ -783,8 +783,8 @@ struct BlockMetadata {
     num_attestations: usize,
 }
 
-impl<E: EthSpec> From<&SignedBlock<E>> for BlockMetadata {
-    fn from(value: &SignedBlock<E>) -> Self {
+impl From<&SignedBlock> for BlockMetadata {
+    fn from(value: &SignedBlock) -> Self {
         match value {
             SignedBlock::Full(block) => BlockMetadata {
                 block_type: BlockType::Full,

@@ -8,7 +8,7 @@ use slashing_protection::{
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{Epoch, EthSpec, Slot};
+use types::{Epoch, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -58,9 +58,9 @@ pub fn cli_app() -> Command {
         )
 }
 
-pub fn cli_run<E: EthSpec>(
+pub fn cli_run(
     matches: &ArgMatches,
-    env: Environment<E>,
+    env: Environment,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
@@ -69,7 +69,7 @@ pub fn cli_run<E: EthSpec>(
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_validators_root::<E>()?
+        .genesis_validators_root()?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
     match matches.subcommand() {

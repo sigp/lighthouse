@@ -3,7 +3,7 @@
 //! Measures performance of the core FCR algorithms at various validator set sizes using a
 //! synthetic linear chain built via `ProtoArrayForkChoice`.
 //!
-//! All benchmarks run on `MainnetEthSpec` (32 slots/epoch). The chain spans three epochs so the
+//! All benchmarks run on the compiled `Spec` (mainnet: 32 slots/epoch). The chain spans three epochs so the
 //! FCR state machine has a real epoch boundary and a fully-populated previous epoch to act on.
 //! `get_latest_confirmed` is measured across a table of realistic (chain position, FCR run slot)
 //! scenarios — see `SCENARIOS`.
@@ -20,8 +20,6 @@ use fixed_bytes::FixedBytesExtended;
 use proto_array::core::{ProtoArray, VoteTracker};
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
 use types::*;
-
-type E = MainnetEthSpec;
 
 const GWEI_PER_ETH: u64 = 1_000_000_000;
 const BALANCE: u64 = 32 * GWEI_PER_ETH;
@@ -127,7 +125,7 @@ impl BenchData {
 /// Build the synthetic chain (slots 0..=CHAIN_TIP_SLOT) with `num_validators` voting for scattered
 /// recent blocks, plus an FCR seeded with the shared balances/checkpoints.
 fn build_chain(num_validators: usize) -> BenchData {
-    build_chain_inner(num_validators, E::slots_per_epoch() as usize, None)
+    build_chain_inner(num_validators, Spec::slots_per_epoch() as usize, None)
 }
 
 /// `build_chain`, with `seed_validators` in the committee-cached seed state (so `is_in_range`
@@ -137,7 +135,7 @@ fn build_chain_inner(
     seed_validators: usize,
     gap_slot: Option<u64>,
 ) -> BenchData {
-    let spec = E::default_spec();
+    let spec = Spec::default_spec();
     let genesis_root = block_root_at(0);
 
     let genesis_checkpoint = Checkpoint {
@@ -153,7 +151,7 @@ fn build_chain_inner(
 
     let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), genesis_root);
 
-    let mut fc = ProtoArrayForkChoice::new::<E>(
+    let mut fc = ProtoArrayForkChoice::new(
         Slot::new(0),    // current_slot
         Slot::new(0),    // finalized_block_slot
         Hash256::zero(), // finalized_block_state_root
@@ -177,11 +175,11 @@ fn build_chain_inner(
             continue;
         }
         let slot = Slot::new(slot_u);
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(Spec::slots_per_epoch());
         let root = block_root_at(slot_u);
         let parent_root = block_roots[(slot_u - 1) as usize];
         // Target is the block at the first slot of this block's epoch.
-        let target_root = block_root_at(epoch.as_u64() * E::slots_per_epoch());
+        let target_root = block_root_at(epoch.as_u64() * Spec::slots_per_epoch());
         // Epoch-0 blocks have nothing justified beyond genesis; later blocks see the epoch-1
         // boundary as unrealized-justified, matching the FCR's observed-justified checkpoint.
         let unrealized_justified_checkpoint = if epoch == Epoch::new(0) {
@@ -209,7 +207,7 @@ fn build_chain_inner(
             payload_received: false,
         };
 
-        fc.process_block::<E>(block, slot, &spec, Duration::from_secs(0))
+        fc.process_block(block, slot, &spec, Duration::from_secs(0))
             .expect("process block");
 
         block_roots.push(root);
@@ -229,7 +227,7 @@ fn build_chain_inner(
     let balances = JustifiedBalances::from_effective_balances(vec![BALANCE; num_validators])
         .expect("justified balances");
 
-    fc.find_head::<E>(
+    fc.find_head(
         justified_checkpoint,
         finalized_checkpoint,
         &balances,
@@ -247,7 +245,7 @@ fn build_chain_inner(
     let balance_source = BalanceSourceData {
         key: BalanceSourceKey::NoSlashings {
             epoch_boundary_root: observed_justified_checkpoint.root,
-            epoch: Slot::new(CHAIN_TIP_SLOT).epoch(E::slots_per_epoch()),
+            epoch: Slot::new(CHAIN_TIP_SLOT).epoch(Spec::slots_per_epoch()),
         },
         total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
@@ -257,7 +255,7 @@ fn build_chain_inner(
     // `new` builds head assignments/balances from the state; the bench overwrites balances and
     // slot-tracking variables, so a small committee-cache-ready state suffices (its assignments
     // aren't on the O(V) cost path).
-    let mut seed_state = BeaconState::<E>::new(0, Default::default(), &spec);
+    let mut seed_state = BeaconState::new(0, Default::default(), &spec);
     for _ in 0..seed_validators {
         seed_state
             .validators_mut()
@@ -331,7 +329,7 @@ fn bench_get_current_target_score(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             b.iter(|| {
-                data.fcr.get_current_target_score::<E>(
+                data.fcr.get_current_target_score(
                     block_root_at(REPRESENTATIVE_HEAD_SLOT),
                     Slot::new(REPRESENTATIVE_CURRENT_SLOT),
                     &data.proto_array,
@@ -399,7 +397,7 @@ fn bench_get_latest_confirmed(c: &mut Criterion) {
 
             group.bench_with_input(BenchmarkId::new(scenario.name, n), &n, |b, _| {
                 b.iter(|| {
-                    data.fcr.get_latest_confirmed::<E>(
+                    data.fcr.get_latest_confirmed(
                         head_root,
                         &data.finalized_checkpoint,
                         &data.unrealized_justified_checkpoint,
@@ -434,7 +432,7 @@ fn bench_get_latest_confirmed_empty_slots(c: &mut Criterion) {
         let head_root = block_root_at(69);
         group.bench_with_input(BenchmarkId::new("missed_slot", n), &n, |b, _| {
             b.iter(|| {
-                data.fcr.get_latest_confirmed::<E>(
+                data.fcr.get_latest_confirmed(
                     head_root,
                     &data.finalized_checkpoint,
                     &data.unrealized_justified_checkpoint,

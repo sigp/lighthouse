@@ -10,7 +10,7 @@ use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 use crate::network_beacon_processor::TestBeaconChainType;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -45,18 +45,18 @@ use requests::{
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
     PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
-    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Spec,
 };
 
 pub mod custody;
@@ -92,8 +92,7 @@ impl<T> RpcEvent<T> {
 
 pub type RpcResponseResult<T> = Result<T, RpcResponseError>;
 
-pub type CustodyByRootResult<T> =
-    Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
+pub type CustodyByRootResult = Result<DownloadResult<DataColumnSidecarList>, RpcResponseError>;
 
 /// Per-peer count of active requests for a single protocol, to keep peer selection within
 /// `MAX_CONCURRENT_REQUESTS` concurrent requests per protocol ID.
@@ -216,40 +215,35 @@ pub enum LookupRequestResult<T, I = ReqId> {
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
 
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
     /// A mapping of active BlocksByRoot requests, including both current slot and parent lookups.
-    blocks_by_root_requests:
-        ActiveRequests<SingleLookupReqId, BlocksByRootRequestItems<T::EthSpec>>,
+    blocks_by_root_requests: ActiveRequests<SingleLookupReqId, BlocksByRootRequestItems>,
     /// A mapping of active PayloadEnvelopesByRoot requests
     payload_envelopes_by_root_requests:
-        ActiveRequests<SingleLookupReqId, PayloadEnvelopesByRootRequestItems<T::EthSpec>>,
+        ActiveRequests<SingleLookupReqId, PayloadEnvelopesByRootRequestItems>,
     /// A mapping of active DataColumnsByRoot requests
     data_columns_by_root_requests:
-        ActiveRequests<DataColumnsByRootRequestId, DataColumnsByRootRequestItems<T::EthSpec>>,
+        ActiveRequests<DataColumnsByRootRequestId, DataColumnsByRootRequestItems>,
     /// A mapping of active BlocksByRange requests
-    blocks_by_range_requests:
-        ActiveRequests<BlocksByRangeRequestId, BlocksByRangeRequestItems<T::EthSpec>>,
+    blocks_by_range_requests: ActiveRequests<BlocksByRangeRequestId, BlocksByRangeRequestItems>,
     /// A mapping of active BlobsByRange requests
-    blobs_by_range_requests:
-        ActiveRequests<BlobsByRangeRequestId, BlobsByRangeRequestItems<T::EthSpec>>,
+    blobs_by_range_requests: ActiveRequests<BlobsByRangeRequestId, BlobsByRangeRequestItems>,
     /// A mapping of active DataColumnsByRange requests
     data_columns_by_range_requests:
-        ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
+        ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems>,
     /// A mapping of active PayloadEnvelopesByRange requests
-    payload_envelopes_by_range_requests: ActiveRequests<
-        PayloadEnvelopesByRangeRequestId,
-        PayloadEnvelopesByRangeRequestItems<T::EthSpec>,
-    >,
+    payload_envelopes_by_range_requests:
+        ActiveRequests<PayloadEnvelopesByRangeRequestId, PayloadEnvelopesByRangeRequestItems>,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
     /// BlocksByRange requests paired with other ByRange requests for data components
     components_by_range_requests:
-        FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
+        FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest>,
 
     /// A batch of data columns by range request for custody sync
     custody_backfill_data_column_batch_requests:
@@ -268,33 +262,33 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum RangeBlockComponent<E: EthSpec> {
+pub enum RangeBlockComponent {
     Block(
         BlocksByRangeRequestId,
-        RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>,
+        RpcResponseResult<Vec<Arc<SignedBeaconBlock>>>,
         PeerId,
     ),
     Blob(
         BlobsByRangeRequestId,
-        RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>,
+        RpcResponseResult<Vec<Arc<BlobSidecar>>>,
     ),
     /// Custody-by-root result for a whole range batch. Arrives after blocks and carries the
     /// custody columns of every data-bearing block, fetched via a single ActiveCustodyRequest.
-    CustodyResult(CustodyByRootResult<E>, PeerGroup),
+    CustodyResult(CustodyByRootResult, PeerGroup),
     PayloadEnvelope(
         PayloadEnvelopesByRangeRequestId,
-        RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
+        RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope>>>,
     ),
 }
 
-#[cfg(test)]
-impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
+#[cfg(all(test, feature = "spec-minimal"))]
+impl SyncNetworkContext<TestBeaconChainType> {
     pub fn new_for_testing(
-        beacon_chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
-        network_globals: Arc<NetworkGlobals<E>>,
+        beacon_chain: Arc<BeaconChain<TestBeaconChainType>>,
+        network_globals: Arc<NetworkGlobals>,
         task_executor: TaskExecutor,
     ) -> Self {
-        let fork_context = Arc::new(ForkContext::new::<E>(
+        let fork_context = Arc::new(ForkContext::new(
             beacon_chain.slot_clock.now().unwrap_or(Slot::new(0)),
             beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
@@ -318,7 +312,7 @@ impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
-        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
         fork_context: Arc<ForkContext>,
@@ -347,7 +341,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self.chain.spec
     }
 
-    pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage) {
         self.network_beacon_processor
             .send_sync_message(sync_message);
     }
@@ -421,7 +415,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .custody_peers_for_column(column_index, block_slot)
     }
 
-    pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+    pub fn network_globals(&self) -> &NetworkGlobals {
         &self.network_beacon_processor.network_globals
     }
 
@@ -638,8 +632,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
-        range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<(PeerId, Vec<RangeSyncBlock<T::EthSpec>>), RpcResponseError>> {
+        range_block_component: RangeBlockComponent,
+    ) -> Option<Result<(PeerId, Vec<RangeSyncBlock>), RpcResponseError>> {
         // Remove from map to allow passing &mut self to continue_requests
         let mut request = self.components_by_range_requests.remove(&id)?;
 
@@ -713,7 +707,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         peers_to_deprioritize: &HashSet<PeerId>,
         block_root: Hash256,
-    ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock>>, RpcRequestSendError> {
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
         let Some(peer_id) = lookup_peers
             .read()
@@ -822,10 +816,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         peers_to_deprioritize: &HashSet<PeerId>,
         block_root: Hash256,
-    ) -> Result<
-        LookupRequestResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-        RpcRequestSendError,
-    > {
+    ) -> Result<LookupRequestResult<Arc<SignedExecutionPayloadEnvelope>>, RpcRequestSendError> {
         // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
         // before the lookup got here). Return the cached envelope so the request completes.
         if self.chain.envelope_is_known_to_fork_choice(&block_root)
@@ -916,10 +907,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRoot(
-                request.clone().try_into_request::<T::EthSpec>(
-                    self.fork_context.current_fork_name(),
-                    &self.chain.spec,
-                )?,
+                request
+                    .clone()
+                    .try_into_request(self.fork_context.current_fork_name(), &self.chain.spec)?,
             ),
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
@@ -962,7 +952,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_epoch: Epoch,
         ignore_cache: bool,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-    ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult<DataColumnSidecarList>, RpcRequestSendError> {
         // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
         // as we want to have at least one signal that some of our peers has already seen the
         // block's data.
@@ -1018,7 +1008,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let mut request = ActiveCustodyRequest::new(
             block_roots.to_vec(),
-            block_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            block_epoch.start_slot(Spec::slots_per_epoch()),
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,
@@ -1077,7 +1067,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         debug!(
             method = "BlocksByRange",
             slots = request.count(),
-            epoch = %Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
+            epoch = %Slot::new(*request.start_slot()).epoch(Spec::slots_per_epoch()),
             peer = %peer_id,
             %id,
             "Sync RPC request sent"
@@ -1106,7 +1096,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             id: self.next_id(),
             parent_request_id,
         };
-        let request_epoch = Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch());
+        let request_epoch = Slot::new(request.start_slot).epoch(Spec::slots_per_epoch());
 
         // Create the blob request based on the blocks request.
         self.network_send
@@ -1163,7 +1153,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         debug!(
             method = "DataColumnsByRange",
             slots = request.count,
-            epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
+            epoch = %Slot::new(request.start_slot).epoch(Spec::slots_per_epoch()),
             columns = ?request.columns,
             peer = %peer_id,
             %id,
@@ -1266,7 +1256,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Sends an arbitrary network message.
-    fn send_network_msg(&self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
+    fn send_network_msg(&self, msg: NetworkMessage) -> Result<(), &'static str> {
         self.network_send.send(msg).map_err(|_| {
             debug!("Could not send message to the network service");
             "Network channel send Failed"
@@ -1320,7 +1310,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// attempt.
     pub fn continue_custody_by_root_requests(
         &mut self,
-    ) -> Vec<(CustodyRequester, CustodyByRootResult<T::EthSpec>)> {
+    ) -> Vec<(CustodyRequester, CustodyByRootResult)> {
         let ids = self
             .custody_by_root_requests
             .keys()
@@ -1347,8 +1337,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
+        rpc_event: RpcEvent<Arc<SignedBeaconBlock>>,
+    ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock>>> {
         let resp = self.blocks_by_root_requests.on_response(id, rpc_event);
         let resp = resp.map(|res| {
             res.and_then(|mut blocks| {
@@ -1369,8 +1359,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>> {
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope>>,
+    ) -> Option<RpcResponseResult<Arc<SignedExecutionPayloadEnvelope>>> {
         let resp = self
             .payload_envelopes_by_root_requests
             .on_response(id, rpc_event);
@@ -1391,8 +1381,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: DataColumnsByRootRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>> {
+        rpc_event: RpcEvent<Arc<DataColumnSidecar>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar>>>> {
         let resp = self
             .data_columns_by_root_requests
             .on_response(id, rpc_event);
@@ -1404,8 +1394,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: BlocksByRangeRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<T::EthSpec>>>>> {
+        rpc_event: RpcEvent<Arc<SignedBeaconBlock>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock>>>> {
         let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
         self.on_rpc_response_result(resp, peer_id)
     }
@@ -1415,8 +1405,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: BlobsByRangeRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecar<T::EthSpec>>>>> {
+        rpc_event: RpcEvent<Arc<BlobSidecar>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecar>>>> {
         let resp = self.blobs_by_range_requests.on_response(id, rpc_event);
         self.on_rpc_response_result(resp, peer_id)
     }
@@ -1426,8 +1416,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: DataColumnsByRangeRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
+        rpc_event: RpcEvent<Arc<DataColumnSidecar>>,
+    ) -> Option<RpcResponseResult<DataColumnSidecarList>> {
         let resp = self
             .data_columns_by_range_requests
             .on_response(id, rpc_event);
@@ -1439,8 +1429,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: PayloadEnvelopesByRangeRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>>> {
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope>>>> {
         let resp = self
             .payload_envelopes_by_range_requests
             .on_response(id, rpc_event);
@@ -1472,8 +1462,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: CustodyId,
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
-        resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
-    ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        resp: RpcResponseResult<Vec<Arc<DataColumnSidecar>>>,
+    ) -> Option<CustodyByRootResult> {
         // Note: need to remove the request to borrow self again below. Otherwise we can't
         // do nested requests
         let Some(mut request) = self.custody_by_root_requests.remove(&id.requester) else {
@@ -1491,8 +1481,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: CustodyRequester,
         request: ActiveCustodyRequest<T>,
-        result: CustodyRequestResult<T::EthSpec>,
-    ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        result: CustodyRequestResult,
+    ) -> Option<CustodyByRootResult> {
         let result = result
             .map_err(RpcResponseError::CustodyRequestError)
             .transpose();
@@ -1517,7 +1507,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         id: Id,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock>,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
             .beacon_processor_if_enabled()
@@ -1546,7 +1536,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_payload_for_processing(
         &self,
         block_root: Hash256,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelope>,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
@@ -1574,7 +1564,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         _id: Id,
         block_root: Hash256,
-        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        custody_columns: DataColumnSidecarList,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
@@ -1660,8 +1650,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // pass them separately as DataColumnsByRangeRequestId parent is an enum and would require
         // matching again.
         req_id: DataColumnsByRangeRequestId,
-        data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
-    ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
+        data_columns: RpcResponseResult<DataColumnSidecarList>,
+    ) -> Option<Result<DataColumnSidecarList, RpcResponseError>> {
         // Remove first so a failed request is not left in the map.
         let Some(mut request) = self
             .custody_backfill_data_column_batch_requests
@@ -1696,12 +1686,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn custody_backfill_batch_request_count(&self) -> usize {
         self.custody_backfill_data_column_batch_requests.len()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn insert_test_custody_backfill_entry(
         &mut self,
         batch_req_id: CustodyBackFillBatchRequestId,

@@ -8,7 +8,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use tree_hash_derive::TreeHash;
 
-use crate::{core::EthSpec, fork::ForkName, sync_committee::SyncSubnetId};
+use crate::{core::Spec, fork::ForkName, sync_committee::SyncSubnetId};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -26,20 +26,15 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
-#[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct SyncCommittee<E: EthSpec> {
-    pub pubkeys: FixedVector<PublicKeyBytes, E::SyncCommitteeSize>,
+pub struct SyncCommittee {
+    pub pubkeys: FixedVector<PublicKeyBytes, typenum::U<{ Spec::SYNC_COMMITTEE_SIZE }>>,
     pub aggregate_pubkey: PublicKeyBytes,
 }
 
-impl<E: EthSpec> SyncCommittee<E> {
+impl SyncCommittee {
     /// Create a temporary sync committee that should *never* be included in a legitimate consensus object.
     pub fn temporary() -> Self {
         Self {
@@ -53,9 +48,9 @@ impl<E: EthSpec> SyncCommittee<E> {
         &self,
         subcommittee_index: usize,
     ) -> Result<Vec<PublicKeyBytes>, Error> {
-        let start_subcommittee_index = subcommittee_index.safe_mul(E::sync_subcommittee_size())?;
+        let start_subcommittee_index = subcommittee_index.safe_mul(Spec::SYNC_SUBCOMMITTEE_SIZE)?;
         let end_subcommittee_index =
-            start_subcommittee_index.safe_add(E::sync_subcommittee_size())?;
+            start_subcommittee_index.safe_add(Spec::SYNC_SUBCOMMITTEE_SIZE)?;
         self.pubkeys
             .get(start_subcommittee_index..end_subcommittee_index)
             .ok_or(Error::InvalidSubcommitteeRange {
@@ -76,9 +71,9 @@ impl<E: EthSpec> SyncCommittee<E> {
         let mut subnet_positions = HashMap::new();
         for (committee_index, validator_pubkey) in self.pubkeys.iter().enumerate() {
             if pubkey == validator_pubkey {
-                let subcommittee_index = committee_index.safe_div(E::sync_subcommittee_size())?;
+                let subcommittee_index = committee_index.safe_div(Spec::SYNC_SUBCOMMITTEE_SIZE)?;
                 let position_in_subcommittee =
-                    committee_index.safe_rem(E::sync_subcommittee_size())?;
+                    committee_index.safe_rem(Spec::SYNC_SUBCOMMITTEE_SIZE)?;
                 subnet_positions
                     .entry(SyncSubnetId::new(subcommittee_index as u64))
                     .or_insert_with(Vec::new)

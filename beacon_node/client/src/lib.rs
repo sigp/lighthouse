@@ -20,7 +20,7 @@ pub use eth2_config::Eth2Config;
 /// Holds references to running services, cleanly shutting them down when dropped.
 pub struct Client<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
-    network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
+    network_globals: Option<Arc<NetworkGlobals>>,
     /// Listen address for the standard eth2.0 API, if the service was started.
     http_api_listen_addr: Option<SocketAddr>,
     /// Listen address for the HTTP server which serves Prometheus metrics.

@@ -22,7 +22,7 @@ use fixed_bytes::Uint256;
 use metastruct::metastruct;
 
 use crate::{
-    core::{Address, EthSpec, Hash64, Hash256},
+    core::{Address, Hash64, Hash256},
     execution::ExecutionPayloadRef,
 };
 
@@ -64,8 +64,8 @@ pub struct ExecutionBlockHeader {
 
 impl ExecutionBlockHeader {
     #[allow(clippy::too_many_arguments)]
-    pub fn from_payload<E: EthSpec>(
-        payload: ExecutionPayloadRef<E>,
+    pub fn from_payload(
+        payload: ExecutionPayloadRef<'_>,
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
         rlp_withdrawals_root: Option<Hash256>,

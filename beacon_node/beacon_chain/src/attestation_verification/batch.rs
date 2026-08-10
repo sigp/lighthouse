@@ -28,10 +28,10 @@ use types::*;
 pub fn batch_verify_aggregated_attestations<'a, T, I>(
     aggregates: I,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, Error>>, Error>
+) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a>, Error>>, Error>
 where
     T: BeaconChainTypes,
-    I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
+    I: Iterator<Item = &'a SignedAggregateAndProof> + ExactSizeIterator,
 {
     let mut num_indexed = 0;
     let mut num_failed = 0;
@@ -133,7 +133,7 @@ where
 pub fn batch_verify_unaggregated_attestations<'a, T, I>(
     attestations: I,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
+) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a>, Error>>, Error>
 where
     T: BeaconChainTypes,
     I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,

@@ -10,23 +10,23 @@ macro_rules! map_execution_payload_into_full_payload {
     ($value:expr, $f:expr) => {
         match $value {
             ExecutionPayload::Bellatrix(inner) => {
-                let f: fn(ExecutionPayloadBellatrix<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadBellatrix, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Bellatrix)
             }
             ExecutionPayload::Capella(inner) => {
-                let f: fn(ExecutionPayloadCapella<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadCapella, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Capella)
             }
             ExecutionPayload::Deneb(inner) => {
-                let f: fn(ExecutionPayloadDeneb<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadDeneb, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Deneb)
             }
             ExecutionPayload::Electra(inner) => {
-                let f: fn(ExecutionPayloadElectra<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadElectra, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Electra)
             }
             ExecutionPayload::Fulu(inner) => {
-                let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadFulu, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Fulu)
             }
             ExecutionPayload::Gloas(_) => panic!("FullPayload::Gloas does not exist!"),
@@ -40,23 +40,23 @@ macro_rules! map_execution_payload_into_blinded_payload {
     ($value:expr, $f:expr) => {
         match $value {
             ExecutionPayload::Bellatrix(inner) => {
-                let f: fn(ExecutionPayloadBellatrix<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadBellatrix, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Bellatrix)
             }
             ExecutionPayload::Capella(inner) => {
-                let f: fn(ExecutionPayloadCapella<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadCapella, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Capella)
             }
             ExecutionPayload::Deneb(inner) => {
-                let f: fn(ExecutionPayloadDeneb<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadDeneb, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Deneb)
             }
             ExecutionPayload::Electra(inner) => {
-                let f: fn(ExecutionPayloadElectra<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadElectra, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Electra)
             }
             ExecutionPayload::Fulu(inner) => {
-                let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
+                let f: fn(ExecutionPayloadFulu, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Fulu)
             }
             ExecutionPayload::Gloas(_) => panic!("BlindedPayload::Gloas does not exist!"),
@@ -71,35 +71,35 @@ macro_rules! map_execution_payload_ref_into_execution_payload_header {
         match $value {
             ExecutionPayloadRef::Bellatrix(inner) => {
                 let f: fn(
-                    &$lifetime ExecutionPayloadBellatrix<_>,
+                    &$lifetime ExecutionPayloadBellatrix,
                     fn(_) -> _,
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Bellatrix)
             }
             ExecutionPayloadRef::Capella(inner) => {
                 let f: fn(
-                    &$lifetime ExecutionPayloadCapella<_>,
+                    &$lifetime ExecutionPayloadCapella,
                     fn(_) -> _,
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Capella)
             }
             ExecutionPayloadRef::Deneb(inner) => {
                 let f: fn(
-                    &$lifetime ExecutionPayloadDeneb<_>,
+                    &$lifetime ExecutionPayloadDeneb,
                     fn(_) -> _,
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Deneb)
             }
             ExecutionPayloadRef::Electra(inner) => {
                 let f: fn(
-                    &$lifetime ExecutionPayloadElectra<_>,
+                    &$lifetime ExecutionPayloadElectra,
                     fn(_) -> _,
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Electra)
             }
             ExecutionPayloadRef::Fulu(inner) => {
                 let f: fn(
-                    &$lifetime ExecutionPayloadFulu<_>,
+                    &$lifetime ExecutionPayloadFulu,
                     fn(_) -> _,
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Fulu)

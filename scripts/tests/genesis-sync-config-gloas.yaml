@@ -1,20 +1,20 @@
 # Kurtosis config file for testing sync on a local devnet.
 participants:
   - cl_type: lighthouse
-    cl_image: lighthouse:local
+    cl_image: lighthouse:local-minimal
     el_type: geth
     el_image: ethpandaops/geth:master
     supernode: true
     count: 2
   # nodes without validators, used for testing sync.
   - cl_type: lighthouse
-    cl_image: lighthouse:local
+    cl_image: lighthouse:local-minimal
     el_type: geth
     el_image: ethpandaops/geth:master
     supernode: true
     validator_count: 0
   - cl_type: lighthouse
-    cl_image: lighthouse:local
+    cl_image: lighthouse:local-minimal
     el_type: geth
     el_image: ethpandaops/geth:master
     supernode: false

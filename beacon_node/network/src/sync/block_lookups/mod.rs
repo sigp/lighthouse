@@ -43,8 +43,7 @@ use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
 use types::{
-    DataColumnSidecarList, EthSpec, ExecutionBlockHash, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope,
+    DataColumnSidecarList, ExecutionBlockHash, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 pub mod parent_chain;
@@ -76,14 +75,13 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 /// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
 const MAX_LOOKUPS: usize = 200;
 
-type BlockDownloadResponse<E> = Result<DownloadResult<Arc<SignedBeaconBlock<E>>>, RpcResponseError>;
-type CustodyDownloadResponse<E> =
-    Result<DownloadResult<DataColumnSidecarList<E>>, RpcResponseError>;
-type PayloadDownloadResponse<E> =
-    Result<DownloadResult<Arc<SignedExecutionPayloadEnvelope<E>>>, RpcResponseError>;
+type BlockDownloadResponse = Result<DownloadResult<Arc<SignedBeaconBlock>>, RpcResponseError>;
+type CustodyDownloadResponse = Result<DownloadResult<DataColumnSidecarList>, RpcResponseError>;
+type PayloadDownloadResponse =
+    Result<DownloadResult<Arc<SignedExecutionPayloadEnvelope>>, RpcResponseError>;
 
-pub enum BlockComponent<E: EthSpec> {
-    Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
+pub enum BlockComponent {
+    Block(DownloadResult<Arc<SignedBeaconBlock>>),
     Sidecar,
 }
 
@@ -102,10 +100,10 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     metrics: BlockLookupsMetrics,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 use lighthouse_network::service::api_types::Id;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 #[derive(Debug)]
 pub(crate) struct BlockLookupSummary {
     /// Lookup ID
@@ -129,22 +127,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn metrics(&self) -> &BlockLookupsMetrics {
         &self.metrics
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn insert_ignored_chain(&mut self, block_root: Hash256) {
         self.ignored_chains.insert(block_root);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn get_ignored_chains(&mut self) -> Vec<Hash256> {
         self.ignored_chains.keys().cloned().collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-minimal"))]
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
@@ -178,7 +176,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_child_and_parent(
         &mut self,
         block_root: Hash256,
-        block_component: BlockComponent<T::EthSpec>,
+        block_component: BlockComponent,
         parent_root: Hash256,
         parent_block_hash: Option<ExecutionBlockHash>,
         peer_id: PeerId,
@@ -359,7 +357,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
-        block_component: Option<BlockComponent<T::EthSpec>>,
+        block_component: Option<BlockComponent>,
         awaiting_parent: Option<AwaitingParent>,
         peers: &[PeerId],
         peer_type: &PeerType,
@@ -457,7 +455,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: BlockDownloadResponse<T::EthSpec>,
+        response: BlockDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
@@ -471,7 +469,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_custody_download_response(
         &mut self,
         id: SingleLookupReqId,
-        response: CustodyDownloadResponse<T::EthSpec>,
+        response: CustodyDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
@@ -486,7 +484,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: PayloadDownloadResponse<T::EthSpec>,
+        response: PayloadDownloadResponse,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {

@@ -8,7 +8,7 @@ use crate::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    core::{ChainSpec, Epoch, EthSpec},
+    core::{ChainSpec, Epoch},
     state::{Balance, BeaconState, BeaconStateError},
 };
 
@@ -290,6 +290,6 @@ impl ProgressiveBalancesCache {
 }
 
 /// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
-pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
+pub fn is_progressive_balances_enabled(state: &BeaconState) -> bool {
     state.fork_name_unchecked().altair_enabled()
 }

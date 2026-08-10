@@ -75,7 +75,7 @@ jobs:
 
             - name: Build Lighthouse for aarch64-apple-darwin
               if:   matrix.arch == 'aarch64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
+              run:  cargo install --path lighthouse --force --locked --features portable --profile ${{ matrix.profile }}
 
             - name: Configure GPG and create artifacts
               env:

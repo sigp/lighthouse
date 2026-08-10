@@ -7,14 +7,14 @@ use crate::{BlockProcessingError, EpochProcessingError};
 use metrics::set_gauge;
 use tracing::instrument;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EpochTotalBalances, EthSpec,
-    ParticipationFlags, ProgressiveBalancesCache, Validator, is_progressive_balances_enabled,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EpochTotalBalances, ParticipationFlags,
+    ProgressiveBalancesCache, Validator, is_progressive_balances_enabled,
 };
 
 /// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
 #[instrument(skip_all, level = "debug")]
-pub fn initialize_progressive_balances_cache<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn initialize_progressive_balances_cache(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
     if !is_progressive_balances_enabled(state)
@@ -89,8 +89,8 @@ fn update_flag_total_balances(
 }
 
 /// Updates the `ProgressiveBalancesCache` when a new target attestation has been processed.
-pub fn update_progressive_balances_on_attestation<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn update_progressive_balances_on_attestation(
+    state: &mut BeaconState,
     epoch: Epoch,
     flag_index: usize,
     validator_effective_balance: u64,
@@ -108,8 +108,8 @@ pub fn update_progressive_balances_on_attestation<E: EthSpec>(
 }
 
 /// Updates the `ProgressiveBalancesCache` when a target attester has been slashed.
-pub fn update_progressive_balances_on_slashing<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn update_progressive_balances_on_slashing(
+    state: &mut BeaconState,
     validator_index: usize,
     validator_effective_balance: u64,
 ) -> Result<(), BlockProcessingError> {
@@ -135,8 +135,8 @@ pub fn update_progressive_balances_on_slashing<E: EthSpec>(
 }
 
 /// Updates the `ProgressiveBalancesCache` on epoch transition.
-pub fn update_progressive_balances_on_epoch_transition<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn update_progressive_balances_on_epoch_transition(
+    state: &mut BeaconState,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     if is_progressive_balances_enabled(state) {

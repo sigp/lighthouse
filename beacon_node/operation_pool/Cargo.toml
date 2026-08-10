@@ -6,6 +6,9 @@ edition = { workspace = true }
 
 [features]
 portable = ["beacon_chain/portable"]
+spec-non-mainnet = []
+spec-minimal = ["types/spec-minimal", "spec-non-mainnet"]
+spec-gnosis = ["types/spec-gnosis", "spec-non-mainnet"]
 
 [dependencies]
 bitvec = { workspace = true }

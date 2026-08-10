@@ -224,12 +224,12 @@ pub trait ItemStore: KeyValueStore + Sync + Send + Sized + 'static {
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
 #[derive(Clone)]
-pub enum StoreOp<'a, E: EthSpec> {
-    PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
-    PutState(Hash256, &'a BeaconState<E>),
-    PutBlobs(Hash256, BlobSidecarList<E>),
-    PutDataColumns(Hash256, DataColumnSidecarList<E>),
-    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
+pub enum StoreOp<'a> {
+    PutBlock(Hash256, Arc<SignedBeaconBlock>),
+    PutState(Hash256, &'a BeaconState),
+    PutBlobs(Hash256, BlobSidecarList),
+    PutDataColumns(Hash256, DataColumnSidecarList),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
@@ -382,9 +382,9 @@ pub enum DBColumn {
 }
 
 /// A block from the database, which might have an execution payload or not.
-pub enum DatabaseBlock<E: EthSpec> {
-    Full(SignedBeaconBlock<E>),
-    Blinded(SignedBeaconBlock<E, BlindedPayload<E>>),
+pub enum DatabaseBlock {
+    Full(SignedBeaconBlock),
+    Blinded(SignedBeaconBlock<BlindedPayload>),
 }
 
 impl DBColumn {

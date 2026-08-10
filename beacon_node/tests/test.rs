@@ -7,13 +7,13 @@ use node_test_rig::{
     eth2::types::StateId,
     testing_client_config,
 };
-use types::{EthSpec, MinimalEthSpec, Slot};
+use types::Slot;
 
-fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
+fn env_builder() -> EnvironmentBuilder {
     EnvironmentBuilder::minimal()
 }
 
-fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
+fn build_node(env: &mut Environment) -> LocalBeaconNode {
     let context = env.core_context();
     env.runtime()
         .block_on(LocalBeaconNode::production(

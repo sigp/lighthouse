@@ -45,7 +45,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
-use types::{ChainSpec, EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId};
 
 mod subnet_predicate;
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
@@ -156,7 +156,7 @@ enum EventStream {
 
 /// The main discovery service. This can be disabled via CLI arguements. When disabled the
 /// underlying processes are not started, but this struct still maintains our current ENR.
-pub struct Discovery<E: EthSpec> {
+pub struct Discovery {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
 
@@ -170,7 +170,7 @@ pub struct Discovery<E: EthSpec> {
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<E>>,
+    network_globals: Arc<NetworkGlobals>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -195,12 +195,12 @@ pub struct Discovery<E: EthSpec> {
     spec: Arc<ChainSpec>,
 }
 
-impl<E: EthSpec> Discovery<E> {
+impl Discovery {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
         local_key: Keypair,
         config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals<E>>,
+        network_globals: Arc<NetworkGlobals>,
         spec: &ChainSpec,
     ) -> Result<Self, String> {
         let enr_dir = match config.network_dir.to_str() {
@@ -506,7 +506,7 @@ impl<E: EthSpec> Discovery<E> {
         match subnet {
             Subnet::Attestation(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.attestation_bitfield::<E>()?;
+                let mut current_bitfield = local_enr.attestation_bitfield()?;
                 if id >= current_bitfield.len() {
                     return Err(format!(
                         "Subnet id: {} is outside the ENR bitfield length: {}",
@@ -539,7 +539,7 @@ impl<E: EthSpec> Discovery<E> {
             }
             Subnet::SyncCommittee(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.sync_committee_bitfield::<E>()?;
+                let mut current_bitfield = local_enr.sync_committee_bitfield()?;
 
                 if id >= current_bitfield.len() {
                     return Err(format!(
@@ -796,7 +796,7 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, self.spec.clone());
+            let subnet_predicate = subnet_predicate(filtered_subnets, self.spec.clone());
 
             debug!(
                 subnets = ?filtered_subnet_queries,
@@ -932,7 +932,7 @@ impl<E: EthSpec> Discovery<E> {
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<E>(vec![query.subnet], self.spec.clone());
+                                subnet_predicate(vec![query.subnet], self.spec.clone());
 
                             r.clone()
                                 .into_iter()
@@ -1003,7 +1003,7 @@ impl<E: EthSpec> Discovery<E> {
 
 /* NetworkBehaviour Implementation */
 
-impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
+impl NetworkBehaviour for Discovery {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
@@ -1211,7 +1211,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
     }
 }
 
-impl<E: EthSpec> Discovery<E> {
+impl Discovery {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
@@ -1241,18 +1241,16 @@ impl<E: EthSpec> Discovery<E> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "spec-minimal"))]
 mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
     use ssz_types::BitVector;
-    use types::{MinimalEthSpec, SubnetId};
+    use types::{Spec, SubnetId};
 
-    type E = MinimalEthSpec;
-
-    async fn build_discovery() -> Discovery<E> {
-        let spec = Arc::new(ChainSpec::default());
+    async fn build_discovery() -> Discovery {
+        let spec = Arc::new(Spec::default_spec());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(network_utils::listen_addr::ListenAddress::unused_v4_ports());
@@ -1260,7 +1258,7 @@ mod tests {
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];
         let custody_group_count = spec.custody_requirement;
-        let enr: Enr = build_enr::<E>(
+        let enr: Enr = build_enr(
             &enr_key,
             &config,
             &EnrForkId::default(),
@@ -1333,7 +1331,7 @@ mod tests {
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 
         // set the "attnets" field on our ENR
-        let mut bitfield = BitVector::<ssz_types::typenum::U64>::new();
+        let mut bitfield = BitVector::<typenum::U<{ Spec::SUBNET_BITFIELD_LENGTH }>>::new();
         for id in subnet_ids {
             bitfield.set(id, true).unwrap();
         }

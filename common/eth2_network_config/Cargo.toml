@@ -6,6 +6,12 @@ edition = { workspace = true }
 
 build = "build.rs"
 
+[features]
+default = []
+spec-non-mainnet = []
+spec-minimal = ["types/spec-minimal", "spec-non-mainnet"]
+spec-gnosis = ["types/spec-gnosis", "spec-non-mainnet"]
+
 [dependencies]
 bytes = { workspace = true }
 discv5 = { workspace = true }

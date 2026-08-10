@@ -15,9 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
-use types::{
-    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
-};
+use types::{ChainSpec, DataColumnSubnetId, EnrForkId, ForkContext, SubnetId, SyncSubnetId};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The filename to store our local metadata.
@@ -202,17 +200,14 @@ pub fn strip_peer_id(addr: &mut Multiaddr) {
 }
 
 /// Load metadata from persisted file. Return default metadata if loading fails.
-pub fn load_or_build_metadata<E: EthSpec>(
-    network_dir: &Path,
-    custody_group_count: u64,
-) -> MetaData<E> {
+pub fn load_or_build_metadata(network_dir: &Path, custody_group_count: u64) -> MetaData {
     // We load a V3 metadata version by default (regardless of current fork)
     // since a V3 metadata can be converted to V1 or V2. The RPC encoder is responsible
     // for sending the correct metadata version based on the negotiated protocol version.
     let mut meta_data = MetaDataV3 {
         seq_number: 0,
-        attnets: EnrAttestationBitfield::<E>::default(),
-        syncnets: EnrSyncCommitteeBitfield::<E>::default(),
+        attnets: EnrAttestationBitfield::default(),
+        syncnets: EnrSyncCommitteeBitfield::default(),
         custody_group_count,
     };
 
@@ -223,7 +218,7 @@ pub fn load_or_build_metadata<E: EthSpec>(
         if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
             // Attempt to read a MetaDataV3 version from the persisted file,
             // if that fails, read MetaDataV2
-            match MetaDataV3::<E>::from_ssz_bytes(&metadata_ssz) {
+            match MetaDataV3::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
                     // Increment seq number if persisted attnet is not default
@@ -236,7 +231,7 @@ pub fn load_or_build_metadata<E: EthSpec>(
                     debug!("Loaded metadata from disk");
                 }
                 Err(_) => {
-                    match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
+                    match MetaDataV2::from_ssz_bytes(&metadata_ssz) {
                         Ok(persisted_metadata) => {
                             let persisted_metadata = MetaData::V2(persisted_metadata);
                             // Increment seq number as the persisted metadata version is updated
@@ -304,7 +299,7 @@ pub(crate) fn create_whitelist_filter(
 }
 
 /// Persist metadata to disk
-pub(crate) fn save_metadata_to_disk<E: EthSpec>(dir: &Path, metadata: MetaData<E>) {
+pub(crate) fn save_metadata_to_disk(dir: &Path, metadata: MetaData) {
     let _ = std::fs::create_dir_all(dir);
     // We always store the metadata v2 to disk because
     // custody_group_count parameter doesn't need to be persisted across runs.

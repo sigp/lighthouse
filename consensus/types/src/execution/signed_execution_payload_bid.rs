@@ -1,30 +1,24 @@
+use crate::ForkName;
+use crate::Spec;
 use crate::execution::ExecutionPayloadBid;
-use crate::{EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::context_deserialize;
-use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
-#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[educe(PartialEq, Hash)]
-#[serde(bound = "E: EthSpec")]
+#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/beacon-chain.md#signedexecutionpayloadbid
-pub struct SignedExecutionPayloadBid<E: EthSpec> {
-    pub message: ExecutionPayloadBid<E>,
+pub struct SignedExecutionPayloadBid {
+    pub message: ExecutionPayloadBid,
     pub signature: Signature,
 }
 
-impl<E: EthSpec> SignedExecutionPayloadBid<E> {
+impl SignedExecutionPayloadBid {
     pub fn epoch(&self) -> crate::Epoch {
-        self.message.slot.epoch(E::slots_per_epoch())
+        self.message.slot.epoch(Spec::slots_per_epoch())
     }
 
     pub fn slot(&self) -> crate::Slot {
@@ -46,7 +40,6 @@ impl<E: EthSpec> SignedExecutionPayloadBid<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadBid<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadBid);
 }

@@ -3,7 +3,7 @@ use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
-    DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
+    DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR, default_network_dir_name,
 };
 use if_addrs::get_if_addrs;
 use libp2p::{Multiaddr, gossipsub};
@@ -290,7 +290,7 @@ impl Default for Config {
         let network_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
-            .join(DEFAULT_HARDCODED_NETWORK)
+            .join(default_network_dir_name())
             .join(DEFAULT_BEACON_NODE_DIR)
             .join(DEFAULT_NETWORK_DIR);
 
