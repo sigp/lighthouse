@@ -203,12 +203,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // If a head event triggered us before the duties were computed, wait until the sync
         // message deadline and check for duties once more.
         if slot_duties.is_none() && head_event_root.is_some() {
-            let duration_to_deadline = delay_until_slot_offset(
+            let Some(duration_to_deadline) = delay_until_slot_offset(
                 &self.slot_clock,
                 slot,
                 spec.get_sync_message_due_at_slot::<S::E>(slot),
-            )
-            .unwrap_or(Duration::ZERO);
+            ) else {
+                debug!(%slot, "Skipping sync committee tasks for expired slot");
+                return;
+            };
             sleep(duration_to_deadline).await;
 
             slot_duties = self
@@ -222,7 +224,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         }
 
         let Some(slot_duties) = slot_duties else {
-            debug!("No duties known for slot {}", slot);
+            debug!(%slot, "No duties known for slot");
             return;
         };
 
