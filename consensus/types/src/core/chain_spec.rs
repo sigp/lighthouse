@@ -2275,6 +2275,10 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit_gloas: u64,
+
+    #[serde(default = "default_max_transactions_bytes_per_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_transactions_bytes_per_inclusion_list: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2553,6 +2557,10 @@ const fn default_reorg_max_epochs_since_finalization() -> u64 {
     2
 }
 
+const fn default_max_transactions_bytes_per_inclusion_list() -> u64 {
+    8192
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::new(
@@ -2811,6 +2819,8 @@ impl Config {
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
 
             churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            max_transactions_bytes_per_inclusion_list: spec
+                .max_transactions_bytes_per_inclusion_list,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -2919,6 +2929,7 @@ impl Config {
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+            max_transactions_bytes_per_inclusion_list,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3035,6 +3046,8 @@ impl Config {
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+
+            max_transactions_bytes_per_inclusion_list,
 
             ..chain_spec.clone()
         };
@@ -4009,7 +4022,6 @@ mod yaml_tests {
         "MAX_REQUEST_PAYLOADS",
         // Heze networking
         "MAX_REQUEST_INCLUSION_LIST",
-        "MAX_TRANSACTIONS_BYTES_PER_INCLUSION_LIST",
         "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
