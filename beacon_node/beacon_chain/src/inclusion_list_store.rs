@@ -12,6 +12,11 @@ use std::collections::{HashMap, HashSet};
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256, SignedInclusionList, Slot, Transaction};
 
+/// `hash_tree_root` of an inclusion list committee.
+pub type CommitteeRoot = Hash256;
+/// `hash_tree_root` of an `InclusionList`.
+pub type InclusionListRoot = Hash256;
+
 /// Slots retained behind the current slot, i.e. `{N, N-1, N-2}`.
 ///
 /// One more than `MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS` requires. A payload envelope for slot `S`
@@ -37,16 +42,8 @@ pub enum InsertOutcome {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// The committee length did not match `INCLUSION_LIST_COMMITTEE_SIZE`.
-    InvalidCommittee(ssz_types::Error),
     /// A bit index was out of range for the committee bitvector.
     Bitfield(ssz::BitfieldError),
-}
-
-impl From<ssz_types::Error> for Error {
-    fn from(e: ssz_types::Error) -> Self {
-        Error::InvalidCommittee(e)
-    }
 }
 
 impl From<ssz::BitfieldError> for Error {
@@ -56,11 +53,11 @@ impl From<ssz::BitfieldError> for Error {
 }
 
 struct SlotEntry<E: EthSpec> {
-    /// `committee_root -> { il_root -> (signed_inclusion_list, is_timely) }`, where
-    /// `il_root = hash_tree_root(message)`.
-    by_committee: HashMap<Hash256, HashMap<Hash256, (SignedInclusionList<E>, bool)>>,
-    /// Validators flagged as equivocators, grouped by `committee_root`.
-    equivocators: HashMap<Hash256, HashSet<u64>>,
+    /// The `bool` records whether the inclusion list arrived timely.
+    by_committee:
+        HashMap<CommitteeRoot, HashMap<InclusionListRoot, (SignedInclusionList<E>, bool)>>,
+    /// Validator indices flagged as equivocators.
+    equivocators: HashMap<CommitteeRoot, HashSet<u64>>,
     /// Count of valid inclusion lists seen this slot per validator, for the first-or-second rule.
     validator_counts: HashMap<u64, usize>,
 }
@@ -96,8 +93,8 @@ impl<E: EthSpec> InclusionListStore<E> {
 
     /// Validate-and-insert a received `SignedInclusionList`, detecting equivocation.
     ///
-    /// The caller is expected to have already run the gossip p2p checks; this is the final
-    /// validation step and the source of truth for whether the message should be forwarded.
+    /// TODO(heze): accept a `GossipVerifiedInclusionList` once gossip verification lands, so the
+    /// caller cannot skip the p2p checks.
     pub fn process_inclusion_list(
         &mut self,
         signed_inclusion_list: SignedInclusionList<E>,
@@ -113,8 +110,6 @@ impl<E: EthSpec> InclusionListStore<E> {
 
         let il_root = signed_inclusion_list.message.tree_hash_root();
         let entry = self.slots.entry(slot).or_default();
-
-        *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
 
         if entry
             .equivocators
@@ -132,6 +127,8 @@ impl<E: EthSpec> InclusionListStore<E> {
             map.values()
                 .any(|(il, _)| il.message.validator_index == validator_index)
         });
+
+        *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
 
         if is_equivocation {
             entry
@@ -163,7 +160,7 @@ impl<E: EthSpec> InclusionListStore<E> {
     fn submitted_validators(
         &self,
         slot: Slot,
-        committee_root: Hash256,
+        committee_root: CommitteeRoot,
         only_timely: bool,
     ) -> HashSet<u64> {
         let Some(entry) = self.slots.get(&slot) else {
@@ -187,7 +184,7 @@ impl<E: EthSpec> InclusionListStore<E> {
     pub fn get_inclusion_list_transactions(
         &self,
         slot: Slot,
-        committee_root: Hash256,
+        committee_root: CommitteeRoot,
         only_timely: bool,
     ) -> Vec<Transaction<E::MaxBytesPerTransaction>> {
         let Some(entry) = self.slots.get(&slot) else {
@@ -216,23 +213,20 @@ impl<E: EthSpec> InclusionListStore<E> {
         transactions
     }
 
-    /// The committee bits for `slot`: bit `i` is set iff `committee[i]` submitted a valid,
+    /// The committee bits for `slot`: bit `i` is set iff `il_committee[i]` submitted a valid,
     /// non-equivocating inclusion list. Timely-filtered when `only_timely` is set.
     ///
-    /// `committee` is the ordered inclusion list committee; the caller resolves it since the store
-    /// retains only the `committee_root`, not the committee itself, and the bits are
-    /// position-indexed.
+    /// `il_committee` is the ordered inclusion list committee.
     pub fn get_inclusion_list_bits(
         &self,
         slot: Slot,
-        committee: &[u64],
+        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
         only_timely: bool,
     ) -> Result<BitVector<E::InclusionListCommitteeSize>, Error> {
-        let committee_root = Self::committee_root(committee)?;
-        let submitted = self.submitted_validators(slot, committee_root, only_timely);
+        let submitted = self.submitted_validators(slot, il_committee.tree_hash_root(), only_timely);
 
         let mut bits = BitVector::new();
-        for (i, validator) in committee.iter().enumerate() {
+        for (i, validator) in il_committee.iter().enumerate() {
             if submitted.contains(validator) {
                 bits.set(i, true)?;
             }
@@ -245,11 +239,11 @@ impl<E: EthSpec> InclusionListStore<E> {
     pub fn is_inclusion_list_bits_inclusive(
         &self,
         slot: Slot,
-        committee: &[u64],
+        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
         bits: &BitVector<E::InclusionListCommitteeSize>,
         only_timely: bool,
     ) -> Result<bool, Error> {
-        let local = self.get_inclusion_list_bits(slot, committee, only_timely)?;
+        let local = self.get_inclusion_list_bits(slot, il_committee, only_timely)?;
         for i in 0..local.len() {
             if local.get(i)? && !bits.get(i)? {
                 return Ok(false);
@@ -263,7 +257,7 @@ impl<E: EthSpec> InclusionListStore<E> {
     pub fn get_signed_inclusion_lists(
         &self,
         slot: Slot,
-        committee_root: Hash256,
+        committee_root: CommitteeRoot,
         validators: &[u64],
     ) -> Vec<SignedInclusionList<E>> {
         let Some(entry) = self.slots.get(&slot) else {
@@ -291,21 +285,14 @@ impl<E: EthSpec> InclusionListStore<E> {
         self.slots
             .retain(|slot, _| *slot >= lowest_permissible_slot);
     }
-
-    /// `hash_tree_root` of the ordered committee as `Vector[ValidatorIndex, INCLUSION_LIST_COMMITTEE_SIZE]`,
-    /// matching the gossiped `inclusion_list_committee_root`.
-    fn committee_root(committee: &[u64]) -> Result<Hash256, ssz_types::Error> {
-        let committee: FixedVector<u64, E::InclusionListCommitteeSize> =
-            FixedVector::new(committee.to_vec())?;
-        Ok(committee.tree_hash_root())
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InclusionListStore, InsertOutcome};
+    use super::{CommitteeRoot, InclusionListStore, InsertOutcome};
     use bls::Signature;
-    use ssz_types::{BitVector, VariableList};
+    use ssz_types::{BitVector, FixedVector, VariableList};
+    use tree_hash::TreeHash;
     use types::{
         EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, Slot, Transaction,
     };
@@ -323,7 +310,7 @@ mod tests {
     fn signed_il(
         slot: u64,
         validator_index: u64,
-        committee_root: Hash256,
+        committee_root: CommitteeRoot,
         tx_bytes: &[u8],
     ) -> SignedInclusionList<E> {
         let transactions = VariableList::new(tx_bytes.iter().map(|b| tx(*b)).collect()).unwrap();
@@ -347,6 +334,8 @@ mod tests {
             InsertOutcome::New
         );
         assert_eq!(store.process_inclusion_list(il, true), InsertOutcome::Seen);
+        // A duplicate is not a second valid message.
+        assert!(!store.seen_twice(Slot::new(10), 1));
     }
 
     #[test]
@@ -417,14 +406,15 @@ mod tests {
     #[test]
     fn bits_reflect_submitters_and_inclusivity() {
         let mut store = InclusionListStore::<E>::new();
-        let committee: Vec<u64> = (100..116).collect();
-        let cr = InclusionListStore::<E>::committee_root(&committee).unwrap();
+        let il_committee: FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize> =
+            FixedVector::new((100..116).collect()).unwrap();
+        let cr = il_committee.tree_hash_root();
 
-        store.process_inclusion_list(signed_il(10, committee[3], cr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, committee[7], cr, &[0xbb]), true);
+        store.process_inclusion_list(signed_il(10, il_committee[3], cr, &[0xaa]), true);
+        store.process_inclusion_list(signed_il(10, il_committee[7], cr, &[0xbb]), true);
 
         let bits = store
-            .get_inclusion_list_bits(Slot::new(10), &committee, false)
+            .get_inclusion_list_bits(Slot::new(10), &il_committee, false)
             .unwrap();
         assert!(bits.get(3).unwrap());
         assert!(bits.get(7).unwrap());
@@ -432,7 +422,7 @@ mod tests {
 
         assert!(
             store
-                .is_inclusion_list_bits_inclusive(Slot::new(10), &committee, &bits, false)
+                .is_inclusion_list_bits_inclusive(Slot::new(10), &il_committee, &bits, false)
                 .unwrap()
         );
 
@@ -440,9 +430,35 @@ mod tests {
         missing.set(7, true).unwrap();
         assert!(
             !store
-                .is_inclusion_list_bits_inclusive(Slot::new(10), &committee, &missing, false)
+                .is_inclusion_list_bits_inclusive(Slot::new(10), &il_committee, &missing, false)
                 .unwrap()
         );
+    }
+
+    /// Two branches can have different committees, so one list per branch is not equivocation.
+    #[test]
+    fn differing_committee_roots_are_not_equivocation() {
+        let mut store = InclusionListStore::<E>::new();
+        assert_eq!(
+            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            InsertOutcome::New
+        );
+        assert_eq!(
+            store.process_inclusion_list(signed_il(10, 1, root(2), &[0xbb]), true),
+            InsertOutcome::New
+        );
+
+        for cr in [root(1), root(2)] {
+            assert_eq!(
+                store
+                    .get_inclusion_list_transactions(Slot::new(10), cr, false)
+                    .len(),
+                1
+            );
+        }
+
+        // Both still count against the first-or-second rule, which is per validator and slot.
+        assert!(store.seen_twice(Slot::new(10), 1));
     }
 
     #[test]
