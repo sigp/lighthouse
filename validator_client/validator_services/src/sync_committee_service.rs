@@ -239,6 +239,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             debug!(%slot, "Skipping sync committee tasks for expired slot");
             return;
         };
+        // Messages past the contribution deadline can no longer be aggregated, so a trigger
+        // this late (a head event for the slot already in progress at startup) is skipped.
+        if contribution_delay.is_zero() {
+            debug!(%slot, "Skipping sync committee tasks, contribution deadline passed");
+            return;
+        }
         let aggregate_production_instant = Instant::now() + contribution_delay;
 
         debug!(
@@ -925,6 +931,41 @@ mod tests {
 
         harness.insert_duties().await;
         harness.advance_time(Duration::from_secs(12)).await;
+        wait_for_message_count(&harness, 1).await;
+
+        let messages = harness.messages();
+        assert_eq!(messages[0].slot, Slot::new(1));
+        assert_eq!(messages[0].beacon_block_root, expected_root);
+        post_mock.expect(1).assert();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn late_head_event_past_contribution_deadline_is_skipped() {
+        let mut harness = TestHarness::new(true).await;
+        harness.insert_duties().await;
+        let expected_root = Hash256::from_low_u64_be(22);
+        let _root_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_head_block_root(expected_root);
+        let post_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_sync_committee_messages();
+        harness.start();
+        yield_to_service().await;
+
+        // A head event arriving after the contribution deadline (8s) is too late for its
+        // messages to be aggregated, so the slot is skipped.
+        harness.advance_time(Duration::from_secs(9)).await;
+        harness.send_head(0, 11);
+        yield_to_service().await;
+        assert!(harness.messages().is_empty());
+
+        // The skip is latched and the timer still covers the next slot at its due point.
+        harness
+            .advance_time(Duration::from_secs(7) + Duration::from_millis(1))
+            .await;
         wait_for_message_count(&harness, 1).await;
 
         let messages = harness.messages();
