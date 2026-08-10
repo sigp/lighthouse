@@ -128,6 +128,9 @@ pub enum BeaconStateError {
         slot: Slot,
         index: CommitteeIndex,
     },
+    NoInclusionListCommittee {
+        slot: Slot,
+    },
     ZeroSlotsPerEpoch,
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {

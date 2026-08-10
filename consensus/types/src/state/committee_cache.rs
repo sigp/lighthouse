@@ -258,21 +258,18 @@ impl CommitteeCache {
             .get_beacon_committees_at_slot(slot)?
             .iter()
             .flat_map(|bc| bc.committee.iter().copied())
+            .take(inclusion_list_committee_size)
             .collect();
 
         if indices.is_empty() {
-            return Err(BeaconStateError::NoCommittee { slot, index: 0 });
+            return Err(BeaconStateError::NoInclusionListCommittee { slot });
         }
 
-        (0..inclusion_list_committee_size)
-            .map(|i| {
-                let position = i.safe_rem(indices.len())?;
-                indices
-                    .get(position)
-                    .copied()
-                    .ok_or(BeaconStateError::NoCommittee { slot, index: 0 })
-            })
-            .collect()
+        Ok(indices
+            .into_iter()
+            .cycle()
+            .take(inclusion_list_committee_size)
+            .collect())
     }
 
     /// Returns all committees for `self.initialized_epoch`.

@@ -202,6 +202,33 @@ async fn inclusion_list_committee_wraps_around_small_committees() {
     }
 }
 
+/// Inclusion list duties are looked up an epoch ahead, so the next epoch must resolve.
+#[tokio::test]
+async fn inclusion_list_committee_resolves_for_the_next_epoch() {
+    let mut state = new_state::<MinimalEthSpec>(160, Slot::new(0)).await;
+    let spec = &MinimalEthSpec::default_spec();
+    state.build_all_committee_caches(spec).unwrap();
+
+    let size = MinimalEthSpec::inclusion_list_committee_size();
+    let next_epoch = state.next_epoch().unwrap();
+
+    for slot in next_epoch.slot_iter(MinimalEthSpec::slots_per_epoch()) {
+        let concatenated: Vec<u64> = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .iter()
+            .flat_map(|bc| bc.committee.iter().map(|i| *i as u64))
+            .collect();
+
+        let committee = state.get_inclusion_list_committee(slot).unwrap();
+
+        assert_eq!(committee.len(), size);
+        for (i, validator) in committee.iter().enumerate() {
+            assert_eq!(*validator, concatenated[i % concatenated.len()]);
+        }
+    }
+}
+
 /// 160 validators gives ~20 members per slot, so the committee truncates to the first 16.
 #[tokio::test]
 async fn inclusion_list_committee_truncates_large_committees() {
