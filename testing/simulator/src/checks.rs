@@ -175,20 +175,9 @@ pub async fn verify_fork_version<E: EthSpec>(
     Ok(())
 }
 
-/// The number of entirely empty sync aggregates tolerated by
-/// `verify_full_sync_aggregates_up_to`.
-///
-/// A block whose parent is imported after the sync committee's signing deadline gets an
-/// *entirely* empty aggregate rather than a partial one: the committee signs the head it can
-/// see, which is the grandparent, so no contribution in the pool is keyed by the
-/// `state.get_block_root(slot - 1)` the proposer must aggregate over. This is spec-correct
-/// behaviour under a late block, and the simulator has very little margin for one: at 2s slots
-/// the deadline falls 667ms into the slot, while producing a block alone measures ~410-490ms,
-/// leaving under 250ms to gossip and import it. Any CPU contention on the CI runner closes that
-/// gap, so tolerate a small number of empty aggregates.
-///
-/// A *partial* aggregate is a different failure — contributions were genuinely lost — and is
-/// never tolerated.
+/// A late block makes the sync committee sign the grandparent root, so the next block's
+/// aggregate comes out empty rather than partial. Tolerate a few of those. A partial aggregate
+/// means contributions were actually lost, and is never tolerated.
 const MAX_EMPTY_SYNC_AGGREGATES: usize = 3;
 
 /// Verify that the sync aggregates from `sync_committee_start_slot` until `upto_slot` are full,
