@@ -510,6 +510,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientBootstrapFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
             .run();
+        SszStaticHandler::<LightClientBootstrapGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<LightClientBootstrapGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
     }
 
     // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
@@ -545,6 +549,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientHeaderFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
             .run();
+        SszStaticHandler::<LightClientHeaderGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<LightClientHeaderGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
     }
 
     // LightClientOptimisticUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -562,6 +570,8 @@ mod ssz_static {
         SszStaticHandler::<LightClientOptimisticUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
         SszStaticHandler::<LightClientOptimisticUpdateFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<LightClientOptimisticUpdateFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<LightClientOptimisticUpdateGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only().run();
+        SszStaticHandler::<LightClientOptimisticUpdateGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only().run();
     }
 
     // LightClientFinalityUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -603,6 +613,12 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only(
         )
             .run();
+        SszStaticHandler::<LightClientFinalityUpdateGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only(
+        )
+            .run();
     }
 
     // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -635,6 +651,10 @@ mod ssz_static {
         SszStaticHandler::<LightClientUpdateFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
             .run();
         SszStaticHandler::<LightClientUpdateFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
     }
 
