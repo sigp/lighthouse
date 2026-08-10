@@ -13,7 +13,7 @@ pub struct InclusionList {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    pub inclusion_list_committee_root: Hash256,
+    pub dependent_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
 }
