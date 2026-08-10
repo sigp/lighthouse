@@ -18,7 +18,7 @@ pub struct InclusionList<E: EthSpec> {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    pub inclusion_list_committee_root: Hash256,
+    pub dependent_root: Hash256,
     // TODO(heze): switch to using `ProgressiveList` once the support for EIP-7916 is added.
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
