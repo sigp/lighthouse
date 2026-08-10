@@ -1954,7 +1954,7 @@ async fn heze_block_production_across_boundary() {
         .build();
     let all_validators = harness.get_all_validators();
 
-    // Build a full epoch past the Heze boundary
+    // Build through the first Heze epoch, ending at the first slot of the next epoch
     let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
     let slots: Vec<Slot> = (1..=last_slot.as_u64()).map(Into::into).collect();
     let state = harness.get_current_state();
