@@ -108,20 +108,11 @@ impl GossipVerifiedProposerPreferences {
             });
         }
 
-        let proto_array = fork_choice_read.proto_array().core_proto_array();
-
         // Look for at least one child that crosses the epoch boundary directly after `dependent_block`.
-        let has_qualifying_child = proto_array
-            .indices
-            .get(&dependent_root)
-            .and_then(|&index| proto_array.children.get(index))
-            .is_some_and(|children| {
-                children.iter().any(|&child_index| {
-                    proto_array.nodes.get(child_index).is_some_and(|node| {
-                        node.slot() >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch())
-                    })
-                })
-            });
+        let has_qualifying_child = fork_choice_read
+            .get_children(&dependent_root)
+            .iter()
+            .any(|child| child.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
         // Head is exempt from this check, it may eventually have a child that crosses the epoch boundary.
         if !has_qualifying_child && dependent_root != head_block_root {
