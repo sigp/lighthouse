@@ -263,8 +263,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
 
-        let mut current_epoch_participation = state.current_epoch_participation()?.clone();
-        let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
+        let mut current_epoch_participation = state.current_epoch_participation()?.to_owned_list();
+        let mut previous_epoch_participation =
+            state.previous_epoch_participation()?.to_owned_list();
 
         for attestation in block.body().attestations() {
             let data = attestation.data();
@@ -289,7 +290,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     };
 
                     let validator_participation = epoch_participation
-                        .get_mut(index)
+                        .as_mut()
+                        .into_get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if participation_flag_indices.contains(&flag_index)

@@ -9,11 +9,12 @@ use bls::Keypair;
 use eth2::types::ProposerPreparationData;
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::{apply_parent_execution_payload, withdrawals::get_expected_withdrawals},
     state_advance::complete_state_advance,
 };
+use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -185,11 +186,12 @@ async fn prepare_payload_generic(
     let consolidation_request = harness.make_switch_to_compounding_request(1);
 
     let execution_requests = ExecutionRequests::Gloas(ExecutionRequestsGloas::<E> {
-        deposits: VariableList::empty(),
-        withdrawals: VariableList::empty(),
-        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
-        builder_deposits: VariableList::empty(),
-        builder_exits: VariableList::empty(),
+        deposits: ProgressiveVariableList::empty(),
+        withdrawals: ProgressiveVariableList::empty(),
+        consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
+        builder_deposits: ProgressiveVariableList::empty(),
+        builder_exits: ProgressiveVariableList::empty(),
+        _phantom: PhantomData,
     });
 
     // Inject the execution requests into the mock EL so the next payload includes them.
@@ -623,7 +625,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (_block, _post_state, _value) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
@@ -639,14 +641,16 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .await
         .unwrap();
 
-    // The envelope + blobs should now be in the pending cache.
+    // The envelope + blobs should now be in the pending cache, keyed by the block root.
+    let block_root = block.canonical_root();
     assert!(
         harness
             .chain
             .pending_payload_envelopes
             .read()
-            .contains(slot),
-        "Pending cache should contain an envelope for the produced slot"
+            .get_by_block_root(block_root)
+            .is_some(),
+        "Pending cache should contain an envelope for the produced block"
     );
 
     // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
@@ -654,7 +658,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
 
     assert!(
         blobs.is_some(),
@@ -672,7 +676,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .chain
         .pending_payload_envelopes
         .write()
-        .take_blobs(slot);
+        .take_blobs(block_root);
     assert!(
         second_take.is_none(),
         "Blobs should only be consumable once"
@@ -684,7 +688,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             .chain
             .pending_payload_envelopes
             .read()
-            .get(slot)
+            .get_by_block_root(block_root)
             .is_some(),
         "Envelope should remain in cache after taking blobs"
     );
