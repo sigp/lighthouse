@@ -12,7 +12,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
-use state_processing::per_epoch_processing;
+use state_processing::per_epoch_processing::{self, base::ValidatorStatuses};
 use std::sync::Arc;
 use types::{Checkpoint, Epoch, EthSpec, MinimalEthSpec, consts::altair::TIMELY_TARGET_FLAG_INDEX};
 
@@ -211,20 +211,10 @@ where
         .get_beacon_proposer_index(child_slot, &harness.chain.spec)
         .expect("should get child proposer") as u64;
 
-    let (_, _, _, current_participation, _, _, _, _) = parent_state
-        .mutable_validator_fields()
-        .expect("parent state should have Altair validator fields");
     // Slash this epoch's timely-target voters (they count toward the current-epoch target balance),
     // excluding the child proposer, to drop target balance below the 2/3 justification threshold.
-    let slash_indices = current_participation
-        .iter()
-        .enumerate()
-        .filter_map(|(index, flags)| {
-            flags
-                .has_flag(TIMELY_TARGET_FLAG_INDEX)
-                .ok()
-                .and_then(|has_flag| has_flag.then_some(index as u64))
-        })
+    let slash_indices = current_epoch_target_attesters(&parent_state, &harness.chain.spec)
+        .into_iter()
         .filter(|index| *index != child_proposer)
         .take(slash_count_needed as usize)
         .collect::<Vec<_>>();
@@ -304,13 +294,34 @@ where
     let child_total_active_balance = child_state
         .get_total_active_balance()
         .expect("should get child total active balance");
-    let child_current_target_balance = child_state
-        .progressive_balances_cache()
-        .current_epoch_target_attesting_balance()
-        .expect("should get child current target balance");
-    let child_justification_and_finalization =
-        per_epoch_processing::altair::process_justification_and_finalization(&child_state)
-            .expect("should recompute child justification and finalization");
+    let (child_current_target_balance, child_justification_and_finalization) =
+        if child_state.fork_name_unchecked().altair_enabled() {
+            let current_target_balance = child_state
+                .progressive_balances_cache()
+                .current_epoch_target_attesting_balance()
+                .expect("should get child current target balance");
+            let justification_and_finalization =
+                per_epoch_processing::altair::process_justification_and_finalization(&child_state)
+                    .expect("should recompute child justification and finalization");
+            (current_target_balance, justification_and_finalization)
+        } else {
+            let mut validator_statuses = ValidatorStatuses::new(&child_state, &harness.chain.spec)
+                .expect("should initialize Phase0 validator statuses");
+            validator_statuses
+                .process_attestations(&child_state)
+                .expect("should process Phase0 attestations");
+            let current_target_balance = validator_statuses
+                .total_balances
+                .current_epoch_target_attesters();
+            let justification_and_finalization =
+                per_epoch_processing::base::process_justification_and_finalization(
+                    &child_state,
+                    &validator_statuses.total_balances,
+                    &harness.chain.spec,
+                )
+                .expect("should recompute child justification and finalization");
+            (current_target_balance, justification_and_finalization)
+        };
     let expected_child_justified =
         child_justification_and_finalization.current_justified_checkpoint();
     let expected_child_finalized = child_justification_and_finalization.finalized_checkpoint();
@@ -338,5 +349,41 @@ where
         expected_child_justified,
         expected_child_finalized,
         parent_epoch,
+    }
+}
+
+fn current_epoch_target_attesters(
+    state: &types::BeaconState<E>,
+    spec: &types::ChainSpec,
+) -> Vec<u64> {
+    if state.fork_name_unchecked().altair_enabled() {
+        state
+            .current_epoch_participation()
+            .expect("Altair state should have participation flags")
+            .iter()
+            .enumerate()
+            .filter_map(|(index, flags)| {
+                flags
+                    .has_flag(TIMELY_TARGET_FLAG_INDEX)
+                    .ok()
+                    .and_then(|has_flag| has_flag.then_some(index as u64))
+            })
+            .collect()
+    } else {
+        let mut validator_statuses = ValidatorStatuses::new(state, spec)
+            .expect("should initialize Phase0 validator statuses");
+        validator_statuses
+            .process_attestations(state)
+            .expect("should process Phase0 attestations");
+        validator_statuses
+            .statuses
+            .iter()
+            .enumerate()
+            .filter_map(|(index, status)| {
+                status
+                    .is_current_epoch_target_attester
+                    .then_some(index as u64)
+            })
+            .collect()
     }
 }

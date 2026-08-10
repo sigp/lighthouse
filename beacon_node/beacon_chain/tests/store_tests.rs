@@ -396,6 +396,10 @@ async fn light_client_updates_test() {
 async fn get_light_client_updates_crosses_256_period_boundary() {
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    let Some(_) = spec.altair_fork_epoch else {
+        // No-op prior to Altair.
+        return;
+    };
 
     if spec.is_gloas_scheduled() {
         return;
@@ -4514,6 +4518,10 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
 async fn light_client_update_schema_v30_migration() {
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    let Some(_) = spec.altair_fork_epoch else {
+        // No-op prior to Altair.
+        return;
+    };
     if spec.is_gloas_scheduled() {
         return;
     }
