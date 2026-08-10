@@ -426,11 +426,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Write blocks before cold roots so the hot DB may contain extras rather than cold
         // roots pointing at missing blocks. Skip sync when a DB had no ops this batch.
-        let blobs_empty = blob_batch.is_empty();
-        let hot_empty = hot_batch.is_empty();
-        let cold_empty = cold_batch.is_empty();
         {
             let _span = debug_span!("backfill_write_blobs_db").entered();
+            let blobs_empty = blob_batch.is_empty();
             self.store.blobs_db.do_atomically(blob_batch)?;
             if !blobs_empty {
                 self.store.blobs_db.sync()?;
@@ -438,6 +436,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         {
             let _span = debug_span!("backfill_write_hot_db").entered();
+            let hot_empty = hot_batch.is_empty();
             self.store.hot_db.do_atomically(hot_batch)?;
             if !hot_empty {
                 self.store.hot_db.sync()?;
@@ -445,6 +444,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         {
             let _span = debug_span!("backfill_write_cold_db").entered();
+            let cold_empty = cold_batch.is_empty();
             self.store.cold_db.do_atomically(cold_batch)?;
             if !cold_empty {
                 self.store.cold_db.sync()?;
