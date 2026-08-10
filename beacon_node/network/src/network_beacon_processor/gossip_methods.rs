@@ -4283,7 +4283,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 ProposerPreferencesError::InvalidProposalSlot { .. }
                 | ProposerPreferencesError::BadSignature
-                | ProposerPreferencesError::DependentRootToRecent { .. },
+                | ProposerPreferencesError::DependentRootTooRecent { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(

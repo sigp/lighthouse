@@ -49,7 +49,7 @@ pub enum ProposerPreferencesError {
     BadSignature,
 
     /// The block with root `dependent_root` is not before the start of the lookahead epoch.
-    DependentRootToRecent {
+    DependentRootTooRecent {
         dependent_root: Hash256,
         block_slot: Slot,
         epoch_start_slot: Slot,

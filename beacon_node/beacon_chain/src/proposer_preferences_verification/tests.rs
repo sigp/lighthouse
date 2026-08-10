@@ -461,7 +461,7 @@ fn non_genesis_dependent_root_too_recent_for_early_epochs() {
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
-        Err(ProposerPreferencesError::DependentRootToRecent { .. })
+        Err(ProposerPreferencesError::DependentRootTooRecent { .. })
     ));
 }
 
@@ -488,7 +488,7 @@ fn dependent_root_too_recent() {
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
-        Err(ProposerPreferencesError::DependentRootToRecent { .. })
+        Err(ProposerPreferencesError::DependentRootTooRecent { .. })
     ));
 }
 
@@ -563,7 +563,7 @@ fn dependent_root_valid_via_boundary_crossing_child() {
     assert!(
         !matches!(
             &result,
-            Err(ProposerPreferencesError::DependentRootToRecent { .. }
+            Err(ProposerPreferencesError::DependentRootTooRecent { .. }
                 | ProposerPreferencesError::InvalidDependentRoot { .. })
         ),
         "expected dependent root to be accepted, got: {:?}",

@@ -101,7 +101,7 @@ impl GossipVerifiedProposerPreferences {
         if dependent_block.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch())
             && dependent_block.slot != 0
         {
-            return Err(ProposerPreferencesError::DependentRootToRecent {
+            return Err(ProposerPreferencesError::DependentRootTooRecent {
                 dependent_root,
                 block_slot: dependent_block.slot,
                 epoch_start_slot: lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()),
