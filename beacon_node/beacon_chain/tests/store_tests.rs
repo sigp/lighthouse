@@ -394,17 +394,17 @@ async fn light_client_updates_test() {
 /// switching to big-endian keys.
 #[tokio::test]
 async fn get_light_client_updates_crosses_256_period_boundary() {
-    let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
-    let Some(_) = spec.altair_fork_epoch else {
+    if spec.altair_fork_epoch.is_none() {
         // No-op prior to Altair.
         return;
-    };
+    }
 
     if spec.is_gloas_scheduled() {
         return;
     }
 
+    let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
 
     let below = 100u64;
@@ -4516,16 +4516,16 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
 
 #[tokio::test]
 async fn light_client_update_schema_v30_migration() {
-    let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
-    let Some(_) = spec.altair_fork_epoch else {
+    if spec.altair_fork_epoch.is_none() {
         // No-op prior to Altair.
         return;
-    };
+    }
     if spec.is_gloas_scheduled() {
         return;
     }
 
+    let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
 
     // Write entries directly under the OLD little-endian key encoding, bypassing

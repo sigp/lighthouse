@@ -14,7 +14,10 @@ use beacon_chain::{
 };
 use state_processing::per_epoch_processing::{self, base::ValidatorStatuses};
 use std::sync::Arc;
-use types::{Checkpoint, Epoch, EthSpec, MinimalEthSpec, consts::altair::TIMELY_TARGET_FLAG_INDEX};
+use types::{
+    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, MinimalEthSpec,
+    consts::altair::TIMELY_TARGET_FLAG_INDEX,
+};
 
 type E = MinimalEthSpec;
 
@@ -305,11 +308,7 @@ where
                     .expect("should recompute child justification and finalization");
             (current_target_balance, justification_and_finalization)
         } else {
-            let mut validator_statuses = ValidatorStatuses::new(&child_state, &harness.chain.spec)
-                .expect("should initialize Phase0 validator statuses");
-            validator_statuses
-                .process_attestations(&child_state)
-                .expect("should process Phase0 attestations");
+            let validator_statuses = base_validator_statuses(&child_state, &harness.chain.spec);
             let current_target_balance = validator_statuses
                 .total_balances
                 .current_epoch_target_attesters();
@@ -352,10 +351,18 @@ where
     }
 }
 
-fn current_epoch_target_attesters(
-    state: &types::BeaconState<E>,
-    spec: &types::ChainSpec,
-) -> Vec<u64> {
+/// Builds the Phase0 `ValidatorStatuses` for `state`, mirroring the fork choice `on_block` logic
+/// used to compute unrealized checkpoints for pre-Altair blocks.
+fn base_validator_statuses(state: &BeaconState<E>, spec: &ChainSpec) -> ValidatorStatuses {
+    let mut validator_statuses =
+        ValidatorStatuses::new(state, spec).expect("should initialize Phase0 validator statuses");
+    validator_statuses
+        .process_attestations(state)
+        .expect("should process Phase0 attestations");
+    validator_statuses
+}
+
+fn current_epoch_target_attesters(state: &BeaconState<E>, spec: &ChainSpec) -> Vec<u64> {
     if state.fork_name_unchecked().altair_enabled() {
         state
             .current_epoch_participation()
@@ -370,11 +377,7 @@ fn current_epoch_target_attesters(
             })
             .collect()
     } else {
-        let mut validator_statuses = ValidatorStatuses::new(state, spec)
-            .expect("should initialize Phase0 validator statuses");
-        validator_statuses
-            .process_attestations(state)
-            .expect("should process Phase0 attestations");
+        let validator_statuses = base_validator_statuses(state, spec);
         validator_statuses
             .statuses
             .iter()
