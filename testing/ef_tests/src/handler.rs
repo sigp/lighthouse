@@ -32,7 +32,14 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
+        vec![
+	    ForkName::Bellatrix,
+	    ForkName::Capella,
+	    ForkName::Deneb,
+	    ForkName::Electra,
+	    ForkName::Fulu,
+	    ForkName::Gloas,
+	]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -1283,11 +1290,11 @@ impl<E: EthSpec + TypeName> Handler for LightClientDataCollectionHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.altair_enabled()
+	fork_name==ForkName::Altair
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas,]	
     }
 }
 
