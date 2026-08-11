@@ -16,8 +16,8 @@ pub const FINALIZED_ROOT_INDEX_ELECTRA: usize = 169;
 pub const CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 86;
 pub const NEXT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 87;
 
-// [New in Gloas:EIP7688] the `BeaconState` is a progressive container, so the generalized indices
-// differ from the balanced tree layout used by prior forks, and the proof lengths vary per field.
+// [New in Gloas:EIP7688] the `BeaconState` is a progressive container with different generalized
+// indices and per-field proof lengths.
 pub const FINALIZED_ROOT_INDEX_GLOAS: usize = 735;
 pub const CURRENT_SYNC_COMMITTEE_INDEX_GLOAS: usize = 2945;
 pub const NEXT_SYNC_COMMITTEE_INDEX_GLOAS: usize = 2946;
@@ -26,8 +26,7 @@ pub const FINALIZED_ROOT_PROOF_LEN_GLOAS: usize = 9;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
 
-// Field offsets within the `BeaconState`. These are stable across forks, so the progressive
-// proofs use them directly rather than deriving them from a generalized index.
+// Field offsets within the `BeaconState`, stable across forks.
 pub const FINALIZED_CHECKPOINT_FIELD_INDEX: usize = 20;
 pub const CURRENT_SYNC_COMMITTEE_FIELD_INDEX: usize = 22;
 pub const NEXT_SYNC_COMMITTEE_FIELD_INDEX: usize = 23;

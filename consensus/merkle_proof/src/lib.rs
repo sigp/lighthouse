@@ -398,12 +398,8 @@ pub fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index:
 }
 
 /// Return the first field index, the number of chunks and the binary depth of the progressive
-/// subtree at `level`.
-///
-/// A progressive container (EIP-7688) computes its root as `hash(progressive_root, active_fields)`,
-/// where `progressive_root` nests subtrees recursively: at each level, the left child is a binary
-/// subtree of that level's fields and the right child contains the deeper levels (EIP-7916). The
-/// subtree at `level` holds `4^level` chunks, starting at field `(4^level - 1) / 3`.
+/// subtree at `level`, which holds `4^level` chunks starting at field `(4^level - 1) / 3`
+/// (EIP-7916).
 fn progressive_level(level: usize) -> Result<(usize, usize, usize), MerkleTreeError> {
     let depth = level.safe_mul(2)?;
     if depth > MAX_TREE_DEPTH {
@@ -428,8 +424,8 @@ fn progressive_field_location(
     Err(MerkleTreeError::Invalid)
 }
 
-/// Return the slice of `field_roots` covered by the subtree at `level`, along with the subtree's
-/// binary depth.
+/// Return the slice of `field_roots` covered by the subtree at `level`, along with its binary
+/// depth.
 fn progressive_level_leaves(
     field_roots: &[H256],
     level: usize,
@@ -446,10 +442,8 @@ fn progressive_level_root(field_roots: &[H256], level: usize) -> Result<H256, Me
     Ok(MerkleTree::create(leaves, depth).hash())
 }
 
-/// Compute the root of the progressive tree containing every field from `level` onwards.
-///
-/// This is defined recursively as `hash(binary_root(level), progressive_root(level + 1))`,
-/// terminating with a zero root once no fields remain (see EIP-7916).
+/// Compute the root of the progressive tree containing every field from `level` onwards:
+/// `hash(binary_root(level), progressive_root(level + 1))`, or zero once no fields remain.
 fn progressive_root_from(field_roots: &[H256], level: usize) -> Result<H256, MerkleTreeError> {
     let (start, _, _) = progressive_level(level)?;
     if start >= field_roots.len() {
@@ -460,10 +454,9 @@ fn progressive_root_from(field_roots: &[H256], level: usize) -> Result<H256, Mer
     Ok(H256::from(hash32_concat(left.as_slice(), right.as_slice())))
 }
 
-/// Compute the generalized index of the field at `field_index` in a progressive container.
-///
-/// Descending one right child per level places the root of the subtree at `level` at generalized
-/// index `3 * 2^(level + 1) - 2`, with the fields it covers `2 * level` layers below it.
+/// Compute the generalized index of the field at `field_index` in a progressive container. The
+/// subtree root at `level` has generalized index `3 * 2^(level + 1) - 2`, with its fields
+/// `2 * level` layers below it.
 pub fn progressive_container_gindex(field_index: usize) -> Result<usize, MerkleTreeError> {
     let (level, offset, size) = progressive_field_location(field_index)?;
     let subtree_gindex = 3usize
@@ -472,10 +465,8 @@ pub fn progressive_container_gindex(field_index: usize) -> Result<usize, MerkleT
     Ok(subtree_gindex.safe_mul(size)?.safe_add(offset)?)
 }
 
-/// Compute the packed `active_fields` chunk for a container in which every field is active.
-///
-/// All of the Gloas progressive containers currently have every field active. A container with
-/// inactive fields would need to supply its own bitvector instead.
+/// Compute the packed `active_fields` chunk for a container in which every field is active,
+/// which is true of every Gloas progressive container.
 pub fn active_fields_all_active(num_fields: usize) -> Result<H256, MerkleTreeError> {
     let mut bytes = [0u8; 32];
     for field in 0..num_fields {
@@ -489,12 +480,8 @@ pub fn active_fields_all_active(num_fields: usize) -> Result<H256, MerkleTreeErr
 
 /// Generate a Merkle proof for the field at `field_index` of a progressive container (EIP-7688).
 ///
-/// The `field_roots` argument should contain the `tree_hash_root` of every field in declaration
-/// order, and `active_fields` the packed bitvector chunk that the container mixes into its root.
-///
-/// The proof is in bottom-up order, starting within the field's own subtree, followed by the
-/// combined root of the deeper subtrees, then the root of each shallower subtree, and finally
-/// `active_fields`.
+/// `field_roots` must contain the `tree_hash_root` of every field in declaration order. The
+/// proof is in bottom-up order, ending with the `active_fields` chunk.
 pub fn progressive_container_proof(
     field_roots: &[H256],
     field_index: usize,
@@ -551,9 +538,8 @@ mod progressive_tests {
             .collect()
     }
 
-    /// Check the generalized indices against the values from the Gloas
-    /// `light_client/single_merkle_proof` spec test vectors, which pin down the EIP-7688 tree
-    /// shape.
+    /// Check the generalized indices against the Gloas `light_client/single_merkle_proof` spec
+    /// test vectors.
     #[test]
     fn gindices_match_spec_vectors() {
         // `current_sync_committee` and `next_sync_committee` are fields 22 and 23 of the
@@ -570,8 +556,8 @@ mod progressive_tests {
 
     #[test]
     fn gindices_at_subtree_boundaries() {
-        // The subtrees hold 1, 4, 16 and 64 fields, with their roots at generalized indices
-        // 4, 10, 22 and 46 respectively.
+        // The subtrees hold 1, 4, 16 and 64 fields, with roots at generalized indices 4, 10, 22
+        // and 46.
         assert_eq!(progressive_container_gindex(0).unwrap(), 4);
         assert_eq!(progressive_container_gindex(1).unwrap(), 40);
         assert_eq!(progressive_container_gindex(4).unwrap(), 43);
@@ -580,8 +566,7 @@ mod progressive_tests {
         assert_eq!(progressive_container_gindex(21).unwrap(), 2944);
     }
 
-    /// Check the packed `active_fields` chunks against the spec test vectors, where they appear
-    /// as the final entry of each branch.
+    /// Check the packed `active_fields` chunks against the spec test vectors.
     #[test]
     fn active_fields_match_spec_vectors() {
         // The `BeaconState` has 46 fields, the `BeaconBlockBody` 13 and the
@@ -603,8 +588,8 @@ mod progressive_tests {
         }
     }
 
-    /// Check that every proof verifies against the container root, for every field of every
-    /// container size spanning the first four subtrees.
+    /// Check that every proof verifies against the container root, for container sizes spanning
+    /// the first four subtrees.
     #[test]
     fn proofs_rebuild_the_root() {
         for num_fields in 1..=85 {

@@ -53,9 +53,6 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}
 impl<E: EthSpec> ExecutionPayloadBid<E> {
     /// Returns the `tree_hash_root` of every field in declaration order, for use in progressive
     /// container Merkle proofs.
-    ///
-    /// The `field_roots_match_root` test checks that this list stays in sync with the struct
-    /// definition.
     pub fn field_roots(&self) -> Vec<Hash256> {
         vec![
             self.parent_block_hash.tree_hash_root(),
@@ -83,8 +80,8 @@ mod tests {
 
     #[test]
     fn field_roots_match_root() {
-        // Use a distinct value for every field, so that a swapped or missing entry in
-        // `field_roots` produces a different root.
+        // Use a distinct value for every field so a swapped or missing entry in `field_roots`
+        // changes the root.
         let bid = ExecutionPayloadBid::<MainnetEthSpec> {
             parent_block_hash: ExecutionBlockHash::from_root(Hash256::repeat_byte(1)),
             parent_block_root: Hash256::repeat_byte(2),

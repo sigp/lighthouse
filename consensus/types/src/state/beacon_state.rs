@@ -3887,8 +3887,7 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(BeaconStateError::IndexNotSupported(field_index));
         }
 
-        // [Modified in Gloas:EIP7688] the state is a progressive container, so its fields are no
-        // longer merkleized into a balanced tree of `num_fields_pow2()` leaves.
+        // [Modified in Gloas:EIP7688] the state is a progressive container.
         if self.fork_name_unchecked().gloas_enabled() {
             let active_fields = merkle_proof::active_fields_all_active(leaves.len())?;
             return Ok(merkle_proof::progressive_container_proof(

@@ -378,11 +378,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     }
 
     /// Produces the proof of inclusion for the execution block hash, for Gloas and later.
-    ///
-    /// The leaf is nested three containers deep: the body contains `signed_execution_payload_bid`,
-    /// which contains `message`, which contains `parent_block_hash`. The body and the bid are both
-    /// progressive containers, while `SignedExecutionPayloadBid` is an ordinary container of two
-    /// fields.
     fn gloas_execution_block_hash_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
         let signed_bid = self.signed_execution_payload_bid()?;
 
@@ -411,8 +406,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         &self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, BeaconStateError> {
-        // [Modified in Gloas:EIP7688] the body is a progressive container, so the generalized
-        // indices differ from the balanced tree layout used by prior forks.
+        // [Modified in Gloas:EIP7688] the body is a progressive container with different
+        // generalized indices.
         if self.fork_name().gloas_enabled() {
             return match generalized_index {
                 EXECUTION_BLOCK_HASH_INDEX_GLOAS => self.gloas_execution_block_hash_proof(),
