@@ -982,18 +982,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
 
-        let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
-            // Partials are disabled.
+        if !self.chain.config.enable_partial_columns {
             return;
-        };
+        }
         let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
 
         let mut present_indices: HashSet<ColumnIndex> = HashSet::new();
         let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = match &header_or_bid {
             PartialHeaderOrBid::PartialHeader(header) => {
-                assembler
-                    .get_columns_and_mark_as_local_fetched(block_root, header)
+                self.chain
+                    .data_availability_checker
+                    .partial_assembler()
+                    .map(|assembler| {
+                        assembler.get_columns_and_mark_as_local_fetched(block_root, header)
+                    })
+                    .unwrap_or_default()
                     .into_iter()
                     .filter_map(|column| {
                         let column = match column {
