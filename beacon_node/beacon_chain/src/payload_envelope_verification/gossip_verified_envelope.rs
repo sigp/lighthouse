@@ -177,6 +177,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 builder_index,
             });
         }
+
         let latest_finalized_slot = ctx
             .canonical_head
             .cached_head()
@@ -277,31 +278,44 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
-        // Mark gossip-validated envelope as seen for the (block_root, builder_index) pair
-        ctx.gossip_seen_envelope_cache.mark_envelope_seen(
-            block_slot,
-            beacon_block_root,
-            builder_index,
-        );
+        let gossip_verified_envelope = Self {
+            signed_envelope,
+            block,
+            snapshot: opt_snapshot,
+        };
+
+        // Mark gossip-verified envelope as seen.
+        // This operation is atomic, so if another verified envelope for the same
+        // `(block_root, builder_index)` pair was marked as seen while this one was being verified,
+        // we consider this envelope a duplicate and ignore it.
+        if !ctx
+            .gossip_seen_envelope_cache
+            .mark_envelope_seen(&gossip_verified_envelope)
+        {
+            return Err(EnvelopeError::EnvelopeAlreadySeen {
+                block_root: beacon_block_root,
+                builder_index,
+            });
+        }
 
         if let Some(event_handler) = ctx.event_handler.as_ref()
             && event_handler.has_execution_payload_gossip_subscribers()
         {
             event_handler.register(EventKind::ExecutionPayloadGossip(
                 SseExecutionPayloadGossip {
-                    slot: block.slot(),
+                    slot: block_slot,
                     builder_index,
-                    block_hash: signed_envelope.message.payload.block_hash,
+                    block_hash: gossip_verified_envelope
+                        .signed_envelope
+                        .message
+                        .payload
+                        .block_hash,
                     block_root: beacon_block_root,
                 },
             ));
         }
 
-        Ok(Self {
-            signed_envelope,
-            block,
-            snapshot: opt_snapshot,
-        })
+        Ok(gossip_verified_envelope)
     }
 
     pub fn envelope_cloned(&self) -> Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
