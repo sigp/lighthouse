@@ -634,7 +634,8 @@ mod progressive_tests {
     }
 
     proptest::proptest! {
-        /// Check that proofs verify for arbitrary leaves and container sizes into level 4.
+        /// Check that proofs verify for arbitrary leaves and container sizes into level 4, and
+        /// fail once a branch node is corrupted.
         #[test]
         fn proptest_progressive_create_and_verify(
             (int_leaves, active) in (proptest::collection::vec(any::<u64>(), 0..=350), any::<u64>())
@@ -647,7 +648,14 @@ mod progressive_tests {
                 let branch = progressive_container_proof(&roots, i, active_fields).unwrap();
                 let gindex = progressive_container_gindex(i).unwrap();
                 let depth = branch.len();
-                verify_merkle_proof(roots[i], &branch, depth, gindex - (1 << depth), root)
+                let index = gindex - (1 << depth);
+
+                let mut corrupted = branch.clone();
+                let node = &mut corrupted[i % depth];
+                *node = H256::from(hash32_concat(node.as_slice(), node.as_slice()));
+
+                verify_merkle_proof(roots[i], &branch, depth, index, root)
+                    && !verify_merkle_proof(roots[i], &corrupted, depth, index, root)
             });
 
             prop_assert!(proofs_ok);
