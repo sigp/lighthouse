@@ -77,7 +77,7 @@ pub enum PubsubPartialMessage<E: EthSpec> {
     },
     /// A partial data column sidecar from the Gloas fork.
     DataColumnGloas {
-        column: Box<PartialDataColumnGloas<E>>,
+        column: Arc<PartialDataColumnGloas<E>>,
         request_cells: CellBitmap<E>,
     },
 }

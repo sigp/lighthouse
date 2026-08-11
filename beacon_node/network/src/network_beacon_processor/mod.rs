@@ -1035,11 +1035,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .into_iter()
                 .map(|partial| {
                     present_indices.insert(partial.index());
-                    let column = Arc::unwrap_or_clone(partial.into_inner());
+                    let column = partial.into_inner();
                     let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
                     request_cells.not_inplace();
                     PubsubPartialMessage::DataColumnGloas {
-                        column: Box::new(column),
+                        column,
                         request_cells,
                     }
                 })
@@ -1082,7 +1082,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     header: header.clone(),
                 },
                 PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
-                    column: Box::new(PartialDataColumnGloas {
+                    column: Arc::new(PartialDataColumnGloas {
                         block_root,
                         slot: header_or_bid.slot(),
                         index: *col_idx,

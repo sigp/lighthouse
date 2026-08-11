@@ -433,7 +433,7 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
                     // All cells are present in a full column, so request all of them.
                     let request_cells = gloas.sidecar.cells_present_bitmap.clone();
                     partial_messages.push(PubsubPartialMessage::DataColumnGloas {
-                        column: Box::new(gloas),
+                        column: Arc::new(gloas),
                         request_cells,
                     });
                 }

@@ -275,13 +275,13 @@ fn action_from_present_metadata<E: EthSpec>(
 
 #[derive(Debug, Clone)]
 pub struct OutgoingPartialColumnGloas<E: EthSpec> {
-    partial_column: Box<PartialDataColumnGloas<E>>,
+    partial_column: Arc<PartialDataColumnGloas<E>>,
     group_id: Vec<u8>,
     metadata: MaybeKnownMetadata<E>,
 }
 
 impl<E: EthSpec> OutgoingPartialColumnGloas<E> {
-    pub fn new(partial_column: Box<PartialDataColumnGloas<E>>, requests: CellBitmap<E>) -> Self {
+    pub fn new(partial_column: Arc<PartialDataColumnGloas<E>>, requests: CellBitmap<E>) -> Self {
         // For consistency, we always set the request bit for available cells. The spec allows both,
         // but it is nicer to ensure that a bit once set does not disappear in future messages.
         // `requests` is always derived from this column's `cells_present_bitmap`, so the two share
@@ -428,13 +428,13 @@ mod tests {
         slot: Slot,
         total_blobs: usize,
         present_indices: &[usize],
-    ) -> Box<PartialDataColumnGloas<E>> {
+    ) -> Arc<PartialDataColumnGloas<E>> {
         let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
         for &idx in present_indices {
             bitmap.set(idx, true).unwrap();
         }
 
-        Box::new(PartialDataColumnGloas {
+        Arc::new(PartialDataColumnGloas {
             block_root,
             slot,
             index: 0,
