@@ -1236,8 +1236,8 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        // TODO(gloas): remove once we have Heze light client tests
+        vec![ForkName::Heze]
     }
 }
 

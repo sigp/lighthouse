@@ -1,5 +1,5 @@
 use ethereum_hashing::{ZERO_HASHES, hash32_concat};
-use safe_arith::ArithError;
+use safe_arith::{ArithError, SafeArith};
 use std::sync::LazyLock;
 
 type H256 = fixed_bytes::Hash256;
@@ -397,6 +397,138 @@ pub fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index:
     H256::from(merkle_root)
 }
 
+/// Return the first field index, the number of chunks and the binary depth of the progressive
+/// subtree at `level`.
+///
+/// A progressive container (EIP-7688) computes its root as `hash(progressive_root, active_fields)`,
+/// where `progressive_root` nests subtrees recursively: at each level, the left child is a binary
+/// subtree of that level's fields and the right child contains the deeper levels (EIP-7916). The
+/// subtree at `level` holds `4^level` chunks, starting at field `(4^level - 1) / 3`.
+fn progressive_level(level: usize) -> Result<(usize, usize, usize), MerkleTreeError> {
+    let depth = level.safe_mul(2)?;
+    if depth > MAX_TREE_DEPTH {
+        return Err(MerkleTreeError::ArithError);
+    }
+    let size = 1usize.safe_shl(depth as u32)?;
+    let start = size.safe_sub(1)?.safe_div(3)?;
+    Ok((start, size, depth))
+}
+
+/// Find the progressive subtree containing `field_index`, returning the subtree's level, the
+/// offset of the field within it, and its chunk count.
+fn progressive_field_location(
+    field_index: usize,
+) -> Result<(usize, usize, usize), MerkleTreeError> {
+    for level in 0..=MAX_TREE_DEPTH / 2 {
+        let (start, size, _) = progressive_level(level)?;
+        if field_index < start.safe_add(size)? {
+            return Ok((level, field_index.safe_sub(start)?, size));
+        }
+    }
+    Err(MerkleTreeError::Invalid)
+}
+
+/// Return the slice of `field_roots` covered by the subtree at `level`, along with the subtree's
+/// binary depth.
+fn progressive_level_leaves(
+    field_roots: &[H256],
+    level: usize,
+) -> Result<(&[H256], usize), MerkleTreeError> {
+    let (start, size, depth) = progressive_level(level)?;
+    let end = start.safe_add(size)?.min(field_roots.len());
+    let leaves = field_roots.get(start..end).unwrap_or(EMPTY_SLICE);
+    Ok((leaves, depth))
+}
+
+/// Compute the root of the binary subtree at `level` from the field roots it covers.
+fn progressive_level_root(field_roots: &[H256], level: usize) -> Result<H256, MerkleTreeError> {
+    let (leaves, depth) = progressive_level_leaves(field_roots, level)?;
+    Ok(MerkleTree::create(leaves, depth).hash())
+}
+
+/// Compute the root of the progressive tree containing every field from `level` onwards.
+///
+/// This is defined recursively as `hash(binary_root(level), progressive_root(level + 1))`,
+/// terminating with a zero root once no fields remain (see EIP-7916).
+fn progressive_root_from(field_roots: &[H256], level: usize) -> Result<H256, MerkleTreeError> {
+    let (start, _, _) = progressive_level(level)?;
+    if start >= field_roots.len() {
+        return Ok(H256::zero());
+    }
+    let left = progressive_level_root(field_roots, level)?;
+    let right = progressive_root_from(field_roots, level.safe_add(1)?)?;
+    Ok(H256::from(hash32_concat(left.as_slice(), right.as_slice())))
+}
+
+/// Compute the generalized index of the field at `field_index` in a progressive container.
+///
+/// Descending one right child per level places the root of the subtree at `level` at generalized
+/// index `3 * 2^(level + 1) - 2`, with the fields it covers `2 * level` layers below it.
+pub fn progressive_container_gindex(field_index: usize) -> Result<usize, MerkleTreeError> {
+    let (level, offset, size) = progressive_field_location(field_index)?;
+    let subtree_gindex = 3usize
+        .safe_mul(1usize.safe_shl(level.safe_add(1)? as u32)?)?
+        .safe_sub(2)?;
+    Ok(subtree_gindex.safe_mul(size)?.safe_add(offset)?)
+}
+
+/// Compute the packed `active_fields` chunk for a container in which every field is active.
+///
+/// All of the Gloas progressive containers currently have every field active. A container with
+/// inactive fields would need to supply its own bitvector instead.
+pub fn active_fields_all_active(num_fields: usize) -> Result<H256, MerkleTreeError> {
+    let mut bytes = [0u8; 32];
+    for field in 0..num_fields {
+        let byte = bytes
+            .get_mut(field.safe_div(8)?)
+            .ok_or(MerkleTreeError::Invalid)?;
+        *byte |= 1u8.safe_shl(field.safe_rem(8)? as u32)?;
+    }
+    Ok(H256::from(bytes))
+}
+
+/// Generate a Merkle proof for the field at `field_index` of a progressive container (EIP-7688).
+///
+/// The `field_roots` argument should contain the `tree_hash_root` of every field in declaration
+/// order, and `active_fields` the packed bitvector chunk that the container mixes into its root.
+///
+/// The proof is in bottom-up order, starting within the field's own subtree, followed by the
+/// combined root of the deeper subtrees, then the root of each shallower subtree, and finally
+/// `active_fields`.
+pub fn progressive_container_proof(
+    field_roots: &[H256],
+    field_index: usize,
+    active_fields: H256,
+) -> Result<Vec<H256>, MerkleTreeError> {
+    if field_index >= field_roots.len() {
+        return Err(MerkleTreeError::Invalid);
+    }
+    let (level, offset, _) = progressive_field_location(field_index)?;
+    let (leaves, depth) = progressive_level_leaves(field_roots, level)?;
+
+    let (_, mut proof) = MerkleTree::create(leaves, depth).generate_proof(offset, depth)?;
+
+    proof.push(progressive_root_from(field_roots, level.safe_add(1)?)?);
+    for shallower in (0..level).rev() {
+        proof.push(progressive_level_root(field_roots, shallower)?);
+    }
+    proof.push(active_fields);
+
+    Ok(proof)
+}
+
+/// Compute the root of a progressive container from its field roots.
+pub fn progressive_container_root(
+    field_roots: &[H256],
+    active_fields: H256,
+) -> Result<H256, MerkleTreeError> {
+    let progressive_root = progressive_root_from(field_roots, 0)?;
+    Ok(H256::from(hash32_concat(
+        progressive_root.as_slice(),
+        active_fields.as_slice(),
+    )))
+}
+
 impl From<ArithError> for MerkleTreeError {
     fn from(_: ArithError) -> Self {
         MerkleTreeError::ArithError
@@ -406,6 +538,113 @@ impl From<ArithError> for MerkleTreeError {
 impl From<InvalidSnapshot> for MerkleTreeError {
     fn from(e: InvalidSnapshot) -> Self {
         MerkleTreeError::InvalidSnapshot(e)
+    }
+}
+
+#[cfg(test)]
+mod progressive_tests {
+    use super::*;
+
+    fn field_roots(count: usize) -> Vec<H256> {
+        (0..count)
+            .map(|i| H256::from_low_u64_be(i as u64 + 1))
+            .collect()
+    }
+
+    /// Check the generalized indices against the values from the Gloas
+    /// `light_client/single_merkle_proof` spec test vectors, which pin down the EIP-7688 tree
+    /// shape.
+    #[test]
+    fn gindices_match_spec_vectors() {
+        // `current_sync_committee` and `next_sync_committee` are fields 22 and 23 of the
+        // `BeaconState`.
+        assert_eq!(progressive_container_gindex(22).unwrap(), 2945);
+        assert_eq!(progressive_container_gindex(23).unwrap(), 2946);
+
+        // `finalized_root` is the right child of `finalized_checkpoint`, which is field 20.
+        assert_eq!(progressive_container_gindex(20).unwrap() * 2 + 1, 735);
+
+        // `signed_execution_payload_bid` is field 10 of the `BeaconBlockBody`.
+        assert_eq!(progressive_container_gindex(10).unwrap(), 357);
+    }
+
+    #[test]
+    fn gindices_at_subtree_boundaries() {
+        // The subtrees hold 1, 4, 16 and 64 fields, with their roots at generalized indices
+        // 4, 10, 22 and 46 respectively.
+        assert_eq!(progressive_container_gindex(0).unwrap(), 4);
+        assert_eq!(progressive_container_gindex(1).unwrap(), 40);
+        assert_eq!(progressive_container_gindex(4).unwrap(), 43);
+        assert_eq!(progressive_container_gindex(5).unwrap(), 352);
+        assert_eq!(progressive_container_gindex(20).unwrap(), 367);
+        assert_eq!(progressive_container_gindex(21).unwrap(), 2944);
+    }
+
+    /// Check the packed `active_fields` chunks against the spec test vectors, where they appear
+    /// as the final entry of each branch.
+    #[test]
+    fn active_fields_match_spec_vectors() {
+        // The `BeaconState` has 46 fields, the `BeaconBlockBody` 13 and the
+        // `ExecutionPayloadBid` 12.
+        let cases: [(usize, &[u8]); 4] = [
+            (46, &[0xff, 0xff, 0xff, 0xff, 0xff, 0x3f]),
+            (13, &[0xff, 0x1f]),
+            (12, &[0xff, 0x0f]),
+            (0, &[]),
+        ];
+        for (num_fields, prefix) in cases {
+            let mut expected = [0u8; 32];
+            expected[..prefix.len()].copy_from_slice(prefix);
+            assert_eq!(
+                active_fields_all_active(num_fields).unwrap(),
+                H256::from(expected),
+                "{num_fields} fields"
+            );
+        }
+    }
+
+    /// Check that every proof verifies against the container root, for every field of every
+    /// container size spanning the first four subtrees.
+    #[test]
+    fn proofs_rebuild_the_root() {
+        for num_fields in 1..=85 {
+            let roots = field_roots(num_fields);
+            let active_fields = active_fields_all_active(num_fields).unwrap();
+            let root = progressive_container_root(&roots, active_fields).unwrap();
+
+            for field_index in 0..num_fields {
+                let branch =
+                    progressive_container_proof(&roots, field_index, active_fields).unwrap();
+                let gindex = progressive_container_gindex(field_index).unwrap();
+                let depth = branch.len();
+
+                assert!(
+                    (1usize << depth..1usize << (depth + 1)).contains(&gindex),
+                    "gindex {gindex} does not sit at depth {depth}"
+                );
+                assert!(
+                    verify_merkle_proof(
+                        roots[field_index],
+                        &branch,
+                        depth,
+                        gindex - (1 << depth),
+                        root
+                    ),
+                    "field {field_index} of {num_fields} failed to verify"
+                );
+            }
+        }
+    }
+
+    /// Requesting a proof for a field beyond the end of the container is an error.
+    #[test]
+    fn rejects_out_of_range_field() {
+        let roots = field_roots(4);
+        let active_fields = active_fields_all_active(4).unwrap();
+        assert_eq!(
+            progressive_container_proof(&roots, 4, active_fields),
+            Err(MerkleTreeError::Invalid)
+        );
     }
 }
 
