@@ -62,9 +62,6 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
     "tests/.*/gloas/fast_confirmation/.*",
-    # Ignore full epoch tests for now (just test the sub-transitions).
-    "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
-    "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
