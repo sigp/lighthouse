@@ -111,7 +111,6 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_partial_data_columns: &[KzgVerifiedCustodyPartialDataColumnGloas<E>],
     ) -> PartialColumnsMergeOutcome {
-        let num_blobs_expected = self.bid.num_blobs_expected();
         let mut outcome = PartialColumnsMergeOutcome::default();
         for partial in kzg_verified_partial_data_columns {
             let col_index = partial.index();
@@ -120,7 +119,7 @@ impl<E: EthSpec> PendingComponents<E> {
             let col = self
                 .verified_data_columns
                 .entry(col_index)
-                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
+                .or_insert_with(|| PendingColumn::new_with_capacity(self.bid.num_blobs_expected()));
 
             if col.is_complete() {
                 // Nothing to do.
@@ -129,15 +128,14 @@ impl<E: EthSpec> PendingComponents<E> {
 
             // Cells are stored densely, so the nth set bit owns the nth cell. `zip` stops at the
             // shorter side, which gossip validation has already made equal in length.
-            let present_indices = sidecar
+            let mut inserted_cells = 0;
+            for (blob_idx, (cell, proof)) in sidecar
                 .cells_present_bitmap()
                 .iter()
                 .enumerate()
-                .filter_map(|(blob_idx, present)| present.then_some(blob_idx));
-            let cells = sidecar.column().iter().zip(sidecar.kzg_proofs().iter());
-
-            let mut inserted_cells = 0;
-            for (blob_idx, (cell, proof)) in present_indices.zip(cells) {
+                .filter_map(|(blob_idx, present)| present.then_some(blob_idx))
+                .zip(sidecar.column().iter().zip(sidecar.kzg_proofs().iter()))
+            {
                 if col.insert(blob_idx, cell, proof) {
                     inserted_cells += 1;
                 }
