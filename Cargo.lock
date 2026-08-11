@@ -5893,6 +5893,7 @@ dependencies = [
  "fixed_bytes",
  "proptest",
  "safe_arith",
+ "tree_hash",
 ]
 
 [[package]]

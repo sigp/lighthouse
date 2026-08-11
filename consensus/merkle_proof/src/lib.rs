@@ -531,6 +531,7 @@ impl From<InvalidSnapshot> for MerkleTreeError {
 #[cfg(test)]
 mod progressive_tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn field_roots(count: usize) -> Vec<H256> {
         (0..count)
@@ -630,6 +631,42 @@ mod progressive_tests {
             progressive_container_proof(&roots, 4, active_fields),
             Err(MerkleTreeError::Invalid)
         );
+    }
+
+    proptest::proptest! {
+        /// Check that proofs verify for arbitrary leaves and container sizes into level 4.
+        #[test]
+        fn proptest_progressive_create_and_verify(
+            (int_leaves, active) in (proptest::collection::vec(any::<u64>(), 0..=350), any::<u64>())
+        ) {
+            let roots: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
+            let active_fields = H256::from_low_u64_be(active);
+            let root = progressive_container_root(&roots, active_fields).unwrap();
+
+            let proofs_ok = (0..roots.len()).all(|i| {
+                let branch = progressive_container_proof(&roots, i, active_fields).unwrap();
+                let gindex = progressive_container_gindex(i).unwrap();
+                let depth = branch.len();
+                verify_merkle_proof(roots[i], &branch, depth, gindex - (1 << depth), root)
+            });
+
+            prop_assert!(proofs_ok);
+        }
+
+        /// Check the recursive root against `tree_hash`'s streaming `ProgressiveMerkleHasher`.
+        #[test]
+        fn proptest_progressive_root_matches_tree_hash(
+            int_leaves in proptest::collection::vec(any::<u64>(), 0..=350)
+        ) {
+            let roots: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
+
+            let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
+            for root in &roots {
+                hasher.write(root.as_slice()).unwrap();
+            }
+
+            prop_assert_eq!(progressive_root_from(&roots, 0).unwrap(), hasher.finish().unwrap());
+        }
     }
 }
 
