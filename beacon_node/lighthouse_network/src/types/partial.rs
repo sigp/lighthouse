@@ -233,7 +233,7 @@ fn action_from_present_metadata<E: EthSpec>(
 
     let send = partial_column
         .sidecar()
-        .try_filter(|idx, _, _| Ok(want.get(idx).expect("Bound checked above")))
+        .try_filter(|idx, _, _| Ok(want.get(idx).unwrap_or(false)))
         .map_err(|err: PartialDataColumnSidecarError| {
             error!(?err, "Unexpected error filtering sidecar");
             PartialError::InvalidFormat

@@ -1056,7 +1056,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration);
+            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration)
+            .await;
 
         // Tracks the slot + (optional) Fulu header so we can:
         //   - run delay metrics after error handling

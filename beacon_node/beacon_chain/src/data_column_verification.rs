@@ -1381,6 +1381,14 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
     let block_root = column.block_root;
     let slot = column.slot;
 
+    // While these checks are not required by the spec since we cross-check with the bid, we retain
+    // them to avoid potentially expensive bid lookups.
+    if let Err(e) = verify_sidecar_not_from_future_slot(chain, slot)
+        .and_then(|()| verify_slot_greater_than_latest_finalized_slot(chain, slot))
+    {
+        return PartialColumnVerificationResult::Err(e.into());
+    }
+
     // The bid carries the commitments. It is gossip-verified and inserted into the pending
     // payload cache on its own path - we don't cache anything from this code path.
     let bid = match load_gloas_payload_bid(block_root, chain) {

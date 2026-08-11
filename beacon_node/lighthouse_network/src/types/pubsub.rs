@@ -558,7 +558,7 @@ pub fn decode_partial<E: EthSpec>(
                     }
                     .into())
                 }
-                &PARTIAL_COLUMNS_VERSION_BYTE_GLOAS if fork == ForkName::Gloas => {
+                &PARTIAL_COLUMNS_VERSION_BYTE_GLOAS if fork.gloas_enabled() => {
                     let sidecar = PartialDataColumnSidecarGloas::from_ssz_bytes(data)
                         .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
                     let group_id = PartialDataColumnGroupId::from_ssz_bytes(group_id)

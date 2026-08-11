@@ -2451,23 +2451,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_partial_data_column_sidecar_for_gossip(
+    pub async fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> PartialColumnVerificationResult<T::EthSpec> {
-        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer =
-            metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        let ret = validate_partial_data_column_sidecar_for_gossip(
-            data_column_sidecar,
-            self,
-            seen_timestamp,
+        let chain = self.clone();
+        // Verification may hit the disk (Gloas bid lookup) and performs KZG verification, so it
+        // must not run directly on the async runtime.
+        let handle = self.task_executor.clone().spawn_blocking_handle(
+            move || {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                let _timer = metrics::start_timer(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                );
+                let ret = validate_partial_data_column_sidecar_for_gossip(
+                    data_column_sidecar,
+                    &chain,
+                    seen_timestamp,
+                );
+                if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+                    metrics::inc_counter(
+                        &metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                    );
+                }
+                ret
+            },
+            "gossip_partial_data_column_verification_handle",
         );
-        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
-            metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        }
-        ret
+        let Some(handle) = handle else {
+            return PartialColumnVerificationResult::Err(BeaconChainError::RuntimeShutdown.into());
+        };
+        handle.await.unwrap_or_else(|err| {
+            PartialColumnVerificationResult::Err(BeaconChainError::TokioJoin(err).into())
+        })
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it

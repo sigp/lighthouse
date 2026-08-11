@@ -1059,8 +1059,13 @@ where
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             pending_payload_cache: Arc::new(
-                PendingPayloadCache::new(self.kzg.clone(), custody_context, self.spec.clone())
-                    .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
+                PendingPayloadCache::new(
+                    self.kzg.clone(),
+                    custody_context,
+                    disable_get_blobs,
+                    self.spec.clone(),
+                )
+                .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

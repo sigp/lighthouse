@@ -98,6 +98,7 @@ pub struct PendingPayloadCache<T: BeaconChainTypes> {
     availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T>>,
+    disable_get_blobs: bool,
     spec: Arc<ChainSpec>,
 }
 
@@ -105,12 +106,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn new(
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T>>,
+        disable_get_blobs: bool,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             availability_cache: RwLock::new(LruCache::new(AVAILABILITY_CACHE_CAPACITY)),
             kzg,
             custody_context,
+            disable_get_blobs,
             spec,
         })
     }
@@ -369,7 +372,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let partial_merge_result = PartialMergeResult {
             added_cells: outcome.added_cells,
-            local_blobs: pending_components.has_local_blobs,
+            local_blobs: pending_components.has_local_blobs || self.disable_get_blobs,
             full_columns,
             updated_partials: UpdatedPartials::Gloas(updated_partials),
         };
@@ -707,7 +710,7 @@ mod data_availability_checker_tests {
             spec.clone(),
         ));
         let cache = Arc::new(
-            PendingPayloadCache::<T>::new(kzg, custody_context, spec.clone())
+            PendingPayloadCache::<T>::new(kzg, custody_context, false, spec.clone())
                 .expect("create cache"),
         );
 
