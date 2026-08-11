@@ -49,11 +49,11 @@ impl GossipSeenEnvelopeCache {
             .is_some_and(|seen| seen.contains(&(block_root, builder_index)))
     }
 
-    /// Prune anything before `current_slot`
-    pub fn prune(&self, current_slot: Slot) {
+    /// Prune all entries prior to `finalized_slot`.
+    pub fn prune(&self, finalized_slot: Slot) {
         self.seen_envelopes
             .write()
-            .retain(|&slot, _| slot >= current_slot);
+            .retain(|&slot, _| slot >= finalized_slot);
     }
 }
 
@@ -116,25 +116,27 @@ mod tests {
     }
 
     #[test]
-    fn prune_removes_entries_older_than_current_slot() {
+    fn prune_removes_entries_prior_to_finalized_slot() {
         let cache = GossipSeenEnvelopeCache::default();
         let block_root = Hash256::random();
         let builder_index: BuilderIndex = 1;
+        let total_slots = 10;
+        let finalized_slot = 8;
 
-        for slot in 0..=10 {
+        for slot in 0..=total_slots {
             let envelope = make_verified_envelope(Slot::new(slot), block_root, builder_index);
             cache.mark_envelope_seen(&envelope);
         }
 
-        cache.prune(Slot::new(8));
+        cache.prune(Slot::new(finalized_slot));
 
-        // Slot 1-7 pruned
-        for slot in 1..=7 {
+        // Slots prior to the finalized slot are pruned.
+        for slot in 0..finalized_slot {
             assert!(!cache.has_seen_envelope(Slot::new(slot), block_root, builder_index));
         }
 
-        // Slot 8-10 retained
-        for slot in 8..=10 {
+        // The finalized slot and later slots are retained.
+        for slot in finalized_slot..=total_slots {
             assert!(cache.has_seen_envelope(Slot::new(slot), block_root, builder_index));
         }
     }
