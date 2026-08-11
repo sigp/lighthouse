@@ -546,7 +546,7 @@ pub fn decode_partial<E: EthSpec>(
                 return Err("Empty partial group id".to_string());
             };
             match version {
-                &PARTIAL_COLUMNS_VERSION_BYTE_FULU if fork == ForkName::Fulu => {
+                &PARTIAL_COLUMNS_VERSION_BYTE_FULU if !fork.gloas_enabled() => {
                     let sidecar = PartialDataColumnSidecarFulu::from_ssz_bytes(data)
                         .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
                     let block_root = Hash256::from_ssz_bytes(group_id)
