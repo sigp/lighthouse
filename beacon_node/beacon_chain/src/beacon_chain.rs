@@ -5894,18 +5894,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let fork_name = state.fork_name_unchecked();
         let mut attester_slashings_base = Vec::new();
         let mut attester_slashings_electra = Vec::new();
         for slashing in attester_slashings {
-            match slashing {
-                AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
-                AttesterSlashing::Electra(slashing) => attester_slashings_electra.push(slashing),
-                // Gloas-typed slashings cannot be included in pre-Gloas blocks, and Gloas
-                // blocks are produced via `complete_partial_beacon_block_gloas`.
-                AttesterSlashing::Gloas(_) => {
-                    return Err(BlockProductionError::InvalidBlockVariant(
-                        "Gloas attester slashing in pre-Gloas block production".to_owned(),
-                    ));
+            if fork_name.electra_enabled() {
+                // Convert Base slashings left over from before the fork into the Electra type.
+                // Gloas slashings have the same SSZ bytes, only the hash tree root differs.
+                let (attestation_1, attestation_2) = match slashing {
+                    AttesterSlashing::Base(slashing) => (
+                        IndexedAttestation::Base(slashing.attestation_1),
+                        IndexedAttestation::Base(slashing.attestation_2),
+                    ),
+                    AttesterSlashing::Electra(slashing) => {
+                        attester_slashings_electra.push(slashing);
+                        continue;
+                    }
+                    AttesterSlashing::Gloas(slashing) => (
+                        IndexedAttestation::Gloas(slashing.attestation_1),
+                        IndexedAttestation::Gloas(slashing.attestation_2),
+                    ),
+                };
+                match (attestation_1.to_electra(), attestation_2.to_electra()) {
+                    (Ok(attestation_1), Ok(attestation_2)) => {
+                        attester_slashings_electra.push(AttesterSlashingElectra {
+                            attestation_1,
+                            attestation_2,
+                        })
+                    }
+                    _ => warn!(
+                        block_slot = %slot,
+                        "Dropping attester slashing that exceeds the Electra size limits"
+                    ),
+                }
+            } else {
+                match slashing {
+                    AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
+                    // Post-Electra slashings cannot be included in pre-Electra blocks.
+                    AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) => warn!(
+                        block_slot = %slot,
+                        "Dropping post-Electra attester slashing in pre-Electra block production"
+                    ),
                 }
             }
         }
