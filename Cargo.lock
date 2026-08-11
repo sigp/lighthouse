@@ -2965,6 +2965,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "slot_clock",
  "snap",
  "ssz_types",
  "state_processing",
