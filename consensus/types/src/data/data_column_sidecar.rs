@@ -10,19 +10,22 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
-use ssz_types::{FixedVector, VariableList};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    ListRef,
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
+    data::{
+        CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
+        PartialDataColumnSidecarError, PartialDataColumnSidecarRef,
+    },
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 pub type ColumnIndex = u64;
@@ -49,7 +52,6 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),
@@ -80,12 +82,21 @@ pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    #[superstruct(only(Fulu), partial_getter(rename = "column_fulu"))]
     pub column: DataColumn<E>,
+    // [Modified in Gloas:EIP7688]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_fixed_vec")]
+    #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
+    pub column: ProgressiveVariableList<Cell<E>>,
     /// All the KZG commitments associated with the block, used for verifying sample cells.
     /// In Gloas, commitments come from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
     #[superstruct(only(Fulu))]
     pub kzg_commitments: KzgCommitments<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "kzg_proofs_fulu"))]
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
+    // [Modified in Gloas:EIP7688]
+    #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
+    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
     #[superstruct(only(Fulu))]
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
@@ -98,6 +109,22 @@ pub struct DataColumnSidecar<E: EthSpec> {
 }
 
 impl<E: EthSpec> DataColumnSidecar<E> {
+    /// Unified view over the `column` field across forks (EIP-7688).
+    pub fn column(&self) -> ListRef<'_, Cell<E>, E::MaxBlobCommitmentsPerBlock> {
+        match self {
+            DataColumnSidecar::Fulu(sidecar) => ListRef::Basic(&sidecar.column),
+            DataColumnSidecar::Gloas(sidecar) => ListRef::Progressive(&sidecar.column),
+        }
+    }
+
+    /// Unified view over the `kzg_proofs` field across forks (EIP-7688).
+    pub fn kzg_proofs(&self) -> ListRef<'_, KzgProof, E::MaxBlobCommitmentsPerBlock> {
+        match self {
+            DataColumnSidecar::Fulu(sidecar) => ListRef::Basic(&sidecar.kzg_proofs),
+            DataColumnSidecar::Gloas(sidecar) => ListRef::Progressive(&sidecar.kzg_proofs),
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         match self {
             DataColumnSidecar::Fulu(column) => column.slot(),
@@ -131,10 +158,53 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             ForkName::Fulu => Ok(DataColumnSidecar::Fulu(
                 DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
             )),
-            ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
+            ForkName::Gloas | ForkName::Heze => Ok(DataColumnSidecar::Gloas(
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
             )),
         }
+    }
+
+    /// Convert this full data column into a partial data column reference for KZG verification.
+    /// The header will NOT be set.
+    ///
+    /// Uses the supplied filter to determine which cells to include in the partial sidecar.
+    pub fn try_filter_to_partial_ref<F, Err>(
+        &self,
+        filter: F,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'_, E>>, Err>
+    where
+        F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
+        Err: From<PartialDataColumnSidecarError>,
+    {
+        let len = self.column().len();
+        let mut new_bitmap = CellBitmap::<E>::with_capacity(len)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let iter = self.column().iter().zip(self.kzg_proofs().iter());
+
+        for (blob_idx, (cell, proof)) in iter.enumerate() {
+            if filter(blob_idx, cell, proof)? {
+                // Keep this cell
+                new_column.push(cell);
+                new_proofs.push(proof);
+                // Mark as present
+                new_bitmap
+                    .set(blob_idx, true)
+                    .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+            }
+        }
+
+        if new_column.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(PartialDataColumnSidecarRef {
+            cells_present_bitmap: new_bitmap,
+            column: new_column,
+            kzg_proofs: new_proofs,
+            header: None.into(),
+        }))
     }
 }
 
@@ -204,6 +274,33 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
         .as_ssz_bytes()
         .len()
     }
+
+    /// Convert this full data column into a verifiable partial data column.
+    /// Note: This is not expected to ever fail.
+    pub fn to_partial(&self) -> Result<PartialDataColumn<E>, PartialDataColumnSidecarError> {
+        let cell_count = self.column.len();
+        let mut bitmap = CellBitmap::<E>::with_capacity(cell_count)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        bitmap.not_inplace();
+
+        let block_root = self.block_root();
+
+        Ok(PartialDataColumn {
+            block_root,
+            index: self.index,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column: self.column.clone(),
+                kzg_proofs: self.kzg_proofs.clone(),
+                header: Some(PartialDataColumnHeader {
+                    kzg_commitments: self.kzg_commitments.clone(),
+                    signed_block_header: self.signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof.clone(),
+                })
+                .into(),
+            },
+        })
+    }
 }
 
 impl<E: EthSpec> DataColumnSidecarGloas<E> {
@@ -211,8 +308,8 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
         // min size is one cell
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            column: ProgressiveVariableList::new(vec![Cell::<E>::default()]),
+            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty()]),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
         }
@@ -223,8 +320,8 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
     pub fn max_size(max_blobs_per_block: usize) -> usize {
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
+            column: ProgressiveVariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]),
+            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty(); max_blobs_per_block]),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
         }

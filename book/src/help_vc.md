@@ -104,11 +104,11 @@ Options:
       --monitoring-endpoint <ADDRESS>
           Enables the monitoring service for sending system metrics to a remote
           endpoint. This can be used to monitor your setup on certain services
-          (e.g. beaconcha.in). This flag sets the endpoint where the beacon node
-          metrics will be sent. Note: This will send information to a remote
-          sever which may identify and associate your validators, IP address and
-          other personal information. Always use a HTTPS connection and never
-          provide an untrusted URL.
+          (e.g. beaconcha.in). This flag sets the endpoint where the validator
+          client metrics will be sent. Note: This will send information to a
+          remote sever which may identify and associate your validators, IP
+          address and other personal information. Always use a HTTPS connection
+          and never provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the
           monitoring-endpoint. [default: 60]
@@ -200,6 +200,11 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
+      --disable-proposer-duties-v2
+          Fetch proposer duties using the v1 beacon node endpoint instead of v2.
+          The v1 endpoint reports an incorrect dependent root which causes
+          spurious proposer duty re-org warnings. Only enable this flag if your
+          beacon node does not serve the v2 proposer duties endpoint.
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing
@@ -227,10 +232,10 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
-      --graffiti-append
-          When used, client version info will be prepended to user custom
-          graffiti, with a space in between. This should only be used with a
-          Lighthouse beacon node.
+      --graffiti-append [<GRAFFITI_APPEND>]
+          Client version info will be appended to user custom graffiti, with a
+          space in between. This should only be set to false when using a
+          Lighthouse beacon node. [default: true] [possible values: true, false]
   -h, --help
           Prints help information
       --http

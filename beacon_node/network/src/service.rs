@@ -19,7 +19,7 @@ use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{
-    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, PubsubPartialMessage, ReportSource, Response, Subnet,
     rpc::{GoodbyeReason, RpcErrorResponse},
 };
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
@@ -83,6 +83,10 @@ pub enum NetworkMessage<E: EthSpec> {
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
+    /// Publish partial data column sidecars via the partial gossipsub protocol.
+    PublishPartialColumns {
+        messages: Vec<PubsubPartialMessage<E>>,
+    },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -91,6 +95,13 @@ pub enum NetworkMessage<E: EthSpec> {
         message_id: MessageId,
         /// The result of the validation
         validation_result: MessageAcceptance,
+    },
+    /// Reports validation failure of a partial message.
+    PartialValidationFailure {
+        /// The peer that sent us the message.
+        propagation_source: PeerId,
+        /// The topic of the message.
+        gossip_topic: GossipTopic,
     },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer {
@@ -283,10 +294,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (mut libp2p, network_globals) = Network::new(
             executor.clone(),
             service_context,
-            beacon_chain
-                .data_availability_checker
-                .custody_context()
-                .custody_group_count_at_head(&beacon_chain.spec),
+            beacon_chain.custody_context.custody_group_count_at_head(),
             local_keypair,
         )
         .await?;
@@ -540,7 +548,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         let subnet_id = subnet_and_attestation.0;
                         let attestation = &subnet_and_attestation.1;
                         // checks if we have an aggregator for the slot. If so, we should process
-                        // the attestation, else we just just propagate the Attestation.
+                        // the attestation, else we just propagate the Attestation.
                         let should_process = self.subnet_service.should_process_attestation(
                             Subnet::Attestation(subnet_id),
                             &attestation.data,
@@ -559,6 +567,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ));
                     }
                 }
+            }
+            NetworkEvent::PartialDataColumnSidecar {
+                source,
+                column,
+                topic,
+            } => {
+                self.send_to_router(RouterMessage::PartialDataColumnSidecar(
+                    source, column, topic,
+                ));
             }
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
@@ -640,11 +657,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     validation_result,
                 );
             }
+            NetworkMessage::PartialValidationFailure {
+                propagation_source,
+                gossip_topic,
+            } => {
+                self.libp2p
+                    .report_partial_message_validation_failure(propagation_source, gossip_topic);
+            }
             NetworkMessage::Publish { messages } => {
                 let mut topic_kinds = Vec::new();
                 for message in &messages {
-                    if !topic_kinds.contains(&message.kind()) {
-                        topic_kinds.push(message.kind());
+                    let kind = message.kind();
+                    if !topic_kinds.contains(&kind) {
+                        topic_kinds.push(kind);
                     }
                 }
                 debug!(
@@ -653,6 +678,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     "Sending pubsub messages"
                 );
                 self.libp2p.publish(messages);
+            }
+            NetworkMessage::PublishPartialColumns { messages } => {
+                self.libp2p.publish_partial(messages);
             }
             NetworkMessage::ReportPeer {
                 peer_id,
@@ -851,10 +879,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
             fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);
             if self.beacon_chain.spec.is_peer_das_scheduled() {
-                let next_fork_digest = fork_context
-                    .next_fork_digest()
-                    .unwrap_or_else(|| fork_context.current_fork_digest());
-                self.libp2p.update_nfd(next_fork_digest);
+                self.libp2p.update_nfd(fork_context.next_fork_digest());
             }
 
             self.libp2p.update_fork_version(new_enr_fork_id);

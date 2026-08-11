@@ -43,12 +43,18 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
+pub mod partial_data_column_assembler;
+pub mod payload_attestation_verification;
+pub mod payload_bid_verification;
+pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
+pub mod pending_payload_cache;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
+pub mod proposer_preferences_verification;
 pub mod proposer_prep_service;
 pub mod schema_change;
 pub mod shuffling_cache;
@@ -69,19 +75,20 @@ pub use self::beacon_chain::{
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{
-    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStoreV17,
+    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStore,
     PersistedForkChoiceStoreV28,
 };
 pub use block_verification::{
     BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
-    PayloadVerificationOutcome, PayloadVerificationStatus, build_blob_data_column_sidecars,
-    get_block_root, signature_verify_chain_segment,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature, ParentImportStatus,
+    PayloadVerificationError, PayloadVerificationOutcome, PayloadVerificationStatus,
+    build_blob_data_column_sidecars, get_block_root, signature_verify_chain_segment,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

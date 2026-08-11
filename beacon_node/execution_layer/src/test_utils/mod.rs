@@ -43,9 +43,11 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v2: true,
     new_payload_v3: true,
     new_payload_v4: true,
+    new_payload_v5: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
+    forkchoice_updated_v4: true,
     get_payload_bodies_by_hash_v1: true,
     get_payload_bodies_by_range_v1: true,
     get_payload_v1: true,
@@ -53,9 +55,10 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v3: true,
     get_payload_v4: true,
     get_payload_v5: true,
+    get_payload_v6: true,
     get_client_version_v1: true,
-    get_blobs_v1: true,
     get_blobs_v2: true,
+    get_blobs_v3: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
@@ -82,6 +85,7 @@ pub struct MockExecutionConfig {
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
     pub amsterdam_time: Option<u64>,
+    pub heze_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -94,6 +98,7 @@ impl Default for MockExecutionConfig {
             prague_time: None,
             osaka_time: None,
             amsterdam_time: None,
+            heze_time: None,
         }
     }
 }
@@ -115,6 +120,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
             None, // FIXME(gloas): should this be the default?
+            None, // FIXME(heze): should this be the default?
             None,
         )
     }
@@ -133,6 +139,7 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -142,6 +149,7 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             kzg,
         );
 
@@ -203,6 +211,7 @@ impl<E: EthSpec> MockServer<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -215,6 +224,7 @@ impl<E: EthSpec> MockServer<E> {
                 prague_time,
                 osaka_time,
                 amsterdam_time,
+                heze_time,
             },
             kzg,
         )
@@ -492,6 +502,12 @@ impl From<String> for Error {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Other(e.to_string())
+    }
+}
+
 #[derive(Debug)]
 struct MissingIdField;
 
@@ -722,12 +738,18 @@ pub fn serve<E: EthSpec>(
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
-        async {
+    let std_listener =
+        std::net::TcpListener::bind(SocketAddrV4::new(config.listen_addr, config.listen_port))?;
+    std_listener.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+    let listening_socket = listener.local_addr()?;
+
+    let server = warp::serve(routes)
+        .incoming(listener)
+        .graceful(async {
             shutdown.await;
-        },
-    )?;
+        })
+        .run();
 
     info!(
         listen_address = listening_socket.to_string(),

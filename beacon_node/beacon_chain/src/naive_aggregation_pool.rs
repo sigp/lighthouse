@@ -84,6 +84,22 @@ impl AttestationKey {
                     slot,
                 })
             }
+            AttestationRef::Gloas(att) => {
+                let committee_index = att
+                    .committee_bits
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, bit)| if bit { Some(i) } else { None })
+                    .at_most_one()
+                    .map_err(|_| Error::MoreThanOneCommitteeBitSet)?
+                    .ok_or(Error::NoCommitteeBitSet)?;
+
+                Ok(Self {
+                    data_root: att.data.tree_hash_root(),
+                    committee_index: Some(committee_index as u64),
+                    slot,
+                })
+            }
         }
     }
 
@@ -582,20 +598,20 @@ mod tests {
     use tree_hash::TreeHash;
     use types::{
         Attestation, AttestationBase, AttestationElectra, Fork, Hash256, SyncCommitteeMessage,
-        test_utils::{generate_deterministic_keypair, test_random_instance},
+        test_utils::{generate_deterministic_keypair, test_arbitrary_instance},
     };
 
     type E = types::MainnetEthSpec;
 
     fn get_attestation_base(slot: Slot) -> Attestation<E> {
-        let mut a: AttestationBase<E> = test_random_instance();
+        let mut a: AttestationBase<E> = test_arbitrary_instance();
         a.data.slot = slot;
         a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
         Attestation::Base(a)
     }
 
     fn get_attestation_electra(slot: Slot) -> Attestation<E> {
-        let mut a: AttestationElectra<E> = test_random_instance();
+        let mut a: AttestationElectra<E> = test_arbitrary_instance();
         a.data.slot = slot;
         a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
         a.committee_bits = BitVector::new();
@@ -606,7 +622,7 @@ mod tests {
     }
 
     fn get_sync_contribution(slot: Slot) -> SyncCommitteeContribution<E> {
-        let mut a: SyncCommitteeContribution<E> = test_random_instance();
+        let mut a: SyncCommitteeContribution<E> = test_arbitrary_instance();
         a.slot = slot;
         a.aggregation_bits = BitVector::new();
         a
@@ -651,6 +667,10 @@ mod tests {
                 .set(i, false)
                 .expect("should unset aggregation bit"),
             Attestation::Electra(att) => att
+                .aggregation_bits
+                .set(i, false)
+                .expect("should unset aggregation bit"),
+            Attestation::Gloas(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),

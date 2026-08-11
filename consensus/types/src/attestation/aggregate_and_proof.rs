@@ -3,20 +3,19 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::{
-        Attestation, AttestationBase, AttestationElectra, AttestationRef, SelectionProof,
+        Attestation, AttestationBase, AttestationElectra, AttestationGloas, AttestationRef,
+        SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
-    test_utils::TestRandom,
 };
 
 #[superstruct(
-    variants(Base, Electra),
+    variants(Base, Electra, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -26,7 +25,6 @@ use crate::{
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
         ),
         context_deserialize(ForkName),
@@ -128,6 +126,11 @@ impl<E: EthSpec> AggregateAndProof<E> {
                 selection_proof: selection_proof.into(),
             }),
             Attestation::Electra(aggregate) => Self::Electra(AggregateAndProofElectra {
+                aggregator_index,
+                aggregate,
+                selection_proof: selection_proof.into(),
+            }),
+            Attestation::Gloas(aggregate) => Self::Gloas(AggregateAndProofGloas {
                 aggregator_index,
                 aggregate,
                 selection_proof: selection_proof.into(),

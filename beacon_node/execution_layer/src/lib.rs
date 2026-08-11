@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -43,18 +43,17 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
-use types::kzg_ext::KzgCommitments;
+use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -72,6 +71,8 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
+
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -202,9 +203,10 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
     pub payload_value: Uint256,
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
+    pub should_override_builder: bool,
 }
 
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
@@ -212,12 +214,17 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
         Self {
             payload: response.execution_payload,
             payload_value: response.block_value,
-            blob_kzg_commitments: response.blobs_bundle.commitments,
+            // Convert the EL blob commitments to the progressive list type used from Gloas
+            // onwards (EIP-7688).
+            blob_kzg_commitments: response.blobs_bundle.commitments.into_iter().collect(),
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
+            should_override_builder: response.should_override_builder,
         }
     }
 }
+
+// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
@@ -232,7 +239,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
         // See: https://github.com/sigp/lighthouse/issues/6981
-        requests: Option<ExecutionRequests<E>>,
+        requests: Option<ExecutionRequestsElectra<E>>,
     },
 }
 
@@ -278,7 +285,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
+                // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
+                requests: match maybe_requests {
+                    Some(ExecutionRequests::Electra(requests)) => Some(requests),
+                    Some(ExecutionRequests::Gloas(_)) => {
+                        return Err(Error::InvalidPayloadConversion);
+                    }
+                    None => None,
+                },
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -307,7 +321,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
         Uint256,
     ) {
         match self {
@@ -356,7 +370,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 #[derive(Clone, Copy, Debug)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
-    pub parent_gas_limit: u64,
+    // NOTE: The `parent_gas_limit` is a bit scuffed. We made it optional for Gloas because it
+    // isn't currently required, but it should possibly be made non-optional again if needed.
+    // Or we should superstruct this type.
+    pub parent_gas_limit: Option<u64>,
     pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: &'a PayloadAttributes,
     pub forkchoice_update_params: &'a ForkchoiceUpdateParameters,
@@ -399,10 +416,15 @@ impl ProposerPreparationDataEntry {
     }
 }
 
+// NOTE: This key should arguably include the `suggested_fee_recipient`, as it is part of the
+// `Proposer::payload_attributes` value that is cached based on it. However, in some cases where
+// this key is constructed the fee recipient is not straight-forward to determine. Therefore we
+// accept the risk of loading a stale fee recipient within the timespan of a single slot.
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
     head_block_root: Hash256,
+    head_payload_status: fork_choice::PayloadStatus,
 }
 
 #[derive(PartialEq, Clone)]
@@ -929,6 +951,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(payload_response.into())
     }
 
+    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
+
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -1110,7 +1134,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
@@ -1461,12 +1485,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
         validator_index: u64,
         payload_attributes: PayloadAttributes,
     ) -> bool {
         let proposers_key = ProposerKey {
             slot,
             head_block_root,
+            head_payload_status,
         };
 
         let existing = self.proposers().write().await.insert(
@@ -1485,16 +1511,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
-    /// `head_block_root`, then return the appropriate `PayloadAttributes` for inclusion in
-    /// `forkchoiceUpdated` calls.
+    /// `head_block_root`, and `head_payload_status` then return the appropriate `PayloadAttributes`
+    /// for inclusion in `forkchoiceUpdated` calls.
     pub async fn payload_attributes(
         &self,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Option<PayloadAttributes> {
         let proposers_key = ProposerKey {
             slot: current_slot,
             head_block_root,
+            head_payload_status,
         };
 
         let proposer = self.proposers().read().await.get(&proposers_key).cloned()?;
@@ -1518,6 +1546,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1534,7 +1563,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         );
 
         let next_slot = current_slot + 1;
-        let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
+        let payload_attributes = self
+            .payload_attributes(next_slot, head_block_root, head_payload_status)
+            .await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(ref payload_attributes) = payload_attributes
@@ -1682,6 +1713,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Gloas => {
                     return Err(Error::InvalidForkForPayload);
                 }
+                ForkName::Heze => {
+                    return Err(Error::InvalidForkForPayload);
+                }
             };
             return Ok(Some(payload));
         }
@@ -1707,23 +1741,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_blobs_v1(
-        &self,
-        query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
-
-        if capabilities.get_blobs_v1 {
-            self.engine()
-                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
-                .await
-                .map_err(Box::new)
-                .map_err(Error::EngineError)
-        } else {
-            Err(Error::GetBlobsNotSupported)
-        }
-    }
-
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
@@ -1733,6 +1750,23 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if capabilities.get_blobs_v2 {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v3(
+        &self,
+        query: Vec<Hash256>,
+    ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v3 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)
@@ -2055,7 +2089,7 @@ fn verify_builder_bid<E: EthSpec>(
 
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
-        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));
+        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit?, target_gas_limit, spec));
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {

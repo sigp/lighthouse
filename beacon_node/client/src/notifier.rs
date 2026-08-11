@@ -7,8 +7,8 @@ use execution_layer::{
     EngineCapabilities,
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
-        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+        ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
@@ -171,7 +171,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         Ok(data_column_custody_info) => {
                             if let Some(earliest_data_column_slot) = data_column_custody_info
                                 .and_then(|info| info.earliest_data_column_slot)
-                                && let Some(da_boundary) = beacon_chain.get_column_da_boundary()
+                                && let Some(da_boundary) = beacon_chain
+                                    .custody_context
+                                    .column_data_availability_boundary()
                             {
                                 sync_distance = earliest_data_column_slot.saturating_sub(
                                     da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
@@ -295,7 +297,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let speed = speedo.slots_per_second();
                 let display_speed = speed.is_some_and(|speed| speed != 0.0);
                 let est_time_in_secs = if let (Some(da_boundary_epoch), Some(original_slot)) = (
-                    beacon_chain.get_column_da_boundary(),
+                    beacon_chain
+                        .custody_context
+                        .column_data_availability_boundary(),
                     original_earliest_data_column_slot,
                 ) {
                     let target = original_slot.saturating_sub(
@@ -360,7 +364,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
-                    head_root.to_string()
+                    head_root.short().to_string()
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
@@ -374,7 +378,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                        execution_block_hash = ?hash,
+                            execution_block_hash = ?hash,
                             "Head is optimistic"
                         );
                         format!("{} (unverified)", hash)
@@ -393,7 +397,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
@@ -404,7 +408,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     %head_slot,
                     %current_slot,
@@ -554,12 +558,12 @@ fn methods_required_for_fork(
                 missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
             }
         }
-        ForkName::Gloas => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
+        ForkName::Gloas | ForkName::Heze => {
+            if !capabilities.get_payload_v6 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V6);
             }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
+            if !capabilities.new_payload_v5 {
+                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
             }
         }
     }

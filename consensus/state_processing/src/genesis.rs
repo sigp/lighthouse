@@ -5,7 +5,7 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas,
+    upgrade_to_gloas, upgrade_to_heze,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -167,9 +167,30 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
-        // Override latest execution payload header.
-        // Here's where we *would* clone the header but there is no header here so..
-        // TODO(EIP7732): check this
+        // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
+        // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
+        // first post-genesis proposer can build on the correct EL head.
+        let el_genesis_hash = state.latest_execution_payload_bid()?.block_hash;
+        let bid = state.latest_execution_payload_bid_mut()?;
+        bid.parent_block_hash = el_genesis_hash;
+        bid.block_hash = ExecutionBlockHash::default();
+
+        // Update the `latest_block_header.body_root` so that it matches the body of the
+        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
+        // `signed_execution_payload_bid` field (see `genesis_block`).
+        let genesis_body_root = genesis_block(&state, spec)?.body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
+    }
+
+    // Upgrade to heze if configured from genesis.
+    if spec
+        .heze_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_heze(&mut state, spec)?;
+
+        // Remove intermediate Gloas fork from `state.fork`.
+        state.fork_mut().previous_version = spec.heze_fork_version;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -179,6 +200,26 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache()?;
 
     Ok(state)
+}
+
+/// Create an unsigned genesis `BeaconBlock`.
+///
+/// Per spec, the genesis block body is empty (all default fields) except from Gloas
+/// onwards, where `body.signed_execution_payload_bid.message` is initialised from
+/// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
+/// build on the correct execution layer head.
+///
+/// `state.latest_block_header.body_root` is set from this same block's body, so the
+/// two must stay in sync.
+pub fn genesis_block<E: EthSpec>(
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<BeaconBlock<E>, BeaconStateError> {
+    let mut block = BeaconBlock::empty(spec);
+    if let Ok(signed_bid) = block.body_mut().signed_execution_payload_bid_mut() {
+        signed_bid.message = state.latest_execution_payload_bid()?.clone();
+    }
+    Ok(block)
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
@@ -196,7 +237,8 @@ pub fn process_activations<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
-    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
+    let (mut validators, balances, _) =
+        state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
         let validator = validator.into_mut()?;

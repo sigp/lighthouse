@@ -8,19 +8,21 @@ mod execution_payload_bid;
 mod execution_payload_envelope;
 mod execution_payload_header;
 mod execution_requests;
+mod inclusion_list;
 mod payload;
 mod signed_bls_to_execution_change;
 mod signed_execution_payload_bid;
 mod signed_execution_payload_envelope;
-mod state_payload_status;
+mod signed_inclusion_list;
 
 pub use bls_to_execution_change::BlsToExecutionChange;
 pub use eth1_data::Eth1Data;
 pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use execution_payload::{
-    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadRef,
-    Transaction, Transactions,
+    BlockAccessList, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
+    Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
 pub use execution_payload_bid::ExecutionPayloadBid;
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
@@ -30,8 +32,11 @@ pub use execution_payload_header::{
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
-    ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
+    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
+    ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    RequestType, WithdrawalRequests,
 };
+pub use inclusion_list::InclusionList;
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,
@@ -42,4 +47,4 @@ pub use payload::{
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
 pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
-pub use state_payload_status::StatePayloadStatus;
+pub use signed_inclusion_list::SignedInclusionList;

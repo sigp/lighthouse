@@ -23,20 +23,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Only check blocks that are descendants of the finalized checkpoint.
                     // Pruned non-canonical fork blocks may linger in the proto-array but
                     // are legitimately absent from the database.
-                    fc.is_finalized_checkpoint_or_descendant(node.root)
+                    fc.is_finalized_checkpoint_or_descendant(node.root())
                 })
-                .map(|node| (node.root, node.slot))
+                .map(|node| (node.root(), node.slot()))
                 .collect()
         };
 
-        let custody_context = self.data_availability_checker.custody_context();
+        let custody_context = self.custody_context.clone();
 
         let ctx = InvariantContext {
             fork_choice_blocks,
             state_cache_roots: self.store.state_cache.lock().state_roots(),
-            custody_columns: custody_context
-                .custody_columns_for_epoch(None, &self.spec)
-                .to_vec(),
+            custody_columns: custody_context.custody_columns_for_epoch(None).to_vec(),
             pubkey_cache_pubkeys: {
                 let cache = self.validator_pubkey_cache.read();
                 (0..cache.len())

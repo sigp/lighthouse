@@ -125,6 +125,9 @@ pub struct Config {
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
 
+    /// Whether to enable the mplex multiplexer alongside yamux. Enabled by default.
+    pub enable_mplex: bool,
+
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 
@@ -140,6 +143,9 @@ pub struct Config {
 
     /// Flag for advertising a fake CGC to peers for testing ONLY.
     pub advertise_false_custody_group_count: Option<u64>,
+
+    /// Whether to enable partial data column support.
+    pub enable_partial_columns: bool,
 }
 
 impl Config {
@@ -359,11 +365,13 @@ impl Default for Config {
             proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: true,
+            enable_mplex: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
+            enable_partial_columns: false,
         }
     }
 }
@@ -500,7 +508,9 @@ pub fn gossipsub_config(
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .flood_publish(false)
-        .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
+        .max_publish_messages(500) // Responses to IWANT can be quite large
+        .max_control_messages_sent(500)
+        .max_control_message_size(128 << 10) // 128KB
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)

@@ -1,7 +1,6 @@
 use std::time::Instant;
 use std::{collections::hash_map::Entry, hash::Hash};
 
-use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use strum::IntoStaticStr;
@@ -9,12 +8,13 @@ use tracing::{Span, debug};
 use types::{Hash256, Slot};
 
 pub use blobs_by_range::BlobsByRangeRequestItems;
-pub use blobs_by_root::{BlobsByRootRequestItems, BlobsByRootSingleBlockRequest};
 pub use blocks_by_range::BlocksByRangeRequestItems;
 pub use blocks_by_root::{BlocksByRootRequestItems, BlocksByRootSingleRequest};
 pub use data_columns_by_range::DataColumnsByRangeRequestItems;
-pub use data_columns_by_root::{
-    DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
+pub use data_columns_by_root::{DataColumnsByRootRequestItems, DataColumnsByRootRequestParams};
+pub use payload_envelopes_by_range::PayloadEnvelopesByRangeRequestItems;
+pub use payload_envelopes_by_root::{
+    PayloadEnvelopesByRootRequestItems, PayloadEnvelopesByRootSingleRequest,
 };
 
 use crate::metrics;
@@ -22,11 +22,12 @@ use crate::metrics;
 use super::{RpcEvent, RpcResponseError, RpcResponseResult};
 
 mod blobs_by_range;
-mod blobs_by_root;
 mod blocks_by_range;
 mod blocks_by_root;
 mod data_columns_by_range;
 mod data_columns_by_root;
+mod payload_envelopes_by_range;
+mod payload_envelopes_by_root;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
@@ -118,7 +119,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
         let result = match rpc_event {
             // Handler of a success ReqResp chunk. Adds the item to the request accumulator.
             // `ActiveRequestItems` validates the item before appending to its internal state.
-            RpcEvent::Response(item, seen_timestamp) => {
+            RpcEvent::Response(item) => {
                 let request = &mut entry.get_mut();
                 let _guard = request.span.clone().entered();
                 match &mut request.state {
@@ -129,7 +130,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
                             Ok(true) => {
                                 let items = items.consume();
                                 request.state = State::CompletedEarly;
-                                Some(Ok((items, seen_timestamp, request.start_instant.elapsed())))
+                                Some(Ok((items, request.start_instant.elapsed())))
                             }
                             // Received item, but we are still expecting more
                             Ok(false) => None,
@@ -166,11 +167,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
                             }
                             .into()))
                         } else {
-                            Some(Ok((
-                                items.consume(),
-                                timestamp_now(),
-                                request.start_instant.elapsed(),
-                            )))
+                            Some(Ok((items.consume(), request.start_instant.elapsed())))
                         }
                     }
                     // Items already returned, ignore stream termination
@@ -198,7 +195,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
         };
 
         result.map(|result| match result {
-            Ok((items, seen_timestamp, duration)) => {
+            Ok((items, duration)) => {
                 metrics::inc_counter_vec(&metrics::SYNC_RPC_REQUEST_SUCCESSES, &[self.name]);
                 metrics::observe_timer_vec(&metrics::SYNC_RPC_REQUEST_TIME, &[self.name], duration);
                 debug!(
@@ -208,7 +205,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
                     "Sync RPC request completed"
                 );
 
-                Ok((items, seen_timestamp))
+                Ok(items)
             }
             Err(e) => {
                 let err_str: &'static str = match &e {

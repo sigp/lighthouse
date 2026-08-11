@@ -1,17 +1,21 @@
 use super::*;
 use crate::NetworkMessage;
-use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
+use crate::network_beacon_processor::BlockProcessingResult;
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
+use crate::network_beacon_processor::{
+    ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
+};
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{BlockProcessType, BlockProcessingResult, SyncManager},
+    manager::{BatchProcessResult, BlockProcessType, SyncManager},
 };
-use beacon_chain::blob_verification::KzgVerifiedBlob;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::payload_envelope_verification::AvailableEnvelope;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
-    data_availability_checker::Availability,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
         generate_rand_block_and_blobs, test_spec,
@@ -22,23 +26,36 @@ use educe::Educe;
 use itertools::Itertools;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
-    NetworkConfig, NetworkGlobals, PeerId,
+    NetworkConfig, NetworkGlobals, PeerAction, PeerId,
     rpc::{RPCError, RequestType},
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    test_utils::{SeedableRng, XorShiftRng},
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
-const D: Duration = Duration::new(0, 0);
+/// Extract the Gloas payload envelope (if any) carried by a stored `RangeSyncBlock`.
+fn envelope_of(block: &RangeSyncBlock<E>) -> Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
+    match block {
+        RangeSyncBlock::Gloas {
+            envelope: Some(envelope),
+            ..
+        } => Some(envelope.envelope().clone()),
+        _ => None,
+    }
+}
+
+/// Gloas genesis needs enough validators to populate `proposer_lookahead`.
+const TEST_RIG_VALIDATOR_COUNT: usize = 8;
 
 /// Configuration for how the test rig should respond to sync requests.
 ///
@@ -56,6 +73,10 @@ pub struct SimulateConfig {
     return_too_few_data_n_times: usize,
     return_no_columns_on_indices_n_times: usize,
     return_no_columns_on_indices: Vec<ColumnIndex>,
+    /// Only omit columns for this block root, if set.
+    return_no_columns_for_block: Option<Hash256>,
+    /// Leave matching envelope requests unanswered.
+    hold_envelope_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
     #[educe(Debug(ignore))]
@@ -63,14 +84,33 @@ pub struct SimulateConfig {
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
     // Import a block directly before processing it (for simulating race conditions)
     import_block_before_process: HashSet<Hash256>,
+    /// Number of range batch processing attempts that return FaultyFailure
+    range_faulty_failures: usize,
+    /// Number of range batch processing attempts that return NonFaultyFailure
+    range_non_faulty_failures: usize,
+    /// Number of BlocksByRange requests that return empty (no blocks)
+    return_no_range_blocks_n_times: usize,
+    /// Number of DataColumnsByRange requests that return empty (no columns)
+    return_no_range_columns_n_times: usize,
+    /// Number of DataColumnsByRange requests that return columns with unrequested indices
+    return_wrong_range_column_indices_n_times: usize,
+    /// Number of DataColumnsByRange requests that return columns with unrequested slots
+    return_wrong_range_column_slots_n_times: usize,
+    /// Number of DataColumnsByRange requests that return fewer columns than requested
+    /// (drops half the columns). Triggers CouplingError::DataColumnPeerFailure → retry_partial_batch
+    return_partial_range_columns_n_times: usize,
+    /// Set EE offline at start, bring back online after this many BlocksByRange responses
+    ee_offline_for_n_range_responses: Option<usize>,
+    /// Disconnect all peers after this many successful BlocksByRange responses.
+    successful_range_responses_before_disconnect: Option<usize>,
 }
 
 impl SimulateConfig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::default()
     }
 
-    fn happy_path() -> Self {
+    pub(super) fn happy_path() -> Self {
         Self::default()
     }
 
@@ -110,7 +150,17 @@ impl SimulateConfig {
         self
     }
 
-    fn return_rpc_error(mut self, error: RPCError) -> Self {
+    fn return_no_columns_for_block(mut self, block_root: Hash256) -> Self {
+        self.return_no_columns_for_block = Some(block_root);
+        self
+    }
+
+    fn hold_envelope_for_block(mut self, block_root: Hash256) -> Self {
+        self.hold_envelope_for_block = Some(block_root);
+        self
+    }
+
+    pub(super) fn return_rpc_error(mut self, error: RPCError) -> Self {
         self.return_rpc_error = Some(error);
         self
     }
@@ -132,6 +182,51 @@ impl SimulateConfig {
         self.import_block_before_process.insert(block_root);
         self
     }
+
+    pub(super) fn with_range_faulty_failures(mut self, n: usize) -> Self {
+        self.range_faulty_failures = n;
+        self
+    }
+
+    pub(super) fn with_range_non_faulty_failures(mut self, n: usize) -> Self {
+        self.range_non_faulty_failures = n;
+        self
+    }
+
+    pub(super) fn with_no_range_blocks_n_times(mut self, n: usize) -> Self {
+        self.return_no_range_blocks_n_times = n;
+        self
+    }
+
+    pub(super) fn with_no_range_columns_n_times(mut self, n: usize) -> Self {
+        self.return_no_range_columns_n_times = n;
+        self
+    }
+
+    pub(super) fn with_wrong_range_column_indices_n_times(mut self, n: usize) -> Self {
+        self.return_wrong_range_column_indices_n_times = n;
+        self
+    }
+
+    pub(super) fn with_wrong_range_column_slots_n_times(mut self, n: usize) -> Self {
+        self.return_wrong_range_column_slots_n_times = n;
+        self
+    }
+
+    pub(super) fn with_partial_range_columns_n_times(mut self, n: usize) -> Self {
+        self.return_partial_range_columns_n_times = n;
+        self
+    }
+
+    pub(super) fn with_ee_offline_for_n_range_responses(mut self, n: usize) -> Self {
+        self.ee_offline_for_n_range_responses = Some(n);
+        self
+    }
+
+    pub(super) fn with_disconnect_after_range_requests(mut self, n: usize) -> Self {
+        self.successful_range_responses_before_disconnect = Some(n);
+        self
+    }
 }
 
 fn genesis_fork() -> ForkName {
@@ -144,6 +239,14 @@ pub(crate) struct TestRigConfig {
     node_custody_type_override: Option<NodeCustodyType>,
 }
 
+struct FullEmptyFork {
+    a: Hash256,
+    b: Hash256,
+    c: Hash256,
+    b_block: Arc<SignedBeaconBlock<E>>,
+    c_block: Arc<SignedBeaconBlock<E>>,
+}
+
 impl TestRig {
     pub(crate) fn new(test_rig_config: TestRigConfig) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
@@ -154,10 +257,10 @@ impl TestRig {
             Duration::from_secs(12),
         );
 
-        // Initialise a new beacon chain
+        // Gloas genesis needs enough validators for proposer lookahead.
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
@@ -212,7 +315,6 @@ impl TestRig {
 
         // deterministic seed
         let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
-        let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
         init_tracing();
 
@@ -224,7 +326,7 @@ impl TestRig {
             sync_rx,
             sync_rx_queue: vec![],
             rng_08,
-            rng,
+            unstructured: types::test_utils::test_unstructured(),
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
                 chain,
@@ -255,6 +357,7 @@ impl TestRig {
         })
     }
 
+    #[allow(dead_code)]
     pub fn with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
@@ -266,12 +369,22 @@ impl TestRig {
     ///
     /// Processes events from sync_rx (sink), beacon processor, and network queues in fixed
     /// priority order each tick. Handles completed work before pulling new requests.
-    async fn simulate(&mut self, complete_strategy: SimulateConfig) {
+    pub(super) async fn simulate(&mut self, complete_strategy: SimulateConfig) {
         self.complete_strategy = complete_strategy;
         self.log(&format!(
             "Running simulate with config {:?}",
             self.complete_strategy
         ));
+
+        // Set EE offline at the start if configured
+        if self
+            .complete_strategy
+            .ee_offline_for_n_range_responses
+            .is_some()
+        {
+            self.sync_manager
+                .update_execution_engine_state(EngineState::Offline);
+        }
 
         let mut i = 0;
 
@@ -353,7 +466,32 @@ impl TestRig {
                     }
                     Work::RpcBlobs { process_fn }
                     | Work::RpcCustodyColumn(process_fn)
-                    | Work::ChainSegment(process_fn) => process_fn.await,
+                    | Work::RpcEnvelope(process_fn) => process_fn.await,
+                    Work::ChainSegment {
+                        process_fn,
+                        process_id: (chain_id, batch_epoch),
+                    } => {
+                        let sync_type =
+                            ChainSegmentProcessId::RangeBatchId(chain_id, batch_epoch.into());
+                        if self.complete_strategy.range_faulty_failures > 0 {
+                            self.complete_strategy.range_faulty_failures -= 1;
+                            self.push_sync_message(SyncMessage::BatchProcessed {
+                                sync_type,
+                                result: BatchProcessResult::FaultyFailure {
+                                    imported_blocks: 0,
+                                    penalty: PeerAction::LowToleranceError,
+                                },
+                            });
+                        } else if self.complete_strategy.range_non_faulty_failures > 0 {
+                            self.complete_strategy.range_non_faulty_failures -= 1;
+                            self.push_sync_message(SyncMessage::BatchProcessed {
+                                sync_type,
+                                result: BatchProcessResult::NonFaultyFailure,
+                            });
+                        } else {
+                            process_fn.await;
+                        }
+                    }
                     Work::Reprocess(_) => {} // ignore
                     other => panic!("Unsupported Work event {}", other.str_id()),
                 }
@@ -448,52 +586,6 @@ impl TestRig {
                 self.send_rpc_blocks_response(req_id, peer_id, &blocks);
             }
 
-            (RequestType::BlobsByRoot(req), AppRequestId::Sync(req_id)) => {
-                if self.complete_strategy.return_no_data_n_times > 0 {
-                    self.complete_strategy.return_no_data_n_times -= 1;
-                    return self.send_rpc_blobs_response(req_id, peer_id, &[]);
-                }
-
-                let mut blobs = req
-                    .blob_ids
-                    .iter()
-                    .map(|id| {
-                        self.network_blocks_by_root
-                            .get(&id.block_root)
-                            .unwrap_or_else(|| {
-                                panic!("Test consumer requested unknown block: {id:?}")
-                            })
-                            .block_data()
-                            .and_then(|d| d.blobs())
-                            .unwrap_or_else(|| panic!("Block {id:?} has no blobs"))
-                            .iter()
-                            .find(|blob| blob.index == id.index)
-                            .unwrap_or_else(|| panic!("Blob id {id:?} not avail"))
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
-
-                if self.complete_strategy.return_too_few_data_n_times > 0 {
-                    self.complete_strategy.return_too_few_data_n_times -= 1;
-                    blobs.pop();
-                }
-
-                if self
-                    .complete_strategy
-                    .return_wrong_sidecar_for_block_n_times
-                    > 0
-                {
-                    self.complete_strategy
-                        .return_wrong_sidecar_for_block_n_times -= 1;
-                    let first = blobs.first_mut().expect("empty blobs");
-                    let mut blob = Arc::make_mut(first).clone();
-                    blob.signed_block_header.message.body_root = Hash256::ZERO;
-                    *first = Arc::new(blob);
-                }
-
-                self.send_rpc_blobs_response(req_id, peer_id, &blobs);
-            }
-
             (RequestType::DataColumnsByRoot(req), AppRequestId::Sync(req_id)) => {
                 if self.complete_strategy.return_no_data_n_times > 0 {
                     self.complete_strategy.return_no_data_n_times -= 1;
@@ -501,11 +593,14 @@ impl TestRig {
                 }
 
                 let will_omit_columns = req.data_column_ids.iter().any(|id| {
-                    id.columns.iter().any(|c| {
-                        self.complete_strategy
-                            .return_no_columns_on_indices
-                            .contains(c)
-                    })
+                    self.complete_strategy
+                        .return_no_columns_for_block
+                        .is_none_or(|root| id.block_root == root)
+                        && id.columns.iter().any(|c| {
+                            self.complete_strategy
+                                .return_no_columns_on_indices
+                                .contains(c)
+                        })
                 });
                 let columns_to_omit = if will_omit_columns
                     && self.complete_strategy.return_no_columns_on_indices_n_times > 0
@@ -527,8 +622,7 @@ impl TestRig {
                             .unwrap_or_else(|| {
                                 panic!("Test consumer requested unknown block: {id:?}")
                             })
-                            .block_data()
-                            .and_then(|d| d.data_columns())
+                            .data_columns()
                             .unwrap_or_else(|| panic!("Block id {id:?} has no columns"));
                         id.columns
                             .iter()
@@ -559,28 +653,85 @@ impl TestRig {
                         .return_wrong_sidecar_for_block_n_times -= 1;
                     let first = columns.first_mut().expect("empty columns");
                     let column = Arc::make_mut(first);
-                    column
-                        .signed_block_header_mut()
-                        .expect("not fulu")
-                        .message
-                        .body_root = Hash256::ZERO;
+                    // Corrupt the claimed block root.
+                    match column {
+                        DataColumnSidecar::Fulu(col) => {
+                            col.signed_block_header.message.body_root = Hash256::ZERO;
+                        }
+                        DataColumnSidecar::Gloas(col) => {
+                            col.beacon_block_root = Hash256::ZERO;
+                        }
+                    }
                 }
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
+            }
+
+            (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
+                // Lookup sync requests one envelope root at a time.
+                let block_root = req
+                    .beacon_block_roots
+                    .as_slice()
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| panic!("empty envelope request: {req:?}"));
+                if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                    return;
+                }
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of);
+                self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
             (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
-                let blocks = (*req.start_slot()..req.start_slot() + req.count())
-                    .filter_map(|slot| {
-                        self.network_blocks_by_slot
-                            .get(&Slot::new(slot))
-                            .map(|block| block.block_cloned())
-                    })
-                    .collect::<Vec<_>>();
 
-                self.send_rpc_blocks_response(req_id, peer_id, &blocks);
+                // Check if we should disconnect all peers instead of continuing
+                if let Some(ref mut remaining) = self
+                    .complete_strategy
+                    .successful_range_responses_before_disconnect
+                {
+                    if *remaining == 0 {
+                        // Disconnect all peers — remaining responses become "late"
+                        for peer in self.get_connected_peers() {
+                            self.peer_disconnected(peer);
+                        }
+                        return;
+                    } else {
+                        *remaining -= 1;
+                    }
+                }
+
+                // Return empty response N times to simulate peer returning no blocks
+                if self.complete_strategy.return_no_range_blocks_n_times > 0 {
+                    self.complete_strategy.return_no_range_blocks_n_times -= 1;
+                    self.send_rpc_blocks_response(req_id, peer_id, &[]);
+                } else {
+                    let blocks = (*req.start_slot()..req.start_slot() + req.count())
+                        .filter_map(|slot| {
+                            self.network_blocks_by_slot
+                                .get(&Slot::new(slot))
+                                .map(|block| block.block_cloned())
+                        })
+                        .collect::<Vec<_>>();
+                    self.send_rpc_blocks_response(req_id, peer_id, &blocks);
+                }
+
+                // Bring EE back online after N range responses
+                if let Some(ref mut remaining) =
+                    self.complete_strategy.ee_offline_for_n_range_responses
+                {
+                    if *remaining == 0 {
+                        self.sync_manager
+                            .update_execution_engine_state(EngineState::Online);
+                        self.complete_strategy.ee_offline_for_n_range_responses = None;
+                    } else {
+                        *remaining -= 1;
+                    }
+                }
             }
 
             (RequestType::BlobsByRange(req), AppRequestId::Sync(req_id)) => {
@@ -594,7 +745,7 @@ impl TestRig {
                 // - Some blocks may not have blobs as the blob count is random
                 let blobs = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                    .filter_map(|block| block.block_data().and_then(|d| d.blobs()))
+                    .filter_map(|block| block.block_data().blobs())
                     .flat_map(|blobs| blobs.into_iter())
                     .collect::<Vec<_>>();
                 self.send_rpc_blobs_response(req_id, peer_id, &blobs);
@@ -604,13 +755,83 @@ impl TestRig {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
-                // Note: This function is permissive, blocks may have zero columns and it won't
-                // error. Some caveats:
-                // - The genesis block never has columns
-                // - Some blocks may not have columns as the blob count is random
+
+                // Return empty columns N times
+                if self.complete_strategy.return_no_range_columns_n_times > 0 {
+                    self.complete_strategy.return_no_range_columns_n_times -= 1;
+                    self.send_rpc_columns_response(req_id, peer_id, &[]);
+                    return;
+                }
+
+                // Return columns with unrequested indices N times.
+                // Note: for supernodes this returns no columns since they custody all indices.
+                if self
+                    .complete_strategy
+                    .return_wrong_range_column_indices_n_times
+                    > 0
+                {
+                    self.complete_strategy
+                        .return_wrong_range_column_indices_n_times -= 1;
+                    let wrong_columns = (req.start_slot..req.start_slot + req.count)
+                        .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                        .filter_map(|block| block.data_columns())
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| !req.columns.contains(c.index()))
+                        })
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
+                    return;
+                }
+
+                // Return columns from an out-of-range slot N times
+                if self
+                    .complete_strategy
+                    .return_wrong_range_column_slots_n_times
+                    > 0
+                {
+                    self.complete_strategy
+                        .return_wrong_range_column_slots_n_times -= 1;
+                    // Get a column from a slot AFTER the requested range
+                    let wrong_slot = req.start_slot + req.count;
+                    let wrong_columns = self
+                        .network_blocks_by_slot
+                        .get(&Slot::new(wrong_slot))
+                        .and_then(|block| block.data_columns())
+                        .into_iter()
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| req.columns.contains(c.index()))
+                        })
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
+                    return;
+                }
+
+                // Return only half the requested columns N times — triggers CouplingError
+                if self.complete_strategy.return_partial_range_columns_n_times > 0 {
+                    self.complete_strategy.return_partial_range_columns_n_times -= 1;
+                    let columns = (req.start_slot..req.start_slot + req.count)
+                        .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                        .filter_map(|block| block.data_columns())
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| req.columns.contains(c.index()))
+                        })
+                        .enumerate()
+                        .filter(|(i, _)| i % 2 == 0) // keep every other column
+                        .map(|(_, c)| c)
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &columns);
+                    return;
+                }
+
                 let columns = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                    .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
+                    .filter_map(|block| block.data_columns())
                     .flat_map(|columns| {
                         columns
                             .into_iter()
@@ -618,6 +839,25 @@ impl TestRig {
                     })
                     .collect::<Vec<_>>();
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
+            }
+
+            (RequestType::PayloadEnvelopesByRange(req), AppRequestId::Sync(req_id)) => {
+                if self.complete_strategy.skip_by_range_routes {
+                    return;
+                }
+
+                let envelopes = (req.start_slot..req.start_slot + req.count)
+                    .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                    .filter_map(|block| {
+                        let block_root = block.canonical_root();
+                        // Respect a withheld payload envelope.
+                        if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                            return None;
+                        }
+                        envelope_of(block)
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
             }
 
             (RequestType::Status(_req), AppRequestId::Router) => {
@@ -644,14 +884,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 beacon_block: Some(block.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlock {
             sync_request_id,
             peer_id,
             beacon_block: None,
-            seen_timestamp: D,
         });
     }
 
@@ -675,14 +913,12 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 blob_sidecar: Some(blob.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcBlob {
             sync_request_id,
             peer_id,
             blob_sidecar: None,
-            seen_timestamp: D,
         });
     }
 
@@ -711,27 +947,77 @@ impl TestRig {
                 sync_request_id,
                 peer_id,
                 data_column: Some(column.clone()),
-                seen_timestamp: D,
             });
         }
         self.push_sync_message(SyncMessage::RpcDataColumn {
             sync_request_id,
             peer_id,
             data_column: None,
-            seen_timestamp: D,
         });
+    }
+
+    fn send_rpc_envelope_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    ) {
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelope {:?}",
+            envelope.as_ref().map(|e| e.slot())
+        ));
+
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: envelope.clone(),
+        });
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+        });
+    }
+
+    fn send_rpc_envelopes_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelopes: &[Arc<SignedExecutionPayloadEnvelope<E>>],
+    ) {
+        let slots = envelopes.iter().map(|e| e.slot()).collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelopes {slots:?}"
+        ));
+
+        for envelope in envelopes {
+            self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope: Some(envelope.clone()),
+            });
+        }
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+        });
+    }
+
+    #[allow(dead_code)]
+    fn is_after_gloas(&self) -> bool {
+        self.fork_name.gloas_enabled()
     }
 
     // Preparation steps
 
-    /// Returns the block root of the tip of the built chain
-    async fn build_chain(&mut self, block_count: usize) -> Hash256 {
-        let mut blocks = vec![];
-
+    fn get_external_harness_with_genesis(&mut self) -> BeaconChainHarness<EphemeralHarnessType<E>> {
         // Initialise a new beacon chain
         let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(self.harness.spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(self.harness.chain.slot_clock.clone())
@@ -751,7 +1037,17 @@ impl TestRig {
         self.network_blocks_by_slot
             .insert(genesis_block.slot(), genesis_block);
 
-        for i in 0..block_count {
+        external_harness
+    }
+
+    /// Returns the block root of the tip of the built chain
+    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
+        let mut blocks = vec![];
+
+        // Initialise a new beacon chain
+        let external_harness = self.get_external_harness_with_genesis();
+
+        for _ in 0..block_count {
             external_harness.advance_slot();
             let block_root = external_harness
                 .extend_chain(
@@ -761,21 +1057,9 @@ impl TestRig {
                 )
                 .await;
             let block = external_harness.get_full_block(&block_root);
-            let block_root = block.canonical_root();
             let block_slot = block.slot();
-            self.network_blocks_by_root
-                .insert(block_root, block.clone());
-            self.network_blocks_by_slot.insert(block_slot, block);
-            self.log(&format!(
-                "Produced block {} index {i} in external harness",
-                block_slot,
-            ));
+            self.insert_external_block(block);
             blocks.push((block_slot, block_root));
-        }
-
-        // Re-log to have a nice list of block roots at the end
-        for block in &blocks {
-            self.log(&format!("Build chain {block:?}"));
         }
 
         // Auto-update the clock on the main harness to accept the blocks
@@ -785,11 +1069,147 @@ impl TestRig {
         blocks.last().expect("empty blocks").1
     }
 
+    /// Builds:
+    ///
+    /// ```text
+    /// G (full) -> A (full) -> B (FULL:  bid.parent_block_hash == A.block_hash)
+    ///             A        -> C (EMPTY: bid.parent_block_hash == G.block_hash)
+    /// ```
+    pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
+        // Initialise a new beacon chain (mirrors `build_chain`).
+        let external_harness = self.get_external_harness_with_genesis();
+
+        // G: full canonical block on genesis.
+        external_harness.advance_slot();
+        let g_root = external_harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        let g_block_hash = external_harness
+            .get_full_block(&g_root)
+            .as_block()
+            .payload_bid_block_hash()
+            .unwrap();
+
+        // A: full block on G, imported with its envelope so the FULL child below sees A as full.
+        external_harness.advance_slot();
+        let a_slot = external_harness.get_current_slot();
+        let (a_contents, a_envelope, a_state) = external_harness
+            .make_block_with_envelope(external_harness.get_current_state(), a_slot)
+            .await;
+        let a_block = a_contents.0.clone();
+        let a_root = a_block.canonical_root();
+        let a_block_hash = a_block.as_block().payload_bid_block_hash().unwrap();
+        external_harness
+            .process_block(a_slot, a_root, a_contents)
+            .await
+            .unwrap();
+
+        external_harness.advance_slot();
+        let child_slot = external_harness.get_current_slot();
+
+        // C: EMPTY child of A. Built before A's envelope is imported, so its bid points at G.
+        let (c_contents, c_envelope, c_state) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
+            .await;
+        let c_block = c_contents.0.clone();
+        let c_root = c_block.canonical_root();
+
+        // Import A's envelope so the next child sees A as full.
+        let a_envelope = a_envelope.expect("A should have envelope");
+        external_harness
+            .process_envelope(a_root, a_envelope, &a_state, a_block.state_root())
+            .await;
+
+        // B: FULL child of A. Built after A's envelope is imported, so its bid points at A.
+        let (b_contents, b_envelope, b_state) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
+            .await;
+        let b_block = b_contents.0.clone();
+        let b_root = b_block.canonical_root();
+
+        assert_eq!(
+            (
+                b_block.parent_root(),
+                c_block.parent_root(),
+                b_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(g_block_hash),
+            ),
+            (a_root, a_root, true, false, true)
+        );
+
+        // Import both children (and their envelopes) so every block is served through the same
+        // `get_full_block` path as the rest of the chain.
+        external_harness
+            .process_block(child_slot, c_root, c_contents)
+            .await
+            .unwrap();
+        if let Some(c_envelope) = c_envelope {
+            external_harness
+                .process_envelope(c_root, c_envelope, &c_state, c_block.state_root())
+                .await;
+        }
+        external_harness
+            .process_block(child_slot, b_root, b_contents)
+            .await
+            .unwrap();
+        if let Some(b_envelope) = b_envelope {
+            external_harness
+                .process_envelope(b_root, b_envelope, &b_state, b_block.state_root())
+                .await;
+        }
+
+        // Cache every block through the single `get_full_block` + `insert_external_block2` path.
+        for root in [g_root, a_root, c_root, b_root] {
+            let block = external_harness.get_full_block(&root);
+            self.insert_external_block(block);
+        }
+
+        self.harness.set_current_slot(child_slot);
+
+        (a_root, b_root, c_root)
+    }
+
+    async fn new_gloas_full_empty_fork() -> Option<(Self, FullEmptyFork)> {
+        let Some(mut r) = Self::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+            return None;
+        };
+        if !r.is_after_gloas() {
+            return None;
+        }
+
+        let (a, b, c) = r.build_full_empty_fork().await;
+        let fork = FullEmptyFork {
+            a,
+            b,
+            c,
+            b_block: r.network_blocks_by_root.get(&b).unwrap().block_cloned(),
+            c_block: r.network_blocks_by_root.get(&c).unwrap().block_cloned(),
+        };
+
+        Some((r, fork))
+    }
+
+    fn insert_external_block(&mut self, block: RangeSyncBlock<E>) {
+        let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        self.network_blocks_by_root
+            .insert(block_root, block.clone());
+        self.network_blocks_by_slot.insert(block_slot, block);
+        self.log(&format!(
+            "Produced block {block_root:?} slot {block_slot} in external harness",
+        ));
+    }
+
     fn corrupt_last_block_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let mut block = (*rpc_block.block_cloned()).clone();
-        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
-        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
+        let range_sync_block = self.get_last_block().clone();
+        let mut block = (*range_sync_block.block_cloned()).clone();
+        let blobs = range_sync_block.block_data().blobs();
+        let columns = range_sync_block.data_columns();
         *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
@@ -800,56 +1220,11 @@ impl TestRig {
         keypair.sk.sign(msg)
     }
 
-    fn corrupt_last_blob_proposer_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let mut blobs = rpc_block
-            .block_data()
-            .and_then(|d| d.blobs())
-            .expect("no blobs")
-            .into_iter()
-            .collect::<Vec<_>>();
-        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
-        let first = blobs.first_mut().expect("empty blobs");
-        Arc::make_mut(first).signed_block_header.signature = self.valid_signature();
-        let max_blobs =
-            self.harness
-                .spec
-                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
-        let blobs =
-            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
-        self.re_insert_block(block, Some(blobs), columns);
-    }
-
-    fn corrupt_last_blob_kzg_proof(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let mut blobs = rpc_block
-            .block_data()
-            .and_then(|d| d.blobs())
-            .expect("no blobs")
-            .into_iter()
-            .collect::<Vec<_>>();
-        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
-        let first = blobs.first_mut().expect("empty blobs");
-        Arc::make_mut(first).kzg_proof = kzg::KzgProof::empty();
-        let max_blobs =
-            self.harness
-                .spec
-                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
-        let blobs =
-            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
-        self.re_insert_block(block, Some(blobs), columns);
-    }
-
     fn corrupt_last_column_proposer_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
-        let mut columns = rpc_block
-            .block_data()
-            .and_then(|d| d.data_columns())
-            .expect("no columns");
+        let range_sync_block = self.get_last_block().clone();
+        let block = range_sync_block.block_cloned();
+        let blobs = range_sync_block.block_data().blobs();
+        let mut columns = range_sync_block.data_columns().expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         Arc::make_mut(first)
             .signed_block_header_mut()
@@ -859,21 +1234,34 @@ impl TestRig {
     }
 
     fn corrupt_last_column_kzg_proof(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
-        let mut columns = rpc_block
-            .block_data()
-            .and_then(|d| d.data_columns())
-            .expect("no columns");
-        let first = columns.first_mut().expect("empty columns");
-        let column = Arc::make_mut(first);
-        let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
-        *proof = kzg::KzgProof::empty();
-        self.re_insert_block(block, blobs, Some(columns));
+        let block_root = self.get_last_block().canonical_root();
+        self.corrupt_column_kzg_proof(block_root);
     }
 
-    fn get_last_block(&self) -> &RpcBlock<E> {
+    fn corrupt_column_kzg_proof(&mut self, block_root: Hash256) {
+        let range_sync_block = self
+            .network_blocks_by_root
+            .get(&block_root)
+            .unwrap_or_else(|| panic!("No block for root {block_root}"))
+            .clone();
+        let block = range_sync_block.block_cloned();
+        let blobs = range_sync_block.block_data().blobs();
+        let mut columns = range_sync_block.data_columns().expect("no columns");
+        let first = columns.first_mut().expect("empty columns");
+        let column = Arc::make_mut(first);
+        match column {
+            DataColumnSidecar::Fulu(sidecar) => {
+                let proof = sidecar.kzg_proofs.first_mut().expect("no kzg proofs");
+                *proof = kzg::KzgProof::empty();
+            }
+            DataColumnSidecar::Gloas(sidecar) => {
+                *sidecar.kzg_proofs.get_mut(0).expect("no kzg proofs") = kzg::KzgProof::empty();
+            }
+        }
+        self.upsert_block(block, blobs, Some(columns));
+    }
+
+    fn get_last_block(&self) -> &RangeSyncBlock<E> {
         let (_, last_block) = self
             .network_blocks_by_root
             .iter()
@@ -890,25 +1278,49 @@ impl TestRig {
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
+        self.upsert_block(block, blobs, columns);
+    }
+
+    fn upsert_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<types::BlobSidecarList<E>>,
+        columns: Option<types::DataColumnSidecarList<E>>,
+    ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let block_data = if let Some(columns) = columns {
-            Some(AvailableBlockData::new_with_data_columns(columns))
-        } else if let Some(blobs) = blobs {
-            Some(AvailableBlockData::new_with_blobs(blobs))
-        } else {
-            Some(AvailableBlockData::NoData)
-        };
-        let rpc_block = RpcBlock::new(
-            block,
-            block_data,
-            &self.harness.chain.data_availability_checker,
-            self.harness.chain.spec.clone(),
-        )
-        .unwrap();
+        let range_sync_block =
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+                // Gloas carries data columns in the payload envelope, not in `block_data`.
+                let envelope = self
+                    .network_blocks_by_root
+                    .get(&block_root)
+                    .and_then(envelope_of)
+                    .map(|envelope| {
+                        AvailableEnvelope::new(
+                            envelope,
+                            columns.unwrap_or_default(),
+                            bid,
+                            &self.harness.chain.custody_context,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
+                RangeSyncBlock::new_gloas(block, envelope).unwrap()
+            } else {
+                let block_data = if let Some(columns) = columns {
+                    AvailableBlockData::new_with_data_columns(columns)
+                } else if let Some(blobs) = blobs {
+                    AvailableBlockData::new_with_blobs(blobs)
+                } else {
+                    AvailableBlockData::NoData
+                };
+                RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
+            };
         self.network_blocks_by_slot
-            .insert(block_slot, rpc_block.clone());
-        self.network_blocks_by_root.insert(block_root, rpc_block);
+            .insert(block_slot, range_sync_block.clone());
+        self.network_blocks_by_root
+            .insert(block_root, range_sync_block);
     }
 
     /// Trigger a lookup with the last created block
@@ -945,9 +1357,47 @@ impl TestRig {
         self.trigger_with_last_block();
     }
 
+    /// Import blocks for slots 1..=up_to_slot into the local chain (advance local head)
+    pub(super) async fn import_blocks_up_to_slot(&mut self, up_to_slot: u64) {
+        for slot in 1..=up_to_slot {
+            let rpc_block = self
+                .network_blocks_by_slot
+                .get(&Slot::new(slot))
+                .unwrap_or_else(|| panic!("No block at slot {slot}"))
+                .clone();
+            let block_root = rpc_block.canonical_root();
+            let block_state_root = rpc_block.as_block().state_root();
+            let envelope = envelope_of(&rpc_block);
+            self.harness
+                .chain
+                .process_block(
+                    block_root,
+                    rpc_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Gossip,
+                    || Ok(()),
+                )
+                .await
+                .unwrap();
+            // Gloas: import the payload envelope so the block counts as full for its children.
+            if let Some(envelope) = envelope {
+                let state = self
+                    .harness
+                    .chain
+                    .get_state(&block_state_root, Some(Slot::new(slot)), false)
+                    .expect("should load state")
+                    .expect("state should exist");
+                self.harness
+                    .process_envelope(block_root, (*envelope).clone(), &state, block_state_root)
+                    .await;
+            }
+        }
+        self.harness.chain.recompute_head_at_current_slot().await;
+    }
+
     /// Import a block directly into the chain without going through lookup sync
     async fn import_block_by_root(&mut self, block_root: Hash256) {
-        let rpc_block = self
+        let range_sync_block = self
             .network_blocks_by_root
             .get(&block_root)
             .unwrap_or_else(|| panic!("No block for root {block_root}"))
@@ -957,9 +1407,9 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                rpc_block,
+                range_sync_block,
                 NotifyExecutionLayer::Yes,
-                BlockImportSource::Gossip,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await
@@ -974,47 +1424,48 @@ impl TestRig {
         self.trigger_unknown_parent_block(peer_id, last_block);
     }
 
-    fn trigger_with_last_unknown_blob_parent(&mut self) {
-        let peer_id = self.new_connected_supernode_peer();
-        let blobs = self
-            .get_last_block()
-            .block_data()
-            .and_then(|d| d.blobs())
-            .expect("no blobs");
-        let blob = blobs.first().expect("empty blobs");
-        self.trigger_unknown_parent_blob(peer_id, blob.clone());
-    }
-
     fn trigger_with_last_unknown_data_column_parent(&mut self) {
         let peer_id = self.new_connected_supernode_peer();
         let columns = self
             .get_last_block()
-            .block_data()
-            .and_then(|d| d.data_columns())
+            .data_columns()
             .expect("No data columns");
         let column = columns.first().expect("empty columns");
-        self.trigger_unknown_parent_column(peer_id, column.clone());
+        self.trigger_unknown_parent_data_column(peer_id, column.clone());
     }
 
     // Post-test assertions
 
-    fn head_slot(&self) -> Slot {
+    pub(super) fn head_slot(&self) -> Slot {
         self.harness.chain.head().head_slot()
     }
 
-    fn assert_head_slot(&self, slot: u64) {
+    pub(super) fn head_root(&self) -> Hash256 {
+        self.harness.chain.head().head_block_root()
+    }
+
+    pub(super) fn assert_head_slot(&self, slot: u64) {
         assert_eq!(self.head_slot(), Slot::new(slot), "Unexpected head slot");
     }
 
-    fn max_known_slot(&self) -> Slot {
+    pub(super) fn max_known_slot(&self) -> Slot {
         self.network_blocks_by_slot
             .keys()
             .max()
             .copied()
-            .expect("no blocks")
+            .unwrap_or_default()
     }
 
-    fn assert_penalties(&self, expected_penalties: &[&'static str]) {
+    pub(super) fn finalized_epoch(&self) -> types::Epoch {
+        self.harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+    }
+
+    pub(super) fn assert_penalties(&self, expected_penalties: &[&'static str]) {
         let penalties = self
             .penalties
             .iter()
@@ -1032,7 +1483,7 @@ impl TestRig {
         }
     }
 
-    fn assert_penalties_of_type(&self, expected_penalty: &'static str) {
+    pub(super) fn assert_penalties_of_type(&self, expected_penalty: &'static str) {
         if self.penalties.is_empty() {
             panic!("No penalties but expected some of type {expected_penalty}");
         }
@@ -1049,10 +1500,21 @@ impl TestRig {
         }
     }
 
-    fn assert_no_penalties(&mut self) {
+    pub(super) fn assert_no_penalties(&mut self) {
         if !self.penalties.is_empty() {
             panic!("Some downscore events: {:?}", self.penalties);
         }
+    }
+
+    fn assert_no_block_requests(&self) {
+        assert_eq!(
+            self.requests
+                .iter()
+                .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
+                .collect::<Vec<_>>(),
+            Vec::<&(RequestType<E>, AppRequestId)>::new(),
+            "There should be no block requests"
+        );
     }
     fn assert_failed_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
@@ -1093,14 +1555,8 @@ impl TestRig {
         self.assert_empty_network();
     }
 
-    fn assert_pending_lookup_sync(&self) {
-        assert!(self.created_lookups() > 0, "no created lookups");
-        assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
-        assert_eq!(self.completed_lookups(), 0, "some completed lookups");
-    }
-
     /// Assert there is at least one range sync chain created and that all sync chains completed
-    fn assert_successful_range_sync(&self) {
+    pub(super) fn assert_successful_range_sync(&self) {
         assert!(
             self.range_sync_chains_added() > 0,
             "No created range sync chains"
@@ -1177,24 +1633,18 @@ impl TestRig {
     fn custody_columns(&self) -> &[ColumnIndex] {
         self.harness
             .chain
-            .data_availability_checker
-            .custody_context()
-            .custody_columns_for_epoch(None, &self.harness.spec)
+            .custody_context
+            .custody_columns_for_epoch(None)
     }
 
     // Test setup
 
-    fn new_after_deneb() -> Option<Self> {
-        genesis_fork().deneb_enabled().then(Self::default)
+    fn new_after_fulu() -> Option<Self> {
+        genesis_fork().fulu_enabled().then(Self::default)
     }
 
-    fn new_after_deneb_before_fulu() -> Option<Self> {
-        let fork = genesis_fork();
-        if fork.deneb_enabled() && !fork.fulu_enabled() {
-            Some(Self::default())
-        } else {
-            None
-        }
+    fn new_after_gloas() -> Option<Self> {
+        genesis_fork().gloas_enabled().then(Self::default)
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
@@ -1210,12 +1660,42 @@ impl TestRig {
         info!(msg, "TEST_RIG");
     }
 
-    pub fn is_after_deneb(&self) -> bool {
-        self.fork_name.deneb_enabled()
-    }
-
     pub fn is_after_fulu(&self) -> bool {
         self.fork_name.fulu_enabled()
+    }
+
+    fn trigger_unknown_parent_blocks_from_all_peers(
+        &mut self,
+        blocks: &[Arc<SignedBeaconBlock<E>>],
+    ) {
+        for peer in self.new_connected_peers_for_peerdas() {
+            for block in blocks {
+                self.trigger_unknown_parent_block(peer, block.clone());
+            }
+        }
+    }
+
+    fn trigger_full_empty_fork(&mut self, fork: &FullEmptyFork) {
+        self.trigger_unknown_parent_blocks_from_all_peers(&[
+            fork.b_block.clone(),
+            fork.c_block.clone(),
+        ]);
+    }
+
+    async fn trigger_custody_lookup_from_all_peers(&mut self) -> Option<Hash256> {
+        if self.is_after_gloas() {
+            self.build_chain(2).await;
+            let child = self.get_last_block().block_cloned();
+            let parent_root = child.parent_root();
+            self.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+            Some(parent_root)
+        } else {
+            let block_root = self.build_chain(1).await;
+            for peer in self.new_connected_peers_for_peerdas() {
+                self.trigger_unknown_block_from_attestation(block_root, peer);
+            }
+            None
+        }
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -1223,16 +1703,23 @@ impl TestRig {
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
     }
 
-    fn trigger_unknown_parent_blob(&mut self, peer_id: PeerId, blob: Arc<BlobSidecar<E>>) {
-        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
-    }
-
-    fn trigger_unknown_parent_column(
+    fn trigger_unknown_parent_data_column(
         &mut self,
         peer_id: PeerId,
-        column: Arc<DataColumnSidecar<E>>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, column));
+        let DataColumnSidecar::Fulu(col) = data_column.as_ref() else {
+            self.log(&format!(
+                "trigger_unknown_parent_data_column noop for Gloas peer {peer_id:?}"
+            ));
+            return;
+        };
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
+            peer_id,
+            block_root: col.block_root(),
+            parent_root: col.block_parent_root(),
+            slot: col.slot(),
+        });
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
@@ -1250,8 +1737,7 @@ impl TestRig {
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
-        let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, &mut self.unstructured).unwrap()
     }
 
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
@@ -1264,6 +1750,13 @@ impl TestRig {
 
     fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.block_lookups().active_single_lookups()
+    }
+
+    fn active_lookup_roots(&self) -> Vec<Hash256> {
+        self.active_single_lookups()
+            .iter()
+            .map(|l| l.block_root)
+            .collect()
     }
 
     fn active_single_lookups_count(&self) -> usize {
@@ -1311,7 +1804,7 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(false, &self.harness.spec, key);
 
         // Assumes custody subnet count == column count
         let custody_subnets = self
@@ -1342,11 +1835,36 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(true, &self.harness.spec, key);
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
         peer_id
+    }
+
+    /// Add a connected supernode peer, but without setting the peers' custody subnet.
+    /// This is to simulate the real behaviour where metadata is only received some time after
+    ///  a connection is established.
+    pub fn new_connected_supernode_peer_no_metadata_custody_subnet(&mut self) -> PeerId {
+        let key = self.determinstic_key();
+        self.network_globals
+            .peers
+            .write()
+            .__add_connected_peer(true, key, &self.harness.spec)
+    }
+
+    /// Update the peer's custody subnet in PeerDB and send a `UpdatedPeerCgc` message to sync.
+    pub fn send_peer_cgc_update_to_sync(
+        &mut self,
+        peer_id: &PeerId,
+        subnets: HashSet<DataColumnSubnetId>,
+    ) {
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(peer_id, subnets)
+            .unwrap();
+        self.send_sync_message(SyncMessage::UpdatedPeerCgc(*peer_id))
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
@@ -1423,6 +1941,7 @@ impl TestRig {
         }
     }
 
+    #[allow(dead_code)]
     pub fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
@@ -1475,15 +1994,14 @@ impl TestRig {
     ) -> AvailabilityProcessingStatus {
         // Simulate importing block from another source. Don't use GossipVerified as it checks with
         // the clock, which does not match the timestamp in the payload.
-        let block_root = block.canonical_root();
-        let rpc_block = RpcBlock::BlockOnly { block_root, block };
+        let lookup_block = LookupBlock::new(block);
         self.harness
             .chain
             .process_block(
-                block_root,
-                rpc_block,
+                lookup_block.block_root(),
+                lookup_block,
                 NotifyExecutionLayer::Yes,
-                BlockImportSource::Gossip,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -1495,84 +2013,13 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(_) => {
+            AvailabilityProcessingStatus::Imported(..) => {
                 panic!("block removed from da_checker, available")
             }
             AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
         }
-    }
-
-    fn insert_blob_to_da_checker(&mut self, blob: Arc<BlobSidecar<E>>) {
-        match self
-            .harness
-            .chain
-            .data_availability_checker
-            .put_kzg_verified_blobs(
-                blob.block_root(),
-                std::iter::once(
-                    KzgVerifiedBlob::new(blob, &self.harness.chain.kzg, Duration::new(0, 0))
-                        .expect("Invalid blob"),
-                ),
-            )
-            .unwrap()
-        {
-            Availability::Available(_) => panic!("blob removed from da_checker, available"),
-            Availability::MissingComponents(block_root) => {
-                self.log(&format!("inserted blob to da_checker {block_root:?}"))
-            }
-        };
-    }
-
-    fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.log(&format!(
-            "Inserting block to availability_cache as pre_execution_block {:?}",
-            block.canonical_root()
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
-            .unwrap();
-    }
-
-    fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
-        self.log(&format!(
-            "Marking block {block_root:?} in da_checker as execution error"
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .remove_block_on_execution_error(&block_root);
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
-    }
-
-    async fn simulate_block_gossip_processing_becomes_valid(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) {
-        let block_root = block.canonical_root();
-
-        match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(block_root) => {
-                self.log(&format!(
-                    "insert block to da_checker and it imported {block_root:?}"
-                ));
-            }
-            AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                panic!("block not imported after adding to da_checker");
-            }
-        }
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
     }
 
     fn requests_count(&self) -> HashMap<&'static str, usize> {
@@ -1587,16 +2034,17 @@ impl TestRig {
 }
 
 #[test]
-fn stable_rng() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
+fn stable_arbitrary() {
+    let mut u = types::test_utils::test_unstructured();
+    let (block, _) =
+        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut u).unwrap();
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
-            &hex::decode("adfd2e9e7a7976e8ccaed6eaf0257ed36a5b476732fee63ff44966602fd099ec")
+            &hex::decode("7348573d99ca404b502e2be790593203a1d899f9cf04f42ec9c5b4975803e3c5")
                 .unwrap()
         ),
-        "rng produces a consistent value"
+        "arbitrary produces a consistent value"
     );
 }
 
@@ -1690,48 +2138,45 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
     r.simulate(SimulateConfig::happy_path()).await;
-    // All lookups should NOT complete on this test, however note the following for the tip lookup,
-    // it's the lookup for the tip block which has 0 peers and a block cached:
+    // Note the following for the tip lookup, it's the lookup for the tip block which has 0 peers
+    // and a block cached:
     // - before deneb the block is cached, so it's sent for processing, and success
-    // - before fulu the block is cached, but we can't fetch blobs so it's stuck
+    // - deneb/electra the block is cached, so it's sent for processing, and success
     // - after fulu the block is cached, we start a custody request and since we use the global pool
     //   of peers we DO have 1 connected synced supernode peer, which gives us the columns and the
     //   lookup succeeds
-    if r.is_after_deneb() && !r.is_after_fulu() {
-        r.assert_successful_lookup_sync_parent_trigger()
-    } else {
-        r.assert_successful_lookup_sync();
-    }
+    r.assert_successful_lookup_sync();
 }
 
-/// Assert that sync completes from a GossipUnknownParentBlob / UnknownDataColumnParent
+/// Assert that sync completes from an UnknownDataColumnParent
 async fn happy_path_unknown_data_parent(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    r.build_chain(depth).await;
-    if r.is_after_fulu() {
-        r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
+    // Fulu-only: the `UnknownDataColumnParent` trigger doesn't exist post-Gloas (columns ride in
+    // the payload envelope, not as standalone data columns).
+    if r.is_after_gloas() {
+        return;
     }
+    r.build_chain(depth).await;
+    r.trigger_with_last_unknown_data_column_parent();
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync_parent_trigger();
 }
 
 /// Assert that multiple trigger types don't create extra lookups
 async fn happy_path_multiple_triggers(depth: usize) {
-    let mut r = TestRig::default();
+    let Some(mut r) = TestRig::new_after_fulu() else {
+        return;
+    };
     // + 1, because the unknown parent trigger needs two new blocks
     r.build_chain(depth + 1).await;
     r.trigger_with_last_block();
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    if r.is_after_fulu() {
+    if !r.is_after_gloas() {
         r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
     }
     r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
@@ -1755,31 +2200,37 @@ async fn bad_peer_empty_block_response(depth: usize) {
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with no blobs / columns, we downscore, and retry the same lookup
+/// Assert that if peer responds with no columns, we downscore, and retry the same lookup.
 async fn bad_peer_empty_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_no_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !r.is_after_gloas() {
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with not enough blobs / columns, we downscore, and retry the same
-/// lookup
+/// Assert that if peer responds with not enough columns, we downscore, and retry the same
+/// lookup.
 async fn bad_peer_too_few_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_too_few_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !r.is_after_gloas() {
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1796,16 +2247,21 @@ async fn bad_peer_wrong_block_response(depth: usize) {
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with bad blobs / columns, we downscore, and retry the same lookup
+/// Assert that if peer responds with bad columns, we downscore, and retry the same lookup.
 async fn bad_peer_wrong_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_wrong_sidecar_for_block_once())
         .await;
-    // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["UnrequestedBlockRoot"]);
+    // We register a penalty, retry and complete sync successfully. Under Gloas the tip block
+    // (depth 1) has no attributable FULL-child peer so no custody request is made and no penalty
+    // is possible; at depth >= 2 the parent's columns are served by the tip (its FULL child), so
+    // the wrong-sidecar penalty is attributable.
+    if !r.is_after_gloas() || depth >= 2 {
+        r.assert_penalties(&["UnrequestedBlockRoot"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1847,8 +2303,14 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        SimulateConfig::new()
-            .with_process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: Some((
+                PeerAction::MidToleranceError,
+                WhichPeerToPenalize::BlockPeer,
+                "lookup_block_processing_failure",
+            )),
+            reason: "lookup_block_processing_failure".to_string(),
+        }),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
@@ -1866,21 +2328,23 @@ async fn too_many_processing_failures(depth: usize) {
 #[tokio::test]
 /// Assert that multiple trigger types don't create extra lookups
 async fn unknown_parent_does_not_add_peers_to_itself() {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     // 2, because the unknown parent trigger needs two new blocks
     r.build_chain(2).await;
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    if r.is_after_fulu() {
+    // No data-column parent trigger post-Gloas.
+    let parent_lookup_peers = if r.is_after_gloas() {
+        2
+    } else {
         r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
-    }
+        3
+    };
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_peers_at_lookup_of_slot(2, 0);
-    r.assert_peers_at_lookup_of_slot(1, 3);
+    r.assert_peers_at_lookup_of_slot(1, parent_lookup_peers);
     assert_eq!(r.created_lookups(), 2, "Don't create extra lookups");
     // All lookups should NOT complete on this test, however note the following for the tip lookup,
     // it's the lookup for the tip block which has 0 peers and a block cached:
@@ -1896,15 +2360,21 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns Ignored, the lookup is dropped
+/// Assert that a non-attributable processing error (e.g. processor overloaded) is retried up to
+/// `SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS`, no peer is penalized, and the lookup is then dropped.
 async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
-    // Send an Ignored response, the request should be dropped
-    r.simulate(SimulateConfig::new().with_process_result(|| BlockProcessingResult::Ignored))
-        .await;
+    r.simulate(
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: None,
+            reason: "processor_overloaded".to_string(),
+        }),
+    )
+    .await;
     // The block was not actually imported
     r.assert_head_slot(0);
+    r.assert_no_penalties();
     assert_eq!(r.created_lookups(), 1, "no created lookups");
     assert_eq!(r.dropped_lookups(), 1, "no dropped lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
@@ -1916,9 +2386,10 @@ async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
-    r.simulate(SimulateConfig::new().with_process_result(|| {
-        BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
-    }))
+    r.simulate(
+        SimulateConfig::new()
+            .with_process_result(|| BlockProcessingResult::Imported(true, "duplicate")),
+    )
     .await;
     // The block was not actually imported
     r.assert_head_slot(0);
@@ -1944,6 +2415,21 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
     assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
     r.assert_empty_network();
     r.assert_single_lookups_count(1);
+}
+
+#[tokio::test]
+/// A lookup that loses its only peer while still waiting to download the block must not report
+/// itself as awaiting an event, else `drop_lookups_without_peers` skips it and it gets stuck.
+/// Regression for the "Notify the devs a sync lookup is stuck" report.
+async fn peerless_lookup_awaiting_download_is_not_awaiting_event() {
+    let mut r = TestRig::default();
+    r.build_chain_and_trigger_last_block(1).await;
+    r.disconnect_all_peers();
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::Disconnected))
+        .await;
+    let lookup = &r.active_single_lookups()[0];
+    assert_eq!(lookup.peers.len(), 0);
+    assert!(!lookup.is_awaiting_event);
 }
 
 #[tokio::test]
@@ -2121,12 +2607,16 @@ async fn test_same_chain_race_condition() {
 }
 
 #[tokio::test]
-/// Assert that if the lookup's block is in the da_checker we don't download it again
-async fn block_in_da_checker_skips_download() {
-    // Only in Deneb, as the block needs blobs to remain in the da_checker
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
+/// Assert that if the lookup's block is in the da_checker we don't download it again (pre-Gloas).
+async fn block_in_da_checker_skips_download_fulu() {
+    // Only post-Fulu, as the block needs custody columns to remain in the da_checker.
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
+    // Pre-Gloas only; the Gloas equivalent is `block_in_da_checker_skips_download_gloas`.
+    if r.is_after_gloas() {
+        return;
+    }
     // Add block to da_checker
     // Complete test with happy path
     // Assert that there were no requests for blocks
@@ -2136,85 +2626,28 @@ async fn block_in_da_checker_skips_download() {
     r.trigger_with_block_at_slot(1);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no block requests"
-    );
+    r.assert_no_block_requests();
 }
 
 #[tokio::test]
-async fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
+/// Assert that if the lookup's block is in the da_checker we don't download it again (Gloas).
+async fn block_in_da_checker_skips_download_gloas() {
+    let Some(mut r) = TestRig::new_after_gloas() else {
         return;
     };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Simulate invalid block, removing it from processing cache
-    r.simulate_block_gossip_processing_becomes_invalid(block.canonical_root());
-    // Should download block, then issue blobs request
+    // A Gloas block carries no inline DA, so a lone block never sits in the da_checker awaiting
+    // components: only a FULL *child* proves the block published a payload and supplies the peers
+    // that serve its columns/envelope. Build a parent + FULL child, insert the PARENT into the
+    // da_checker, then trigger via the child (which is provided by the trigger, not downloaded).
+    // The parent lookup must then skip the parent's block download.
+    r.build_chain(2).await;
+    let parent = r.block_at_slot(1);
+    let child = r.block_at_slot(2);
+    r.import_block_to_da_checker(parent).await;
+    r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
-}
-
-#[tokio::test]
-async fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Resolve the block from processing step
-    r.simulate_block_gossip_processing_becomes_valid(block)
-        .await;
-    // Should not trigger block or blob request
-    r.assert_empty_network();
-    // Resolve blob and expect lookup completed
-    r.assert_no_active_lookups();
-}
-
-// IGNORE: wait for change that delays blob fetching to knowing the block
-#[tokio::test]
-async fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.get_last_block().clone();
-    let blobs = block
-        .block_data()
-        .and_then(|d| d.blobs())
-        .expect("block with no blobs");
-    for blob in &blobs {
-        r.insert_blob_to_da_checker(blob.clone());
-    }
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-
-    r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlobsByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no blob requests"
-    );
+    r.assert_no_block_requests();
 }
 
 macro_rules! fulu_peer_matrix_tests {
@@ -2267,14 +2700,13 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
     let custody_columns = r.custody_columns();
-    r.simulate(SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3))
-        .await;
+    let mut config = SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_successful_lookup_sync();
 }
@@ -2283,20 +2715,15 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
-
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
 
     let custody_columns = r.custody_columns();
-    r.simulate(
-        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
-    )
-    .await;
-    // Every peer that does not return a column is part of the lookup because it claimed to have
-    // imported the lookup, so we will penalize.
+    let mut config =
+        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 }
@@ -2325,43 +2752,7 @@ async fn crypto_on_fail_with_invalid_block_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_block_processing_failure");
-    }
-}
-
-#[tokio::test]
-async fn crypto_on_fail_with_bad_blob_proposer_signature() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    r.corrupt_last_blob_proposer_signature();
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    if cfg!(feature = "fake_crypto") {
-        r.assert_successful_lookup_sync();
-        r.assert_no_penalties();
-    } else {
-        r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
-    }
-}
-
-#[tokio::test]
-async fn crypto_on_fail_with_bad_blob_kzg_proof() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    r.corrupt_last_blob_kzg_proof();
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    if cfg!(feature = "fake_crypto") {
-        r.assert_successful_lookup_sync();
-        r.assert_no_penalties();
-    } else {
-        r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2370,6 +2761,10 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
+    // Gloas columns have no per-column proposer signature.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain(1).await;
     r.corrupt_last_column_proposer_signature();
     r.trigger_with_last_block();
@@ -2379,7 +2774,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2388,15 +2783,55 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
-    r.build_chain(1).await;
-    r.corrupt_last_column_kzg_proof();
-    r.trigger_with_last_block();
+    if r.is_after_gloas() {
+        r.build_chain(2).await;
+        let child = r.get_last_block().block_cloned();
+        r.corrupt_column_kzg_proof(child.parent_root());
+        r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+    } else {
+        r.build_chain(1).await;
+        r.corrupt_last_column_kzg_proof();
+        r.trigger_with_last_block();
+    }
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("AvailabilityCheck");
     }
+}
+
+#[tokio::test]
+async fn gloas_full_empty_children_retain_parent_for_payload() {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
+        return;
+    };
+
+    r.trigger_full_empty_fork(&fork);
+
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+}
+
+#[tokio::test]
+async fn gloas_empty_child_continues_while_parent_payload_withheld() {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
+        return;
+    };
+
+    r.trigger_full_empty_fork(&fork);
+
+    r.simulate(SimulateConfig::happy_path().hold_envelope_for_block(fork.a))
+        .await;
+
+    assert_eq!(r.head_root(), fork.c);
+    assert_eq!(r.created_lookups(), 4);
+    assert_eq!(r.completed_lookups(), 2);
+    assert_eq!(r.dropped_lookups(), 0);
+    assert_eq!(r.active_lookup_roots(), vec![fork.a, fork.b]);
+    r.assert_no_penalties();
+    r.assert_empty_network();
+    r.assert_empty_processor();
 }

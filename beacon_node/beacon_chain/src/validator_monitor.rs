@@ -20,7 +20,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use store::AbstractExecPayload;
 use tracing::{debug, error, info, warn};
 use types::consts::altair::{
@@ -1893,7 +1893,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 epoch - 2
             };
 
-            for (_, validator) in self.validators.iter() {
+            for validator in self.validators.values() {
                 let id = &validator.id;
                 let summaries = validator.summaries.read();
 
@@ -2083,13 +2083,6 @@ fn register_simulated_attestation(
         head_hit,
         "Simulated attestation evaluated"
     );
-}
-
-/// Returns the duration since the unix epoch.
-pub fn timestamp_now() -> Duration {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
 }
 
 fn u64_to_i64(n: impl Into<u64>) -> i64 {

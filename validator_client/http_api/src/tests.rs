@@ -135,7 +135,9 @@ impl ApiTester {
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit())
+                .await
+                .unwrap();
 
         tokio::spawn(server);
 
@@ -209,7 +211,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = if self.spec.is_gloas_scheduled() {
+        let result = if self.spec.is_heze_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetHeze>()
+                .await
+                .map(|res| ConfigAndPreset::Heze(res.data))
+        } else if self.spec.is_gloas_scheduled() {
             self.client
                 .get_lighthouse_spec::<ConfigAndPresetGloas>()
                 .await

@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
     AttestationData, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
-    BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
-    MainnetEthSpec, SignedBeaconBlockHeader, Slot,
+    AttesterSlashingGloas, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
+    IndexedAttestation, MainnetEthSpec, SignedBeaconBlockHeader, Slot,
     attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
@@ -72,10 +72,17 @@ pub fn att_slashing(
                 attestation_2: att2.clone(),
             })
         }
+        // A slashing involving a gloas attestation type must return a gloas AttesterSlashing type
+        (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.clone().to_gloas(),
+                attestation_2: attestation_2.clone().to_gloas(),
+            })
+        }
         // A slashing involving an electra attestation type must return an electra AttesterSlashing type
         (_, _) => AttesterSlashing::Electra(AttesterSlashingElectra {
-            attestation_1: attestation_1.clone().to_electra(),
-            attestation_2: attestation_2.clone().to_electra(),
+            attestation_1: attestation_1.clone().to_electra().unwrap(),
+            attestation_2: attestation_2.clone().to_electra().unwrap(),
         }),
     }
 }

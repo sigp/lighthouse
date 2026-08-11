@@ -22,6 +22,12 @@ pub enum BlockProcessingError {
         expected: usize,
         found: usize,
     },
+    /// [New in Gloas:EIP7688] An operation list exceeds the spec's runtime limit.
+    OperationListTooLong {
+        kind: &'static str,
+        length: usize,
+        max: usize,
+    },
     HeaderInvalid {
         reason: HeaderInvalid,
     },
@@ -108,6 +114,13 @@ pub enum BlockProcessingError {
     },
     /// Builder payment index out of bounds (Gloas)
     BuilderPaymentIndexOutOfBounds(usize),
+    /// The parent execution requests root doesn't match the committed bid
+    ExecutionRequestsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    /// Parent was not full but non-empty execution requests were provided
+    NonEmptyParentExecutionRequests,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -414,6 +427,8 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 pub enum IndexedAttestationInvalid {
     /// The number of indices is 0.
     IndicesEmpty,
+    /// [New in Gloas:EIP7688] The number of indices exceeds the runtime maximum.
+    IndicesExceedMaxLength { length: usize, max: usize },
     /// The validator indices were not in increasing order.
     ///
     /// The error occurred between the given `index` and `index + 1`
@@ -520,14 +535,16 @@ pub enum ExecutionPayloadBidInvalid {
     BadSignature,
     /// The builder is not active.
     BuilderNotActive(u64),
+    /// The builder's version is not `PAYLOAD_BUILDER_VERSION`.
+    InvalidBuilderVersion { builder_index: u64, version: u8 },
     /// The builder has insufficient balance to cover the bid
     InsufficientBalance {
         builder_index: u64,
         builder_balance: u64,
         bid_value: u64,
     },
-    /// Bid slot doesn't match block slot
-    SlotMismatch { bid_slot: Slot, block_slot: Slot },
+    /// Bid slot doesn't match state slot
+    SlotMismatch { bid_slot: Slot, state_slot: Slot },
     /// The bid's parent block hash doesn't match the state's latest block hash
     ParentBlockHashMismatch {
         state_block_hash: ExecutionBlockHash,

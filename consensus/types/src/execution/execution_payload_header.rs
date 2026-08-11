@@ -6,7 +6,6 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -19,7 +18,6 @@ use crate::{
     fork::ForkName,
     map_execution_payload_ref_into_execution_payload_header,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[superstruct(
@@ -34,7 +32,6 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),
@@ -136,7 +133,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Fulu => ExecutionPayloadHeaderFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas => Err(ssz::DecodeError::BytesInvalid(format!(
+            ForkName::Gloas | ForkName::Heze => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadHeader: {fork_name}",
             ))),
         }
@@ -146,7 +143,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(newfork): Add a new case here if there are new variable fields
         if fork_name.gloas_enabled() {
-            // TODO(EIP7732): check this
+            // TODO(EIP7732) TODO(Heze): check this
             0
         } else if fork_name.bellatrix_enabled() {
             // Max size of variable length `extra_data` field
@@ -533,7 +530,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHead
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
 
-            ForkName::Base | ForkName::Altair | ForkName::Gloas => {
+            ForkName::Base | ForkName::Altair | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
                     context
