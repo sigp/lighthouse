@@ -31,6 +31,8 @@ impl<E: EthSpec> PendingColumn<E> {
         }
     }
 
+    /// `None` means this index holds no cell, or the index is out of range. `Some(false)` means a
+    /// different cell, which cannot also be valid for the same commitment.
     pub fn cell_matches(&self, index: usize, cell: &Cell<E>, proof: &KzgProof) -> Option<bool> {
         self.cells
             .get(index)?

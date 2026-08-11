@@ -172,6 +172,9 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     /// The header will NOT be set.
     ///
     /// Uses the supplied filter to determine which cells to include in the partial sidecar.
+    ///
+    /// The new bitmap keeps one bit per blob index, so each kept cell still maps to its KZG
+    /// commitment by blob index.
     pub fn try_filter_to_partial_view<F, Err>(
         &self,
         filter: F,

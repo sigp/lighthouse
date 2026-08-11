@@ -1070,6 +1070,9 @@ pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
 /// Complete kzg verification for a `VerifiablePartialDataColumn`. Only the cells we are still
 /// missing are verified (others are already cached).
 ///
+/// The returned column holds every cell of the input. The skipped cells match cached cells that
+/// an earlier call verified, so the whole column is verified.
+///
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_partial_data_column<T: BeaconChainTypes>(

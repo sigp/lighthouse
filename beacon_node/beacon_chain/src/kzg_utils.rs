@@ -166,6 +166,9 @@ pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
 /// Validate a batch of partial `VerifiablePartialDataColumn`s.
 ///
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
+///
+/// Bit `n` of the bitmap pairs with commitment `n`. The caller must check that the bitmap length
+/// equals `kzg_commitments.len()`. A longer bitmap leaves the extra cells unverified, with no error.
 pub fn validate_partial_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
     data_column_iter: impl Iterator<Item = (ColumnIndex, PartialDataColumnView<'a, E>)>,
