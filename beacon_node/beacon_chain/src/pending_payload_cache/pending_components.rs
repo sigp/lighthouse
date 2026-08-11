@@ -116,9 +116,6 @@ impl<E: EthSpec> PendingComponents<E> {
         for partial in kzg_verified_partial_data_columns {
             let col_index = partial.index();
             let sidecar = partial.sidecar();
-            let bitmap = sidecar.cells_present_bitmap();
-            let column = sidecar.column();
-            let proofs = sidecar.kzg_proofs();
 
             let col = self
                 .verified_data_columns
@@ -130,20 +127,20 @@ impl<E: EthSpec> PendingComponents<E> {
                 continue;
             }
 
-            let mut storage_idx = 0;
+            // Cells are stored densely, so the nth set bit owns the nth cell. `zip` stops at the
+            // shorter side, which gossip validation has already made equal in length.
+            let present_indices = sidecar
+                .cells_present_bitmap()
+                .iter()
+                .enumerate()
+                .filter_map(|(blob_idx, present)| present.then_some(blob_idx));
+            let cells = sidecar.column().iter().zip(sidecar.kzg_proofs().iter());
+
             let mut inserted_cells = 0;
-            for (blob_idx, present) in bitmap.iter().enumerate() {
-                if !present {
-                    continue;
-                }
-                let (Some(cell), Some(proof)) = (column.get(storage_idx), proofs.get(storage_idx))
-                else {
-                    break;
-                };
+            for (blob_idx, (cell, proof)) in present_indices.zip(cells) {
                 if col.insert(blob_idx, cell, proof) {
                     inserted_cells += 1;
                 }
-                storage_idx += 1;
             }
 
             if inserted_cells > 0 {
