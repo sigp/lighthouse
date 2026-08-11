@@ -880,7 +880,7 @@ mod inclusion_list_signature_tests {
         let message = InclusionList::<E> {
             slot: state.slot(),
             validator_index: validator_index as u64,
-            inclusion_list_committee_root: Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             transactions: Default::default(),
         };
         let epoch = message.slot.epoch(E::slots_per_epoch());
@@ -916,7 +916,7 @@ mod inclusion_list_signature_tests {
         let message = InclusionList::<E> {
             slot: state.slot(),
             validator_index: claimed_index as u64,
-            inclusion_list_committee_root: Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             transactions: Default::default(),
         };
         let epoch = message.slot.epoch(E::slots_per_epoch());
