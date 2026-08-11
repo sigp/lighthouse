@@ -254,15 +254,20 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     };
 
     // Gossip-verify the envelope before publishing.
-    let gossip_verified = chain
-        .verify_envelope_for_gossip(Arc::new(envelope))
-        .await
-        .map_err(|e| {
+    let gossip_verified = match chain.verify_envelope_for_gossip(Arc::new(envelope)).await {
+        Ok(gossip_verified) => gossip_verified,
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {
+            // An envelope was already gossip verified for the associated block and builder
+            debug!(%slot, ?beacon_block_root, "Ignoring already seen execution payload envelope");
+            return Ok(warp::reply().into_response());
+        }
+        Err(e) => {
             warn!(%slot, error = ?e, "Execution payload envelope failed gossip verification");
-            warp_utils::reject::custom_bad_request(format!(
+            return Err(warp_utils::reject::custom_bad_request(format!(
                 "envelope failed gossip verification: {e}"
-            ))
-        })?;
+            )));
+        }
+    };
 
     // Reject stateful submissions before broadcast when the block commits to blobs but the
     // node has none cached.
