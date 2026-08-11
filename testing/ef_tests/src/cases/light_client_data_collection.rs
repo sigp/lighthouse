@@ -5,7 +5,10 @@ use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::ChainConfig;
 use beacon_chain::test_utils::BeaconChainHarness;
+use beacon_chain::custody_context::NodeCustodyType;
 use bls::Signature;
+use std::time::Duration;
+use slot_clock::{SlotClock, TestingSlotClock};
 use serde::Deserialize;
 use state_processing::genesis::genesis_block;
 use std::path::Path;
@@ -187,17 +190,25 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                 .map_err(|e| Error::FailedToParseTest(format!("hash state: {:?}", e)))?;
             SignedBeaconBlock::from_block(block, Signature::empty())
         };
+	
+	let slot_clock = TestingSlotClock::new(
+	    Slot::new(0),
+	    Duration::from_secs(0),
+	    spec.get_slot_duration(),
+	);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone().into())
             .keypairs(vec![])
 	    .chain_config(ChainConfig {
-		archive: true,
-		..ChainConfig::default()
+		 archive: true,
+		 ..ChainConfig::default()
 	    })
 	    .genesis_state_ephemeral_store(self.initial_state.clone())
  	    .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)
+	    .node_custody_type(NodeCustodyType::Supernode)
 	    .mock_execution_layer_all_payloads_valid()
+	    .testing_slot_clock(slot_clock)
 	    .build();
 
         let mut skip_first = true;
@@ -208,6 +219,9 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         skip_first = false;
                         continue;
                     }
+		    let genesis_root = harness.chain.genesis_block_root;
+		    let found = harness.chain.store.get_blinded_block(&genesis_root).unwrap();
+		    eprintln!("DEBUG genesis_root={:?} found={}", genesis_root, found.is_some());
                     let block_root = block.canonical_root();
                     harness.set_current_slot(block.slot());
                     let lookup_block = LookupBlock::new(Arc::new(block.as_ref().clone()));
