@@ -6708,7 +6708,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             input_params
         };
 
-        // Notify custody for the EL's sparse blobpool. Only relevant for Gloas, as
+        // Notify custody for the EL's sparse blobpool. Only relevant for Gloas, as only fcuV4
+        // supports sending custody columns.
         let custody_columns = self
             .custody_context
             .custody_columns_for_epoch(Some(current_slot.epoch(T::EthSpec::slots_per_epoch())));
