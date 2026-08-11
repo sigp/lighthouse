@@ -10,7 +10,6 @@ use bls::Signature;
 use std::time::Duration;
 use slot_clock::{SlotClock, TestingSlotClock};
 use serde::Deserialize;
-use state_processing::genesis::genesis_block;
 use std::path::Path;
 use std::sync::Arc;
 use types::BlockImportSource;
@@ -181,9 +180,9 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
             spec.fulu_fork_epoch = Some(Epoch::new(0));
         }
         let mut initial_state_mut = self.initial_state.clone();
-        let genesis_block = {
-            use state_processing::genesis::genesis_block;
-            let mut block = state_processing::genesis::genesis_block(&mut initial_state_mut, &spec)
+        let _genesis_block = {
+            
+            let mut block = state_processing::genesis::genesis_block(&initial_state_mut, &spec)
                 .map_err(|e| Error::FailedToParseTest(format!("genesis block: {:?}", e)))?;
             *block.state_root_mut() = initial_state_mut
                 .update_tree_hash_cache()
