@@ -2,8 +2,9 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_column_verification::{
-    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
+use crate::partial_data_column_assembler::{PartialMergeResult, UpdatedPartials};
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::AvailableExecutedEnvelope;
@@ -151,6 +152,50 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         }
         outcome
+    }
+
+    /// Builds the publish list named by a merge outcome.
+    ///
+    /// This is separate from `merge_partial_data_columns` because it clones every cell. The merge
+    /// runs under the write lock. This runs after the downgrade, under a read guard.
+    pub(crate) fn to_partial_merge_result(
+        &self,
+        outcome: PartialColumnsMergeOutcome,
+        disable_get_blobs: bool,
+    ) -> PartialMergeResult<E> {
+        let slot = self.bid.message.slot;
+
+        let full_columns = outcome
+            .newly_complete
+            .into_iter()
+            .filter_map(|col_idx| {
+                let data = self.verified_data_columns.get(&col_idx)?.to_full_sidecar(
+                    col_idx,
+                    slot,
+                    self.block_root,
+                )?;
+                Some(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::from_execution_verified(data),
+                ))
+            })
+            .collect();
+
+        let updated_partials = outcome
+            .updated
+            .into_iter()
+            .filter_map(|col_idx| {
+                self.verified_data_columns
+                    .get(&col_idx)?
+                    .to_partial(col_idx, slot, self.block_root)
+            })
+            .collect();
+
+        PartialMergeResult {
+            added_cells: outcome.added_cells,
+            local_blobs: self.has_local_blobs || disable_get_blobs,
+            full_columns,
+            updated_partials: UpdatedPartials::Gloas(updated_partials),
+        }
     }
 
     /// Inserts an executed payload envelope into the cache.

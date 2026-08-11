@@ -39,7 +39,7 @@ use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
-use crate::partial_data_column_assembler::{PartialMergeResult, UpdatedPartials};
+use crate::partial_data_column_assembler::PartialMergeResult;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
@@ -344,38 +344,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.merge_partial_data_columns(kzg_verified_partial_data_columns)
             })?;
 
-        let slot = bid.message.slot;
-        let full_columns = outcome
-            .newly_complete
-            .into_iter()
-            .filter_map(|col_idx| {
-                let col = pending_components.verified_data_columns.get(&col_idx)?;
-                col.to_full_sidecar(col_idx, slot, block_root)
-            })
-            .map(|data| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::from_execution_verified(data),
-                )
-            })
-            .collect();
-
-        let updated_partials = outcome
-            .updated
-            .into_iter()
-            .filter_map(|col_idx| {
-                pending_components
-                    .verified_data_columns
-                    .get(&col_idx)?
-                    .to_partial(col_idx, slot, block_root)
-            })
-            .collect();
-
-        let partial_merge_result = PartialMergeResult {
-            added_cells: outcome.added_cells,
-            local_blobs: pending_components.has_local_blobs || self.disable_get_blobs,
-            full_columns,
-            updated_partials: UpdatedPartials::Gloas(updated_partials),
-        };
+        let partial_merge_result =
+            pending_components.to_partial_merge_result(outcome, self.disable_get_blobs);
 
         let availability = self.check_availability(block_root, pending_components)?;
 
