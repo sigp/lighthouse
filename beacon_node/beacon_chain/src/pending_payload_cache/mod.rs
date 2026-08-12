@@ -32,8 +32,8 @@ mod pending_column;
 mod pending_components;
 
 use crate::data_column_verification::{
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn, KzgVerifiedPartialDataColumn,
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -368,17 +368,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         else {
             return Vec::new();
         };
-        let partials = pending_components.get_cached_partial_data_columns();
-        partials
-            .into_iter()
-            .filter_map(|partial| {
-                let column = PartialDataColumn::Gloas(partial);
-                KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-                    KzgVerifiedPartialDataColumn::from_execution_verified(column),
-                )
-                .into_gloas()
-            })
-            .collect()
+        pending_components.get_cached_partial_data_columns()
     }
 
     /// Returns true if the given column is fully populated in the cache.
@@ -632,6 +622,9 @@ mod data_availability_checker_tests {
 
     use crate::block_verification::PayloadVerificationOutcome;
     use crate::custody_context::NodeCustodyType;
+    use crate::data_column_verification::{
+        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    };
     use crate::test_utils::{
         DiskHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,

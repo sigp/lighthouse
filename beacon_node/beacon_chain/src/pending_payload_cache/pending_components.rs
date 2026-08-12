@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::data::PartialDataColumnGloas;
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
@@ -72,12 +71,19 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns all partial (complete and incomplete) columns currently in the cache, suitable for
     /// re-publishing.
-    pub(crate) fn get_cached_partial_data_columns(&self) -> Vec<PartialDataColumnGloas<E>> {
+    pub(crate) fn get_cached_partial_data_columns(
+        &self,
+    ) -> Vec<KzgVerifiedCustodyPartialDataColumnGloas<E>> {
         let block_root = self.block_root;
         let slot = self.bid.message.slot;
         self.verified_data_columns
             .iter()
-            .filter_map(|(idx, col)| col.to_partial(*idx, slot, block_root))
+            .filter_map(|(idx, col)| {
+                let partial = col.to_partial(*idx, slot, block_root)?;
+                Some(KzgVerifiedCustodyPartialDataColumnGloas::from_cached(
+                    Arc::new(partial),
+                ))
+            })
             .collect()
     }
 

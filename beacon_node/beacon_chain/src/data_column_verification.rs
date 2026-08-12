@@ -1006,6 +1006,18 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
+    /// Wrap a partial column read back out of the pending payload cache. The cells are already
+    /// verified: the cache only ever holds cells that were KZG verified on the way in, and custody
+    /// was asserted at that point. `PendingColumn` retains no per-cell timestamps, so this stamps
+    /// the column with the current time; that is a known gap on the Gloas path, where Fulu keeps
+    /// the real arrival time via `latest_cell_timestamp.max(..)` in `merge`.
+    pub(crate) fn from_cached(data: Arc<PartialDataColumnGloas<E>>) -> Self {
+        Self {
+            data,
+            latest_cell_timestamp: timestamp_now(),
+        }
+    }
+
     pub fn into_inner(self) -> Arc<PartialDataColumnGloas<E>> {
         self.data
     }
