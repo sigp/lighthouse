@@ -9378,7 +9378,14 @@ async fn beacon_pools_post_attester_slashings_invalid_v1() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid_v2() {
-    ApiTester::new()
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+
+    ApiTester::new_from_config(config)
         .await
         .test_post_beacon_pool_attester_slashings_valid_v2()
         .await
