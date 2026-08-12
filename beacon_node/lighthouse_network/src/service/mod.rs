@@ -972,7 +972,7 @@ impl<E: EthSpec> Network<E> {
                             "No peers supporting partial messages"
                         );
                     }
-                    ref e => {
+                    e => {
                         warn!(
                             error = ?e,
                             kind = %topic.kind(),
@@ -982,12 +982,10 @@ impl<E: EthSpec> Network<E> {
                 }
 
                 // add to metrics
-                if let Some(v) = metrics::get_int_gauge(
+                metrics::inc_gauge_vec(
                     &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
                     &[&format!("{:?}", topic.kind())],
-                ) {
-                    v.inc()
-                };
+                );
             }
         }
     }

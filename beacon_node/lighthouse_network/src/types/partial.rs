@@ -231,36 +231,39 @@ fn action_from_present_metadata<E: EthSpec>(
         .is_subset(partial_column.sidecar().cells_present_bitmap());
     let want = peer_metadata.requests.difference(&peer_metadata.available);
 
-    let send = partial_column
+    let filtered = match partial_column
         .sidecar()
-        .try_filter(|idx, _, _| Ok(want.get(idx).unwrap_or(false)))
-        .map_err(|err: PartialDataColumnSidecarError| {
+        .try_filter::<_, PartialDataColumnSidecarError>(|idx, _, _| {
+            Ok(want.get(idx).unwrap_or(false))
+        }) {
+        Ok(filtered) => filtered,
+        Err(err) => {
             error!(?err, "Unexpected error filtering sidecar");
-            PartialError::InvalidFormat
-        })?
-        .map(|sidecar| {
-            trace!(
-                peer=%peer_id,
-                group_id=%partial_column.block_root(),
-                column_index=partial_column.index(),
-                metadata=%peer_metadata,
-                sending=%sidecar.cells_present_bitmap(),
-                "Partial send: Sending"
-            );
-            (
-                sidecar.as_ssz_bytes(),
-                Box::new(MaybeKnownMetadata::<E>::from(
-                    PartialDataColumnPartsMetadata {
-                        available: peer_metadata
-                            .available
-                            .union(sidecar.cells_present_bitmap()),
-                        requests: peer_metadata.requests.union(sidecar.cells_present_bitmap()),
-                    },
-                )) as Box<dyn Metadata + 'static>,
-            )
-        });
+            return Err(PartialError::InvalidFormat);
+        }
+    };
 
-    if send.is_none() {
+    let send = if let Some(sidecar) = filtered {
+        trace!(
+            peer=%peer_id,
+            group_id=%partial_column.block_root(),
+            column_index=partial_column.index(),
+            metadata=%peer_metadata,
+            sending=%sidecar.cells_present_bitmap(),
+            "Partial send: Sending"
+        );
+        Some((
+            sidecar.as_ssz_bytes(),
+            Box::new(MaybeKnownMetadata::<E>::from(
+                PartialDataColumnPartsMetadata {
+                    available: peer_metadata
+                        .available
+                        .union(sidecar.cells_present_bitmap()),
+                    requests: peer_metadata.requests.union(sidecar.cells_present_bitmap()),
+                },
+            )) as Box<dyn Metadata + 'static>,
+        ))
+    } else {
         trace!(
             peer=%peer_id,
             group_id=%partial_column.block_root(),
@@ -268,7 +271,8 @@ fn action_from_present_metadata<E: EthSpec>(
             metadata=%peer_metadata,
             "Partial send: Nothing to send"
         );
-    }
+        None
+    };
 
     Ok(PartialAction { need, send })
 }
