@@ -2354,6 +2354,7 @@ mod test {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();
+        harness.extend_to_slot(Slot::new(2)).await;
 
         gloas_partial_unknown_block_root_returns_error(&harness).await;
         gloas_partial_slot_mismatch_returns_error(&harness).await;
