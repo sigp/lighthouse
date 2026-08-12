@@ -2831,10 +2831,13 @@ impl ApiTester {
             return self;
         };
 
+        // Use a fresh slashing, as `self.attester_slashing` is already in the pool.
+        let slashing = self.harness.make_attester_slashing(vec![2, 3]);
+
         // A header for a fork that is not yet active is accepted, e.g. a slashing posted
         // just before the fork boundary. Block production converts the variant as needed.
         self.client
-            .post_beacon_pool_attester_slashings_v2(&self.attester_slashing, future_fork)
+            .post_beacon_pool_attester_slashings_v2(&slashing, future_fork)
             .await
             .unwrap();
 
@@ -9378,6 +9381,8 @@ async fn beacon_pools_post_attester_slashings_valid_v2() {
     ApiTester::new()
         .await
         .test_post_beacon_pool_attester_slashings_valid_v2()
+        .await
+        .test_post_beacon_pool_attester_slashings_future_fork_v2()
         .await;
 }
 
@@ -9386,14 +9391,6 @@ async fn beacon_pools_post_attester_slashings_invalid_v2() {
     ApiTester::new()
         .await
         .test_post_beacon_pool_attester_slashings_invalid_v2()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attester_slashings_future_fork_v2() {
-    ApiTester::new()
-        .await
-        .test_post_beacon_pool_attester_slashings_future_fork_v2()
         .await;
 }
 
