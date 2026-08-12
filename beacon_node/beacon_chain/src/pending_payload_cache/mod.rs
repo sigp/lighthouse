@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     ) -> Vec<KzgVerifiedCustodyPartialDataColumnGloas<T::EthSpec>> {
         let Ok((_, pending_components)) =
             self.update_pending_components(block_root, bid, |components| {
-                components.has_local_blobs = true;
+                components.local_fetch_settled = true;
             })
         else {
             return Vec::new();

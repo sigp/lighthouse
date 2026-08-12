@@ -28,9 +28,10 @@ pub struct PendingComponents<E: EthSpec> {
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
-    /// Set once we have fetched the blobs locally (via `getBlobs` from the EL). Suppresses
-    /// requesting partials that would race with the local fetch.
-    pub has_local_blobs: bool,
+    /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
+    /// returned anything. Until then, republished partials request no cells, because the EL
+    /// may supply them for free.
+    pub local_fetch_settled: bool,
     pub(crate) span: Span,
 }
 
@@ -190,7 +191,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         PartialMergeResult {
             added_cells: outcome.added_cells,
-            local_fetch_settled: self.has_local_blobs || disable_get_blobs,
+            local_fetch_settled: self.local_fetch_settled || disable_get_blobs,
             full_columns,
             updated_partials: UpdatedPartials::Gloas(updated_partials),
         }
@@ -287,7 +288,7 @@ impl<E: EthSpec> PendingComponents<E> {
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
-            has_local_blobs: false,
+            local_fetch_settled: false,
             span,
         }
     }
