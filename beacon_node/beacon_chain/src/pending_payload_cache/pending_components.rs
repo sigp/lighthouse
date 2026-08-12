@@ -190,7 +190,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         PartialMergeResult {
             added_cells: outcome.added_cells,
-            local_blobs: self.has_local_blobs || disable_get_blobs,
+            local_fetch_settled: self.has_local_blobs || disable_get_blobs,
             full_columns,
             updated_partials: UpdatedPartials::Gloas(updated_partials),
         }
