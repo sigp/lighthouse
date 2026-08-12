@@ -10,6 +10,7 @@ use beacon_chain::data_column_verification::{
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedPartialDataColumn,
     PartialColumnVerificationResult,
 };
+use beacon_chain::partial_data_column_assembler::LocalBlobs;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
     EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
@@ -1338,18 +1339,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         .map(|partial| {
                             let column = partial.into_inner();
                             let present_cells = &column.sidecar.cells_present_bitmap;
-                            let request_cells = if merge_result.local_blobs {
-                                // Request all cells that are not available locally.
-                                let mut all_one = present_cells.clone_zeroed();
-                                all_one.not_inplace();
-                                all_one
-                            } else {
-                                // Do not request cells if we don't know the local blobs yet.
-                                present_cells.clone_zeroed()
+                            let request_cells = match &merge_result.local_blobs {
+                                LocalBlobs::Unknown => {
+                                    // Do not request cells if we don't know the local blobs yet.
+                                    present_cells.clone_zeroed()
+                                }
+                                LocalBlobs::Fetching(cells) => {
+                                    // Only request the cells that are not available locally.
+                                    cells.not()
+                                }
+                                LocalBlobs::Fetched => {
+                                    // Request all cells that are not available locally.
+                                    let mut all_one = present_cells.clone_zeroed();
+                                    all_one.not_inplace();
+                                    all_one
+                                }
                             };
                             PubsubPartialMessage::DataColumnFulu {
                                 column,
-                                request_cells,
+                                request_cells: request_cells.clone(),
                                 header: header.clone(),
                             }
                         })

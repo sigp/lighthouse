@@ -76,6 +76,22 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
+    pub(crate) async fn has_blobs(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Option<Vec<bool>>, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .has_blobs(versioned_hashes)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+    }
+
     pub(crate) fn data_column_known_for_observation_key(
         &self,
         observation_key: ObservationKey,
@@ -127,5 +143,19 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .await
             .map_err(FetchEngineBlobError::RequestFailed)
             .map(|caps| caps.get_blobs_v3)
+    }
+
+    pub(crate) async fn supports_has_blobs(&self) -> Result<bool, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_engine_capabilities(None)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+            .map(|caps| caps.has_blobs)
     }
 }
