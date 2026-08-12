@@ -133,16 +133,8 @@ impl<E: EthSpec> PendingComponents<E> {
                 continue;
             }
 
-            // Cells are stored densely, so the nth set bit owns the nth cell. `zip` stops at the
-            // shorter side, which gossip validation has already made equal in length.
             let mut inserted_cells = 0;
-            for (blob_idx, (cell, proof)) in sidecar
-                .cells_present_bitmap()
-                .iter()
-                .enumerate()
-                .filter_map(|(blob_idx, present)| present.then_some(blob_idx))
-                .zip(sidecar.column().iter().zip(sidecar.kzg_proofs().iter()))
-            {
+            for (blob_idx, cell, proof) in sidecar.present_cells() {
                 if col.insert(blob_idx, cell, proof) {
                     inserted_cells += 1;
                 }

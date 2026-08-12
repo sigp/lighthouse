@@ -184,22 +184,30 @@ pub fn validate_partial_data_columns<'a, E: EthSpec>(
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
         }
 
-        // Partial columns have a bitmap indicating present cells
-        // We iterate over the bitmap and only process present cells
-        let mut present_iterator = sidecar.column().iter().zip(sidecar.kzg_proofs().iter());
-        for (present, commitment) in sidecar.cells_present_bitmap().iter().zip(kzg_commitments) {
-            if present {
-                let (cell, proof) = present_iterator.next().ok_or((
-                    Some(col_index),
-                    KzgError::InconsistentArrayLength(
-                        "Partial column has fewer cells than bitmap indicates".to_string(),
-                    ),
-                ))?;
-                cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
-                column_indices.push(col_index);
-                proofs.push(proof.0);
-                commitments.push(commitment.0);
-            }
+        // `present_cells` walks dense storage under the length invariant and truncates a view
+        // that breaks it, so reject such a view here rather than leaving cells unverified.
+        if sidecar.cells_present_bitmap().num_set_bits() != sidecar.column().len()
+            || sidecar.column().len() != sidecar.kzg_proofs().len()
+        {
+            return Err((
+                Some(col_index),
+                KzgError::InconsistentArrayLength(
+                    "Partial column has fewer cells than bitmap indicates".to_string(),
+                ),
+            ));
+        }
+
+        // Partial columns have a bitmap indicating present cells, so only the present cells are
+        // verified. Bit `n` pairs with commitment `n`.
+        for (blob_index, cell, proof) in sidecar.present_cells() {
+            // Blob indices ascend, so once they run past the commitments nothing else can pair.
+            let Some(commitment) = kzg_commitments.get(blob_index) else {
+                break;
+            };
+            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
+            column_indices.push(col_index);
+            proofs.push(proof.0);
+            commitments.push(commitment.0);
         }
 
         let expected_len = column_indices.len();

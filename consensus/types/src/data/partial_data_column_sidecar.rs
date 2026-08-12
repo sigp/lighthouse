@@ -11,6 +11,7 @@ use kzg::KzgProof;
 use merkle_proof::verify_merkle_proof;
 use ssz::BitList;
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 use ssz_types::{FixedVector, ListEncodedOption, ProgressiveVariableList, VariableList};
 use std::fmt::Display;
 use superstruct::superstruct;
@@ -87,6 +88,38 @@ pub enum PartialDataColumnSidecarError {
     ConflictingData,
 }
 
+/// Walks dense cell storage, pairing each set bit of `bitmap` with the cell and the proof held at
+/// the matching storage position.
+///
+/// Cells are stored densely, so the nth set bit owns the nth cell and the nth proof. `zip` stops
+/// at the shortest side, so storage that breaks that length invariant yields fewer items instead
+/// of panicking.
+fn zip_present_cells<'a, N: Unsigned, C: 'a, P: 'a>(
+    bitmap: &'a BitList<N>,
+    cells: impl Iterator<Item = C> + 'a,
+    proofs: impl Iterator<Item = P> + 'a,
+) -> impl Iterator<Item = (usize, C, P)> + 'a {
+    bitmap
+        .iter()
+        .enumerate()
+        .filter_map(|(blob_idx, present)| present.then_some(blob_idx))
+        .zip(cells.zip(proofs))
+        .map(|(blob_idx, (cell, proof))| (blob_idx, cell, proof))
+}
+
+impl<'a, E: EthSpec> PartialDataColumnView<'a, E> {
+    /// Iterates over the present cells as `(blob_index, cell, proof)`, ascending by blob index.
+    ///
+    /// Storage is dense, exactly as described on [`PartialDataColumnSidecarRef::present_cells`].
+    pub fn present_cells(&self) -> impl Iterator<Item = (usize, &'a Cell<E>, &'a KzgProof)> + '_ {
+        zip_present_cells(
+            self.cells_present_bitmap(),
+            self.column().iter().copied(),
+            self.kzg_proofs().iter().copied(),
+        )
+    }
+}
+
 impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
     /// Unified view over the `column` field across forks (EIP-7688).
     pub fn column(&self) -> ListRef<'a, Cell<E>, E::MaxBlobCommitmentsPerBlock> {
@@ -123,6 +156,20 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
             .zip(self.kzg_proofs().get(storage_idx))
     }
 
+    /// Iterates over the present cells as `(blob_index, cell, proof)`, ascending by blob index.
+    ///
+    /// Cells are stored densely, so the nth set bit of `cells_present_bitmap` owns the nth entry
+    /// of `column` and of `kzg_proofs`. This iterator assumes that length invariant and yields
+    /// fewer items than there are set bits when a sidecar violates it. Callers that need an error
+    /// on a malformed sidecar call [`Self::verify_len`] first.
+    pub fn present_cells(&self) -> impl Iterator<Item = (usize, &'a Cell<E>, &'a KzgProof)> + '_ {
+        zip_present_cells(
+            self.cells_present_bitmap(),
+            self.column().iter(),
+            self.kzg_proofs().iter(),
+        )
+    }
+
     /// Creates a reference to this sidecar containing only the blob indices for which the passed
     /// closure returns `true` and is present in `self`. Will return `None` if there is no overlap.
     ///
@@ -138,23 +185,17 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
         let mut new_bitmap = self.cells_present_bitmap().clone();
         let mut new_column = Vec::with_capacity(len);
         let mut new_proofs = Vec::with_capacity(len);
-        let mut iter = self.column().iter().zip(self.kzg_proofs().iter());
 
-        for (blob_idx, present) in self.cells_present_bitmap().iter().enumerate() {
-            if present {
-                let (cell, proof) = iter
-                    .next()
-                    .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                if filter(blob_idx, cell, proof)? {
-                    // Keep this cell
-                    new_column.push(cell);
-                    new_proofs.push(proof);
-                } else {
-                    // Mark as not present
-                    new_bitmap
-                        .set(blob_idx, false)
-                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
-                }
+        for (blob_idx, cell, proof) in self.present_cells() {
+            if filter(blob_idx, cell, proof)? {
+                // Keep this cell
+                new_column.push(cell);
+                new_proofs.push(proof);
+            } else {
+                // Mark as not present
+                new_bitmap
+                    .set(blob_idx, false)
+                    .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
             }
         }
 
@@ -563,6 +604,48 @@ mod tests {
         for i in 0..4 {
             let (cell, _) = sidecar.get(i).expect("all cells should be present");
             assert_eq!(cell[0], 10 + i as u8);
+        }
+    }
+
+    // -- present_cells tests --
+
+    /// Collect `(blob_index, cell marker)` pairs, which identify the cell at each storage position.
+    fn collect_present(sidecar: &PartialDataColumnSidecar<E>) -> Vec<(usize, u8)> {
+        sidecar
+            .to_ref()
+            .present_cells()
+            .map(|(blob_idx, cell, _)| (blob_idx, cell[0]))
+            .collect()
+    }
+
+    #[test]
+    fn present_cells_sparse_bitmap_pairs_indices_with_cells() {
+        // bitmap: [false, true, false, true, false, true] → column: [cell_1, cell_3, cell_5]
+        let sidecar = make_sidecar_with_marker(6, &[1, 3, 5], 0);
+        assert_eq!(collect_present(&sidecar), vec![(1, 1), (3, 3), (5, 5)]);
+    }
+
+    #[test]
+    fn present_cells_all_present_yields_every_index() {
+        let sidecar = make_sidecar_with_marker(4, &[0, 1, 2, 3], 10);
+        assert_eq!(
+            collect_present(&sidecar),
+            vec![(0, 10), (1, 11), (2, 12), (3, 13)]
+        );
+    }
+
+    #[test]
+    fn present_cells_empty_bitmap_yields_nothing() {
+        let sidecar = make_sidecar(4, &[]);
+        assert!(collect_present(&sidecar).is_empty());
+    }
+
+    #[test]
+    fn present_cells_yields_the_matching_proofs() {
+        let sidecar = make_sidecar(6, &[1, 3, 5]);
+        for (storage_idx, (_, cell, proof)) in sidecar.to_ref().present_cells().enumerate() {
+            assert_eq!(cell, &sidecar.column().as_slice()[storage_idx]);
+            assert_eq!(proof, &sidecar.kzg_proofs().as_slice()[storage_idx]);
         }
     }
 }
