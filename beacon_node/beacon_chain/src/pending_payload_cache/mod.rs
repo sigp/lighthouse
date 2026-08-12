@@ -622,9 +622,6 @@ mod data_availability_checker_tests {
 
     use crate::block_verification::PayloadVerificationOutcome;
     use crate::custody_context::NodeCustodyType;
-    use crate::data_column_verification::{
-        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
-    };
     use crate::test_utils::{
         DiskHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,
@@ -928,7 +925,7 @@ mod data_availability_checker_tests {
             present.iter().map(|_| Cell::<E>::default()).collect();
         let kzg_proofs: ProgressiveVariableList<_> =
             present.iter().map(|_| KzgProof::empty()).collect();
-        let partial = PartialDataColumn::Gloas(PartialDataColumnGloas {
+        KzgVerifiedCustodyPartialDataColumnGloas::__new_for_testing(PartialDataColumnGloas {
             block_root,
             slot,
             index,
@@ -937,12 +934,7 @@ mod data_availability_checker_tests {
                 column,
                 kzg_proofs,
             },
-        });
-        KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-            KzgVerifiedPartialDataColumn::from_execution_verified(partial),
-        )
-        .into_gloas()
-        .expect("partial is Gloas")
+        })
     }
 
     /// Two partial arrivals for the same column complete it: the first (one cell of two expected) is

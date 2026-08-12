@@ -1018,6 +1018,11 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
         }
     }
 
+    /// Create a `KzgVerifiedCustodyPartialDataColumnGloas` for testing ONLY.
+    pub(crate) fn __new_for_testing(data: PartialDataColumnGloas<E>) -> Self {
+        Self::from_cached(Arc::new(data))
+    }
+
     pub fn into_inner(self) -> Arc<PartialDataColumnGloas<E>> {
         self.data
     }
