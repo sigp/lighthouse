@@ -325,13 +325,9 @@ impl<E: EthSpec> Partial for OutgoingPartialColumnGloas<E> {
         metadata: Option<&[u8]>,
     ) -> Result<PartialAction, PartialError> {
         match metadata {
-            // Unlike Fulu, a Gloas group has no inline header to seed a fresh peer with: the
-            // group id carries the slot, and the commitments arrive via the bid on the block's
-            // own gossip path. So there is nothing to push here when the peer has no metadata
-            // yet. Our own request bitmap is still advertised because the gossipsub layer always
-            // attaches `metadata()` on publish, and a node holding nothing bootstraps into an
-            // in-flight group by publishing empty placeholder partials (request-all) for its
-            // custody columns from `fetch_engine_blobs_and_publish`.
+            // A Gloas group has no header to push, so a peer with no metadata gets nothing
+            // here. It bootstraps itself from the request-all placeholders that
+            // `publish_partial_data_columns` sends.
             None | Some([]) => Ok(PartialAction {
                 need: false,
                 send: None,

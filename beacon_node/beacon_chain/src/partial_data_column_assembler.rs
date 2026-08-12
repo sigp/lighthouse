@@ -54,8 +54,8 @@ impl<E: EthSpec> UpdatedPartials<E> {
 pub struct PartialMergeResult<E: EthSpec> {
     /// How many cells were added to the store
     pub added_cells: usize,
-    /// Have local blobs been added yet
-    pub local_blobs: bool,
+    /// True once the local `getBlobs` attempt has settled: it succeeded, failed, or is disabled.
+    pub local_fetch_settled: bool,
     /// Merge that completed the column
     pub full_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     /// The updated partials for publishing.
@@ -161,7 +161,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         Some(PartialMergeResult {
             added_cells,
-            local_blobs: assembly.has_local_blobs,
+            local_fetch_settled: assembly.has_local_blobs,
             full_columns,
             updated_partials: UpdatedPartials::Fulu(updated_partials),
         })

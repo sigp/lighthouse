@@ -1010,6 +1010,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         crit!("Found gloas column in Fulu partial assembler");
                                         return None;
                                     }
+                                    // Unreachable: DataColumn and CellBitmap share a bound.
                                     Err(err) => {
                                         crit!(?err, "Failed to convert full column to partial");
                                         return None;
