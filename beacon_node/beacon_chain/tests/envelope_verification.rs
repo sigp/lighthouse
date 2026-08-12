@@ -1,4 +1,5 @@
 use beacon_chain::payload_envelope_verification::EnvelopeError;
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::AllowDuplicates;
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
 use bls::PublicKeyBytes;
 use std::sync::Arc;
@@ -48,7 +49,7 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
 
     let result = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope))
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), AllowDuplicates::No)
         .await;
     assert!(matches!(
         result,
@@ -88,10 +89,13 @@ async fn gossip_ignores_subsequent_envelope_from_same_builder() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone())
+        .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::No)
         .await
         .expect("first envelope should pass gossip verification");
-    let second_result = harness.chain.verify_envelope_for_gossip(envelope).await;
+    let second_result = harness
+        .chain
+        .verify_envelope_for_gossip(envelope, AllowDuplicates::No)
+        .await;
 
     assert!(matches!(
         second_result,

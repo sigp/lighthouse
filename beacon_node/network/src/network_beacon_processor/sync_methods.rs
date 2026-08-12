@@ -12,6 +12,7 @@ use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::AllowDuplicates;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer,
@@ -318,7 +319,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = match self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::No)
             .await
         {
             Ok(verified) => {

@@ -11,6 +11,7 @@ use crate::version::{
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::AllowDuplicates;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     NotifyExecutionLayer,
@@ -254,20 +255,15 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     };
 
     // Gossip-verify the envelope before publishing.
-    let gossip_verified = match chain.verify_envelope_for_gossip(Arc::new(envelope)).await {
-        Ok(gossip_verified) => gossip_verified,
-        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {
-            // An envelope was already gossip verified for the associated block and builder
-            debug!(%slot, ?beacon_block_root, "Ignoring already seen execution payload envelope");
-            return Ok(warp::reply().into_response());
-        }
-        Err(e) => {
+    let gossip_verified = chain
+        .verify_envelope_for_gossip(Arc::new(envelope), AllowDuplicates::Yes)
+        .await
+        .map_err(|e| {
             warn!(%slot, error = ?e, "Execution payload envelope failed gossip verification");
-            return Err(warp_utils::reject::custom_bad_request(format!(
+            warp_utils::reject::custom_bad_request(format!(
                 "envelope failed gossip verification: {e}"
-            )));
-        }
-    };
+            ))
+        })?;
 
     // Reject stateful submissions before broadcast when the block commits to blobs but the
     // node has none cached.

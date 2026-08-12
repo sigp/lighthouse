@@ -12,7 +12,8 @@ use beacon_chain::data_column_verification::{
 };
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
-    EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+    EnvelopeError,
+    gossip_verified_envelope::{AllowDuplicates, GossipVerifiedEnvelope},
 };
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
@@ -3740,7 +3741,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::No)
             .await;
 
         let verified_envelope = match verification_result {
@@ -3820,7 +3821,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let inner_self = self.clone();
                         let chain = self.chain.clone();
                         let process_fn = Box::pin(async move {
-                            match chain.verify_envelope_for_gossip(envelope).await {
+                            match chain
+                                .verify_envelope_for_gossip(envelope, AllowDuplicates::No)
+                                .await
+                            {
                                 Ok(verified_envelope) => {
                                     let envelope_slot = verified_envelope.signed_envelope.slot();
                                     inner_self.propagate_envelope_if_timely(
