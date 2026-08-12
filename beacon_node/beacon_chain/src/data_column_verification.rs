@@ -914,38 +914,42 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
         let len = new_bitmap.num_set_bits();
         let mut new_column = Vec::with_capacity(len);
         let mut new_proofs = Vec::with_capacity(len);
+        let mut self_iter = self_sidecar
+            .column
+            .iter()
+            .zip(self_sidecar.kzg_proofs.iter());
+        let mut other_iter = other_sidecar
+            .column
+            .iter()
+            .zip(other_sidecar.kzg_proofs.iter());
 
-        // Both sides yield their present cells in ascending blob index order, so a sorted merge
-        // produces the union in that same order.
-        let self_ref = self.sidecar();
-        let other_ref = other.sidecar();
-        let mut self_cells = self_ref.present_cells().peekable();
-        let mut other_cells = other_ref.present_cells().peekable();
-
-        loop {
-            // Peek into locals so that the borrows end before either side is advanced.
-            let self_idx = self_cells.peek().map(|(blob_idx, ..)| *blob_idx);
-            let other_idx = other_cells.peek().map(|(blob_idx, ..)| *blob_idx);
-
-            let next = match (self_idx, other_idx) {
-                (None, None) => break,
-                (Some(_), None) => self_cells.next(),
-                (None, Some(_)) => other_cells.next(),
-                (Some(self_idx), Some(other_idx)) if other_idx < self_idx => other_cells.next(),
-                (Some(self_idx), Some(other_idx)) => {
-                    if self_idx == other_idx {
-                        // Both hold this cell, so drop `other`'s copy. They are KZG verified, so
-                        // the two cells are the same.
-                        other_cells.next();
+        for presence_bits in self_sidecar
+            .cells_present_bitmap
+            .iter()
+            .zip(other_sidecar.cells_present_bitmap.iter())
+        {
+            match presence_bits {
+                (false, false) => {}
+                (true, other) => {
+                    let (cell, proof) = self_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                    if other {
+                        other_iter
+                            .next()
+                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
                     }
-                    self_cells.next()
                 }
-            };
-
-            // Always `Some`: every arm above advances a side it has just peeked.
-            let Some((_, cell, proof)) = next else { break };
-            new_column.push(cell.clone());
-            new_proofs.push(*proof);
+                (false, true) => {
+                    let (cell, proof) = other_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                }
+            }
         }
 
         Ok(Self {
@@ -1002,11 +1006,8 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
-    /// Wrap a partial column read back out of the pending payload cache. The cells are already
-    /// verified: the cache only ever holds cells that were KZG verified on the way in, and custody
-    /// was asserted at that point. `PendingColumn` retains no per-cell timestamps, so this stamps
-    /// the column with the current time; that is a known gap on the Gloas path, where Fulu keeps
-    /// the real arrival time via `latest_cell_timestamp.max(..)` in `merge`.
+    /// Re-wrap a partial column from the cache. Its cells were verified on the way in, and
+    /// `PendingColumn` keeps no timestamps, so this stamps the current time.
     pub(crate) fn from_cached(data: Arc<PartialDataColumnGloas<E>>) -> Self {
         Self {
             data,
