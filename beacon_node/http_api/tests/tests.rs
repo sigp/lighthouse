@@ -6012,7 +6012,7 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
 
         // The endpoint should return a 400 error for pre-Heze forks.
-        match self.client.get_validator_inclusion_list::<E>(slot).await {
+        match self.client.get_validator_inclusion_list(slot).await {
             Ok(result) => panic!("query for a pre-Heze slot should fail, got: {result:?}"),
             Err(e) => assert_eq!(e.status().unwrap(), 400),
         }
