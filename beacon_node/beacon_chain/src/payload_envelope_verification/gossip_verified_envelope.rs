@@ -299,11 +299,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // deduplicates against locally published envelopes. The operation is atomic, so if a
         // concurrent verification marked the same `(block_root, builder_index)` pair first,
         // this envelope is considered a duplicate.
-        let newly_marked = ctx
+        let envelope_already_seen = !ctx
             .gossip_seen_envelope_cache
             .mark_envelope_seen(&gossip_verified_envelope);
 
-        if !newly_marked && ctx.allow_duplicates == AllowDuplicates::No {
+        if envelope_already_seen && ctx.allow_duplicates == AllowDuplicates::No {
             return Err(EnvelopeError::EnvelopeAlreadySeen {
                 block_root: beacon_block_root,
                 builder_index,
