@@ -5899,8 +5899,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut attester_slashings_electra = Vec::new();
         for slashing in attester_slashings {
             if fork_name.electra_enabled() {
-                // Convert Base slashings left over from before the fork into the Electra type.
-                // Gloas slashings have the same SSZ bytes, only the hash tree root differs.
+                // Convert Base and Gloas slashings into the Electra type. The SSZ bytes are
+                // the same, only the hash tree root differs.
                 let (attestation_1, attestation_2) = match slashing {
                     AttesterSlashing::Base(slashing) => (
                         IndexedAttestation::Base(slashing.attestation_1),

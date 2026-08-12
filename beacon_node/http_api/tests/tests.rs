@@ -2822,6 +2822,30 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_pool_attester_slashings_future_fork_v2(mut self) -> Self {
+        let current_fork = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(self.chain.slot_clock.now().unwrap());
+        let Some(future_fork) = current_fork.next_fork() else {
+            return self;
+        };
+
+        let err = self
+            .client
+            .post_beacon_pool_attester_slashings_v2(&self.attester_slashing, future_fork)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+
+        assert!(
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
+            "rejected attester slashing should not be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_get_beacon_pool_attester_slashings(self) -> Self {
         let result = self
             .client
@@ -9362,6 +9386,14 @@ async fn beacon_pools_post_attester_slashings_invalid_v2() {
     ApiTester::new()
         .await
         .test_post_beacon_pool_attester_slashings_invalid_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_pools_post_attester_slashings_future_fork_v2() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_attester_slashings_future_fork_v2()
         .await;
 }
 

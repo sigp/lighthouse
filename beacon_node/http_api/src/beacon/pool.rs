@@ -411,9 +411,7 @@ pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
                             )
                         })?;
                     let fork_name = match consensus_version {
-                        Some(fork_name)
-                            if fork_name.gloas_enabled() && !current_fork.gloas_enabled() =>
-                        {
+                        Some(fork_name) if fork_name > current_fork => {
                             return Err(warp_utils::reject::custom_bad_request(
                                 "Eth-Consensus-Version specifies a fork that is not yet active"
                                     .to_string(),
