@@ -484,7 +484,7 @@ where
 pub fn inclusion_list_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
-    signed_inclusion_list: &'a SignedInclusionList<E>,
+    signed_inclusion_list: &'a SignedInclusionList,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -877,7 +877,7 @@ mod inclusion_list_signature_tests {
         let spec = harness.spec.clone();
         let validator_index = 3usize;
 
-        let message = InclusionList::<E> {
+        let message = InclusionList {
             slot: state.slot(),
             validator_index: validator_index as u64,
             dependent_root: Hash256::ZERO,
@@ -913,7 +913,7 @@ mod inclusion_list_signature_tests {
         let claimed_index = 3usize;
         let signer_index = 4usize;
 
-        let message = InclusionList::<E> {
+        let message = InclusionList {
             slot: state.slot(),
             validator_index: claimed_index as u64,
             dependent_root: Hash256::ZERO,
