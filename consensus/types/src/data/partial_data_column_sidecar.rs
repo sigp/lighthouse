@@ -156,6 +156,21 @@ impl<'a, E: EthSpec> PartialDataColumnSidecarRef<'a, E> {
             .zip(self.kzg_proofs().get(storage_idx))
     }
 
+    /// Return a sparse view to the data within: If cell `n` is present, the returned `Vec` will
+    /// contain the cell and proof at index `n`, or else `None`.
+    pub fn as_sparse(&self) -> Vec<Option<(&'a Cell<E>, &'a KzgProof)>> {
+        let mut ret = Vec::with_capacity(self.cells_present_bitmap().len());
+        let mut iter = self.column().iter().zip(self.kzg_proofs().iter());
+        for present in self.cells_present_bitmap().iter() {
+            if present {
+                ret.push(iter.next());
+            } else {
+                ret.push(None);
+            }
+        }
+        ret
+    }
+
     /// Iterates over the present cells as `(blob_index, cell, proof)`, ascending by blob index.
     ///
     /// Cells are stored densely, so the nth set bit of `cells_present_bitmap` owns the nth entry

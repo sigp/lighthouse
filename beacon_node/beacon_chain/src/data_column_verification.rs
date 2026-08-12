@@ -311,7 +311,7 @@ pub enum GossipPartialDataColumnError {
     /// ## Peer scoring
     /// The column sidecar is invalid and the peer is faulty
     InconsistentPresentCount {
-        bitmap_popcount: usize,
+        bitmap_num_set: usize,
         cells_len: usize,
         proofs_len: usize,
     },
@@ -1458,12 +1458,12 @@ fn validate_partial_data_column_common<T: BeaconChainTypes>(
     seen_timestamp: Duration,
 ) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipPartialDataColumnError> {
     // The number of cells and proofs must match the population count of the bitmap.
-    let bitmap_popcount = column.sidecar().cells_present_bitmap().num_set_bits();
+    let bitmap_num_set = column.sidecar().cells_present_bitmap().num_set_bits();
     let cells_len = column.sidecar().column().len();
     let proofs_len = column.sidecar().kzg_proofs().len();
-    if bitmap_popcount != cells_len || bitmap_popcount != proofs_len {
+    if bitmap_num_set != cells_len || bitmap_num_set != proofs_len {
         return Err(GossipPartialDataColumnError::InconsistentPresentCount {
-            bitmap_popcount,
+            bitmap_num_set,
             cells_len,
             proofs_len,
         });
