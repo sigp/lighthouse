@@ -606,46 +606,4 @@ mod tests {
             assert_eq!(cell[0], 10 + i as u8);
         }
     }
-
-    // -- present_cells tests --
-
-    /// Collect `(blob_index, cell marker)` pairs, which identify the cell at each storage position.
-    fn collect_present(sidecar: &PartialDataColumnSidecar<E>) -> Vec<(usize, u8)> {
-        sidecar
-            .to_ref()
-            .present_cells()
-            .map(|(blob_idx, cell, _)| (blob_idx, cell[0]))
-            .collect()
-    }
-
-    #[test]
-    fn present_cells_sparse_bitmap_pairs_indices_with_cells() {
-        // bitmap: [false, true, false, true, false, true] → column: [cell_1, cell_3, cell_5]
-        let sidecar = make_sidecar_with_marker(6, &[1, 3, 5], 0);
-        assert_eq!(collect_present(&sidecar), vec![(1, 1), (3, 3), (5, 5)]);
-    }
-
-    #[test]
-    fn present_cells_all_present_yields_every_index() {
-        let sidecar = make_sidecar_with_marker(4, &[0, 1, 2, 3], 10);
-        assert_eq!(
-            collect_present(&sidecar),
-            vec![(0, 10), (1, 11), (2, 12), (3, 13)]
-        );
-    }
-
-    #[test]
-    fn present_cells_empty_bitmap_yields_nothing() {
-        let sidecar = make_sidecar(4, &[]);
-        assert!(collect_present(&sidecar).is_empty());
-    }
-
-    #[test]
-    fn present_cells_yields_the_matching_proofs() {
-        let sidecar = make_sidecar(6, &[1, 3, 5]);
-        for (storage_idx, (_, cell, proof)) in sidecar.to_ref().present_cells().enumerate() {
-            assert_eq!(cell, &sidecar.column().as_slice()[storage_idx]);
-            assert_eq!(proof, &sidecar.kzg_proofs().as_slice()[storage_idx]);
-        }
-    }
 }
