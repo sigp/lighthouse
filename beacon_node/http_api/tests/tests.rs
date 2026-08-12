@@ -2831,16 +2831,16 @@ impl ApiTester {
             return self;
         };
 
-        let err = self
-            .client
+        // A header for a fork that is not yet active is accepted, e.g. a slashing posted
+        // just before the fork boundary. Block production converts the variant as needed.
+        self.client
             .post_beacon_pool_attester_slashings_v2(&self.attester_slashing, future_fork)
             .await
-            .unwrap_err();
-        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+            .unwrap();
 
         assert!(
-            self.network_rx.network_recv.recv().now_or_never().is_none(),
-            "rejected attester slashing should not be sent to network"
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid attester slashing should be sent to network"
         );
 
         self

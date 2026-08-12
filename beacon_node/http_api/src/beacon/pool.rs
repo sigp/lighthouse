@@ -401,24 +401,17 @@ pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
              consensus_version: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let current_fork = chain
-                        .slot_clock
-                        .now()
-                        .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_server_error(
-                                "unable to read slot clock".to_string(),
-                            )
-                        })?;
                     let fork_name = match consensus_version {
-                        Some(fork_name) if fork_name > current_fork => {
-                            return Err(warp_utils::reject::custom_bad_request(
-                                "Eth-Consensus-Version specifies a fork that is not yet active"
-                                    .to_string(),
-                            ));
-                        }
                         Some(fork_name) => fork_name,
-                        None => current_fork,
+                        None => chain
+                            .slot_clock
+                            .now()
+                            .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "unable to read slot clock".to_string(),
+                                )
+                            })?,
                     };
                     let slashing = AttesterSlashing::<T::EthSpec>::context_deserialize(
                         &slashing_json,
