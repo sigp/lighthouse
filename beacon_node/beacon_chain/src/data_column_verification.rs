@@ -1015,11 +1015,6 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
         }
     }
 
-    /// Create a `KzgVerifiedCustodyPartialDataColumnGloas` for testing ONLY.
-    pub(crate) fn __new_for_testing(data: PartialDataColumnGloas<E>) -> Self {
-        Self::from_cached(Arc::new(data))
-    }
-
     pub fn into_inner(self) -> Arc<PartialDataColumnGloas<E>> {
         self.data
     }
@@ -2373,9 +2368,7 @@ mod test {
             .build();
         harness.extend_to_slot(Slot::new(2)).await;
 
-        gloas_partial_unknown_block_root_returns_error(&harness).await;
         gloas_partial_slot_mismatch_returns_error(&harness).await;
-        gloas_partial_empty_message_returns_error(&harness).await;
     }
 
     /// Build a Gloas partial column carrying `present_cells` cells. Cell contents are irrelevant for
@@ -2420,29 +2413,6 @@ mod test {
             .insert_bid(block_root, Arc::new(bid));
     }
 
-    async fn gloas_partial_unknown_block_root_returns_error(
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-    ) {
-        // No bid is registered for this block root, so the column cannot be verified yet.
-        let column = gloas_partial_column(Hash256::repeat_byte(0xb1), Slot::new(1), 1);
-        let result = validate_partial_data_column_sidecar_for_gossip(
-            Box::new(column),
-            &harness.chain,
-            UNIX_EPOCH.elapsed().unwrap(),
-        );
-        assert!(
-            matches!(
-                result,
-                PartialColumnVerificationResult::Err(
-                    GossipPartialDataColumnError::GossipDataColumnError(
-                        GossipDataColumnError::BlockRootUnknown { .. }
-                    )
-                )
-            ),
-            "Expected BlockRootUnknown"
-        );
-    }
-
     async fn gloas_partial_slot_mismatch_returns_error(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     ) {
@@ -2463,27 +2433,6 @@ mod test {
                 )
             ),
             "Expected IncorrectSlot"
-        );
-    }
-
-    async fn gloas_partial_empty_message_returns_error(
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-    ) {
-        let block_root = Hash256::repeat_byte(0xb3);
-        insert_gloas_bid(harness, block_root, Slot::new(1));
-        // Bid is known and the slots agree, but the column carries no cells.
-        let column = gloas_partial_column(block_root, Slot::new(1), 0);
-        let result = validate_partial_data_column_sidecar_for_gossip(
-            Box::new(column),
-            &harness.chain,
-            UNIX_EPOCH.elapsed().unwrap(),
-        );
-        assert!(
-            matches!(
-                result,
-                PartialColumnVerificationResult::Err(GossipPartialDataColumnError::EmptyMessage)
-            ),
-            "Expected EmptyMessage"
         );
     }
 

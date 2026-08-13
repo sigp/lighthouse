@@ -430,11 +430,11 @@ mod tests {
         cell
     }
 
-    fn make_sidecar_with_marker(
+    fn make_sidecar_fulu(
         total_blobs: usize,
         present_indices: &[usize],
         marker_base: u8,
-    ) -> PartialDataColumnSidecar<E> {
+    ) -> PartialDataColumnSidecarFulu<E> {
         let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
         for &idx in present_indices {
             bitmap.set(idx, true).unwrap();
@@ -459,7 +459,14 @@ mod tests {
             kzg_proofs: proofs,
             header: None.into(),
         }
-        .into()
+    }
+
+    fn make_sidecar_with_marker(
+        total_blobs: usize,
+        present_indices: &[usize],
+        marker_base: u8,
+    ) -> PartialDataColumnSidecar<E> {
+        make_sidecar_fulu(total_blobs, present_indices, marker_base).into()
     }
 
     fn make_sidecar(total_blobs: usize, present_indices: &[usize]) -> PartialDataColumnSidecar<E> {
@@ -554,21 +561,14 @@ mod tests {
 
     // -- try_clone_full tests (on PartialDataColumnFulu) --
 
-    fn into_fulu(sidecar: PartialDataColumnSidecar<E>) -> PartialDataColumnSidecarFulu<E> {
-        match sidecar {
-            PartialDataColumnSidecar::Fulu(s) => s,
-            PartialDataColumnSidecar::Gloas(_) => panic!("expected Fulu sidecar"),
-        }
-    }
-
     #[test]
     fn try_clone_full_succeeds_when_complete() {
-        let sidecar = make_sidecar(3, &[0, 1, 2]);
+        let sidecar = make_sidecar_fulu(3, &[0, 1, 2], 0);
         let header = make_header(3);
         let partial = PartialDataColumnFulu {
             block_root: Hash256::zero(),
             index: 5,
-            sidecar: into_fulu(sidecar),
+            sidecar,
         };
         let full = partial.try_clone_full(&header).unwrap();
         assert_eq!(*full.index(), 5);
@@ -577,12 +577,12 @@ mod tests {
 
     #[test]
     fn try_clone_full_returns_none_when_incomplete() {
-        let sidecar = make_sidecar(4, &[0, 2]);
+        let sidecar = make_sidecar_fulu(4, &[0, 2], 0);
         let header = make_header(4);
         let partial = PartialDataColumnFulu {
             block_root: Hash256::zero(),
             index: 0,
-            sidecar: into_fulu(sidecar),
+            sidecar,
         };
         assert!(partial.try_clone_full(&header).is_none());
     }
