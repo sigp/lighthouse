@@ -621,4 +621,17 @@ mod tests {
             assert_eq!(cell[0], 10 + i as u8);
         }
     }
+
+    // -- present_cells tests --
+
+    #[test]
+    fn present_cells_pairs_sparse_bitmap() {
+        let sidecar = make_sidecar_with_marker(7, &[1, 3, 5], 0);
+        let present: Vec<_> = sidecar
+            .to_ref()
+            .present_cells()
+            .map(|(blob_idx, cell, _)| (blob_idx, cell[0]))
+            .collect();
+        assert_eq!(present, vec![(1, 1), (3, 3), (5, 5)]);
+    }
 }
