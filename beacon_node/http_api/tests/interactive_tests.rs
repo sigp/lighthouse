@@ -817,7 +817,15 @@ pub async fn fork_choice_before_proposal() {
     let block_d = if harness.spec.fork_name_at_slot::<E>(slot_d).gloas_enabled() {
         tester
             .client
-            .get_validator_blocks_v4::<E>(slot_d, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot_d,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap()
             .0
