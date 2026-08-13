@@ -1,5 +1,6 @@
 //! Handles the encoding and decoding of pubsub messages.
 
+use super::partial::{PARTIAL_COLUMNS_VERSION_BYTE_FULU, PARTIAL_COLUMNS_VERSION_BYTE_GLOAS};
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use libp2p::gossipsub::{DataTransform, Message, RawMessage, TopicHash};
 use snap::raw::{Decoder, Encoder, decompress_len};
@@ -10,15 +11,17 @@ use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
     CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
-    PartialDataColumnHeader, PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedAggregateAndProofGloas, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas, SignedBeaconBlockHeze, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProof,
+    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
+    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    execution::SignedExecutionProof,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,13 +63,13 @@ pub enum PubsubMessage<E: EthSpec> {
 }
 
 /// A message published via the partial gossipsub protocol.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PubsubPartialMessage<E: EthSpec> {
     /// A partial data column sidecar from the Fulu fork.
     DataColumnFulu {
         /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
         /// asks for data within it.
-        column: Arc<PartialDataColumn<E>>,
+        column: Arc<PartialDataColumnFulu<E>>,
         /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
         /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
         /// requested to conserve bandwidth.
@@ -74,6 +77,11 @@ pub enum PubsubPartialMessage<E: EthSpec> {
         /// The header associated with the column above. This is set separately here, as the column
         /// to be published does not contain the header - it is stored without.
         header: Arc<PartialDataColumnHeader<E>>,
+    },
+    /// A partial data column sidecar from the Gloas fork.
+    DataColumnGloas {
+        column: Arc<PartialDataColumnGloas<E>>,
+        request_cells: CellBitmap<E>,
     },
 }
 
@@ -522,7 +530,7 @@ pub fn decode_partial<E: EthSpec>(
 ) -> Result<PartialDataColumn<E>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
-            match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
+            let fork = *match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
                 Some(fork) if fork.fulu_enabled() => {
                     if fork.gloas_enabled()
                         && data.len() > E::max_partial_data_column_sidecar_size()
@@ -533,6 +541,7 @@ pub fn decode_partial<E: EthSpec>(
                             E::max_partial_data_column_sidecar_size()
                         ));
                     }
+                    fork
                 }
                 Some(_) | None => {
                     return Err(format!(
@@ -540,21 +549,40 @@ pub fn decode_partial<E: EthSpec>(
                         topic.fork_digest
                     ));
                 }
-            }
-            if group.first() != Some(&0) {
-                return Err(format!("Unknown data column format: {:?}", group.first()));
-            }
-            let block_root = Hash256::from_ssz_bytes(&group[1..])
-                .map_err(|e| format!("Error decoding group: {:?}", e))?;
-            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
-                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-            let data_column = PartialDataColumn {
-                block_root,
-                // Partial messages are spec'd under the assumption that there is one column per subnet.
-                index: **id,
-                sidecar,
             };
-            Ok(data_column)
+            // Partial messages are spec'd under the assumption that there is one column per subnet.
+            let index = **id;
+            let Some((version, group_id)) = group.split_first() else {
+                return Err("Empty partial group id".to_string());
+            };
+            match version {
+                &PARTIAL_COLUMNS_VERSION_BYTE_FULU if !fork.gloas_enabled() => {
+                    let sidecar = PartialDataColumnSidecarFulu::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let block_root = Hash256::from_ssz_bytes(group_id)
+                        .map_err(|e| format!("Error decoding Fulu group: {:?}", e))?;
+                    Ok(PartialDataColumnFulu {
+                        block_root,
+                        index,
+                        sidecar,
+                    }
+                    .into())
+                }
+                &PARTIAL_COLUMNS_VERSION_BYTE_GLOAS if fork.gloas_enabled() => {
+                    let sidecar = PartialDataColumnSidecarGloas::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let group_id = PartialDataColumnGroupId::from_ssz_bytes(group_id)
+                        .map_err(|e| format!("Error decoding Gloas group: {:?}", e))?;
+                    Ok(PartialDataColumnGloas {
+                        block_root: group_id.beacon_block_root,
+                        slot: group_id.slot,
+                        index,
+                        sidecar,
+                    }
+                    .into())
+                }
+                version => Err(format!("Unknown partial version {version} for fork {fork}")),
+            }
         }
         other => Err(format!("Partial message unsupported for topic: {other}")),
     }
@@ -655,6 +683,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::OutgoingPartialColumnGloas;
+    use libp2p::gossipsub::partial_messages::Partial;
+    use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
     use types::{Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
 
     type E = MainnetEthSpec;
@@ -669,6 +700,45 @@ mod tests {
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    #[test]
+    fn gloas_group_id_round_trips_through_decode_partial() {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(3)),
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let column = PartialDataColumnGloas::<E> {
+            block_root: Hash256::repeat_byte(7),
+            slot: Slot::new(9),
+            index: 3,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: CellBitmap::<E>::with_capacity(1).unwrap(),
+                column: Default::default(),
+                kzg_proofs: Default::default(),
+            },
+        };
+        let outgoing = OutgoingPartialColumnGloas::new(
+            Arc::new(column.clone()),
+            column.sidecar.cells_present_bitmap.clone(),
+        );
+
+        let decoded = decode_partial::<E>(
+            &topic,
+            &outgoing.group_id(),
+            &column.sidecar.as_ssz_bytes(),
+            &fork_context,
+        )
+        .unwrap();
+
+        let PartialDataColumn::Gloas(decoded) = decoded else {
+            panic!("expected a Gloas partial");
+        };
+        assert_eq!(decoded.block_root, column.block_root);
+        assert_eq!(decoded.slot, column.slot);
+        assert_eq!(decoded.index, column.index);
     }
 
     fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
