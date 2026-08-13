@@ -48,7 +48,9 @@ pub struct BuilderEntry {
     /// Maximum trusted execution-layer payment (Gwei) accepted from this builder.
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_execution_payment: u64,
-    /// Minimum total payment (Gwei) for a bid from this builder to be accepted.
+    /// Minimum total payment (Gwei) for this builder's bid to rank as acceptable — a ranking
+    /// floor, not a filter: a below-floor bid is ranked behind every floor-clearing candidate and
+    /// wins only when nothing else is viable.
     #[serde(with = "serde_utils::quoted_u64")]
     pub min_bid: u64,
     /// Percentage multiplier applied to this builder's bid when comparing against the local payload.
