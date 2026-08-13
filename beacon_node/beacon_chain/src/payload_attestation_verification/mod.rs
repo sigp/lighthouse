@@ -8,7 +8,7 @@
 //! ```
 
 use crate::BeaconChainError;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use types::{Hash256, Slot};
 
 pub mod gossip_verified_payload_attestation;
@@ -24,7 +24,7 @@ pub use gossip_verified_payload_attestation::{
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum Error {
     /// The payload attestation message is from a slot that is later than the current slot
     /// (with respect to the gossip clock disparity).

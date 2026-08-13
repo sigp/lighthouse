@@ -26,7 +26,7 @@ use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::collections::HashSet;
 use std::sync::Arc;
 use store::Error as DBError;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
@@ -196,7 +196,7 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
     }
 }
 
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },

@@ -44,7 +44,7 @@ use state_processing::signature_sets::{
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::ChainSpec;
@@ -64,7 +64,7 @@ use types::{
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum Error {
     /// The sync committee message is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).

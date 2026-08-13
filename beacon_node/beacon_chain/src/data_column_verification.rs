@@ -23,6 +23,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::DatabaseBlock;
+use strum::IntoStaticStr;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::data::{
@@ -36,7 +37,7 @@ use types::{
 };
 
 /// An error occurred while validating a gossip data column.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum GossipDataColumnError {
     /// Internal logic error: the column sidecar variant does not match the expected fork.
     /// This is not a peer fault and should not be used to penalize peers.
@@ -246,8 +247,11 @@ impl From<ObservedBlockProducersError> for GossipDataColumnError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum GossipPartialDataColumnError {
+    /// Report the inner variant's name rather than this wrapper's, so peer scoring and logs name
+    /// the actual fault instead of collapsing every column error into one label.
+    #[strum(transparent)]
     GossipDataColumnError(GossipDataColumnError),
     /// Partial messages are disabled and we can not validate them.
     ///

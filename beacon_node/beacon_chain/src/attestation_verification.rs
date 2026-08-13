@@ -57,7 +57,7 @@ use state_processing::{
     },
 };
 use std::borrow::Cow;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
@@ -76,7 +76,7 @@ pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
