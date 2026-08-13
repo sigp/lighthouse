@@ -78,6 +78,7 @@ members = [
     "testing/web3signer_tests",
     "validator_client",
     "validator_client/beacon_node_fallback",
+    "validator_client/builder_store",
     "validator_client/doppelganger_service",
     "validator_client/graffiti_file",
     "validator_client/http_api",
@@ -120,6 +121,7 @@ bincode = "1"
 bitvec = "1"
 bls = { path = "crypto/bls" }
 builder_client = { path = "beacon_node/builder_client" }
+builder_store = { path = "validator_client/builder_store" }
 builder_types = { path = "common/builder_types" }
 byteorder = "1"
 bytes = "1.11.1"
