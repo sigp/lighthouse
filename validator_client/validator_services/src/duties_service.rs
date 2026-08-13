@@ -596,6 +596,25 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
             })
             .unwrap_or_default()
     }
+
+    /// Get IL committee duties for a specific slot.
+    ///
+    /// Returns duties for local validators who have IL committee assignments at the given slot.
+    pub fn get_il_duties_for_slot(&self, slot: Slot) -> Vec<InclusionListDuty> {
+        let epoch = slot.epoch(S::E::slots_per_epoch());
+
+        self.il_duties
+            .read()
+            .get(&epoch)
+            .map(|(_, il_duties)| {
+                il_duties
+                    .iter()
+                    .filter(|il_duty| il_duty.slot == slot)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 /// Start the service that periodically polls the beacon node for validator duties. This will start
