@@ -3,6 +3,7 @@ pub mod config;
 
 use crate::cli::ValidatorClient;
 use crate::duties_service::SelectionProofConfig;
+use builder_store::BuilderStore;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use metrics::set_gauge;
@@ -43,11 +44,13 @@ use validator_services::notifier_service::spawn_notifier;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
+    builder_preferences_service::BuilderPreferencesService,
     duties_service::{self, DutiesService, DutiesServiceBuilder},
     latency_service,
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     proposer_preferences_service::ProposerPreferencesService,
+    request_auth_cache::RequestAuthCache,
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore as ValidatorStoreTrait;
@@ -91,6 +94,7 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
+    builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
@@ -513,6 +517,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
+        let configured_builders = BuilderStore::open_or_create(&config.validator_dir)
+            .map_err(|e| format!("Unable to open or create builder definitions: {:?}", e))?;
+        let request_auth_cache = RequestAuthCache::default();
+
         let mut block_service_builder = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
@@ -521,7 +529,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .graffiti_policy(config.graffiti_policy);
+            .graffiti_policy(config.graffiti_policy)
+            .configured_builders(configured_builders.clone())
+            .request_auth_cache(request_auth_cache.clone());
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -577,6 +587,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
+        let builder_preferences_service = BuilderPreferencesService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            configured_builders.clone(),
+            request_auth_cache.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
@@ -588,6 +609,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             doppelganger_service,
             preparation_service,
             validator_store,
+            builder_preferences_service,
             config,
             slot_clock,
             http_api_listen_addr: None,
@@ -667,6 +689,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .clone()
                 .start_update_service()
                 .map_err(|e| format!("Unable to start proposer preferences service: {}", e))?;
+
+            self.builder_preferences_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start builder preferences service: {}", e))?;
         }
 
         self.preparation_service

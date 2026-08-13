@@ -1,5 +1,6 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use bls::{AggregateSignature, PublicKeyBytes, Signature};
+use builder_types::{RequestAuth, SignedRequestAuth};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
 use futures::{Stream, future::join_all, stream};
@@ -1499,6 +1500,30 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
         Ok(SignedProposerPreferences {
             message: preferences,
+            signature,
+        })
+    }
+
+    async fn sign_request_auth_v1(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        request_auth_v1: RequestAuth,
+    ) -> Result<SignedRequestAuth, Error> {
+        let domain_hash = self.spec.get_request_auth_domain();
+        let signing_root = request_auth_v1.signing_root(domain_hash);
+
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+        let signature = signing_method
+            .get_signature_from_root::<E, BlindedPayload<E>>(
+                SignableMessage::RequestAuth(&request_auth_v1),
+                signing_root,
+                &self.task_executor,
+                None,
+            )
+            .await?;
+
+        Ok(SignedRequestAuth {
+            message: request_auth_v1,
             signature,
         })
     }
