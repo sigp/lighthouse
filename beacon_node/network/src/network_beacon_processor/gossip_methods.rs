@@ -10,6 +10,8 @@ use beacon_chain::data_column_verification::{
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedPartialDataColumn,
     PartialColumnVerificationResult,
 };
+use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
     EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
@@ -49,12 +51,11 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnHeader,
-    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
-    block::BlockImportSource,
+    LightClientOptimisticUpdate, PartialDataColumn, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -917,6 +918,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    /// Process a gossip-verified full data column (not partial).
+    /// Partials are handled by process_gossip_verified_partial_data_column.
     async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -929,40 +932,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
-        // TODO(gloas): implement partial messages
-        if let DataColumnSidecar::Fulu(col) = verified_data_column.as_data_column()
-            && self
+        let data_col = verified_data_column.as_data_column();
+        // Republish the full column as a partial if partial columns are enabled, and the store
+        // tracking partials for its fork (Fulu: assembler, Gloas: pending payload cache) does not
+        // hold it complete yet. The assembler only exists if partial columns are enabled.
+        let republish_as_partial = match data_col {
+            DataColumnSidecar::Fulu(_) => self
                 .chain
                 .data_availability_checker
                 .partial_assembler()
-                .is_some_and(|a| !a.is_complete(block_root, verified_data_column.index()))
-        {
+                .is_some_and(|a| !a.is_complete(block_root, data_column_index)),
+            DataColumnSidecar::Gloas(_) => {
+                self.chain.config.enable_partial_columns
+                    && !self
+                        .chain
+                        .pending_payload_cache
+                        .is_column_complete(&block_root, data_column_index)
+            }
+        };
+        if republish_as_partial {
             metrics::inc_counter_vec(
                 &metrics::BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL,
                 &[&data_column_index.to_string()],
             );
 
-            match col.to_partial() {
-                Ok(mut column) => {
-                    let header = column.sidecar.header.take();
-                    if let Some(header) = header {
-                        // Requesting cells is irrelevant as all cells are available, simply clone
-                        // the `cells_present_bitmap`.
-                        let request_cells = column.sidecar.cells_present_bitmap.clone();
-                        self.send_network_message(NetworkMessage::PublishPartialColumns {
-                            messages: vec![PubsubPartialMessage::DataColumnFulu {
-                                column: Arc::new(column),
-                                request_cells,
-                                header: Arc::new(header),
-                            }],
-                        });
+            let message = match data_col.to_partial() {
+                Ok(PartialDataColumn::Fulu(mut fulu)) => {
+                    let request_cells = fulu.sidecar.cells_present_bitmap.clone();
+                    if let Some(header) = fulu.sidecar.header.take() {
+                        Some(PubsubPartialMessage::DataColumnFulu {
+                            column: Arc::new(fulu),
+                            request_cells,
+                            header: Arc::new(header),
+                        })
                     } else {
                         crit!("Converting from full to partial yielded headerless partial");
-                    };
+                        None
+                    }
+                }
+                Ok(PartialDataColumn::Gloas(gloas)) => {
+                    let request_cells = gloas.sidecar.cells_present_bitmap.clone();
+                    Some(PubsubPartialMessage::DataColumnGloas {
+                        column: Arc::new(gloas),
+                        request_cells,
+                    })
                 }
                 Err(err) => {
                     crit!(?err, "Could not convert from full to partial");
+                    None
                 }
+            };
+            if let Some(message) = message {
+                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                    messages: vec![message],
+                });
             }
         }
 
@@ -1028,20 +1051,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_duration: Duration,
         topic: GossipTopic,
     ) {
-        let block_root = column.block_root;
-        let index = column.index;
+        let block_root = *column.block_root();
+        let index = *column.index();
 
         let result = self
             .chain
-            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration);
+            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration)
+            .await;
 
-        let header = match result {
-            PartialColumnVerificationResult::Ok { header, column } => {
+        // Tracks the slot + (optional) Fulu header so we can:
+        //   - run delay metrics after error handling
+        //   - trigger `getBlobs` if we just learned about a Fulu header
+        // For Gloas the bid is gossip-validated on its own path (and triggers `getBlobs` there),
+        // so a partial column never needs to re-trigger it.
+        let post_processing = match result {
+            PartialColumnVerificationResult::Ok {
+                column,
+                slot,
+                verified_header,
+            } => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
                 );
-
-                let slot = header.as_header().slot();
 
                 debug!(
                     %slot,
@@ -1065,15 +1096,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.process_gossip_verified_partial_data_column(
                     peer_id,
                     column,
-                    header.clone(),
+                    verified_header.clone(),
                     slot,
                 )
                 .await;
-                Some(header)
+                Some((slot, verified_header))
             }
             PartialColumnVerificationResult::ErrWithValidHeader { header, err } => {
+                let slot = header.as_header().slot();
                 self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
-                Some(header)
+                Some((slot, Some(header)))
             }
             PartialColumnVerificationResult::Err(err) => {
                 self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
@@ -1081,8 +1113,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        if let Some(header) = header {
-            let slot = header.as_header().slot();
+        if let Some((slot, verified_header)) = post_processing {
             let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
             // Log metrics to track delay from other nodes on the network.
             metrics::observe_duration(
@@ -1090,11 +1121,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 delay,
             );
 
-            if !header.was_cached() {
+            if let Some(header) = verified_header
+                && !header.was_cached()
+            {
                 debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
                 // We want to publish immediately when this finishes
                 let publish_blobs = true;
-                let header = header.into_header();
+                let header = PartialHeaderOrBid::PartialHeader(header.into_header());
                 self.fetch_engine_blobs_and_publish_full(header.clone(), block_root, publish_blobs)
                     .await;
                 self.publish_partial_data_columns(header, block_root).await;
@@ -1248,7 +1281,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             GossipPartialDataColumnError::EmptyMessage
             | GossipPartialDataColumnError::InconsistentPresentCount { .. }
-            | GossipPartialDataColumnError::InconsistentCommitmentsLength { .. } => {
+            | GossipPartialDataColumnError::InconsistentCommitmentsLength { .. }
+            | GossipPartialDataColumnError::IncorrectSlot { .. } => {
                 debug!(
                     error = ?err,
                     %block_root,
@@ -1285,12 +1319,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Process a gossip-verified partial data column by merging it in the assembler
+    /// Process a gossip-verified partial data column by merging it into the right per-fork store
+    /// (the Fulu assembler or the Gloas pending payload cache) via `process_gossip_partial_data_column`.
+    ///
+    /// `verified_header` is `Some` for Fulu and `None` for Gloas.
     async fn process_gossip_verified_partial_data_column(
         self: &Arc<Self>,
         _peer_id: PeerId,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
         slot: Slot,
     ) {
         let processing_start_time = Instant::now();
@@ -1330,31 +1367,62 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 }
 
+                // While the local getBlobs fetch is still pending, don't request cells we may get
+                // for free from the EL; once local blobs are known, request everything we lack.
+                let request_cells = |present_cells: &CellBitmap<T::EthSpec>| {
+                    if merge_result.local_fetch_settled {
+                        // Request all cells that are not available locally.
+                        let mut all_one = present_cells.clone_zeroed();
+                        all_one.not_inplace();
+                        all_one
+                    } else {
+                        // Do not request cells if we don't know the local blobs yet.
+                        present_cells.clone_zeroed()
+                    }
+                };
+
                 if !merge_result.updated_partials.is_empty() {
-                    let header = verified_header.into_header();
-                    let messages = merge_result
-                        .updated_partials
-                        .into_iter()
-                        .map(|partial| {
-                            let column = partial.into_inner();
-                            let present_cells = &column.sidecar.cells_present_bitmap;
-                            let request_cells = if merge_result.local_blobs {
-                                // Request all cells that are not available locally.
-                                let mut all_one = present_cells.clone_zeroed();
-                                all_one.not_inplace();
-                                all_one
-                            } else {
-                                // Do not request cells if we don't know the local blobs yet.
-                                present_cells.clone_zeroed()
-                            };
-                            PubsubPartialMessage::DataColumnFulu {
-                                column,
-                                request_cells,
-                                header: header.clone(),
+                    match merge_result.updated_partials {
+                        // Fulu partials are always published with a header, and `verified_header`
+                        // is `Some` for every Fulu partial that reached this point.
+                        UpdatedPartials::Fulu(updated_partials) => {
+                            if let Some(verified_header) = verified_header {
+                                let header = verified_header.into_header();
+                                let messages = updated_partials
+                                    .into_iter()
+                                    .map(|partial| {
+                                        let column = partial.into_inner();
+                                        let request_cells =
+                                            request_cells(&column.sidecar.cells_present_bitmap);
+                                        PubsubPartialMessage::DataColumnFulu {
+                                            column,
+                                            request_cells,
+                                            header: header.clone(),
+                                        }
+                                    })
+                                    .collect();
+                                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                                    messages,
+                                });
                             }
-                        })
-                        .collect();
-                    self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
+                        }
+                        UpdatedPartials::Gloas(updated_partials) => {
+                            let messages = updated_partials
+                                .into_iter()
+                                .map(|column| {
+                                    let request_cells =
+                                        request_cells(&column.sidecar.cells_present_bitmap);
+                                    PubsubPartialMessage::DataColumnGloas {
+                                        column: Arc::new(column),
+                                        request_cells,
+                                    }
+                                })
+                                .collect();
+                            self.send_network_message(NetworkMessage::PublishPartialColumns {
+                                messages,
+                            });
+                        }
+                    }
                 }
                 Ok(avail)
             }
@@ -1834,17 +1902,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let current_span = Span::current();
         self.executor.spawn(
             async move {
-                if let Ok(header) = PartialDataColumnHeader::try_from(block_clone.as_ref()) {
-                    let header = Arc::new(header);
+                if let Some(header_or_bid) =
+                    PartialHeaderOrBid::try_from_block(block_clone.as_ref())
+                {
                     self_clone
                         .fetch_engine_blobs_and_publish_full(
-                            header.clone(),
+                            header_or_bid.clone(),
                             block_root,
                             publish_blobs,
                         )
                         .await;
                     self_clone
-                        .publish_partial_data_columns(header, block_root)
+                        .publish_partial_data_columns(header_or_bid, block_root)
                         .await
                 }
             }
