@@ -955,6 +955,14 @@ mod data_availability_checker_tests {
         assert!(result.full_columns.is_empty(), "column not yet complete");
         assert!(!s.cache.is_column_complete(&s.block_root, 0));
 
+        // Re-merging blob 0 while the column is still incomplete adds nothing.
+        let duplicate = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[duplicate])
+            .expect("merge");
+        assert_eq!(result.added_cells, 0);
+
         // Second arrival: column 0 gains blob 1's cell — now complete.
         let second = gloas_partial(s.block_root, slot, 0, 2, &[1]);
         let (_availability, result) = s
@@ -965,13 +973,5 @@ mod data_availability_checker_tests {
         assert_eq!(result.full_columns.len(), 1, "column 0 becomes complete");
         assert_eq!(result.full_columns[0].index(), 0);
         assert!(s.cache.is_column_complete(&s.block_root, 0));
-
-        // Re-merging a cell already present adds nothing.
-        let duplicate = gloas_partial(s.block_root, slot, 0, 2, &[0]);
-        let (_availability, result) = s
-            .cache
-            .merge_partial_data_columns(s.block_root, &[duplicate])
-            .expect("merge");
-        assert_eq!(result.added_cells, 0);
     }
 }
