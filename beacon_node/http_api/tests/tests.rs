@@ -2822,6 +2822,33 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_pool_attester_slashings_future_fork_v2(mut self) -> Self {
+        let current_fork = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(self.chain.slot_clock.now().unwrap());
+        let Some(future_fork) = current_fork.next_fork() else {
+            return self;
+        };
+
+        // Use a fresh slashing, as `self.attester_slashing` is already in the pool.
+        let slashing = self.harness.make_attester_slashing(vec![2, 3]);
+
+        // A header for a fork that is not yet active is accepted, e.g. a slashing posted
+        // just before the fork boundary. Block production converts the variant as needed.
+        self.client
+            .post_beacon_pool_attester_slashings_v2(&slashing, future_fork)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid attester slashing should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_get_beacon_pool_attester_slashings(self) -> Self {
         let result = self
             .client
@@ -9351,9 +9378,18 @@ async fn beacon_pools_post_attester_slashings_invalid_v1() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid_v2() {
-    ApiTester::new()
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+
+    ApiTester::new_from_config(config)
         .await
         .test_post_beacon_pool_attester_slashings_valid_v2()
+        .await
+        .test_post_beacon_pool_attester_slashings_future_fork_v2()
         .await;
 }
 

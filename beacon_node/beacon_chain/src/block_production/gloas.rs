@@ -497,16 +497,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attester_slashings = attester_slashings
             .into_iter()
-            .filter_map(|a| match a {
-                AttesterSlashing::Base(_) => None,
-                // Convert Electra slashings left over from before the fork into the Gloas type.
-                // The SSZ bytes are the same, only the hash tree root differs.
-                // TODO(post-gloas): remove this conversion once mainnet has forked to Gloas.
-                AttesterSlashing::Electra(a) => Some(AttesterSlashingGloas {
+            .map(|a| match a {
+                // Convert pre-Gloas slashings into the Gloas type. The SSZ bytes are the same,
+                // only the hash tree root differs.
+                AttesterSlashing::Base(a) => AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Base(a.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Base(a.attestation_2).to_gloas(),
+                },
+                AttesterSlashing::Electra(a) => AttesterSlashingGloas {
                     attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
                     attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
-                }),
-                AttesterSlashing::Gloas(a) => Some(a),
+                },
+                AttesterSlashing::Gloas(a) => a,
             })
             .collect::<Vec<_>>();
 
