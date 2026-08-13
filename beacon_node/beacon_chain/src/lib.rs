@@ -76,6 +76,7 @@ pub use self::beacon_chain::{
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;

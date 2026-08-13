@@ -151,6 +151,8 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
             spec.target_aggregators_per_committee.to_string().into(),
         "domain_contribution_and_proof".to_uppercase() =>
             u32_hex(spec.domain_contribution_and_proof),
+        "domain_inclusion_list_committee".to_uppercase() =>
+            u32_hex(spec.domain_inclusion_list_committee),
         "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),
         "domain_sync_committee_selection_proof".to_uppercase() =>
             u32_hex(spec.domain_sync_committee_selection_proof),

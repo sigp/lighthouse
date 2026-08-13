@@ -334,6 +334,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
     }
 
+    pub fn electra_through_fulu() -> Self {
+        Self::for_forks(ForkName::list_all()[5..7].to_vec())
+    }
+
     pub fn fulu_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
@@ -1047,6 +1051,10 @@ impl<E> GossipValidationHandler<E> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn latest_stable(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::latest_stable()])
+    }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
@@ -1311,13 +1319,21 @@ impl<H: TypeName> Handler for SszGenericHandler<H> {
 // Supported SSZ generic handlers
 pub struct BasicVector;
 type_name!(BasicVector, "basic_vector");
+pub struct BasicProgressiveList;
+type_name!(BasicProgressiveList, "basic_progressive_list");
 pub struct Bitlist;
 type_name!(Bitlist, "bitlist");
 pub struct Bitvector;
 type_name!(Bitvector, "bitvector");
+pub struct ProgressiveBitlist;
+type_name!(ProgressiveBitlist, "progressive_bitlist");
 pub struct Boolean;
 type_name!(Boolean, "boolean");
 pub struct Uints;
 type_name!(Uints, "uints");
 pub struct Containers;
 type_name!(Containers, "containers");
+pub struct ProgressiveContainers;
+type_name!(ProgressiveContainers, "progressive_containers");
+pub struct CompatibleUnions;
+type_name!(CompatibleUnions, "compatible_unions");

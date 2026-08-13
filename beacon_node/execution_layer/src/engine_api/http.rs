@@ -4,13 +4,17 @@ use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
-use reqwest::header::CONTENT_TYPE;
+use opentelemetry::global;
+use opentelemetry_http::HeaderInjector;
+use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use std::time::{Duration, Instant};
 
@@ -668,6 +672,14 @@ impl HttpJsonRpc {
         if let Some(auth) = &self.auth {
             request = request.bearer_auth(auth.generate_token()?);
         };
+
+        // Inject the current span's trace context as a `traceparent` header.
+        let context = Span::current().context();
+        let mut headers = HeaderMap::new();
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&context, &mut HeaderInjector(&mut headers))
+        });
+        request = request.headers(headers);
 
         let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
@@ -1677,7 +1689,7 @@ mod test {
             .unwrap()
             .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions().clone())
+        Ok(ep.transactions_bounded().unwrap().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(
