@@ -4813,7 +4813,15 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         let block = response.into_block();
@@ -5005,6 +5013,124 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_v4_missing_consensus_version_header_returns_400(
+        self,
+    ) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let url = self
+            .client
+            .post_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // A valid body, but no `Eth-Consensus-Version` header: the header is required
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&eth2::types::BuilderConfig::empty())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_block_production_v4_zero_length_entry_fields_return_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let url = self
+            .client
+            .post_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let valid_auth = eth2::types::SignedRequestAuth {
+            message: eth2::types::RequestAuth {
+                data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                    .unwrap(),
+                slot,
+            },
+            signature: Signature::empty(),
+        };
+        let entry = |url: &str, auth: eth2::types::SignedRequestAuth| eth2::types::BuilderEntry {
+            url: url.parse().unwrap(),
+            auth,
+            builder_pubkeys: <_>::default(),
+            max_execution_payment: 0,
+            min_bid: 0,
+            builder_boost_factor: 100,
+        };
+
+        // A zero-length `url` and a zero-length auth `data` each make the body invalid
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let empty_url_entry = entry("", valid_auth.clone());
+        let mut empty_data_auth = valid_auth;
+        empty_data_auth.message.data = eth2::types::RequestAuthData::default();
+        let empty_data_entry = entry("http://builder.example.com", empty_data_auth);
+
+        for bad_entry in [empty_url_entry, empty_data_entry] {
+            let config = serde_json::json!({
+                "min_bid": "0",
+                "builder_boost_factor": "100",
+                "builders": [bad_entry],
+            });
+            let response = reqwest::Client::new()
+                .post(url.clone())
+                .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+                .json(&config)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
     pub async fn test_envelope_post_when_syncing_returns_503(mut self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
@@ -5178,7 +5304,15 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5253,7 +5387,15 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4_ssz::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5325,12 +5467,28 @@ impl ApiTester {
 
             let (response, metadata) = if ssz {
                 self.client
-                    .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, true, None, None)
+                    .post_validator_blocks_v4_ssz::<E>(
+                        slot,
+                        &randao_reveal,
+                        None,
+                        true,
+                        &eth2::types::BuilderConfig::empty(),
+                        None,
+                        ForkName::Gloas,
+                    )
                     .await
                     .unwrap()
             } else {
                 self.client
-                    .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, true, None, None)
+                    .post_validator_blocks_v4::<E>(
+                        slot,
+                        &randao_reveal,
+                        None,
+                        true,
+                        &eth2::types::BuilderConfig::empty(),
+                        None,
+                        ForkName::Gloas,
+                    )
                     .await
                     .unwrap()
             };
@@ -5871,7 +6029,15 @@ impl ApiTester {
             // Produce and publish a block.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5954,7 +6120,15 @@ impl ApiTester {
             // Produce and publish a block, but withhold its envelope.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -8923,7 +9097,15 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         let block = response.into_block();
@@ -9229,7 +9411,6 @@ impl ApiTester {
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
-
         // When GraffitiPolicy is None
         let no_graffiti_policy_path = self
             .client
@@ -10100,6 +10281,10 @@ async fn envelope_api() {
     ApiTester::new_with_hard_forks()
         .await
         .test_block_production_v4_missing_include_payload_returns_400()
+        .await
+        .test_block_production_v4_missing_consensus_version_header_returns_400()
+        .await
+        .test_block_production_v4_zero_length_entry_fields_return_400()
         .await
         .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
         .await
