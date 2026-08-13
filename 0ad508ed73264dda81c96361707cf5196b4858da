@@ -1,0 +1,1 @@
+catch up to Aug 10 beacon-APIs #630: require Eth-Consensus-Version on POST v4; 400 on zero-length url/auth-data in bodies; negative tests
