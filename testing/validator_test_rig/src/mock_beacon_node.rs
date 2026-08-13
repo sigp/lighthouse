@@ -102,8 +102,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}`
-    pub fn mock_get_validator_blocks_v4(
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}`
+    pub fn mock_post_validator_blocks_v4(
         &mut self,
         block: &BeaconBlock<E>,
         fork_name: ForkName,
@@ -121,7 +121,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         });
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),
@@ -136,8 +136,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
-    pub fn mock_get_validator_blocks_v4_ssz(
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}` (SSZ)
+    pub fn mock_post_validator_blocks_v4_ssz(
         &mut self,
         block: &BeaconBlock<E>,
         fork_name: ForkName,
@@ -149,7 +149,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let ssz_bytes = block.as_ssz_bytes();
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),
@@ -165,13 +165,13 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ) returning error
-    pub fn mock_get_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}` (SSZ) returning error
+    pub fn mock_post_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
         let path_pattern =
             Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),

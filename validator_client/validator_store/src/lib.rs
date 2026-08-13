@@ -1,4 +1,5 @@
 use bls::{PublicKeyBytes, Signature};
+use builder_types::{RequestAuth, SignedRequestAuth};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use futures::Stream;
 use slashing_protection::NotSafe;
@@ -212,6 +213,12 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: PublicKeyBytes,
         preferences: ProposerPreferences,
     ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
+
+    fn sign_request_auth_v1(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        request_auth_v1: RequestAuth,
+    ) -> impl Future<Output = Result<SignedRequestAuth, Error<Self::Error>>> + Send;
 
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
