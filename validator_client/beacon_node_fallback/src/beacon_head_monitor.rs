@@ -27,10 +27,11 @@ async fn poll_for_current_slot_head<T: SlotClock>(
     loop {
         match receiver.recv().await {
             Ok(head_event) => {
-                // Skip the event on a clock read failure rather than returning `None`,
-                // which callers treat as a terminal error that disables head monitoring.
+                // A clock read only fails when the system clock is broken, so treat it like
+                // a closed channel and disable head monitoring.
                 let Some(current_slot) = slot_clock.now() else {
-                    continue;
+                    warn!("Failed to read slot clock while polling head events");
+                    return None;
                 };
                 if head_event.slot == current_slot {
                     return Some(head_event);
@@ -397,6 +398,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(event.beacon_block_root, Hash256::from_low_u64_be(2));
+    }
+
+    #[tokio::test]
+    async fn test_clock_read_failure_is_terminal() {
+        let slot_clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(12),
+        );
+        // A time before genesis makes clock reads fail.
+        slot_clock.set_current_time(Duration::from_secs(5));
+        let (sender, mut receiver) = broadcast::channel(1);
+        sender.send(head_event(0, 1)).unwrap();
+
+        assert!(
+            poll_for_current_slot_head(&mut receiver, &slot_clock)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
