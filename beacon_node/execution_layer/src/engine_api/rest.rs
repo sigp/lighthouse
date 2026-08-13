@@ -518,7 +518,9 @@ pub fn header_to_fork(header: &str) -> Option<ForkName> {
 mod tests {
     use super::*;
     use crate::auth::JwtKey;
-    use crate::engine_api::{NewPayloadRequestDeneb, NewPayloadRequestFulu, NewPayloadRequestGloas};
+    use crate::engine_api::{
+        NewPayloadRequestDeneb, NewPayloadRequestFulu, NewPayloadRequestGloas,
+    };
     use crate::test_utils::{Config, DEFAULT_JWT_SECRET, MockExecutionConfig, MockServer};
     use std::future::Future;
     use std::sync::Arc;
@@ -665,7 +667,11 @@ mod tests {
         }
 
         /// Asserts the request the client put on the wire: fork header + path/query + exact SSZ bytes.
-        async fn assert_ssz_request_equals<R, F>(self, request_func: R, expected: ExpectedRest) -> Self
+        async fn assert_ssz_request_equals<R, F>(
+            self,
+            request_func: R,
+            expected: ExpectedRest,
+        ) -> Self
         where
             R: Fn(Arc<HttpRestSsz>) -> F,
             F: Future<Output = ()>,
@@ -765,7 +771,9 @@ mod tests {
                 move |client| {
                     let versioned_hashes = versioned_hashes.clone();
                     async move {
-                        let _ = client.get_blobs_v2::<MainnetEthSpec>(versioned_hashes).await;
+                        let _ = client
+                            .get_blobs_v2::<MainnetEthSpec>(versioned_hashes)
+                            .await;
                     }
                 },
                 ExpectedRest {
@@ -791,7 +799,9 @@ mod tests {
                 move |client| {
                     let versioned_hashes = versioned_hashes.clone();
                     async move {
-                        let _ = client.get_blobs_v3::<MainnetEthSpec>(versioned_hashes).await;
+                        let _ = client
+                            .get_blobs_v3::<MainnetEthSpec>(versioned_hashes)
+                            .await;
                     }
                 },
                 ExpectedRest {
@@ -834,15 +844,17 @@ mod tests {
             .into_iter()
             .map(|hash| hash.into_root())
             .collect::<Vec<_>>();
-        let expected_body =
-            Bytes::from(SszBodiesByHashRequest::new(roots).unwrap().as_ssz_bytes());
+        let expected_body = Bytes::from(SszBodiesByHashRequest::new(roots).unwrap().as_ssz_bytes());
         RestTester::new(true)
             .assert_ssz_request_equals(
                 move |client| {
                     let block_hashes = block_hashes.clone();
                     async move {
                         let _ = client
-                            .get_payload_bodies_by_hash::<MainnetEthSpec>(ForkName::Fulu, block_hashes)
+                            .get_payload_bodies_by_hash::<MainnetEthSpec>(
+                                ForkName::Fulu,
+                                block_hashes,
+                            )
                             .await;
                     }
                 },
@@ -1092,7 +1104,9 @@ mod tests {
         let payload = ExecutionPayloadFulu::<MainnetEthSpec>::default();
         let execution_requests = ExecutionRequestsElectra::<MainnetEthSpec>::default();
         let tester = RestTester::new(true);
-        tester.server.all_payloads_invalid_block_hash_on_new_payload();
+        tester
+            .server
+            .all_payloads_invalid_block_hash_on_new_payload();
         tester
             .assert_ssz_response(
                 move |client| {

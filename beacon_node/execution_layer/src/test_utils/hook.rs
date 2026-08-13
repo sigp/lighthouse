@@ -1,11 +1,8 @@
-use crate::engines::ForkchoiceState;
 use crate::engine_api::PayloadAttributes;
+use crate::engines::ForkchoiceState;
 use crate::json_structures::*;
 
-type ForkChoiceUpdatedHook = dyn Fn(
-        ForkchoiceState,
-        Option<PayloadAttributes>,
-    ) -> Option<JsonForkchoiceUpdatedV1Response>
+type ForkChoiceUpdatedHook = dyn Fn(ForkchoiceState, Option<PayloadAttributes>) -> Option<JsonForkchoiceUpdatedV1Response>
     + Send
     + Sync;
 

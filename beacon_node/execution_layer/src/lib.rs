@@ -15,7 +15,9 @@ pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 use engine_api::transport::EngineApi;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz, transport::Transport};
+pub use engine_api::{
+    http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz, transport::Transport,
+};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};

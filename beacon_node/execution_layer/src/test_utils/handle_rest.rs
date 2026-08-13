@@ -13,7 +13,9 @@ use crate::ssz_structures::*;
 
 use super::handle_rpc::UNKNOWN_PAYLOAD_ERROR_CODE;
 use super::mock_engine_core::CorePayload;
-use super::{Context, DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI, STUB_CAPABILITIES_JSON};
+use super::{
+    Context, DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI, STUB_CAPABILITIES_JSON,
+};
 
 pub(crate) fn handle_rest<E: EthSpec>(
     method: &str,
@@ -130,7 +132,9 @@ pub(crate) fn handle_rest<E: EthSpec>(
             let generator = ctx.execution_block_generator.read();
             let payloads = block_hashes
                 .into_iter()
-                .map(|hash| generator.execution_payload_by_hash(ExecutionBlockHash::from_root(hash)))
+                .map(|hash| {
+                    generator.execution_payload_by_hash(ExecutionBlockHash::from_root(hash))
+                })
                 .collect();
             drop(generator);
 
@@ -233,32 +237,50 @@ fn decode_forkchoice_updated<E: EthSpec>(
         ForkName::Bellatrix => {
             let update = SszForkchoiceUpdateBellatrix::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V1))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V1),
+            )
         }
         ForkName::Capella => {
             let update = SszForkchoiceUpdateCapella::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V2))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V2),
+            )
         }
         ForkName::Deneb => {
             let update = SszForkchoiceUpdateDeneb::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V3))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V3),
+            )
         }
         ForkName::Electra => {
             let update = SszForkchoiceUpdateElectra::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V3))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V3),
+            )
         }
         ForkName::Fulu => {
             let update = SszForkchoiceUpdateFulu::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V3))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V3),
+            )
         }
         ForkName::Gloas => {
             let update = SszForkchoiceUpdateAmsterdam::<E>::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
-            (update.forkchoice_state, attributes.map(PayloadAttributes::V4))
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V4),
+            )
         }
         ForkName::Base | ForkName::Altair => {
             return Err(DecodeError::BytesInvalid(format!(
@@ -440,7 +462,9 @@ fn encode_bodies_response<E: EthSpec>(
             return Err("amsterdam execution payload bodies are not yet supported".to_string());
         }
         ForkName::Base | ForkName::Altair => {
-            return Err(format!("unsupported fork for execution payload bodies: {fork}"));
+            return Err(format!(
+                "unsupported fork for execution payload bodies: {fork}"
+            ));
         }
     };
 
@@ -501,10 +525,7 @@ impl RestProblemKind {
     }
 }
 
-pub fn problem_response(
-    problem: RestProblemKind,
-    detail: Option<String>,
-) -> Response<Bytes> {
+pub fn problem_response(problem: RestProblemKind, detail: Option<String>) -> Response<Bytes> {
     let body = json!({
         "type": format!("/engine-api/errors/{}", problem.slug()),
         "detail": detail,

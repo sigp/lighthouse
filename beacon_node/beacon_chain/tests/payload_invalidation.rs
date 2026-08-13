@@ -9,9 +9,7 @@ use beacon_chain::{
     canonical_head::CachedHead,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
-use execution_layer::{
-    ExecutionLayer, ForkchoiceState, PayloadAttributes,
-};
+use execution_layer::{ExecutionLayer, ForkchoiceState, PayloadAttributes};
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;

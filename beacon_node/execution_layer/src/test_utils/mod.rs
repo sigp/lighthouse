@@ -78,8 +78,8 @@ mod handle_rest;
 mod handle_rpc;
 mod hook;
 mod mock_builder;
-mod mock_execution_layer;
 mod mock_engine_core;
+mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
 #[derive(Clone)]
@@ -291,9 +291,7 @@ impl<E: EthSpec> MockServer<E> {
         self.ctx.previous_request.lock().take()
     }
 
-    pub fn take_previous_forkchoice_request(
-        &self,
-    ) -> Option<CapturedForkchoiceRequest> {
+    pub fn take_previous_forkchoice_request(&self) -> Option<CapturedForkchoiceRequest> {
         self.ctx.previous_forkchoice_request.lock().take()
     }
 

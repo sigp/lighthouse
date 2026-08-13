@@ -13,12 +13,12 @@ use types::execution::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
     ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
 };
+use types::{EthSpec, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
     ForkName,
 };
-use types::{EthSpec, Transactions};
 
 #[superstruct(
     variants(V1, V2, V3),
@@ -100,14 +100,8 @@ type SszExecutionRequests<E> = VariableList<
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
     map_into(ExecutionPayload),
-    cast_error(
-        ty = "Error",
-        expr = "Error::IncorrectStateVariant"
-    ),
-    partial_getter_error(
-        ty = "Error",
-        expr = "Error::IncorrectStateVariant"
-    )
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 #[ssz(enum_behaviour = "transparent")]
@@ -560,7 +554,10 @@ impl<E: EthSpec> TryFrom<SszGetPayloadResponse<E>> for GetPayloadResponse<E> {
 #[ssz(enum_behaviour = "transparent")]
 pub struct SszForkchoiceUpdate {
     pub forkchoice_state: ForkchoiceState,
-    #[superstruct(only(Bellatrix), partial_getter(rename = "payload_attributes_bellatrix"))]
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "payload_attributes_bellatrix")
+    )]
     pub payload_attributes: VariableList<PayloadAttributesV1, U1>,
     #[superstruct(only(Capella), partial_getter(rename = "payload_attributes_capella"))]
     pub payload_attributes: VariableList<PayloadAttributesV2, U1>,
@@ -849,7 +846,7 @@ impl<E: EthSpec> SszBodiesResponse<E> {
                         .available
                         .then(|| ExecutionPayloadBodyV1::from(entry.body))
                 })
-                .collect())
+                .collect()),
         }
     }
 }
@@ -1089,7 +1086,8 @@ mod test {
 
         let envelope = SszExecutionPayloadEnvelopeGloas::try_from(request).unwrap();
         let decoded =
-            SszExecutionPayloadEnvelopeGloas::<E>::from_ssz_bytes(&envelope.as_ssz_bytes()).unwrap();
+            SszExecutionPayloadEnvelopeGloas::<E>::from_ssz_bytes(&envelope.as_ssz_bytes())
+                .unwrap();
 
         assert_eq!(decoded.parent_beacon_block_root, parent_beacon_block_root);
         assert_eq!(
