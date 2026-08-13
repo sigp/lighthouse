@@ -63,6 +63,27 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         )
     }
 
+    /// Build a mock whose client advertises REST-SSZ but whose server does not serve it. The
+    /// capabilities probe then 404s over REST, forcing the transport to fall back to JSON-RPC.
+    pub fn rest_client_without_rest_server(executor: TaskExecutor) -> Self {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_block_hash = ExecutionBlockHash::zero();
+        spec.terminal_block_hash_activation_epoch = Epoch::new(0);
+        Self::new_with_transport(
+            executor,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Arc::new(spec),
+            None,
+            true,
+            false,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
@@ -75,9 +96,37 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
-        let handle = executor.handle().unwrap();
-
         let rest_ssz = mock_rest_ssz_enabled();
+        Self::new_with_transport(
+            executor,
+            shanghai_time,
+            cancun_time,
+            prague_time,
+            osaka_time,
+            amsterdam_time,
+            jwt_key,
+            spec,
+            kzg,
+            rest_ssz,
+            rest_ssz,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_transport(
+        executor: TaskExecutor,
+        shanghai_time: Option<u64>,
+        cancun_time: Option<u64>,
+        prague_time: Option<u64>,
+        osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
+        jwt_key: Option<JwtKey>,
+        spec: Arc<ChainSpec>,
+        kzg: Option<Arc<Kzg>>,
+        client_rest_ssz: bool,
+        server_rest_ssz: bool,
+    ) -> Self {
+        let handle = executor.handle().unwrap();
 
         let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
         let server = MockServer::new_with_config(
@@ -89,7 +138,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 prague_time,
                 osaka_time,
                 amsterdam_time,
-                serve_rest_ssz: rest_ssz,
+                serve_rest_ssz: server_rest_ssz,
                 ..Default::default()
             },
             kzg,
@@ -105,7 +154,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             execution_endpoint: Some(url),
             secret_file: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
-            engine_api_rest_ssz: rest_ssz,
+            engine_api_rest_ssz: client_rest_ssz,
             ..Default::default()
         };
         let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();

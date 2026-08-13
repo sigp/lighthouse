@@ -478,7 +478,6 @@ pub enum RestProblemKind {
     InvalidRequest,
     MethodNotFound,
     UnknownPayload,
-    UnsupportedMediaType,
     Internal,
 }
 
@@ -490,7 +489,6 @@ impl RestProblemKind {
             RestProblemKind::InvalidRequest => 400,
             RestProblemKind::MethodNotFound => 404,
             RestProblemKind::UnknownPayload => 404,
-            RestProblemKind::UnsupportedMediaType => 415,
             RestProblemKind::Internal => 500,
         }
     }
@@ -502,7 +500,6 @@ impl RestProblemKind {
             RestProblemKind::InvalidRequest => "invalid-request",
             RestProblemKind::MethodNotFound => "method-not-found",
             RestProblemKind::UnknownPayload => "unknown-payload",
-            RestProblemKind::UnsupportedMediaType => "unsupported-media-type",
             RestProblemKind::Internal => "internal",
         }
     }

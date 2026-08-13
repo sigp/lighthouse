@@ -986,3 +986,115 @@ impl From<JsonCapabilities> for SszCapabilities {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use bls::{PublicKeyBytes, SignatureBytes};
+    use ssz::Encode;
+    use types::{
+        Address, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
+        Hash256, MainnetEthSpec, WithdrawalRequest,
+    };
+
+    type E = MainnetEthSpec;
+
+    fn deposit_request() -> DepositRequest {
+        DepositRequest {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::repeat_byte(1),
+            amount: 32,
+            signature: SignatureBytes::empty(),
+            index: 3,
+        }
+    }
+
+    fn withdrawal_request() -> WithdrawalRequest {
+        WithdrawalRequest {
+            source_address: Address::repeat_byte(2),
+            validator_pubkey: PublicKeyBytes::empty(),
+            amount: 33,
+        }
+    }
+
+    fn consolidation_request() -> ConsolidationRequest {
+        ConsolidationRequest {
+            source_address: Address::repeat_byte(3),
+            source_pubkey: PublicKeyBytes::empty(),
+            target_pubkey: PublicKeyBytes::empty(),
+        }
+    }
+
+    fn electra_requests() -> ExecutionRequestsElectra<E> {
+        ExecutionRequestsElectra {
+            deposits: VariableList::new(vec![deposit_request()]).unwrap(),
+            withdrawals: VariableList::new(vec![withdrawal_request()]).unwrap(),
+            consolidations: VariableList::new(vec![consolidation_request()]).unwrap(),
+        }
+    }
+
+    #[test]
+    fn fulu_new_payload_envelope_folds_requests_and_drops_versioned_hashes() {
+        let payload = ExecutionPayloadFulu::<E>::default();
+        let requests = electra_requests();
+        let parent_beacon_block_root = Hash256::repeat_byte(9);
+
+        let request = NewPayloadRequestFulu {
+            execution_payload: &payload,
+            versioned_hashes: vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)],
+            parent_beacon_block_root,
+            execution_requests: &requests,
+        };
+
+        let envelope = SszExecutionPayloadEnvelopeFulu::try_from(request).unwrap();
+        let decoded =
+            SszExecutionPayloadEnvelopeFulu::<E>::from_ssz_bytes(&envelope.as_ssz_bytes()).unwrap();
+
+        assert_eq!(decoded.parent_beacon_block_root, parent_beacon_block_root);
+        assert_eq!(decoded.execution_payload, payload);
+        assert_eq!(
+            execution_requests_electra_from_ssz(decoded.execution_requests).unwrap(),
+            requests
+        );
+    }
+
+    #[test]
+    fn gloas_new_payload_envelope_folds_builder_requests() {
+        let payload = ExecutionPayloadGloas::<E>::default();
+        let requests = ExecutionRequestsGloas {
+            deposits: VariableList::new(vec![deposit_request()]).unwrap(),
+            withdrawals: VariableList::new(vec![withdrawal_request()]).unwrap(),
+            consolidations: VariableList::new(vec![consolidation_request()]).unwrap(),
+            builder_deposits: VariableList::new(vec![BuilderDepositRequest {
+                pubkey: PublicKeyBytes::empty(),
+                withdrawal_credentials: Hash256::repeat_byte(4),
+                amount: 34,
+                signature: SignatureBytes::empty(),
+            }])
+            .unwrap(),
+            builder_exits: VariableList::new(vec![BuilderExitRequest {
+                source_address: Address::repeat_byte(5),
+                pubkey: PublicKeyBytes::empty(),
+            }])
+            .unwrap(),
+        };
+        let parent_beacon_block_root = Hash256::repeat_byte(9);
+
+        let request = NewPayloadRequestGloas {
+            execution_payload: &payload,
+            versioned_hashes: vec![Hash256::repeat_byte(1)],
+            parent_beacon_block_root,
+            execution_requests: &requests,
+        };
+
+        let envelope = SszExecutionPayloadEnvelopeGloas::try_from(request).unwrap();
+        let decoded =
+            SszExecutionPayloadEnvelopeGloas::<E>::from_ssz_bytes(&envelope.as_ssz_bytes()).unwrap();
+
+        assert_eq!(decoded.parent_beacon_block_root, parent_beacon_block_root);
+        assert_eq!(
+            execution_requests_gloas_from_ssz(decoded.execution_requests).unwrap(),
+            requests
+        );
+    }
+}

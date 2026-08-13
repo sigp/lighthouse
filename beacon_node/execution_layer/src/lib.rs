@@ -2255,6 +2255,19 @@ mod test {
     }
 
     #[tokio::test]
+    async fn rest_probe_failure_falls_back_to_json_rpc() {
+        let runtime = TestRuntime::default();
+        let mock =
+            MockExecutionLayer::rest_client_without_rest_server(runtime.task_executor.clone());
+
+        assert_eq!(mock.el.resolved_transport(), None);
+
+        mock.el.upcheck().await;
+
+        assert_eq!(mock.el.resolved_transport(), Some(Transport::JsonRpcOnly));
+    }
+
+    #[tokio::test]
     async fn transport_resolves_to_expected_mode() {
         let runtime = TestRuntime::default();
         let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
