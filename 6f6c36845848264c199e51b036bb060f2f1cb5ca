@@ -1,0 +1,1 @@
+catch up to Aug 10 spec revisions: builder_pubkeys list (was single builder_pubkey), zero-length url/auth-data validation, fork_name param + Eth-Consensus-Version on POST v4 client (hoisted into the POST helper)
