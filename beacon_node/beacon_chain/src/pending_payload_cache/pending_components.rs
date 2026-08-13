@@ -28,8 +28,8 @@ pub struct PendingComponents<E: EthSpec> {
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
-    /// Gossip verified EIP-8025 execution proofs, keyed by proof type. Only populated when a
-    /// proof engine is configured, since proofs are neither requested nor verified otherwise.
+    /// Execution proofs keyed by proof type, so repeats from one prover count once. Empty
+    /// without a proof engine.
     pub execution_proofs: HashMap<ProofType, Arc<SignedExecutionProof>>,
     pub reconstruction_started: bool,
     /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
@@ -201,14 +201,17 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    /// Inserts a gossip verified execution proof into the cache.
-    ///
-    /// Returns `true` if this is the first proof for this payload, i.e. the insert may have
-    /// unblocked the execution proof requirement in `make_available`.
-    pub fn insert_execution_proof(&mut self, proof: Arc<SignedExecutionProof>) -> bool {
-        let is_first_proof = self.execution_proofs.is_empty();
-        self.execution_proofs.insert(proof.proof_type(), proof);
-        is_first_proof
+    /// Inserts an execution proof, returning the distinct proof type count, or `None` if we
+    /// already had this type.
+    pub fn insert_execution_proof(&mut self, proof: Arc<SignedExecutionProof>) -> Option<usize> {
+        if self
+            .execution_proofs
+            .insert(proof.proof_type(), proof)
+            .is_some()
+        {
+            return None;
+        }
+        Some(self.execution_proofs.len())
     }
 
     /// Inserts an executed payload envelope into the cache.
@@ -229,12 +232,11 @@ impl<E: EthSpec> PendingComponents<E> {
         self.num_completed_columns() >= num_expected_columns
     }
 
-    /// Returns `Some` if the envelope, all required data columns, and (if
-    /// `require_execution_proof` is set) an execution proof have been received.
+    /// Returns `Some` once the envelope, the required columns and enough proofs have arrived.
     pub fn make_available<T>(
         &self,
         custody_context: &CustodyContext<T>,
-        require_execution_proof: bool,
+        required_execution_proofs: usize,
     ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -244,9 +246,8 @@ impl<E: EthSpec> PendingComponents<E> {
             return Ok(None);
         };
 
-        // Gate the payload on an EIP-8025 execution proof. Proofs are recursive, so a single
-        // proof of any type is enough to consider this payload proven.
-        if require_execution_proof && self.execution_proofs.is_empty() {
+        // Proofs are recursive, so we only need them for this payload, not its ancestors.
+        if self.execution_proofs.len() < required_execution_proofs {
             return Ok(None);
         }
 
@@ -316,18 +317,31 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    pub fn status_str<T>(&self, custody_context: &CustodyContext<T>) -> String
+    pub fn status_str<T>(
+        &self,
+        custody_context: &CustodyContext<T>,
+        required_execution_proofs: usize,
+    ) -> String
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         let num_columns_required = self.num_columns_required(custody_context);
-        format!(
-            "envelope {}, data_columns {}/{}, execution_proofs {}",
-            self.envelope.is_some(),
-            self.num_completed_columns(),
-            num_columns_required,
-            self.execution_proofs.len()
-        )
+        if required_execution_proofs == 0 {
+            format!(
+                "envelope {}, data_columns {}/{}",
+                self.envelope.is_some(),
+                self.num_completed_columns(),
+                num_columns_required
+            )
+        } else {
+            format!(
+                "envelope {}, data_columns {}/{}, execution_proofs {}",
+                self.envelope.is_some(),
+                self.num_completed_columns(),
+                num_columns_required,
+                self.execution_proofs.len()
+            )
+        }
     }
 }
 

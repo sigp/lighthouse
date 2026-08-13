@@ -4183,8 +4183,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Caches a gossip verified EIP-8025 execution proof and imports its payload envelope
-    /// immediately if the proof was the last missing component.
+    /// Caches an execution proof, importing the payload envelope if that was the last piece.
     pub async fn check_execution_proof_availability_and_import(
         self: &Arc<Self>,
         verified_proof: GossipVerifiedExecutionProof,
