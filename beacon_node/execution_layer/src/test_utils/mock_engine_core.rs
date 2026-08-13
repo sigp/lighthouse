@@ -36,9 +36,7 @@ impl<E: EthSpec> Context<E> {
 
             let dynamic_response = if should_import {
                 Some(
-                    self.execution_block_generator
-                        .write()
-                        .new_payload(payload.try_into().unwrap()),
+                    self.execution_block_generator.write().new_payload(payload),
                 )
             } else {
                 None

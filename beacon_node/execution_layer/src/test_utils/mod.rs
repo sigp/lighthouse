@@ -293,7 +293,7 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn take_previous_forkchoice_request(
         &self,
-    ) -> Option<(ForkchoiceState, Option<PayloadAttributes>)> {
+    ) -> Option<CapturedForkchoiceRequest> {
         self.ctx.previous_forkchoice_request.lock().take()
     }
 
@@ -574,6 +574,9 @@ struct AuthError(String);
 
 impl warp::reject::Reject for AuthError {}
 
+/// A captured `forkchoice_updated` request: the state plus any payload attributes.
+pub type CapturedForkchoiceRequest = (ForkchoiceState, Option<PayloadAttributes>);
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -587,7 +590,7 @@ pub struct Context<E: EthSpec> {
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
-    pub previous_forkchoice_request: Arc<Mutex<Option<(ForkchoiceState, Option<PayloadAttributes>)>>>,
+    pub previous_forkchoice_request: Arc<Mutex<Option<CapturedForkchoiceRequest>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,

@@ -35,7 +35,7 @@ pub(crate) fn handle_rest<E: EthSpec>(
             json_response(Bytes::from(serde_json::to_vec(&capabilities).unwrap()))
         }
         ("GET", "/engine/v1/identity") => json_response(Bytes::from(
-            serde_json::to_vec(&[DEFAULT_CLIENT_VERSION.clone()]).unwrap(),
+            serde_json::to_vec(std::slice::from_ref(&*DEFAULT_CLIENT_VERSION)).unwrap(),
         )),
         ("POST", "/engine/v1/payloads") => {
             let Some(fork) = eth_execution_version.and_then(header_to_fork) else {
@@ -45,9 +45,8 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 );
             };
 
-            let payload = match decode_new_payload::<E>(body, fork) {
-                Ok(payload) => payload,
-                Err(_) => return problem_response(RestProblemKind::SszDecodeError, None),
+            let Ok(payload) = decode_new_payload::<E>(body, fork) else {
+                return problem_response(RestProblemKind::SszDecodeError, None);
             };
 
             let status = match ctx.core_new_payload(payload) {
@@ -68,9 +67,8 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 );
             };
 
-            let (state, attributes) = match decode_forkchoice_updated::<E>(body, fork) {
-                Ok(decoded) => decoded,
-                Err(_) => return problem_response(RestProblemKind::SszDecodeError, None),
+            let Ok((state, attributes)) = decode_forkchoice_updated::<E>(body, fork) else {
+                return problem_response(RestProblemKind::SszDecodeError, None);
             };
 
             let response = match ctx.core_forkchoice_updated(state, attributes) {
@@ -125,9 +123,8 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 );
             };
 
-            let block_hashes = match decode_bodies_by_hash_request(body) {
-                Ok(hashes) => hashes,
-                Err(_) => return problem_response(RestProblemKind::SszDecodeError, None),
+            let Ok(block_hashes) = decode_bodies_by_hash_request(body) else {
+                return problem_response(RestProblemKind::SszDecodeError, None);
             };
 
             let generator = ctx.execution_block_generator.read();
@@ -348,9 +345,8 @@ fn handle_get_blobs<E: EthSpec>(
     body: &[u8],
     all_or_nothing: bool,
 ) -> Response<Bytes> {
-    let versioned_hashes = match decode_blobs_request::<E>(body) {
-        Ok(hashes) => hashes,
-        Err(_) => return problem_response(RestProblemKind::SszDecodeError, None),
+    let Ok(versioned_hashes) = decode_blobs_request::<E>(body) else {
+        return problem_response(RestProblemKind::SszDecodeError, None);
     };
 
     let generator = ctx.execution_block_generator.read();

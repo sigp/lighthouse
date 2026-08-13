@@ -1582,6 +1582,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,

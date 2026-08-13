@@ -144,13 +144,13 @@ impl HttpRestSsz {
                 other
             }
         };
-        if capabilities.is_ok() {
-            if let Some(version) = self.http_version.get() {
-                info!(
-                    transport = version.as_str(),
-                    "Selected REST-SSZ engine transport"
-                );
-            }
+        if capabilities.is_ok()
+            && let Some(version) = self.http_version.get()
+        {
+            info!(
+                transport = version.as_str(),
+                "Selected REST-SSZ engine transport"
+            );
         }
         capabilities
     }
@@ -194,13 +194,13 @@ impl HttpRestSsz {
             Err(e) => return Err(e.into()),
         };
         // 401/403 are auth failures, outside the RFC 7807 model — reuse the JSON-RPC `From` mapping.
-        if let Err(e) = response.error_for_status_ref() {
-            if matches!(
+        if let Err(e) = response.error_for_status_ref()
+            && matches!(
                 e.status(),
                 Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
-            ) {
-                return Err(e.into());
-            }
+            )
+        {
+            return Err(e.into());
         }
 
         match response.status() {
