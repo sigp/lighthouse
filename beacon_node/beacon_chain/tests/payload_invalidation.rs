@@ -11,7 +11,6 @@ use beacon_chain::{
 };
 use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
-    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
@@ -110,24 +109,21 @@ impl InvalidPayloadRig {
 
     fn previous_forkchoice_update_params(&self) -> (ForkchoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        let json = mock_execution_layer
+        let (state, attributes) = mock_execution_layer
             .server
-            .take_previous_request()
-            .expect("no previous request");
-        let params = json.get("params").expect("no params");
-
-        let fork_choice_state_json = params.get(0).expect("no payload param");
-        let fork_choice_state: JsonForkchoiceStateV1 =
-            serde_json::from_value(fork_choice_state_json.clone()).unwrap();
-
-        let payload_param_json = params.get(1).expect("no payload param");
-        let attributes: JsonPayloadAttributesV1 =
-            serde_json::from_value(payload_param_json.clone()).unwrap();
-
-        (
-            fork_choice_state.into(),
-            JsonPayloadAttributes::V1(attributes).into(),
-        )
+            .take_previous_forkchoice_request()
+            .expect("no previous forkchoice request");
+        let attributes = attributes.expect("no payload attributes");
+        let attributes = PayloadAttributes::new(
+            attributes.timestamp(),
+            attributes.prev_randao(),
+            attributes.suggested_fee_recipient(),
+            None,
+            None,
+            None,
+            None,
+        );
+        (state, attributes)
     }
 
     fn previous_payload_attributes(&self) -> PayloadAttributes {

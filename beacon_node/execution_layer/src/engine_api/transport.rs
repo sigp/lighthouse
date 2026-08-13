@@ -16,7 +16,7 @@ use tracing::warn;
 use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Transport {
     Rest,
     JsonRpcOnly,
@@ -48,6 +48,10 @@ impl EngineApi {
             Some(Transport::Rest) => self.rest.as_ref(),
             _ => None,
         }
+    }
+
+    pub fn get_decision(&self) -> Option<&Transport> {
+        self.decision.get()
     }
 
     pub async fn new_payload<E: EthSpec>(

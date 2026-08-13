@@ -667,6 +667,16 @@ where
 
         let chain = builder.build().expect("should build");
 
+        // Under `MOCK_REST_SSZ`, resolve the REST-SSZ transport the same way the production node does
+        // (`ClientBuilder::build` spawns this): the first watchdog `upcheck` exchanges capabilities and
+        // latches the transport, so subsequent engine calls use REST instead of silently falling back
+        // to JSON-RPC. Gated on the flag so the default JSON-RPC suite is unchanged.
+        if execution_layer::test_utils::mock_rest_ssz_enabled()
+            && let Some(mock) = &self.mock_execution_layer
+        {
+            mock.el.spawn_watchdog_routine(chain.slot_clock.clone());
+        }
+
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),

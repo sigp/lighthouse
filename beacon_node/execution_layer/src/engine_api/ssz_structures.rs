@@ -209,7 +209,7 @@ impl<'block, E: EthSpec> TryFrom<NewPayloadRequestGloas<'block, E>>
     }
 }
 
-fn execution_requests_to_ssz<E>(
+pub fn execution_requests_to_ssz<E>(
     req: ExecutionRequests<E>,
 ) -> Result<SszExecutionRequests<E>, ssz_types::Error>
 where

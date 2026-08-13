@@ -471,6 +471,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.payload_ids.get(id).cloned()
     }
 
+    pub fn expire_all_payload_ids(&mut self) {
+        self.payload_ids.clear();
+    }
+
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
         self.blobs_bundles.get(id).cloned()
     }

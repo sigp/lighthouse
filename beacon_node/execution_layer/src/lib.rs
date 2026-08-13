@@ -15,7 +15,7 @@ pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 use engine_api::transport::EngineApi;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz};
+pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz, transport::Transport};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -2003,6 +2003,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
             Err(Error::NoPayloadBuilder)
         }
     }
+
+    pub(crate) fn resolved_transport(&self) -> Option<Transport> {
+        self.engine().api.get_decision().copied()
+    }
 }
 
 #[derive(AsRefStr)]
@@ -2217,6 +2221,7 @@ fn noop<E: EthSpec>(
 mod test {
     use super::*;
     use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::mock_rest_ssz_enabled;
     use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
@@ -2226,12 +2231,44 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .resolve_and_assert_transport()
+            .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    async fn reconcile_unknown_payload_id_over_rest() {
+        if !mock_rest_ssz_enabled() {
+            return;
+        }
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::fulu_params(runtime.task_executor.clone())
+            .resolve_and_assert_transport()
+            .await
+            .reconcile_unknown_payload_on_head()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn transport_resolves_to_expected_mode() {
+        let runtime = TestRuntime::default();
+        let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
+
+        assert_eq!(mock.el.resolved_transport(), None);
+
+        mock.el.upcheck().await;
+
+        let expected = if mock_rest_ssz_enabled() {
+            Transport::Rest
+        } else {
+            Transport::JsonRpcOnly
+        };
+        assert_eq!(mock.el.resolved_transport(), Some(expected));
     }
 
     #[tokio::test]

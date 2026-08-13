@@ -502,18 +502,30 @@ fn fork_to_header(fork: ForkName) -> Result<&'static str, Error> {
     })
 }
 
+pub fn header_to_fork(header: &str) -> Option<ForkName> {
+    Some(match header {
+        "paris" => ForkName::Bellatrix,
+        "shanghai" => ForkName::Capella,
+        "cancun" => ForkName::Deneb,
+        "prague" => ForkName::Electra,
+        "osaka" => ForkName::Fulu,
+        "amsterdam" => ForkName::Gloas,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::JwtKey;
-    use crate::engine_api::{NewPayloadRequestDeneb, NewPayloadRequestGloas};
+    use crate::engine_api::{NewPayloadRequestDeneb, NewPayloadRequestFulu, NewPayloadRequestGloas};
     use crate::test_utils::{Config, DEFAULT_JWT_SECRET, MockExecutionConfig, MockServer};
     use std::future::Future;
     use std::sync::Arc;
     use tokio::runtime;
     use types::{
-        Address, ExecutionPayloadDeneb, ExecutionPayloadGloas, ExecutionRequestsGloas,
-        MainnetEthSpec,
+        Address, ExecutionPayloadDeneb, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, MainnetEthSpec,
     };
 
     #[test]
@@ -526,6 +538,18 @@ mod tests {
         assert_eq!(fork_to_header(ForkName::Gloas).unwrap(), "amsterdam");
         assert!(fork_to_header(ForkName::Base).is_err());
         assert!(fork_to_header(ForkName::Altair).is_err());
+    }
+
+    #[test]
+    fn header_to_fork_maps_every_header() {
+        assert_eq!(header_to_fork("paris"), Some(ForkName::Bellatrix));
+        assert_eq!(header_to_fork("shanghai"), Some(ForkName::Capella));
+        assert_eq!(header_to_fork("cancun"), Some(ForkName::Deneb));
+        assert_eq!(header_to_fork("prague"), Some(ForkName::Electra));
+        assert_eq!(header_to_fork("osaka"), Some(ForkName::Fulu));
+        assert_eq!(header_to_fork("amsterdam"), Some(ForkName::Gloas));
+        assert_eq!(header_to_fork("frontier"), None);
+        assert_eq!(header_to_fork(""), None);
     }
 
     #[test]
@@ -667,6 +691,19 @@ mod tests {
                 matches!(result, Err(Error::Auth(_))),
                 "expected an auth failure, got {result:?}"
             );
+            self
+        }
+
+        /// Asserts the typed value the client decoded from the mock's SSZ response.
+        async fn assert_ssz_response<R, F, T>(self, request_func: R, check: impl FnOnce(T)) -> Self
+        where
+            R: Fn(Arc<HttpRestSsz>) -> F,
+            F: Future<Output = Result<T, Error>>,
+        {
+            let value = request_func(self.client.clone())
+                .await
+                .expect("rest request should succeed");
+            check(value);
             self
         }
     }
@@ -994,6 +1031,181 @@ mod tests {
                     fork_header: Some("amsterdam".to_string()),
                     body: expected_body,
                 },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_valid_round_trip() {
+        let payload = ExecutionPayloadFulu::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsElectra::<MainnetEthSpec>::default();
+        let tester = RestTester::new(true);
+        tester.server.all_payloads_valid_on_new_payload();
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let payload = payload.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Fulu(NewPayloadRequestFulu {
+                            execution_payload: &payload,
+                            versioned_hashes: vec![],
+                            parent_beacon_block_root: Hash256::repeat_byte(0),
+                            execution_requests: &execution_requests,
+                        });
+                        client.new_payload::<MainnetEthSpec>(request).await
+                    }
+                },
+                |status| assert_eq!(status.status, PayloadStatusV1Status::Valid),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_syncing_round_trip() {
+        let payload = ExecutionPayloadFulu::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsElectra::<MainnetEthSpec>::default();
+        let tester = RestTester::new(true);
+        tester.server.all_payloads_syncing_on_new_payload(false);
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let payload = payload.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Fulu(NewPayloadRequestFulu {
+                            execution_payload: &payload,
+                            versioned_hashes: vec![],
+                            parent_beacon_block_root: Hash256::repeat_byte(0),
+                            execution_requests: &execution_requests,
+                        });
+                        client.new_payload::<MainnetEthSpec>(request).await
+                    }
+                },
+                |status| assert_eq!(status.status, PayloadStatusV1Status::Syncing),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_invalid_block_hash_folds_to_invalid_round_trip() {
+        let payload = ExecutionPayloadFulu::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsElectra::<MainnetEthSpec>::default();
+        let tester = RestTester::new(true);
+        tester.server.all_payloads_invalid_block_hash_on_new_payload();
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let payload = payload.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Fulu(NewPayloadRequestFulu {
+                            execution_payload: &payload,
+                            versioned_hashes: vec![],
+                            parent_beacon_block_root: Hash256::repeat_byte(0),
+                            execution_requests: &execution_requests,
+                        });
+                        client.new_payload::<MainnetEthSpec>(request).await
+                    }
+                },
+                |status| assert_eq!(status.status, PayloadStatusV1Status::Invalid),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_no_attrs_round_trip() {
+        let state = forkchoice_state();
+        let tester = RestTester::new(true);
+        tester.server.set_fcu_payload_status(
+            state.head_block_hash,
+            PayloadStatusV1 {
+                status: PayloadStatusV1Status::Valid,
+                latest_valid_hash: None,
+                validation_error: None,
+            },
+        );
+        tester
+            .assert_ssz_response(
+                move |client| async move {
+                    client
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Fulu, state, None)
+                        .await
+                },
+                |response| {
+                    assert_eq!(response.payload_status.status, PayloadStatusV1Status::Valid);
+                    assert!(response.payload_id.is_none());
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_with_attrs_round_trip() {
+        let state = forkchoice_state();
+        let attributes = PayloadAttributes::new(
+            1_000,
+            Hash256::repeat_byte(4),
+            Address::repeat_byte(9),
+            Some(vec![]),
+            Some(Hash256::repeat_byte(5)),
+            None,
+            None,
+        );
+        let tester = RestTester::new(true);
+        tester.server.set_fcu_payload_status(
+            state.head_block_hash,
+            PayloadStatusV1 {
+                status: PayloadStatusV1Status::Valid,
+                latest_valid_hash: None,
+                validation_error: None,
+            },
+        );
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let attributes = attributes.clone();
+                    async move {
+                        client
+                            .forkchoice_updated::<MainnetEthSpec>(
+                                ForkName::Fulu,
+                                state,
+                                Some(attributes),
+                            )
+                            .await
+                    }
+                },
+                |response| {
+                    assert_eq!(response.payload_status.status, PayloadStatusV1Status::Valid);
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_unknown_id_returns_404() {
+        let tester = RestTester::new(true);
+        let payload_id: PayloadId = [9; 8];
+        let result = tester
+            .client
+            .get_payload::<MainnetEthSpec>(ForkName::Fulu, payload_id)
+            .await;
+        assert!(
+            matches!(&result, Err(e) if e.is_unknown_payload()),
+            "expected unknown-payload error, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_blobs_v2_miss_returns_none() {
+        RestTester::new(true)
+            .assert_ssz_response(
+                |client| async move {
+                    client
+                        .get_blobs_v2::<MainnetEthSpec>(vec![Hash256::repeat_byte(1)])
+                        .await
+                },
+                |blobs| assert!(blobs.is_none()),
             )
             .await;
     }

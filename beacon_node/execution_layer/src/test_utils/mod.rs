@@ -25,7 +25,7 @@ use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
-use crate::{EngineCapabilities, JsonRpcCapabilities};
+use crate::{EngineCapabilities, ForkchoiceState, JsonRpcCapabilities, PayloadAttributes};
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
@@ -34,6 +34,7 @@ pub use execution_block_generator::{
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
+pub use mock_execution_layer::mock_rest_ssz_enabled;
 
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
@@ -73,10 +74,12 @@ pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     });
 
 mod execution_block_generator;
+mod handle_rest;
 mod handle_rpc;
 mod hook;
 mod mock_builder;
 mod mock_execution_layer;
+mod mock_engine_core;
 
 /// Configuration for the MockExecutionLayer.
 #[derive(Clone)]
@@ -162,6 +165,7 @@ impl<E: EthSpec> MockServer<E> {
             serve_rest_ssz,
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
+            previous_forkchoice_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
@@ -205,6 +209,19 @@ impl<E: EthSpec> MockServer<E> {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
+    pub fn disable_client_version(&self) {
+        match &mut *self.ctx.engine_capabilities.write() {
+            EngineCapabilities::JsonRpc(capabilities) => {
+                capabilities.get_client_version_v1 = false;
+            }
+            EngineCapabilities::Ssz(capabilities) => {
+                capabilities
+                    .unscoped_endpoints
+                    .retain(|e| e.as_str() != "identity");
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         handle: &runtime::Handle,
@@ -236,6 +253,13 @@ impl<E: EthSpec> MockServer<E> {
         self.ctx.execution_block_generator.write()
     }
 
+    pub fn expire_all_payload_ids(&self) {
+        self.ctx
+            .execution_block_generator
+            .write()
+            .expire_all_payload_ids();
+    }
+
     pub fn url(&self) -> String {
         format!(
             "http://{}:{}",
@@ -265,6 +289,12 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn take_previous_request(&self) -> Option<serde_json::Value> {
         self.ctx.previous_request.lock().take()
+    }
+
+    pub fn take_previous_forkchoice_request(
+        &self,
+    ) -> Option<(ForkchoiceState, Option<PayloadAttributes>)> {
+        self.ctx.previous_forkchoice_request.lock().take()
     }
 
     pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
@@ -557,6 +587,7 @@ pub struct Context<E: EthSpec> {
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
+    pub previous_forkchoice_request: Arc<Mutex<Option<(ForkchoiceState, Option<PayloadAttributes>)>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
@@ -672,7 +703,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
 
 const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam"],"fork_scoped_endpoints":["payloads","forkchoice","bodies"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
 
-/// Step T1: record the REST request, return a stub response (no semantics yet).
+/// Records the REST request into `last_rest_request`, then dispatches to `handle_rest`.
 #[allow(clippy::too_many_arguments)]
 async fn handle_rest_capture<E: EthSpec>(
     method: &'static str,
@@ -700,28 +731,20 @@ async fn handle_rest_capture<E: EthSpec>(
     *ctx.last_rest_request.write() = Some(RestCapture {
         method: method.to_string(),
         path,
-        eth_execution_version,
+        eth_execution_version: eth_execution_version.clone(),
         client_version,
         content_type,
-        body,
+        body: body.clone(),
     });
 
-    let (content_type, payload): (&str, Bytes) = if full_path.ends_with("/capabilities") {
-        ("application/json", Bytes::from_static(STUB_CAPABILITIES_JSON.as_bytes()))
-    } else if full_path.ends_with("/identity") {
-        (
-            "application/json",
-            Bytes::from(serde_json::to_vec(&[DEFAULT_CLIENT_VERSION.clone()]).unwrap()),
-        )
-    } else {
-        ("application/octet-stream", Bytes::new())
-    };
-
-    Ok(warp::http::Response::builder()
-        .status(200)
-        .header("Content-Type", content_type)
-        .body(payload)
-        .unwrap())
+    Ok(handle_rest::handle_rest(
+        method,
+        full_path,
+        query.as_deref(),
+        eth_execution_version.as_deref(),
+        &body,
+        &ctx,
+    ))
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
