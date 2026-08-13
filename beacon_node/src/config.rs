@@ -333,6 +333,16 @@ pub fn get_config<E: EthSpec>(
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
     }
 
+    // Parse and set the EIP-8025 proof engine, if any.
+    if let Some(endpoint) = cli_args.get_one::<String>("proof-engine-endpoint") {
+        client_config.proof_engine_endpoint = Some(parse_only_one_value(
+            endpoint,
+            SensitiveUrl::parse,
+            "--proof-engine-endpoint",
+        )?);
+        client_config.network.enable_execution_proof = true;
+    }
+
     // Parse and set the payload builder, if any.
     if let Some(endpoint) = cli_args.get_one::<String>("builder") {
         let payload_builder = parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder")?;

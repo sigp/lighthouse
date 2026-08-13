@@ -288,6 +288,7 @@ pub(crate) fn create_whitelist_filter(
         add(ExecutionPayloadBid);
         add(PayloadAttestation);
         add(ProposerPreferences);
+        add(ExecutionProof);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
         for id in 0..spec.attestation_subnet_count {

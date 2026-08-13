@@ -10,6 +10,7 @@ use beacon_chain::data_column_verification::{
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedPartialDataColumn,
     PartialColumnVerificationResult,
 };
+use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
@@ -56,6 +57,7 @@ use types::{
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
+    execution::SignedExecutionProof,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -4131,6 +4133,64 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Failed to inform payload envelope import"
             )
         };
+    }
+
+    /// Process an EIP-8025 execution proof received over gossip.
+    pub async fn process_gossip_execution_proof(
+        self: Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_proof: Arc<SignedExecutionProof>,
+    ) {
+        let beacon_block_root = execution_proof.beacon_block_root();
+        let proof_type = execution_proof.proof_type();
+
+        match self
+            .chain
+            .verify_execution_proof_for_gossip(execution_proof)
+            .await
+        {
+            Ok(verified) => {
+                debug!(
+                    %beacon_block_root,
+                    proof_type,
+                    block_slot = %verified.block_slot,
+                    "Verified execution proof from gossip"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(error) => {
+                debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
+                let (acceptance, peer_action) = match &error {
+                    // IGNORE: duplicates, unknown or finalized blocks.
+                    ExecutionProofError::ProofAlreadySeen
+                    | ExecutionProofError::ValidProofAlreadyKnown
+                    | ExecutionProofError::DuplicateFromValidator { .. }
+                    | ExecutionProofError::UnknownBlockRoot { .. }
+                    | ExecutionProofError::PastFinalizedSlot { .. } => {
+                        (MessageAcceptance::Ignore, None)
+                    }
+                    // REJECT: the proof is invalid.
+                    ExecutionProofError::EmptyProofData
+                    | ExecutionProofError::UnknownValidatorIndex(_)
+                    | ExecutionProofError::ValidatorNotActive { .. }
+                    | ExecutionProofError::InvalidSignature
+                    | ExecutionProofError::InvalidProof => (
+                        MessageAcceptance::Reject,
+                        Some(PeerAction::LowToleranceError),
+                    ),
+                    // IGNORE without penalty: local faults (proof engine missing or
+                    // unreachable).
+                    ExecutionProofError::ProofEngineMissing
+                    | ExecutionProofError::ProofEngine(_)
+                    | ExecutionProofError::BeaconChainError(_) => (MessageAcceptance::Ignore, None),
+                };
+                if let Some(action) = peer_action {
+                    self.gossip_penalize_peer(peer_id, action, "invalid execution proof");
+                }
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+            }
+        }
     }
 
     #[instrument(
