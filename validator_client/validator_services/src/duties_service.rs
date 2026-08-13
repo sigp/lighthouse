@@ -599,21 +599,28 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
 
     /// Get IL committee duties for a specific slot.
     ///
-    /// Returns duties for local validators who have IL committee assignments at the given slot.
-    pub fn get_il_duties_for_slot(&self, slot: Slot) -> Vec<InclusionListDuty> {
+    /// Returns the epoch's dependent root alongside the duties for local validators who have
+    /// IL committee assignments at the given slot, or `None` if the duties for the slot's epoch
+    /// have not been downloaded yet.
+    pub fn get_il_duties_for_slot(
+        &self,
+        slot: Slot,
+    ) -> Option<(DependentRoot, Vec<InclusionListDuty>)> {
         let epoch = slot.epoch(S::E::slots_per_epoch());
 
         self.il_duties
             .read()
             .get(&epoch)
-            .map(|(_, il_duties)| {
-                il_duties
-                    .iter()
-                    .filter(|il_duty| il_duty.slot == slot)
-                    .cloned()
-                    .collect()
+            .map(|(dependent_root, il_duties)| {
+                (
+                    *dependent_root,
+                    il_duties
+                        .iter()
+                        .filter(|il_duty| il_duty.slot == slot)
+                        .cloned()
+                        .collect(),
+                )
             })
-            .unwrap_or_default()
     }
 }
 
