@@ -57,6 +57,7 @@ struct TestContext {
     spec: ChainSpec,
     genesis_block_root: Hash256,
     inactive_builder_index: u64,
+    store: crate::BeaconStore<T>,
 }
 
 fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -176,6 +177,7 @@ impl TestContext {
             spec,
             genesis_block_root: block_root,
             inactive_builder_index,
+            store,
         }
     }
 
@@ -203,6 +205,7 @@ impl TestContext {
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            store: &self.store,
         }
     }
 

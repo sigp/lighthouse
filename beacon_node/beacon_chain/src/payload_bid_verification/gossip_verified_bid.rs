@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    BeaconChain, BeaconChainTypes, CachedHead, CanonicalHead,
+    BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
     payload_bid_verification::{
         PayloadBidError,
@@ -163,6 +163,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
+    pub store: &'a BeaconStore<T>,
 }
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
@@ -214,7 +215,43 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             .slot_clock
             .now()
             .ok_or(PayloadBidError::UnableToReadSlot)?;
-        let head_state = &cached_head.snapshot.beacon_state;
+        let snapshot_state = &cached_head.snapshot.beacon_state;
+
+        // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
+        // use the advanced state instead.
+        // TODO(post-gloas) this can be removed after the gloas fork
+        let advanced_state;
+        let head_state = if ctx
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(bid_slot)
+            .gloas_enabled()
+            && !snapshot_state.fork_name_unchecked().gloas_enabled()
+        {
+            let (_, state) = ctx
+                .store
+                .get_advanced_hot_state(
+                    cached_head.head_block_root(),
+                    bid_slot,
+                    cached_head.head_state_root(),
+                )
+                .map_err(|e| {
+                    PayloadBidError::InternalError(format!(
+                        "failed to load advanced head state: {e:?}"
+                    ))
+                })?
+                .ok_or_else(|| {
+                    PayloadBidError::InternalError("advanced head state unavailable".to_string())
+                })?;
+            if !state.fork_name_unchecked().gloas_enabled() {
+                return Err(PayloadBidError::InternalError(
+                    "head state not yet advanced to Gloas".to_string(),
+                ));
+            }
+            advanced_state = state;
+            &advanced_state
+        } else {
+            snapshot_state
+        };
 
         // Look up the preferences keyed by the dependent root that is canonical from our head's
         // perspective, so we don't pick up preferences cached for a competing branch's proposer.
@@ -328,6 +365,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .gossip_verified_proposer_preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            store: &self.store,
         }
     }
 
