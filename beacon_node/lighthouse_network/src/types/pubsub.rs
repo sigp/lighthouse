@@ -666,6 +666,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::OutgoingPartialColumnGloas;
+    use libp2p::gossipsub::partial_messages::Partial;
+    use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
     use types::{Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
 
     type E = MainnetEthSpec;
@@ -680,6 +683,45 @@ mod tests {
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    #[test]
+    fn gloas_group_id_round_trips_through_decode_partial() {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(3)),
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let column = PartialDataColumnGloas::<E> {
+            block_root: Hash256::repeat_byte(7),
+            slot: Slot::new(9),
+            index: 3,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: CellBitmap::<E>::with_capacity(1).unwrap(),
+                column: Default::default(),
+                kzg_proofs: Default::default(),
+            },
+        };
+        let outgoing = OutgoingPartialColumnGloas::new(
+            Arc::new(column.clone()),
+            column.sidecar.cells_present_bitmap.clone(),
+        );
+
+        let decoded = decode_partial::<E>(
+            &topic,
+            &outgoing.group_id(),
+            &column.sidecar.as_ssz_bytes(),
+            &fork_context,
+        )
+        .unwrap();
+
+        let PartialDataColumn::Gloas(decoded) = decoded else {
+            panic!("expected a Gloas partial");
+        };
+        assert_eq!(decoded.block_root, column.block_root);
+        assert_eq!(decoded.slot, column.slot);
+        assert_eq!(decoded.index, column.index);
     }
 
     fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
