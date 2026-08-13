@@ -3682,6 +3682,24 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET validator/inclusion_list`
+    pub async fn get_validator_inclusion_list(
+        &self,
+        slot: Slot,
+    ) -> Result<GenericResponse<InclusionListTransactions>, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        self.get_with_timeout(path, self.timeouts.inclusion_list_duties)
+            .await
+    }
+
     /// `POST lighthouse/liveness`
     pub async fn post_lighthouse_liveness(
         &self,
