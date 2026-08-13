@@ -119,6 +119,7 @@ beacon_processor = { path = "beacon_node/beacon_processor" }
 bincode = "1"
 bitvec = "1"
 bls = { path = "crypto/bls" }
+builder_client = { path = "beacon_node/builder_client" }
 builder_types = { path = "common/builder_types" }
 byteorder = "1"
 bytes = "1.11.1"
