@@ -172,6 +172,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         consensus_block_value: consensus_block_value_wei,
         execution_payload_value,
         execution_payload_included,
+        builder_url: None,
     };
 
     let add_v4_headers = |res: Response| {
