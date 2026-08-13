@@ -1708,6 +1708,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder_types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bls",
+ "builder_types",
+ "context_deserialize",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
+ "typenum",
+ "types",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3217,6 +3238,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "educe",
  "eip_3076",
