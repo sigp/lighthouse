@@ -986,6 +986,10 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        // Payload import is gated on EIP-8025 execution proofs only when a proof engine is
+        // configured to verify them.
+        let require_execution_proof = self.proof_engine.is_some();
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1075,6 +1079,7 @@ where
                     custody_context,
                     disable_get_blobs,
                     self.spec.clone(),
+                    require_execution_proof,
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),

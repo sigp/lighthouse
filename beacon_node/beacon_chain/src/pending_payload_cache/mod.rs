@@ -41,6 +41,7 @@ use crate::metrics::{
 use crate::observed_data_sidecars::ObservationStrategy;
 use crate::partial_data_column_assembler::PartialMergeResult;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
+use types::execution::SignedExecutionProof;
 use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
@@ -102,6 +103,9 @@ pub struct PendingPayloadCache<T: BeaconChainTypes> {
     custody_context: Arc<CustodyContext<T>>,
     disable_get_blobs: bool,
     spec: Arc<ChainSpec>,
+    /// Whether a payload additionally requires an EIP-8025 execution proof to become available.
+    /// Only set when a proof engine is configured.
+    require_execution_proof: bool,
 }
 
 impl<T: BeaconChainTypes> PendingPayloadCache<T> {
@@ -110,6 +114,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         custody_context: Arc<CustodyContext<T>>,
         disable_get_blobs: bool,
         spec: Arc<ChainSpec>,
+        require_execution_proof: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             availability_cache: RwLock::new(LruCache::new(AVAILABILITY_CACHE_CAPACITY)),
@@ -117,6 +122,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             custody_context,
             disable_get_blobs,
             spec,
+            require_execution_proof,
         })
     }
 
@@ -271,6 +277,40 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         write_lock
             .entry(block_root)
             .or_insert_with(|| PendingComponents::new(block_root, bid));
+    }
+
+    /// Insert a gossip verified EIP-8025 execution proof into the cache and perform an
+    /// availability check.
+    ///
+    /// A proof can only unblock the payload the first time one is seen for a block root, so
+    /// later proofs of other types report `MissingComponents` without re-running the check.
+    pub fn put_execution_proof(
+        &self,
+        proof: Arc<SignedExecutionProof>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let block_root = proof.beacon_block_root();
+        let bid = self
+            .get_bid(&block_root)
+            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
+
+        let (is_first_proof, pending_components) =
+            self.update_pending_components(block_root, &bid, |pending_components| {
+                pending_components.insert_execution_proof(proof)
+            })?;
+
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "execution proof",
+                status = pending_components.status_str(&self.custody_context),
+                "Component added to data availability checker"
+            );
+        });
+
+        if is_first_proof {
+            self.check_availability(block_root, pending_components)
+        } else {
+            Ok(Availability::MissingComponents(block_root))
+        }
     }
 
     /// Perform KZG verification on RPC custody columns and insert them into the cache.
@@ -501,8 +541,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         block_root: Hash256,
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_envelope) =
-            pending_components.make_available(&self.custody_context)?
+        if let Some(available_envelope) = pending_components
+            .make_available(&self.custody_context, self.require_execution_proof)?
         {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
@@ -632,6 +672,7 @@ mod data_availability_checker_tests {
     use slot_clock::{SlotClock, TestingSlotClock};
     use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
+    use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput};
     use types::{
         Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
         ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
@@ -653,7 +694,20 @@ mod data_availability_checker_tests {
         setup_with(node_custody, NumBlobs::Number(0))
     }
 
+    /// Same as `setup`, but with payload import gated on an EIP-8025 execution proof.
+    fn setup_gated(node_custody: NodeCustodyType) -> Setup {
+        setup_full(node_custody, NumBlobs::Number(NUM_BLOBS), true)
+    }
+
     fn setup_with(node_custody: NodeCustodyType, num_blobs: NumBlobs) -> Setup {
+        setup_full(node_custody, num_blobs, false)
+    }
+
+    fn setup_full(
+        node_custody: NodeCustodyType,
+        num_blobs: NumBlobs,
+        require_execution_proof: bool,
+    ) -> Setup {
         create_test_tracing_subscriber();
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let kzg = get_kzg(&spec);
@@ -671,8 +725,14 @@ mod data_availability_checker_tests {
             spec.clone(),
         ));
         let cache = Arc::new(
-            PendingPayloadCache::<T>::new(kzg, custody_context, false, spec.clone())
-                .expect("create cache"),
+            PendingPayloadCache::<T>::new(
+                kzg,
+                custody_context,
+                false,
+                spec.clone(),
+                require_execution_proof,
+            )
+            .expect("create cache"),
         );
 
         let mut u = test_unstructured();
@@ -731,6 +791,29 @@ mod data_availability_checker_tests {
             self.cache
                 .cached_data_column_indexes(&self.block_root)
                 .expect("entry")
+        }
+
+        fn put_proof(&self, proof_type: ProofType) -> Availability<E> {
+            self.cache
+                .put_execution_proof(Arc::new(execution_proof(self.block_root, proof_type)))
+                .expect("put execution proof")
+        }
+    }
+
+    /// Hand-rolled execution proof with bypassed verification; the cache only inspects
+    /// `beacon_block_root` and `proof_type`, never the proof data or the signature.
+    fn execution_proof(block_root: Hash256, proof_type: ProofType) -> SignedExecutionProof {
+        SignedExecutionProof {
+            message: ExecutionProof {
+                proof_data: ProofData::new(vec![1_u8]).expect("proof data"),
+                proof_type,
+                public_input: PublicInput {
+                    new_payload_request_root: Hash256::random(),
+                },
+                beacon_block_root: block_root,
+            },
+            validator_index: 0,
+            signature: bls::Signature::infinity().expect("infinity sig"),
         }
     }
 
@@ -900,6 +983,61 @@ mod data_availability_checker_tests {
 
         s.put_columns(vec![last]);
         assert_lengths_match(&s);
+    }
+
+    // ─── Tier 4: EIP-8025 execution proof gating ────────────────────────────
+
+    /// With no proof engine configured, a payload is available without any execution proof.
+    #[tokio::test]
+    async fn execution_proof_not_required_by_default() {
+        let s = setup(NodeCustodyType::Fullnode);
+        s.put_envelope();
+        assert_available(s.put_columns(s.custody.clone()));
+    }
+
+    /// With a proof engine configured, the envelope and every column are not enough. The
+    /// execution proof is the last missing component.
+    #[tokio::test]
+    async fn execution_proof_gates_availability() {
+        let s = setup_gated(NodeCustodyType::Fullnode);
+        s.put_envelope();
+        assert_missing(s.put_columns(s.custody.clone()));
+        let envelope = assert_available(s.put_proof(0));
+        assert_eq!(envelope.block_root, s.block_root);
+    }
+
+    /// A proof that arrives before the envelope is retained and does not make the payload
+    /// available on its own.
+    #[tokio::test]
+    async fn execution_proof_arrives_first() {
+        let s = setup_gated(NodeCustodyType::Fullnode);
+        assert_missing(s.put_proof(0));
+        assert_missing(s.put_columns(s.custody.clone()));
+        assert_available(s.put_envelope());
+    }
+
+    /// Once a payload is available, a proof of a second type must not make it available again,
+    /// which would import the same envelope twice.
+    #[tokio::test]
+    async fn second_execution_proof_does_not_re_import() {
+        let s = setup_gated(NodeCustodyType::Fullnode);
+        s.put_envelope();
+        s.put_columns(s.custody.clone());
+        assert_available(s.put_proof(0));
+        assert_missing(s.put_proof(1));
+    }
+
+    /// A proof for a block root with no cached bid is rejected rather than creating an entry
+    /// that can never become available.
+    #[tokio::test]
+    async fn execution_proof_for_unknown_block_root_errors() {
+        let s = setup_gated(NodeCustodyType::Fullnode);
+        let unknown = Hash256::random();
+        assert!(matches!(
+            s.cache
+                .put_execution_proof(Arc::new(execution_proof(unknown, 0))),
+            Err(AvailabilityCheckError::MissingBid(root)) if root == unknown
+        ));
     }
 
     // ────────── Gloas partial column merge ─────────────────────────────────
