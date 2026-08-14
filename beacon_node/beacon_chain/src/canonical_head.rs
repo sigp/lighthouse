@@ -1687,11 +1687,51 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Persist fork choice to disk, writing immediately.
+    ///
+    /// Refuses to write if fork choice contains a block that is missing from the store, as can
+    /// happen if a database write fails during block import (see
+    /// `handle_import_block_db_write_error`). Overwriting the fork choice on disk with a
+    /// diverged one would cause the next start-up to fail when resolving the head block,
+    /// whereas the fork choice already on disk allows the node to recover on restart.
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-        let batch = vec![self.persist_fork_choice_in_batch()?];
+        let batch = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            if let Some(missing_block_root) =
+                self.fork_choice_block_missing_from_store(&fork_choice)?
+            {
+                crit!(
+                    ?missing_block_root,
+                    advice = "restarting the node will recover the last consistent fork choice \
+                              from disk",
+                    "Refusing to persist diverged fork choice"
+                );
+                return Err(Error::ForkChoiceDivergedFromStore { missing_block_root });
+            }
+            vec![Self::persist_fork_choice_in_batch_standalone(
+                &fork_choice,
+                self.store.get_config(),
+            )?]
+        };
         self.store.hot_db.do_atomically(batch)?;
         Ok(())
+    }
+
+    /// Return the root of a block that is in fork choice but absent from the store, if any
+    /// exists. Pruned fork blocks may linger in the proto-array without their blocks being on
+    /// disk, so only descendants of the finalized checkpoint are checked.
+    fn fork_choice_block_missing_from_store(
+        &self,
+        fork_choice: &BeaconForkChoice<T>,
+    ) -> Result<Option<Hash256>, Error> {
+        for node in &fork_choice.proto_array().core_proto_array().nodes {
+            if fork_choice.is_finalized_checkpoint_or_descendant(node.root())
+                && !self.store.block_exists(&node.root())?
+            {
+                return Ok(Some(node.root()));
+            }
+        }
+        Ok(None)
     }
 
     /// Return a database operation for writing fork choice to disk.
