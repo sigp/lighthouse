@@ -1559,7 +1559,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         inclusion_list: InclusionList,
     ) -> Result<SignedInclusionList, Error> {
-        todo!("sign_inclusion_list not implemented yet");
+        let signing_context = self.signing_context(
+            Domain::InclusionListCommittee,
+            inclusion_list.slot.epoch(E::slots_per_epoch()),
+        );
+
+        // Inclusion list signing is not slashable, bypass doppelganger protection.
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::InclusionList(&inclusion_list),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedInclusionList {
+            message: inclusion_list,
+            signature,
+        })
     }
 }
 
