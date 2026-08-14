@@ -3700,6 +3700,46 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    /// `POST validator/inclusion_list`
+    pub async fn post_validator_inclusion_list(
+        &self,
+        signed_inclusion_list: SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        self.post_generic_with_consensus_version(path, &signed_inclusion_list, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/inclusion_list` (SSZ)
+    pub async fn post_validator_inclusion_list_ssz(
+        &self,
+        signed_inclusion_list: SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+
+        let ssz_body = signed_inclusion_list.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST lighthouse/liveness`
     pub async fn post_lighthouse_liveness(
         &self,
