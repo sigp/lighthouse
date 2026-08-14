@@ -1,1 +1,7 @@
-fix clippy: useless same-type .into() in test helper
+Revision history for #9803:
+
+rev 3 (content) 2026-08-14 00:03 UTC — fix clippy: useless same-type .into() in test helper
+rev 2 (content) 2026-08-13 23:38 UTC — catch up to Aug 10 spec revisions: builder_pubkeys list (was single builder_pubkey), zero-length url/auth-data validation, fork_name param + Eth-Consensus-Version on POST v4 client (hoisted into the POST helper)
+rev 1 (initial) 2026-08-13 23:38 UTC
+
+<!-- mergify-revision-data: {"schema_version":1,"pull_number":9803,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"088ad76f20dd0611a5d0f9303b22b64d2e05f3f7","timestamp_iso":"2026-08-13T23:38:56Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"content","old_sha":"088ad76f20dd0611a5d0f9303b22b64d2e05f3f7","new_sha":"6f6c36845848264c199e51b036bb060f2f1cb5ca","timestamp_iso":"2026-08-13T23:38:56Z","reason":"catch up to Aug 10 spec revisions: builder_pubkeys list (was single builder_pubkey), zero-length url/auth-data validation, fork_name param + Eth-Consensus-Version on POST v4 client (hoisted into the POST helper)","replay_sha":null,"compare_url":"https://github.com/sigp/lighthouse/compare/088ad76f20dd0611a5d0f9303b22b64d2e05f3f7...6f6c36845848264c199e51b036bb060f2f1cb5ca"},{"number":3,"change_type":"content","old_sha":"6f6c36845848264c199e51b036bb060f2f1cb5ca","new_sha":"7e94d7b3779959b7061e70af862ccb52b7cb8fa5","timestamp_iso":"2026-08-14T00:03:40Z","reason":"fix clippy: useless same-type .into() in test helper","replay_sha":null,"compare_url":"https://github.com/sigp/lighthouse/compare/6f6c36845848264c199e51b036bb060f2f1cb5ca...7e94d7b3779959b7061e70af862ccb52b7cb8fa5"}]} -->
