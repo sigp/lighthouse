@@ -1068,7 +1068,7 @@ impl ApiTester {
                 let state_opt = state_id.state(&self.chain).ok();
 
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _, _)) => state.validators().clone().to_vec(),
+                    Some((state, _, _)) => state.validators().to_vec(),
                     None => vec![],
                 };
 

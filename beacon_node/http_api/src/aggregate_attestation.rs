@@ -7,7 +7,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::beacon_response::EmptyMetadata;
 use types::{CommitteeIndex, ForkVersionedResponse};
-use warp::reply::{Reply, Response};
+use warp::{Reply, http::response::Builder, reply::Response};
 
 pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     slot: Slot,
@@ -50,10 +50,10 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     };
 
     match accept_header {
-        Some(Accept::Ssz) => Response::builder()
+        Some(Accept::Ssz) => Builder::new()
             .status(200)
-            .body(aggregate_attestation.as_ssz_bytes().into())
-            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+            .body(aggregate_attestation.as_ssz_bytes())
+            .map(add_ssz_content_type_header)
             .map(|res| add_consensus_version_header(res, fork_name))
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))

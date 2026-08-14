@@ -293,10 +293,10 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
                         .map_err(warp_utils::reject::unhandled_error)?;
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(attestation_data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(attestation_data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
