@@ -565,4 +565,204 @@ mod tests {
         assert_eq!(data.transactions, transactions);
         bn2_mock.expect(1).assert();
     }
+
+    #[tokio::test]
+    async fn publishes_each_inclusion_list_via_ssz() {
+        let mut harness = TestHarness::new_with_validators(3).await;
+        let slot = Slot::new(1);
+        let dependent_root = Hash256::repeat_byte(0xab);
+        harness.insert_il_duties(slot, dependent_root);
+
+        let transactions = InclusionListTransactions {
+            transactions: vec![vec![0xaa; 3].try_into().unwrap()].try_into().unwrap(),
+        };
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, slot);
+        let ssz_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz(ForkName::Heze);
+        let json_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_json(ForkName::Heze);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        harness
+            .service
+            .sign_and_publish(slot, duties, data)
+            .await
+            .unwrap();
+
+        // One POST per duty,and no JSON fallback
+        ssz_mock.expect(3).assert();
+        json_mock.expect(0).assert();
+
+        let messages = harness
+            .harness
+            .mock_beacon_node_1
+            .received_inclusion_lists
+            .lock()
+            .unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // Check each message
+        for (i, signed_il) in messages.iter().enumerate() {
+            assert_eq!(signed_il.message.validator_index, i as u64);
+            assert_eq!(signed_il.message.slot, slot);
+            assert_eq!(signed_il.message.dependent_root, dependent_root);
+            assert_eq!(signed_il.message.transactions, transactions.transactions);
+        }
+    }
+
+    #[tokio::test]
+    async fn inclusion_list_ssz_publish_falls_back_to_json() {
+        let mut harness = TestHarness::new_with_validators(1).await;
+        let slot = Slot::new(1);
+        harness.insert_il_duties(slot, Hash256::repeat_byte(0xab));
+
+        let transactions = InclusionListTransactions {
+            transactions: Default::default(),
+        };
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, slot);
+        let ssz_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz_error(ForkName::Heze);
+        let json_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_json(ForkName::Heze);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        harness
+            .service
+            .sign_and_publish(slot, duties, data)
+            .await
+            .unwrap();
+
+        // `first_success` makes two passes over the BNs, so the failing SSZ mock is hit twice
+        ssz_mock.expect(2).assert();
+        json_mock.expect(1).assert();
+
+        let messages = harness
+            .harness
+            .mock_beacon_node_1
+            .received_inclusion_lists
+            .lock()
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+    }
+
+    /// One duty's publish fails on both encodings
+    /// so the succeeded calls are total - 1
+    #[tokio::test]
+    async fn partial_publish_failure_still_publishes_siblings() {
+        let mut harness = TestHarness::new_with_validators(2).await;
+        let slot = Slot::new(1);
+        harness.insert_il_duties(slot, Hash256::repeat_byte(0xab));
+
+        let transactions = InclusionListTransactions {
+            transactions: Default::default(),
+        };
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, slot);
+
+        // Each error mock answers exactly one request: the first duty's publish fails on
+        // both `first_success` passes of both encodings
+        let ssz_err_1 = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz_error(ForkName::Heze);
+        let json_err_1 = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_json_error(ForkName::Heze);
+        let ssz_err_2 = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz_error(ForkName::Heze);
+        let json_err_2 = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_json_error(ForkName::Heze);
+        // With the error mocks above spent, the sibling duty publishes here
+        let ssz_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz(ForkName::Heze);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        harness
+            .service
+            .sign_and_publish(slot, duties, data)
+            .await
+            .unwrap();
+
+        ssz_err_1.expect(1).assert();
+        ssz_err_2.expect(1).assert();
+        json_err_1.expect(1).assert();
+        json_err_2.expect(1).assert();
+        // successful call
+        ssz_mock.expect(1).assert();
+
+        let messages = harness
+            .harness
+            .mock_beacon_node_1
+            .received_inclusion_lists
+            .lock()
+            .unwrap();
+        let indices: Vec<u64> = messages
+            .iter()
+            .map(|il| il.message.validator_index)
+            .collect();
+        assert_eq!(indices, vec![1]);
+    }
+
+    #[tokio::test]
+    async fn total_publish_failure_returns_error() {
+        let mut harness = TestHarness::new_with_validators(2).await;
+        let slot = Slot::new(1);
+        harness.insert_il_duties(slot, Hash256::repeat_byte(0xab));
+
+        let transactions = InclusionListTransactions {
+            transactions: Default::default(),
+        };
+        // No POST routes are registered: every publish fails on both encodings
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, slot);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        let result = harness.service.sign_and_publish(slot, duties, data).await;
+        assert!(result.is_err());
+    }
 }
