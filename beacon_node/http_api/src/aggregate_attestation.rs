@@ -7,10 +7,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::beacon_response::EmptyMetadata;
 use types::{CommitteeIndex, ForkVersionedResponse};
-use warp::{
-    hyper::{Body, Response},
-    reply::Reply,
-};
+use warp::reply::{Reply, Response};
 
 pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     slot: Slot,
@@ -19,7 +16,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
     accept_header: Option<Accept>,
-) -> Result<Response<Body>, warp::reject::Rejection> {
+) -> Result<Response, warp::reject::Rejection> {
     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
     let aggregate_attestation = if fork_name.electra_enabled() {
         let Some(committee_index) = committee_index else {

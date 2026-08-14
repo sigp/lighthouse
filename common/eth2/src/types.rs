@@ -8,9 +8,10 @@ use crate::{
     EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
-use context_deserialize::ContextDeserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
+use fork_choice::PayloadStatus;
 use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
 use multiaddr::Multiaddr;
@@ -300,6 +301,53 @@ impl From<ValidatorId> for String {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
+pub enum BuilderId {
+    PublicKey(PublicKeyBytes),
+    Index(u64),
+}
+
+impl TryFrom<std::borrow::Cow<'_, str>> for BuilderId {
+    type Error = String;
+
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
+    }
+}
+
+impl FromStr for BuilderId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("0x") {
+            PublicKeyBytes::from_str(s)
+                .map(BuilderId::PublicKey)
+                .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
+        } else {
+            u64::from_str(s)
+                .map(BuilderId::Index)
+                .map_err(|e| format!("{} cannot be parsed as a builder index: {}", s, e))
+        }
+    }
+}
+
+impl fmt::Display for BuilderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuilderId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            BuilderId::Index(index) => write!(f, "{}", index),
+        }
+    }
+}
+
+impl From<BuilderId> for String {
+    fn from(id: BuilderId) -> String {
+        id.to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -324,6 +372,38 @@ pub struct ValidatorIdentityData {
     pub index: u64,
     pub pubkey: PublicKeyBytes,
     pub activation_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuilderData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub status: BuilderStatus,
+    pub builder: Builder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuilderStatus {
+    Pending,
+    Active,
+    Exited,
+}
+
+impl BuilderStatus {
+    pub fn from_builder(
+        builder: &Builder,
+        finalized_epoch: Epoch,
+        far_future_epoch: Epoch,
+    ) -> Self {
+        if builder.withdrawable_epoch != far_future_epoch {
+            Self::Exited
+        } else if builder.deposit_epoch < finalized_epoch {
+            Self::Active
+        } else {
+            Self::Pending
+        }
+    }
 }
 
 // Implemented according to what is described here:
@@ -490,6 +570,15 @@ pub struct ValidatorsRequestBody {
     pub ids: Option<Vec<ValidatorId>>,
     #[serde(default)]
     pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildersRequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<BuilderId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<BuilderStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1023,29 +1112,16 @@ pub struct SseDataColumnSidecar {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
-    pub kzg_commitments: Vec<KzgCommitment>,
-    pub versioned_hashes: Vec<VersionedHash>,
 }
 
 impl SseDataColumnSidecar {
     pub fn from_data_column_sidecar<E: EthSpec>(
         data_column_sidecar: &DataColumnSidecar<E>,
     ) -> SseDataColumnSidecar {
-        // TODO(gloas): fetch kzg_commitments from block for Gloas SSE events
-        let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
-            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
-            DataColumnSidecar::Gloas(_) => vec![],
-        };
-        let versioned_hashes = kzg_commitments
-            .iter()
-            .map(|c| c.calculate_versioned_hash())
-            .collect();
         SseDataColumnSidecar {
             block_root: data_column_sidecar.block_root(),
             index: *data_column_sidecar.index(),
             slot: data_column_sidecar.slot(),
-            kzg_commitments,
-            versioned_hashes,
         }
     }
 }
@@ -1069,10 +1145,30 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[context_deserialize(ForkName)]
+pub struct SseHeadV2 {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub state: Hash256,
+    pub payload_status: PayloadStatus,
+    pub epoch_transition: bool,
+    pub current_epoch_dependent_root: Hash256,
+    pub next_epoch_dependent_root: Hash256,
+    pub execution_optimistic: bool,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BlockGossip {
     pub slot: Slot,
     pub block: Hash256,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseFastConfirmation {
+    pub block: Hash256,
+    pub slot: Slot,
+    pub current_slot: Slot,
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseExecutionPayload {
@@ -1154,9 +1250,9 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub parent_block_number: u64,
-
+    // TODO(gloas) can remove this field once we fork to gloas
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
@@ -1164,7 +1260,9 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
+pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1190,7 +1288,11 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Capella => {
                 Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+            ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu
+            | ForkName::Gloas
+            | ForkName::Heze => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
@@ -1230,6 +1332,7 @@ pub enum EventKind<E: EthSpec> {
     DataColumnSidecar(SseDataColumnSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
+    HeadV2(Box<VersionedSseHeadV2>),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
@@ -1245,13 +1348,16 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadGossip(SseExecutionPayloadGossip),
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
+    FastConfirmation(SseFastConfirmation),
 }
 
 impl<E: EthSpec> EventKind<E> {
     pub fn topic_name(&self) -> &str {
         match self {
             EventKind::Head(_) => "head",
+            EventKind::HeadV2(_) => "head_v2",
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
             EventKind::DataColumnSidecar(_) => "data_column_sidecar",
@@ -1273,7 +1379,9 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
             EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
+            EventKind::FastConfirmation(_) => "fast_confirmation",
         }
     }
 
@@ -1309,6 +1417,10 @@ impl<E: EthSpec> EventKind<E> {
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
+            "head_v2" => Ok(EventKind::HeadV2(Box::new(
+                serde_json::from_str(data)
+                    .map_err(|e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)))?,
+            ))),
             "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
             )?)),
@@ -1389,6 +1501,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
                 })?,
             ))),
+            "proposer_preferences" => Ok(EventKind::ProposerPreferences(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Preferences: {:?}", e))
+                })?,
+            ))),
             "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!(
@@ -1397,6 +1514,11 @@ impl<E: EthSpec> EventKind<E> {
                     ))
                 })?,
             ))),
+            "fast_confirmation" => Ok(EventKind::FastConfirmation(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Fast Confirmation: {:?}", e))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1415,6 +1537,7 @@ pub struct EventQuery {
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
     Head,
+    HeadV2,
     Block,
     BlobSidecar,
     DataColumnSidecar,
@@ -1436,7 +1559,9 @@ pub enum EventTopic {
     ExecutionPayloadGossip,
     ExecutionPayloadAvailable,
     ExecutionPayloadBid,
+    ProposerPreferences,
     PayloadAttestationMessage,
+    FastConfirmation,
 }
 
 impl FromStr for EventTopic {
@@ -1445,6 +1570,7 @@ impl FromStr for EventTopic {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "head" => Ok(EventTopic::Head),
+            "head_v2" => Ok(EventTopic::HeadV2),
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
             "data_column_sidecar" => Ok(EventTopic::DataColumnSidecar),
@@ -1466,7 +1592,9 @@ impl FromStr for EventTopic {
             "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
             "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
+            "fast_confirmation" => Ok(EventTopic::FastConfirmation),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1476,6 +1604,7 @@ impl fmt::Display for EventTopic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventTopic::Head => write!(f, "head"),
+            EventTopic::HeadV2 => write!(f, "head_v2"),
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::DataColumnSidecar => write!(f, "data_column_sidecar"),
@@ -1499,9 +1628,11 @@ impl fmt::Display for EventTopic {
                 write!(f, "execution_payload_available")
             }
             EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::ProposerPreferences => write!(f, "proposer_preferences"),
             EventTopic::PayloadAttestationMessage => {
                 write!(f, "payload_attestation_message")
             }
+            EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
         }
     }
 }
@@ -1849,7 +1980,111 @@ pub struct ProduceBlockV4Metadata {
     pub consensus_version: ForkName,
     #[serde(with = "serde_utils::u256_dec")]
     pub consensus_block_value: Uint256,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Encode)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlockAndEnvelope<E: EthSpec> {
+    pub block: BeaconBlock<E>,
+    pub execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            block: serde_json::Value,
+            execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+            kzg_proofs: KzgProofs<E>,
+            #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+            blobs: BlobsList<E>,
+        }
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        let block = BeaconBlock::context_deserialize(helper.block, context)
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            block,
+            execution_payload_envelope: helper.execution_payload_envelope,
+            kzg_proofs: helper.kzg_proofs,
+            blobs: helper.blobs,
+        })
+    }
+}
+
+impl<E: EthSpec> BlockAndEnvelope<E> {
+    /// SSZ decode with fork variant passed in explicitly (the `block` field is fork-versioned).
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<ExecutionPayloadEnvelope<E>>()?;
+        builder.register_type::<KzgProofs<E>>()?;
+        builder.register_type::<BlobsList<E>>()?;
+
+        let mut decoder = builder.build()?;
+        let block = decoder
+            .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name))?;
+        let execution_payload_envelope = decoder.decode_next()?;
+        let kzg_proofs = decoder.decode_next()?;
+        let blobs = decoder.decode_next()?;
+
+        Ok(Self {
+            block,
+            execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        })
+    }
+}
+
+/// The data returned by `produce_block_v4`: either just the beacon block or the full
+/// [`BlockAndEnvelope`]. Callers should branch on the `Eth-Execution-Payload-Included` header to
+/// decide which variant to expect.
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ProduceBlockV4Response<E: EthSpec> {
+    BlockOnly(BeaconBlock<E>),
+    BlockAndEnvelope(BlockAndEnvelope<E>),
+}
+
+impl<E: EthSpec> ProduceBlockV4Response<E> {
+    pub fn block(&self) -> &BeaconBlock<E> {
+        match self {
+            ProduceBlockV4Response::BlockOnly(block) => block,
+            ProduceBlockV4Response::BlockAndEnvelope(contents) => &contents.block,
+        }
+    }
+
+    pub fn into_block(self) -> BeaconBlock<E> {
+        match self {
+            ProduceBlockV4Response::BlockOnly(block) => block,
+            ProduceBlockV4Response::BlockAndEnvelope(contents) => contents.block,
+        }
+    }
+}
+
+/// A signed execution payload envelope bundled with blobs and KZG proofs for stateless
+/// publishing via `POST beacon/execution_payload_envelopes`, used when the receiving beacon node
+/// does not have the blobs cached.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
+    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    pub kzg_proofs: KzgProofs<E>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: BlobsList<E>,
 }
 
 impl<E: EthSpec> FullBlockContents<E> {
@@ -2023,6 +2258,11 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
+        let execution_payload_value =
+            parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
+                Uint256::from_str_radix(s, 10)
+                    .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
+            })?;
         let execution_payload_included =
             parse_required_header(headers, EXECUTION_PAYLOAD_INCLUDED_HEADER, |s| {
                 s.parse::<bool>()
@@ -2032,6 +2272,7 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
+            execution_payload_value,
             execution_payload_included,
         })
     }
@@ -2585,6 +2826,9 @@ mod test {
             ExecutionPayload::Gloas(
                 ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
             ),
+            ExecutionPayload::Heze(
+                ExecutionPayloadHeze::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2639,6 +2883,16 @@ mod test {
             {
                 let execution_payload = ExecutionPayload::Gloas(
                     ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                );
+                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload = ExecutionPayload::Heze(
+                    ExecutionPayloadHeze::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
                 );
                 let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {

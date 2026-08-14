@@ -1,5 +1,5 @@
 use crate::data_column_verification::{
-    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnFulu,
 };
 use hashlink::lru_cache::LruCache;
 use parking_lot::RwLock;
@@ -7,12 +7,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
 use types::core::{Epoch, EthSpec, Hash256};
-use types::data::{ColumnIndex, PartialDataColumnHeader};
+use types::data::{ColumnIndex, PartialDataColumnGloas, PartialDataColumnHeader};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
     /// Cache of assemblies keyed by block root
     assemblies: RwLock<LruCache<Hash256, PartialAssembly<E>>>,
+    /// Whether getBlobs is disabled. If so, always set `has_local_blobs` to true, as we will never
+    /// retrieve blobs from the EL and therefore should immediately request cells from the network.
+    disable_get_blobs: bool,
 }
 
 /// Tracks partial columns being assembled for a single block
@@ -27,25 +30,43 @@ struct PartialAssembly<E: EthSpec> {
 pub enum AssemblyColumn<E: EthSpec> {
     // As the actual column is Arc'd inside, storing it redundantly here will not increase memory usage.
     Complete(KzgVerifiedCustodyDataColumn<E>),
-    Incomplete(KzgVerifiedCustodyPartialDataColumn<E>),
+    Incomplete(KzgVerifiedCustodyPartialDataColumnFulu<E>),
+}
+
+/// The accumulated partials that gained cells in a merge, for republishing. A single merge only
+/// ever touches one fork's store (Fulu: assembler, Gloas: pending payload cache), so this is an
+/// enum of vecs rather than a vec of per-fork enums.
+pub enum UpdatedPartials<E: EthSpec> {
+    Fulu(Vec<KzgVerifiedCustodyPartialDataColumnFulu<E>>),
+    Gloas(Vec<PartialDataColumnGloas<E>>),
+}
+
+impl<E: EthSpec> UpdatedPartials<E> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Fulu(partials) => partials.is_empty(),
+            Self::Gloas(partials) => partials.is_empty(),
+        }
+    }
 }
 
 /// Result of merging a partial column
 pub struct PartialMergeResult<E: EthSpec> {
     /// How many cells were added to the store
     pub added_cells: usize,
-    /// Have local blobs been added yet
-    pub local_blobs: bool,
+    /// True once the local `getBlobs` attempt has settled: it succeeded, failed, or is disabled.
+    pub local_fetch_settled: bool,
     /// Merge that completed the column
     pub full_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
-    /// The updated partials for publishing
-    pub updated_partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
+    /// The updated partials for publishing.
+    pub updated_partials: UpdatedPartials<E>,
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize, disable_get_blobs: bool) -> Self {
         Self {
             assemblies: RwLock::new(LruCache::new(capacity)),
+            disable_get_blobs,
         }
     }
 
@@ -60,7 +81,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         let assembly = PartialAssembly {
             header,
-            has_local_blobs: false,
+            has_local_blobs: self.disable_get_blobs,
             columns: HashMap::new(),
         };
 
@@ -74,7 +95,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn merge_partials(
         &self,
         block_root: Hash256,
-        partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
+        partials: Vec<KzgVerifiedCustodyPartialDataColumnFulu<E>>,
         header: Arc<PartialDataColumnHeader<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
@@ -82,7 +103,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .entry(block_root)
             .or_insert_with(|| PartialAssembly {
                 header: header.clone(),
-                has_local_blobs: false,
+                has_local_blobs: self.disable_get_blobs,
                 columns: HashMap::new(),
             });
 
@@ -91,17 +112,15 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         let mut added_cells = 0;
 
         for partial in partials {
-            let partial_column = partial.as_data_column();
-            let column_index = partial_column.index;
+            let column_index = partial.index();
 
             let merged = if let Some(existing) = assembly.columns.get(&column_index) {
                 let AssemblyColumn::Incomplete(existing) = existing else {
                     // Already complete.
                     continue;
                 };
-                let column = existing.as_data_column();
 
-                let old_len = column.sidecar.column.len();
+                let old_len = existing.sidecar().column().len();
 
                 // Merge with existing partial
                 let merged = match existing.merge(&partial) {
@@ -112,12 +131,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     }
                 };
 
-                let adding_cells = merged
-                    .as_data_column()
-                    .sidecar
-                    .column
-                    .len()
-                    .saturating_sub(old_len);
+                let adding_cells = merged.sidecar().column().len().saturating_sub(old_len);
 
                 added_cells += adding_cells;
 
@@ -127,7 +141,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
                 merged
             } else {
-                added_cells += partial_column.sidecar.column.len();
+                added_cells += partial.sidecar().column().len();
                 // First time seeing this column index for this block
                 partial
             };
@@ -147,9 +161,9 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         Some(PartialMergeResult {
             added_cells,
-            local_blobs: assembly.has_local_blobs,
+            local_fetch_settled: assembly.has_local_blobs,
             full_columns,
-            updated_partials,
+            updated_partials: UpdatedPartials::Fulu(updated_partials),
         })
     }
 
@@ -160,7 +174,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         block_root: Hash256,
         column: &KzgVerifiedCustodyDataColumn<E>,
     ) -> bool {
-        // TODO(gloas): support partial messages
         let Ok(fulu) = column.as_data_column().as_fulu() else {
             return false;
         };
@@ -174,7 +187,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     signed_block_header: fulu.signed_block_header.clone(),
                     kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
                 }),
-                has_local_blobs: false,
+                has_local_blobs: self.disable_get_blobs,
                 columns: Default::default(),
             });
         let prev = assembly
@@ -267,7 +280,8 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 mod tests {
     use super::*;
     use crate::data_column_verification::{
-        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedDataColumn, KzgVerifiedPartialDataColumn,
+        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedCustodyPartialDataColumnFulu,
+        KzgVerifiedDataColumn, KzgVerifiedPartialDataColumn,
     };
     use bls::{FixedBytesExtended, Signature};
     use kzg::{KzgCommitment, KzgProof};
@@ -276,7 +290,7 @@ mod tests {
     use types::core::{EthSpec, Hash256, MinimalEthSpec, Slot};
     use types::data::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
-        PartialDataColumnSidecar,
+        PartialDataColumnFulu, PartialDataColumnSidecarFulu,
     };
 
     type E = MinimalEthSpec;
@@ -314,7 +328,7 @@ mod tests {
         column_index: ColumnIndex,
         total_blobs: usize,
         present_indices: &[usize],
-    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+    ) -> KzgVerifiedCustodyPartialDataColumnFulu<E> {
         make_partial_with_header(block_root, column_index, total_blobs, present_indices, true)
     }
 
@@ -324,7 +338,7 @@ mod tests {
         total_blobs: usize,
         present_indices: &[usize],
         include_header: bool,
-    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+    ) -> KzgVerifiedCustodyPartialDataColumnFulu<E> {
         let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
         for &idx in present_indices {
             bitmap.set(idx, true).unwrap();
@@ -345,19 +359,22 @@ mod tests {
 
         let header = include_header.then(|| make_header(total_blobs)).into();
 
-        let partial = PartialDataColumn {
+        let partial: PartialDataColumn<E> = PartialDataColumnFulu {
             block_root,
             index: column_index,
-            sidecar: PartialDataColumnSidecar {
+            sidecar: PartialDataColumnSidecarFulu {
                 cells_present_bitmap: bitmap,
                 column,
                 kzg_proofs: proofs,
                 header,
             },
-        };
+        }
+        .into();
         KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-            KzgVerifiedPartialDataColumn::__new_for_testing(Arc::new(partial)),
+            KzgVerifiedPartialDataColumn::__new_for_testing(partial),
         )
+        .into_fulu()
+        .expect("test partial is a Fulu column")
     }
 
     fn make_full_column(fulu: DataColumnSidecarFulu<E>) -> KzgVerifiedCustodyDataColumn<E> {
@@ -367,7 +384,7 @@ mod tests {
     }
 
     fn make_assembler() -> PartialDataColumnAssembler<E> {
-        PartialDataColumnAssembler::new(16)
+        PartialDataColumnAssembler::new(16, false)
     }
 
     // -- init and get_header tests --
@@ -466,8 +483,11 @@ mod tests {
         let result = assembler
             .merge_partials(root, vec![partial], header)
             .unwrap();
-        assert_eq!(result.updated_partials.len(), 1);
-        assert_eq!(result.updated_partials[0].index(), 0);
+        let UpdatedPartials::Fulu(updated_partials) = result.updated_partials else {
+            panic!("assembler must produce Fulu updated partials");
+        };
+        assert_eq!(updated_partials.len(), 1);
+        assert_eq!(updated_partials[0].index(), 0);
     }
 
     #[test]

@@ -349,7 +349,7 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -365,7 +365,7 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: usize,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -434,6 +434,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+        &self.custody_context
+    }
+
     /// Puts the KZG verified blobs into the availability cache as pending components.
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
@@ -500,9 +504,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -606,9 +608,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -709,9 +709,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     fn get_num_expected_columns(&self, epoch: Epoch) -> Option<usize> {
         if self.spec.is_peer_das_enabled_for_epoch(epoch) {
-            let num_of_column_samples = self
-                .custody_context
-                .num_of_data_columns_to_sample(epoch, &self.spec);
+            let num_of_column_samples = self.custody_context.num_of_data_columns_to_sample(epoch);
             Some(num_of_column_samples)
         } else {
             None
@@ -760,6 +758,7 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::TestingSlotClock;
     use state_processing::ConsensusContext;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
@@ -922,19 +921,25 @@ mod test {
                 HotStore = BeaconNodeBackend,
                 ColdStore = BeaconNodeBackend,
                 EthSpec = E,
+                SlotClock = TestingSlotClock,
             >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_fulu_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
+        let complete_blob_backfill = false;
+        let slot_clock = harness.chain.slot_clock.clone();
+
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
-            &spec,
+            slot_clock,
+            complete_blob_backfill,
+            spec.clone(),
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec.clone())
+            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec)
                 .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
@@ -952,9 +957,7 @@ mod test {
         let epoch = pending_block.block.epoch();
 
         let num_blobs_expected = pending_block.num_blobs_expected();
-        let columns_expected = cache
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &harness.spec);
+        let columns_expected = cache.custody_context.num_of_data_columns_to_sample(epoch);
 
         // All columns are returned from availability_pending_block (E::number_of_columns())
         // but we only need custody columns
@@ -994,9 +997,7 @@ mod test {
         }
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns
@@ -1032,9 +1033,7 @@ mod test {
         let root = pending_block.import_data.block_root;
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns

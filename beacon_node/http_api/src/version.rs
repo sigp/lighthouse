@@ -15,6 +15,7 @@ use warp::reply::{self, Reply, Response};
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 pub const V3: EndpointVersion = EndpointVersion(3);
+pub const V4: EndpointVersion = EndpointVersion(4);
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub enum ResponseIncludesVersion {

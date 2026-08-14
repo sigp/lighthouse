@@ -16,9 +16,9 @@ use crate::rpc::{
 };
 use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
-    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumn, SnappyTransform, Subnet,
-    SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
-    subnet_from_topic_hash,
+    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumnFulu, OutgoingPartialColumnGloas,
+    PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery, all_topics_at_fork,
+    core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{AppRequestId, Response};
@@ -44,7 +44,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
-    PartialDataColumnHeader, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    PartialDataColumnRef, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -607,7 +607,7 @@ impl<E: EthSpec> Network<E> {
         for bootnode_enr in boot_nodes {
             // If QUIC is enabled, attempt QUIC connections first
             if !config.disable_quic_support {
-                for quic_multiaddr in &bootnode_enr.multiaddr_quic() {
+                for quic_multiaddr in &bootnode_enr.dialable_multiaddrs_quic() {
                     if !self
                         .network_globals
                         .peers
@@ -619,13 +619,7 @@ impl<E: EthSpec> Network<E> {
                 }
             }
 
-            for multiaddr in &bootnode_enr.multiaddr() {
-                // ignore udp multiaddr if it exists
-                let components = multiaddr.iter().collect::<Vec<_>>();
-                if let MProtocol::Udp(_) = components[1] {
-                    continue;
-                }
-
+            for multiaddr in &bootnode_enr.dialable_multiaddrs_tcp() {
                 if !self
                     .network_globals
                     .peers
@@ -920,38 +914,57 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(
-        &mut self,
-        columns: Vec<Arc<PartialDataColumn<E>>>,
-        header: Arc<PartialDataColumnHeader<E>>,
-    ) {
+    pub fn publish_partial(&mut self, messages: Vec<PubsubPartialMessage<E>>) {
         if !self.network_globals.config.enable_partial_columns {
             return;
         }
 
-        debug!(
-            count = columns.len(),
-            "Sending partial data column sidecars"
-        );
+        debug!(count = messages.len(), "Sending partial messages");
 
-        for column in columns {
+        for message in messages {
+            // Determine topic hash, same logic for both variants.
+            let column: PartialDataColumnRef<E> = match &message {
+                PubsubPartialMessage::DataColumnFulu { column, .. } => column.as_ref().into(),
+                PubsubPartialMessage::DataColumnGloas { column, .. } => column.as_ref().into(),
+            };
             let subnet =
-                DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
+                DataColumnSubnetId::from_column_index(*column.index(), &self.fork_context.spec);
             let topic = GossipTopic::new(
                 GossipKind::DataColumnSidecar(subnet),
                 GossipEncoding::default(),
                 self.enr_fork_id.fork_digest,
             );
-            let header_sent_set = self
-                .partial_column_header_tracker
-                .get_for_block(column.block_root);
-            let partial_message = OutgoingPartialColumn::new(column, &header, header_sent_set);
             let publish_topic: Topic = topic.clone().into();
 
-            if let Err(e) = self
-                .gossipsub_mut()
-                .publish_partial(publish_topic, partial_message)
-            {
+            let result = match message {
+                PubsubPartialMessage::DataColumnFulu {
+                    column,
+                    header,
+                    request_cells,
+                } => {
+                    let header_sent_set = self
+                        .partial_column_header_tracker
+                        .get_for_block(column.block_root);
+                    let partial_message = OutgoingPartialColumnFulu::new(
+                        column,
+                        &header,
+                        header_sent_set,
+                        request_cells,
+                    );
+                    self.gossipsub_mut()
+                        .publish_partial(publish_topic, partial_message)
+                }
+                PubsubPartialMessage::DataColumnGloas {
+                    column,
+                    request_cells,
+                } => {
+                    let partial_message = OutgoingPartialColumnGloas::new(column, request_cells);
+                    self.gossipsub_mut()
+                        .publish_partial(publish_topic, partial_message)
+                }
+            };
+
+            if let Err(e) = result {
                 match e {
                     PublishError::NoPeersSubscribedToTopic => {
                         debug!(
@@ -959,7 +972,7 @@ impl<E: EthSpec> Network<E> {
                             "No peers supporting partial messages"
                         );
                     }
-                    ref e => {
+                    e => {
                         warn!(
                             error = ?e,
                             kind = %topic.kind(),
@@ -969,12 +982,10 @@ impl<E: EthSpec> Network<E> {
                 }
 
                 // add to metrics
-                if let Some(v) = metrics::get_int_gauge(
+                metrics::inc_gauge_vec(
                     &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
                     &[&format!("{:?}", topic.kind())],
-                ) {
-                    v.inc()
-                };
+                );
             }
         }
     }
@@ -1427,7 +1438,7 @@ impl<E: EthSpec> Network<E> {
                     .ok()?;
 
                 if let Some(message) = message {
-                    match decode_partial::<E>(&topic, &group_id, &message) {
+                    match decode_partial::<E>(&topic, &group_id, &message, &self.fork_context) {
                         Err(error) => {
                             debug!(
                                 topic = ?topic_hash,
@@ -1440,10 +1451,10 @@ impl<E: EthSpec> Network<E> {
                         }
                         Ok(column) => {
                             debug!(
-                                block_root = %column.block_root,
-                                index = column.index,
+                                block_root = %column.block_root(),
+                                index = column.index(),
                                 %peer_id,
-                                cells_present = %column.sidecar.cells_present_bitmap,
+                                cells_present = %column.sidecar().cells_present_bitmap(),
                                 "Decoded partial message"
                             );
                             // Notify the network
@@ -2145,10 +2156,10 @@ impl<E: EthSpec> Network<E> {
             } => {
                 match reason {
                     Ok(_) => {
-                        debug!(?addresses, "Listener gracefully closed")
+                        debug!(?addresses, "Listener gracefully closed");
                     }
                     Err(reason) => {
-                        crit!(?addresses, ?reason, "Listener abruptly closed")
+                        crit!(?addresses, ?reason, "Listener abruptly closed");
                     }
                 };
                 if Swarm::listeners(&self.swarm).count() == 0 {

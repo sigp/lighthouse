@@ -107,6 +107,17 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Fetch proposer duties using the v1 beacon node endpoint instead of v2. The v1 \
+                endpoint reports an incorrect dependent root which causes spurious proposer duty \
+                re-org warnings. Only enable this flag if your beacon node does not serve the v2 \
+                proposer duties endpoint.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_proposer_duties_v2: bool,
+
+    #[clap(
+        long,
         help = "If present, the validator client will use longer timeouts for requests \
                 made to the beacon node. This flag is generally not recommended, \
                 longer timeouts can cause missed duties when fallbacks are used.",
@@ -340,7 +351,7 @@ pub struct ValidatorClient {
         value_name = "ADDRESS",
         help = "Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
-                This flag sets the endpoint where the beacon node metrics will be sent. \
+                This flag sets the endpoint where the validator client metrics will be sent. \
                 Note: This will send information to a remote sever which may identify and associate your \
                 validators, IP address and other personal information. Always use a HTTPS connection \
                 and never provide an untrusted URL.",

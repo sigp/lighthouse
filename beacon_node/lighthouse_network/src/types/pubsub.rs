@@ -1,5 +1,6 @@
 //! Handles the encoding and decoding of pubsub messages.
 
+use super::partial::{PARTIAL_COLUMNS_VERSION_BYTE_FULU, PARTIAL_COLUMNS_VERSION_BYTE_GLOAS};
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use libp2p::gossipsub::{DataTransform, Message, RawMessage, TopicHash};
 use snap::raw::{Decoder, Encoder, decompress_len};
@@ -7,17 +8,20 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnSidecar,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
     PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    execution::SignedExecutionProof,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,10 +54,35 @@ pub enum PubsubMessage<E: EthSpec> {
     ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Arc<SignedProposerPreferences>),
+    /// Gossipsub message providing notification of an EIP-8025 execution proof.
+    ExecutionProof(Arc<SignedExecutionProof>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
     LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+}
+
+/// A message published via the partial gossipsub protocol.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PubsubPartialMessage<E: EthSpec> {
+    /// A partial data column sidecar from the Fulu fork.
+    DataColumnFulu {
+        /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
+        /// asks for data within it.
+        column: Arc<PartialDataColumnFulu<E>>,
+        /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
+        /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
+        /// requested to conserve bandwidth.
+        request_cells: CellBitmap<E>,
+        /// The header associated with the column above. This is set separately here, as the column
+        /// to be published does not contain the header - it is stored without.
+        header: Arc<PartialDataColumnHeader<E>>,
+    },
+    /// A partial data column sidecar from the Gloas fork.
+    DataColumnGloas {
+        column: Arc<PartialDataColumnGloas<E>>,
+        request_cells: CellBitmap<E>,
+    },
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -151,6 +180,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::PayloadAttestation(_) => GossipKind::PayloadAttestation,
             PubsubMessage::ExecutionPayloadBid(_) => GossipKind::ExecutionPayloadBid,
             PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
+            PubsubMessage::ExecutionProof(_) => GossipKind::ExecutionProof,
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
             PubsubMessage::LightClientOptimisticUpdate(_) => {
                 GossipKind::LightClientOptimisticUpdate
@@ -182,7 +212,22 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] Gloas and Electra produce the same
+                                // SSZ bytes but different hash tree roots, so the variant must be
+                                // chosen by fork.
+                                if fork_name.gloas_enabled() {
+                                    if data.len() > E::max_signed_aggregate_and_proof_size() {
+                                        return Err(format!(
+                                            "SignedAggregateAndProof size {} exceeds MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE {}",
+                                            data.len(),
+                                            E::max_signed_aggregate_and_proof_size()
+                                        ));
+                                    }
+                                    SignedAggregateAndProof::Gloas(
+                                        SignedAggregateAndProofGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     SignedAggregateAndProof::Electra(
                                         SignedAggregateAndProofElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -249,6 +294,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
+                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                                SignedBeaconBlockHeze::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
                             None => {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
@@ -261,6 +310,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
+                                if fork.gloas_enabled()
+                                    && data.len() > E::max_data_column_sidecar_size()
+                                {
+                                    return Err(format!(
+                                        "DataColumnSidecar size {} exceeds MAX_DATA_COLUMN_SIDECAR_SIZE {}",
+                                        data.len(),
+                                        E::max_data_column_sidecar_size()
+                                    ));
+                                }
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes_for_fork(data, *fork)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -291,7 +349,20 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
+                                if fork_name.gloas_enabled() {
+                                    if data.len() > E::max_attester_slashing_size() {
+                                        return Err(format!(
+                                            "AttesterSlashing size {} exceeds MAX_ATTESTER_SLASHING_SIZE {}",
+                                            data.len(),
+                                            E::max_attester_slashing_size()
+                                        ));
+                                    }
+                                    AttesterSlashing::Gloas(
+                                        AttesterSlashingGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     AttesterSlashing::Electra(
                                         AttesterSlashingElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -344,6 +415,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
+                        if data.len() > E::max_signed_execution_payload_bid_size() {
+                            return Err(format!(
+                                "SignedExecutionPayloadBid size {} exceeds MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {}",
+                                data.len(),
+                                E::max_signed_execution_payload_bid_size()
+                            ));
+                        }
                         let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
@@ -363,6 +441,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ProposerPreferences(Arc::new(
                             proposer_preferences,
                         )))
+                    }
+                    GossipKind::ExecutionProof => {
+                        let execution_proof = SignedExecutionProof::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ExecutionProof(Arc::new(execution_proof)))
                     }
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context
@@ -429,6 +512,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::PayloadAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionPayloadBid(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
+            PubsubMessage::ExecutionProof(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
@@ -442,23 +526,63 @@ pub fn decode_partial<E: EthSpec>(
     topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
+    fork_context: &ForkContext,
 ) -> Result<PartialDataColumn<E>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
-            if group.first() != Some(&0) {
-                return Err(format!("Unknown data column format: {:?}", group.first()));
-            }
-            let block_root = Hash256::from_ssz_bytes(&group[1..])
-                .map_err(|e| format!("Error decoding group: {:?}", e))?;
-            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
-                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-            let data_column = PartialDataColumn {
-                block_root,
-                // Partial messages are spec'd under the assumption that there is one column per subnet.
-                index: **id,
-                sidecar,
+            let fork = *match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
+                Some(fork) if fork.fulu_enabled() => {
+                    if fork.gloas_enabled()
+                        && data.len() > E::max_partial_data_column_sidecar_size()
+                    {
+                        return Err(format!(
+                            "PartialDataColumnSidecar size {} exceeds MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE {}",
+                            data.len(),
+                            E::max_partial_data_column_sidecar_size()
+                        ));
+                    }
+                    fork
+                }
+                Some(_) | None => {
+                    return Err(format!(
+                        "data_column_sidecar topic invalid for given fork digest {:?}",
+                        topic.fork_digest
+                    ));
+                }
             };
-            Ok(data_column)
+            // Partial messages are spec'd under the assumption that there is one column per subnet.
+            let index = **id;
+            let Some((version, group_id)) = group.split_first() else {
+                return Err("Empty partial group id".to_string());
+            };
+            match version {
+                &PARTIAL_COLUMNS_VERSION_BYTE_FULU if !fork.gloas_enabled() => {
+                    let sidecar = PartialDataColumnSidecarFulu::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let block_root = Hash256::from_ssz_bytes(group_id)
+                        .map_err(|e| format!("Error decoding Fulu group: {:?}", e))?;
+                    Ok(PartialDataColumnFulu {
+                        block_root,
+                        index,
+                        sidecar,
+                    }
+                    .into())
+                }
+                &PARTIAL_COLUMNS_VERSION_BYTE_GLOAS if fork.gloas_enabled() => {
+                    let sidecar = PartialDataColumnSidecarGloas::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let group_id = PartialDataColumnGroupId::from_ssz_bytes(group_id)
+                        .map_err(|e| format!("Error decoding Gloas group: {:?}", e))?;
+                    Ok(PartialDataColumnGloas {
+                        block_root: group_id.beacon_block_root,
+                        slot: group_id.slot,
+                        index,
+                        sidecar,
+                    }
+                    .into())
+                }
+                version => Err(format!("Unknown partial version {version} for fork {fork}")),
+            }
         }
         other => Err(format!("Partial message unsupported for topic: {other}")),
     }
@@ -539,6 +663,13 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     data.message.proposal_slot, data.message.validator_index
                 )
             }
+            PubsubMessage::ExecutionProof(data) => {
+                write!(
+                    f,
+                    "Execution proof: beacon_block_root: {:?}, proof_type: {:?}, validator_index: {:?}",
+                    data.message.beacon_block_root, data.message.proof_type, data.validator_index
+                )
+            }
             PubsubMessage::LightClientFinalityUpdate(_data) => {
                 write!(f, "Light CLient Finality Update")
             }
@@ -546,5 +677,155 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 write!(f, "Light CLient Optimistic Update")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::OutgoingPartialColumnGloas;
+    use libp2p::gossipsub::partial_messages::Partial;
+    use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
+    use types::{Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
+
+    type E = MainnetEthSpec;
+
+    fn gloas_fork_context() -> ForkContext {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.electra_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    #[test]
+    fn gloas_group_id_round_trips_through_decode_partial() {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(3)),
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let column = PartialDataColumnGloas::<E> {
+            block_root: Hash256::repeat_byte(7),
+            slot: Slot::new(9),
+            index: 3,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: CellBitmap::<E>::with_capacity(1).unwrap(),
+                column: Default::default(),
+                kzg_proofs: Default::default(),
+            },
+        };
+        let outgoing = OutgoingPartialColumnGloas::new(
+            Arc::new(column.clone()),
+            column.sidecar.cells_present_bitmap.clone(),
+        );
+
+        let decoded = decode_partial::<E>(
+            &topic,
+            &outgoing.group_id(),
+            &column.sidecar.as_ssz_bytes(),
+            &fork_context,
+        )
+        .unwrap();
+
+        let PartialDataColumn::Gloas(decoded) = decoded else {
+            panic!("expected a Gloas partial");
+        };
+        assert_eq!(decoded.block_root, column.block_root);
+        assert_eq!(decoded.slot, column.slot);
+        assert_eq!(decoded.index, column.index);
+    }
+
+    fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let topic_hash = TopicHash::from_raw(String::from(topic));
+        let data = vec![0u8; size];
+        PubsubMessage::decode(&topic_hash, &data, &fork_context)
+    }
+
+    #[test]
+    fn gloas_aggregate_and_proof_size_bound() {
+        let max = E::max_signed_aggregate_and_proof_size();
+        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max + 1).unwrap_err();
+        assert!(err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max).unwrap_err();
+        assert!(
+            !err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn gloas_attester_slashing_size_bound() {
+        let max = E::max_attester_slashing_size();
+        let err = decode_oversized(GossipKind::AttesterSlashing, max + 1).unwrap_err();
+        assert!(err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::AttesterSlashing, max).unwrap_err();
+        assert!(!err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn gloas_data_column_sidecar_size_bound() {
+        let max = E::max_data_column_sidecar_size();
+        let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
+        let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
+        assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+        let err = decode_oversized(kind, max).unwrap_err();
+        assert!(!err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn gloas_partial_data_column_sidecar_size_bound() {
+        let fork_context = gloas_fork_context();
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0)),
+            GossipEncoding::default(),
+            fork_context.current_fork_digest(),
+        );
+        let group = {
+            let mut group = vec![0u8];
+            group.extend_from_slice(Hash256::ZERO.as_slice());
+            group
+        };
+        let max = E::max_partial_data_column_sidecar_size();
+
+        let data = vec![0u8; max + 1];
+        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        assert!(
+            err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
+            "{err}"
+        );
+
+        let data = vec![0u8; max];
+        let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
+        assert!(
+            !err.contains("MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn gloas_execution_payload_bid_size_bound() {
+        let max = E::max_signed_execution_payload_bid_size();
+        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max + 1).unwrap_err();
+        assert!(
+            err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
+        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max).unwrap_err();
+        assert!(
+            !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
     }
 }

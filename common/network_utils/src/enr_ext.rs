@@ -28,11 +28,13 @@ pub trait EnrExt {
     /// Returns any multiaddrs that contain the UDP protocol with the `PeerId` prepended.
     fn multiaddr_p2p_udp(&self) -> Vec<Multiaddr>;
 
-    /// Returns any multiaddrs that contain the TCP protocol.
-    fn multiaddr_tcp(&self) -> Vec<Multiaddr>;
+    /// Returns any dialable multiaddrs that contain the TCP protocol. Addresses with a zero
+    /// port are omitted.
+    fn dialable_multiaddrs_tcp(&self) -> Vec<Multiaddr>;
 
-    /// Returns any QUIC multiaddrs that are registered in this ENR.
-    fn multiaddr_quic(&self) -> Vec<Multiaddr>;
+    /// Returns any dialable QUIC multiaddrs that are registered in this ENR. Addresses with a
+    /// zero port are omitted.
+    fn dialable_multiaddrs_quic(&self) -> Vec<Multiaddr>;
 
     /// Returns the quic port if one is set.
     fn quic4(&self) -> Option<u16>;
@@ -210,10 +212,12 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and a `quic` key **or** an `ip6` and a `quic6`.
-    fn multiaddr_quic(&self) -> Vec<Multiaddr> {
+    /// Returns a list of multiaddrs if the ENR has an `ip` and a non-zero `quic` key **or** an
+    /// `ip6` and a non-zero `quic6`.
+    fn dialable_multiaddrs_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(quic_port) = self.quic4()
+            && quic_port != 0
             && let Some(ip) = self.ip4()
         {
             let mut multiaddr: Multiaddr = ip.into();
@@ -223,6 +227,7 @@ impl EnrExt for Enr {
         }
 
         if let Some(quic6_port) = self.quic6()
+            && quic6_port != 0
             && let Some(ip6) = self.ip6()
         {
             let mut multiaddr: Multiaddr = ip6.into();
@@ -233,11 +238,13 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
-    fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
+    /// Returns a list of multiaddrs if the ENR has an `ip` and a non-zero `tcp` key **or** an
+    /// `ip6` and a non-zero `tcp6`.
+    fn dialable_multiaddrs_tcp(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip4()
             && let Some(tcp) = self.tcp4()
+            && tcp != 0
         {
             let mut multiaddr: Multiaddr = ip.into();
             multiaddr.push(Protocol::Tcp(tcp));
@@ -245,6 +252,7 @@ impl EnrExt for Enr {
         }
         if let Some(ip6) = self.ip6()
             && let Some(tcp6) = self.tcp6()
+            && tcp6 != 0
         {
             let mut multiaddr: Multiaddr = ip6.into();
             multiaddr.push(Protocol::Tcp(tcp6));
@@ -371,6 +379,86 @@ mod tests {
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);
+    }
+
+    #[test]
+    fn dialable_multiaddrs_tcp_skips_zero_port() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip4 = std::net::Ipv4Addr::new(192, 0, 2, 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip4(ip4)
+            .tcp4(9000)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_tcp().len(), 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip4(ip4)
+            .tcp4(0)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_tcp().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_tcp_skips_zero_port_ip6() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip6 = std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip6(ip6)
+            .tcp6(9000)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_tcp().len(), 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip6(ip6)
+            .tcp6(0)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_tcp().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_quic_skips_zero_port() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip4 = std::net::Ipv4Addr::new(192, 0, 2, 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip4(ip4)
+            .add_value(QUIC_ENR_KEY, &9000u16)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_quic().len(), 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip4(ip4)
+            .add_value(QUIC_ENR_KEY, &0u16)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_quic().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_quic_skips_zero_port_ip6() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip6 = std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip6(ip6)
+            .add_value(QUIC6_ENR_KEY, &9000u16)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_quic().len(), 1);
+
+        let enr: Enr = discv5::enr::Enr::builder()
+            .ip6(ip6)
+            .add_value(QUIC6_ENR_KEY, &0u16)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_quic().is_empty());
     }
 
     #[test]
