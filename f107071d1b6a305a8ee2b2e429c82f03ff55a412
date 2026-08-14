@@ -1,6 +1,1 @@
-Revision history for #9807:
-
-rev 2 (content) 2026-08-13 23:38 UTC — catch up to Aug 10 spec revisions: builder_pubkeys yml list, drop builders with empty auth_data, POST v4 fork param at call sites
-rev 1 (initial) 2026-08-13 23:38 UTC
-
-<!-- mergify-revision-data: {"schema_version":1,"pull_number":9807,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"cb7346ea39798a11b85b849e0e9306274cd1774d","timestamp_iso":"2026-08-13T23:38:56Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"content","old_sha":"cb7346ea39798a11b85b849e0e9306274cd1774d","new_sha":"d71aa2cc735a5ca076ce3a2567c79b4dc9136a46","timestamp_iso":"2026-08-13T23:38:56Z","reason":"catch up to Aug 10 spec revisions: builder_pubkeys yml list, drop builders with empty auth_data, POST v4 fork param at call sites","replay_sha":null,"compare_url":"https://github.com/sigp/lighthouse/compare/cb7346ea39798a11b85b849e0e9306274cd1774d...d71aa2cc735a5ca076ce3a2567c79b4dc9136a46"}]} -->
+fix clippy: unused import and manual_let_else in builder_store
