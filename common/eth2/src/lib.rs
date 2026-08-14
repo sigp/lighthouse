@@ -3701,9 +3701,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST validator/inclusion_list`
-    pub async fn post_validator_inclusion_lists(
+    pub async fn post_validator_inclusion_list(
         &self,
-        signed_inclusion_lists: &[SignedInclusionList],
+        signed_inclusion_list: &SignedInclusionList,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -3713,16 +3713,18 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("inclusion_list");
 
-        self.post_generic_with_consensus_version(path, &signed_inclusion_lists, None, fork_name)
+        // The request body is wrapped in a `data` object, per the beacon-APIs specs
+        let body = serde_json::json!({ "data": signed_inclusion_list });
+        self.post_generic_with_consensus_version(path, &body, None, fork_name)
             .await?;
 
         Ok(())
     }
 
     /// `POST validator/inclusion_list` (SSZ)
-    pub async fn post_validator_inclusion_lists_ssz(
+    pub async fn post_validator_inclusion_list_ssz(
         &self,
-        signed_inclusion_lists: &Vec<SignedInclusionList>,
+        signed_inclusion_list: &SignedInclusionList,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -3732,7 +3734,7 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("inclusion_list");
 
-        let ssz_body = signed_inclusion_lists.as_ssz_bytes();
+        let ssz_body = signed_inclusion_list.as_ssz_bytes();
 
         self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
             .await?;
