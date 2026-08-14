@@ -14,7 +14,6 @@ portable = ["beacon_chain/portable"]
 [dependencies]
 alloy-primitives = { workspace = true }
 beacon_chain = { workspace = true, features = ["ef_tests"] }
-slot_clock = { workspace = true }
 bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
@@ -37,6 +36,7 @@ rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
+slot_clock = { workspace = true }
 snap = { workspace = true }
 ssz_types = { workspace = true }
 state_processing = { workspace = true }
