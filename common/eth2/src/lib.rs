@@ -3701,9 +3701,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST validator/inclusion_list`
-    pub async fn post_validator_inclusion_list(
+    pub async fn post_validator_inclusion_lists(
         &self,
-        signed_inclusion_list: SignedInclusionList,
+        signed_inclusion_lists: &[SignedInclusionList],
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -3713,16 +3713,16 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("inclusion_list");
 
-        self.post_generic_with_consensus_version(path, &signed_inclusion_list, None, fork_name)
+        self.post_generic_with_consensus_version(path, &signed_inclusion_lists, None, fork_name)
             .await?;
 
         Ok(())
     }
 
     /// `POST validator/inclusion_list` (SSZ)
-    pub async fn post_validator_inclusion_list_ssz(
+    pub async fn post_validator_inclusion_lists_ssz(
         &self,
-        signed_inclusion_list: SignedInclusionList,
+        signed_inclusion_lists: &Vec<SignedInclusionList>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -3730,9 +3730,9 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("proposer_preferences");
+            .push("inclusion_list");
 
-        let ssz_body = signed_inclusion_list.as_ssz_bytes();
+        let ssz_body = signed_inclusion_lists.as_ssz_bytes();
 
         self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
             .await?;
