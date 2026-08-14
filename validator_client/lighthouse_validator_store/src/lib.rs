@@ -22,13 +22,14 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
     BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit, graffiti::GraffitiString,
+    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, InclusionList,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, SingleAttestation, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -1551,6 +1552,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             message: request_auth_v1,
             signature,
         })
+    }
+
+    async fn sign_inclusion_list(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        inclusion_list: InclusionList,
+    ) -> Result<SignedInclusionList, Error> {
+        todo!("sign_inclusion_list not implemented yet");
     }
 }
 

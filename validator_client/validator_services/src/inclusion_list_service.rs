@@ -8,13 +8,12 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec, Hash256, Slot};
+use types::{ChainSpec, EthSpec, ForkName, Hash256, InclusionList, SignedInclusionList, Slot};
 use validator_store::ValidatorStore;
 
 type DependentRoot = Hash256;
 
 struct InclusionListData {
-    slot: Slot,
     dependent_root: DependentRoot,
     transactions: InclusionListTransactions,
 }
@@ -94,11 +93,17 @@ where
     }
 
     async fn spawn_inclusion_list_tasks(&self) -> Result<(), String> {
+        // TODO(heze): consider producing the inclusion list after the slot's envelope is
+        // revealed instead of right at the start of the slot, keeping the current approach
+        // as a fallback. Producing at slot start means the list can include transactions
+        // that the current slot's payload already includes. These would mean redundant constraints
+        // that put no pressure on the next builder. Building after the envelopes reveal would
+        // keep only still-pending transactions
         let Some(slot) = self.wait_to_next_slot().await else {
             return Ok(());
         };
 
-        let Some((duties, attestation_data)) =
+        let Some((duties, inclusion_list_data)) =
             self.produce_inclusion_list_duties_data(slot).await?
         else {
             return Ok(());
@@ -108,7 +113,7 @@ where
         self.executor.spawn(
             async move {
                 if let Err(e) = service
-                    .sign_and_publish(slot, duties, attestation_data)
+                    .sign_and_publish(slot, duties, inclusion_list_data)
                     .await
                 {
                     crit!(error = e, %slot, "Failed to publish inclusion lists");
@@ -161,8 +166,9 @@ where
 
     /// Produce the inclusion list data for `slot`, returned alongside the duties to sign.
     ///
-    /// Returns `Ok(None)` when there is nothing to publish (no duties, or no inclusion list data for slot)
-    /// and `Err` when data production failed.
+    /// Returns `Ok(None)` when there is nothing to produce (the slot's duties have not been
+    /// downloaded yet, or no local validator has an IL duty at the slot) and `Err` when
+    /// fetching the inclusion list transactions failed.
     async fn produce_inclusion_list_duties_data(
         &self,
         slot: Slot,
@@ -206,13 +212,12 @@ where
             "Received inclusion list transactions"
         );
 
-        let il_duties = InclusionListData {
+        let inclusion_list_data = InclusionListData {
             dependent_root,
-            slot,
             transactions,
         };
 
-        Ok(Some((duties, il_duties)))
+        Ok(Some((duties, inclusion_list_data)))
     }
 
     async fn sign_and_publish(
@@ -221,6 +226,105 @@ where
         duties: Vec<InclusionListDuty>,
         inclusion_list_data: InclusionListData,
     ) -> Result<(), String> {
-        todo!("Signing and publishing ILs is not yet implemented")
+        let mut signed_ils = Vec::with_capacity(duties.len());
+
+        for duty in duties {
+            let inclusion_list = InclusionList {
+                slot,
+                validator_index: duty.validator_index,
+                dependent_root: inclusion_list_data.dependent_root,
+                transactions: inclusion_list_data.transactions.transactions.clone(),
+            };
+
+            match self
+                .validator_store
+                .sign_inclusion_list(duty.pubkey, inclusion_list)
+                .await
+            {
+                Ok(signed_il) => signed_ils.push(signed_il),
+                Err(e) => {
+                    crit!(
+                        error = ?e,
+                        validator = ?duty.pubkey,
+                        %slot,
+                        "Failed to sign inclusion list"
+                    );
+                }
+            }
+        }
+
+        if signed_ils.is_empty() {
+            return Ok(());
+        }
+
+        let mut ils_published = 0;
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+        for signed_il in &signed_ils {
+            match self.publish_inclusion_list(signed_il, fork_name).await {
+                Ok(()) => ils_published += 1,
+                Err(e) => error!(
+                    %slot,
+                    validator_index = signed_il.message.validator_index,
+                    error = %e,
+                    "Failed to publish inclusion list"
+                ),
+            }
+        }
+
+        if ils_published == 0 {
+            return Err(format!(
+                "Failed to publish any of the {} signed inclusion lists",
+                signed_ils.len()
+            ));
+        }
+
+        info!(
+            %slot,
+            published = ils_published,
+            total = signed_ils.len(),
+            "Published inclusion lists"
+        );
+
+        Ok(())
+    }
+
+    async fn publish_inclusion_list(
+        &self,
+        signed_il: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), String> {
+        let result = self
+            .beacon_nodes
+            .first_success(|beacon_node| {
+                let inclusion_list = signed_il.clone();
+                async move {
+                    beacon_node
+                        .post_validator_inclusion_list_ssz(&inclusion_list, fork_name)
+                        .await
+                        .map_err(|e| format!("Failed to publish inclusion list (SSZ): {e:?}"))
+                }
+            })
+            .await;
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(ssz_err) => {
+                debug!(error = %ssz_err, "SSZ publish failed, falling back to JSON");
+                self.beacon_nodes
+                    .first_success(|beacon_node| {
+                        let inclusion_list = signed_il.clone();
+                        async move {
+                            beacon_node
+                                .post_validator_inclusion_list(&inclusion_list, fork_name)
+                                .await
+                                .map_err(|e| {
+                                    format!("Failed to publish inclusion list (JSON): {e:?}")
+                                })
+                        }
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+        }
     }
 }
