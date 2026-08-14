@@ -328,3 +328,241 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::duties_service::DutiesServiceBuilder;
+    use futures::FutureExt;
+    use slot_clock::ManualSlotClock;
+    use std::time::Duration;
+    use types::{Epoch, MainnetEthSpec};
+    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
+
+    type E = MainnetEthSpec;
+
+    struct TestHarness {
+        harness: ValidatorClientHarness,
+        service: InclusionListService<S, ManualSlotClock>,
+    }
+
+    impl TestHarness {
+        async fn new_with_validators(num_validators: usize) -> Self {
+            Self::new_with_heze_at(num_validators, Epoch::new(0)).await
+        }
+
+        async fn new_with_heze_at(num_validators: usize, heze_fork_epoch: Epoch) -> Self {
+            let harness = ValidatorClientHarness::new(num_validators).await;
+
+            let mut spec = (*harness.spec).clone();
+            spec.heze_fork_epoch = Some(heze_fork_epoch);
+            let spec = Arc::new(spec);
+
+            let duties_service = Arc::new(
+                DutiesServiceBuilder::new()
+                    .validator_store(harness.validator_store.clone())
+                    .slot_clock(harness.slot_clock.clone())
+                    .beacon_nodes(harness.beacon_nodes.clone())
+                    .executor(harness.test_runtime.task_executor.clone())
+                    .spec(spec.clone())
+                    .build()
+                    .unwrap(),
+            );
+
+            let service = InclusionListService::new(
+                duties_service,
+                harness.validator_store.clone(),
+                harness.slot_clock.clone(),
+                harness.beacon_nodes.clone(),
+                harness.test_runtime.task_executor.clone(),
+                spec,
+            );
+
+            Self { harness, service }
+        }
+
+        fn insert_il_duties(&self, slot: Slot, dependent_root: Hash256) {
+            let duties = self
+                .harness
+                .pubkeys
+                .iter()
+                .enumerate()
+                .map(|(i, pubkey)| InclusionListDuty {
+                    pubkey: *pubkey,
+                    validator_index: i as u64,
+                    slot,
+                    inclusion_list_committee_root: Hash256::ZERO,
+                })
+                .collect();
+            self.service
+                .duties_service
+                .il_duties
+                .write()
+                .insert(slot.epoch(E::slots_per_epoch()), (dependent_root, duties));
+        }
+    }
+
+    async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
+        slot_clock.advance_time(duration);
+        tokio::time::advance(duration).await;
+    }
+
+    /// Pre-Heze the wait sleeps to the next epoch and returns `None`
+    /// No duties are read and no BN request is made
+    #[tokio::test]
+    async fn waits_until_next_epoch_before_heze_fork() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_heze_at(1, Epoch::new(1)).await;
+        let service = &harness.service;
+
+        // Add duties for a pre-Heze slot
+        // If the il task execution leaks past the wait_for_next_slot check,
+        // it would fetch the transactions from the mock BNs and fail the final assertion
+        // in the test
+        harness.insert_il_duties(Slot::new(1), Hash256::repeat_byte(0xab));
+        let service_wait = service.spawn_inclusion_list_tasks();
+        tokio::pin!(service_wait);
+
+        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        // It calls sleep(duration_to_next_epoch).await which registers a timer with a deadline of 12s * 32
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        // Advance both slot_clock and tokio::time slot by slot up to 384s (the sleep deadline)
+        // This verifies that wait_to_next_slot waits a whole epoch (not just a slot) before completing
+        for _ in 0..E::slots_per_epoch() {
+            let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
+            advance_time(&harness.service.slot_clock, duration_to_next_slot).await;
+            assert!(
+                service_wait.as_mut().now_or_never().is_none(),
+                "Function should return None before the sleep duration has elapsed"
+            );
+        }
+
+        // Advance time for 1 more second, past the epoch boundary.
+        // The epoch sleep should have completed and the execution should complete as a no-op.
+        // This call should yield no slot, so nothing should be produced, signed or published.
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(service_wait.as_mut().now_or_never(), Some(Ok(())));
+    }
+
+    #[tokio::test]
+    async fn waits_until_next_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let service = &harness.service;
+        let service_wait = service.wait_to_next_slot();
+        tokio::pin!(service_wait);
+
+        // Start the timer and registers the sleep timer with tokio
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let duration_to_wait = harness.service.slot_clock.duration_to_next_slot().unwrap();
+        // Advance both slot_clock and tokio::time to 12s
+        advance_time(&harness.service.slot_clock, duration_to_wait).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Function should return None before the sleep duration has elapsed"
+        );
+
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn no_duties_no_fetch_no_publish() {
+        let mut harness = TestHarness::new_with_validators(3).await;
+        let current_slot = harness.service.slot_clock.now().unwrap();
+
+        let transactions = InclusionListTransactions {
+            transactions: Default::default(),
+        };
+        let fetch_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, current_slot);
+        let publish_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz(ForkName::Heze);
+
+        // Duties for the slot's epoch not downloaded yet
+        let result = harness
+            .service
+            .produce_inclusion_list_duties_data(current_slot)
+            .await;
+        assert!(result.unwrap().is_none());
+
+        // Add duty for next slot, not for the current one
+        harness.insert_il_duties(current_slot + 1, Hash256::repeat_byte(0xab));
+        let result = harness
+            .service
+            .produce_inclusion_list_duties_data(current_slot)
+            .await;
+        assert!(result.unwrap().is_none());
+
+        fetch_mock.expect(0).assert();
+        publish_mock.expect(0).assert();
+    }
+
+    /// Produce endpoint fails on all BNs: produce returns `Err`, nothing is signed or
+    /// published, and the main service loop handles the error
+    #[tokio::test]
+    async fn produce_fetch_error_aborts_slot() {
+        let mut harness = TestHarness::new_with_validators(3).await;
+        let slot = Slot::new(1);
+        harness.insert_il_duties(slot, Hash256::repeat_byte(0xab));
+
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list_error(slot);
+        harness
+            .harness
+            .mock_beacon_node_2
+            .mock_get_validator_inclusion_list_error(slot);
+
+        let result = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await;
+        assert!(result.is_err());
+    }
+
+    /// First BN errors on the produce endpoint, second serves: `first_success` walks
+    /// past and transactions come from the second BN.
+    #[tokio::test]
+    async fn produce_falls_back_to_second_bn() {
+        let mut harness = TestHarness::new_with_validators(3).await;
+        let slot = Slot::new(1);
+        let dependent_root = Hash256::repeat_byte(0xab);
+        harness.insert_il_duties(slot, dependent_root);
+
+        let transactions = InclusionListTransactions {
+            transactions: vec![vec![0xaa; 3].try_into().unwrap()].try_into().unwrap(),
+        };
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list_error(slot);
+        let bn2_mock = harness
+            .harness
+            .mock_beacon_node_2
+            .mock_get_validator_inclusion_list(&transactions, slot);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(duties.len(), 3);
+        assert_eq!(data.dependent_root, dependent_root);
+        assert_eq!(data.transactions, transactions);
+        bn2_mock.expect(1).assert();
+    }
+}
