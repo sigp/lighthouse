@@ -215,6 +215,9 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    ForkChoiceDivergedFromStore {
+        missing_block_root: Hash256,
+    },
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
     BlsToExecutionPriorToCapella,

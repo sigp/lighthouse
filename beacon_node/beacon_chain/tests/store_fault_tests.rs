@@ -11,8 +11,8 @@
 //! - The node refuses to re-import the missing block.
 //! - Children of the missing block fail with `MissingBeaconBlock` instead of `ParentUnknown`.
 //! - Head recomputation fails and the head cannot advance.
-//! - A graceful shutdown persists the diverged fork choice, making the next startup fail
-//!   with "Head block not found in store".
+//! - A graceful shutdown refuses to persist the diverged fork choice, so a restart
+//!   recovers the last consistent fork choice from disk.
 
 use beacon_chain::{
     BeaconChainError, BlockError,
@@ -22,7 +22,6 @@ use beacon_chain::{
     },
 };
 use eth2::types::SignedBlockContentsTuple;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -170,44 +169,54 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
     );
 }
 
-// TODO: this test asserts the *broken* behaviour. Once shutdown stops persisting a
-// known-diverged fork choice (or startup self-heals), this test should FAIL. Flip the
-// assertions to the healed behaviour as part of the fix.
 #[tokio::test]
-async fn restart_after_db_write_failure_is_fatal() {
+async fn restart_after_db_write_failure_recovers() {
     if incompatible_fork() {
         return;
     }
-    let WedgedChain { harness, .. } = wedged_chain().await;
+    let WedgedChain {
+        harness,
+        phantom_root,
+        ..
+    } = wedged_chain().await;
 
     let store = harness.chain.store.clone();
     let slot_clock = harness.chain.slot_clock.clone();
 
-    // A graceful shutdown persists the diverged fork choice (see `Drop` for
-    // `BeaconChain`).
-    harness.chain.persist_fork_choice().unwrap();
+    // A graceful shutdown refuses to persist the diverged fork choice, keeping the last
+    // consistent fork choice on disk (see `Drop` for `BeaconChain`).
+    let err = harness.chain.persist_fork_choice().unwrap_err();
+    assert!(
+        matches!(
+            err,
+            BeaconChainError::ForkChoiceDivergedFromStore { missing_block_root }
+                if missing_block_root == phantom_root
+        ),
+        "persisting should refuse with the phantom block root, got: {err:?}"
+    );
     drop(harness);
 
-    // Rebooting from the same database fails, because the persisted fork choice resolves
-    // a head block that was never written to the store.
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        BeaconChainHarness::builder(MinimalEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .resumed_ephemeral_store(store)
-            .mock_execution_layer()
-            .testing_slot_clock(slot_clock)
-            .build()
-    }));
+    // Rebooting from the same database succeeds, resolving the head from the last
+    // consistent fork choice on disk.
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .testing_slot_clock(slot_clock)
+        .build();
 
-    let panic_payload = result.expect_err("the beacon chain should fail to start");
-    let message = panic_payload
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| panic_payload.downcast_ref::<&str>().map(|s| s.to_string()))
-        .unwrap_or_default();
+    let head_root = harness.chain.canonical_head.cached_head().head_block_root();
+    assert_ne!(
+        head_root, phantom_root,
+        "the recovered head should not be the phantom block"
+    );
     assert!(
-        message.contains("Head block not found in store"),
-        "startup should fail on the missing head block, got: {message}"
+        harness
+            .chain
+            .get_blinded_block(&head_root)
+            .unwrap()
+            .is_some(),
+        "the recovered head must exist in the store"
     );
 }
