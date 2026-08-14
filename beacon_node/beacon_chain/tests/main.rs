@@ -10,6 +10,7 @@ mod payload_invalidation;
 mod prepare_payload;
 mod rewards;
 mod schema_stability;
+mod store_fault_tests;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;
