@@ -1,23 +1,23 @@
 use crate::cases::{Case, LoadCase};
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::error::Error;
+use beacon_chain::ChainConfig;
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::ChainConfig;
-use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::test_utils::BeaconChainHarness;
 use bls::Signature;
-use std::path::PathBuf;
-use std::time::Duration;
-use slot_clock::{SlotClock, TestingSlotClock};
 use serde::Deserialize;
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use types::BlockImportSource;
 use types::*;
 
 #[derive(Debug)]
-pub struct LightClientDataCollection<E: EthSpec> { 
+pub struct LightClientDataCollection<E: EthSpec> {
     pub path: PathBuf,
     pub initial_state: BeaconState<E>,
     pub steps: Vec<Step<E>>,
@@ -157,7 +157,7 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
             }
         }
         Ok(Self {
-	    path: path.to_path_buf(),
+            path: path.to_path_buf(),
             initial_state,
             steps,
         })
@@ -184,7 +184,6 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
         }
         let mut initial_state_mut = self.initial_state.clone();
         let _genesis_block = {
-            
             let mut block = state_processing::genesis::genesis_block(&initial_state_mut, &spec)
                 .map_err(|e| Error::FailedToParseTest(format!("genesis block: {:?}", e)))?;
             *block.state_root_mut() = initial_state_mut
@@ -192,38 +191,36 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                 .map_err(|e| Error::FailedToParseTest(format!("hash state: {:?}", e)))?;
             SignedBeaconBlock::from_block(block, Signature::empty())
         };
-	
-	let slot_clock = TestingSlotClock::new(
-	    Slot::new(0),
-	    Duration::from_secs(0),
-	    spec.get_slot_duration(),
-	);
+
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        );
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone().into())
             .keypairs(vec![])
-	    .chain_config(ChainConfig {
-		 archive: true,
-		 ..ChainConfig::default()
-	    })
-	    .genesis_state_ephemeral_store(self.initial_state.clone())
- 	    .mock_execution_layer()
+            .chain_config(ChainConfig {
+                archive: true,
+                ..ChainConfig::default()
+            })
+            .genesis_state_ephemeral_store(self.initial_state.clone())
+            .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)
-	    .node_custody_type(NodeCustodyType::Supernode)
-	    .mock_execution_layer_all_payloads_valid()
-	    .testing_slot_clock(slot_clock)
-	    .build();
+            .node_custody_type(NodeCustodyType::Supernode)
+            .mock_execution_layer_all_payloads_valid()
+            .testing_slot_clock(slot_clock)
+            .build();
 
-        let mut skip_first = true;
         for step in &self.steps {
             match step {
                 Step::NewBlock { block } => {
-                    if skip_first {
-                        skip_first = false;
-                        continue;
-                    }
-		    let genesis_root = harness.chain.genesis_block_root;
-		    let found = harness.chain.store.get_blinded_block(&genesis_root).unwrap();
-		    eprintln!("DEBUG genesis_root={:?} found={}", genesis_root, found.is_some());
+                    let genesis_root = harness.chain.genesis_block_root;
+                    let _found = harness
+                        .chain
+                        .store
+                        .get_blinded_block(&genesis_root)
+                        .unwrap();
                     let block_root = block.canonical_root();
                     harness.set_current_slot(block.slot());
                     let lookup_block = LookupBlock::new(Arc::new(block.as_ref().clone()));
@@ -244,7 +241,7 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
                         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
                     if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
-                        let result = harness
+                        let _result = harness
                             .chain
                             .light_client_server_cache
                             .recompute_and_cache_updates(
@@ -254,80 +251,95 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                                 sync_aggregate,
                                 &spec,
                             );
-			    eprintln!("DEBUG recompute result: {:?}", result.is_ok());
+			}
+                }
+                Step::NewHead {
+                    block_id: _,
+                    checks,
+                } => {
+                    harness
+                        .chain
+                        .task_executor
+                        .clone()
+                        .block_on_dangerous(
+                            harness.chain.recompute_head_at_current_slot(),
+                            "ef_tests_block_on",
+                        )
+                        .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
 
+                    if let Some(expected_path) = &checks.latest_finality_update {
+                        let expected =
+                            ssz_decode_file_with(&self.path.join(expected_path), |bytes| {
+                                LightClientFinalityUpdate::from_ssz_bytes(bytes, fork_name)
+                            })?;
+                        let actual = harness
+                            .chain
+                            .light_client_server_cache
+                            .get_latest_finality_update();
+                        if actual != Some(expected) {
+			    return Err(Error::NotEqual("latest_finality_update mismatch".into()));
+                        }
+                    }
+
+                    if let Some(expected_path) = &checks.latest_optimistic_update {
+                        let expected =
+                            ssz_decode_file_with(&self.path.join(expected_path), |bytes| {
+                                LightClientOptimisticUpdate::from_ssz_bytes(bytes, fork_name)
+                            })?;
+                        let actual = harness
+                            .chain
+                            .light_client_server_cache
+                            .get_latest_optimistic_update();
+                        if actual != Some(expected) {
+                            return Err(Error::NotEqual(
+                                "latest_optimistic_update mismatch".into(),
+                            ));
+                        }
+                    }
+
+                    for (block_root_str, expected_path) in &checks.bootstraps {
+                        let block_root = Hash256::from_slice(
+                            &hex::decode(block_root_str.trim_start_matches("0x"))
+                                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?,
+                        );
+                        let actual = harness
+                            .chain
+                            .get_light_client_bootstrap(&block_root)
+                            .ok() // ignore errors for now
+                            .flatten()
+                            .map(|(b, _)| b);
+                        // only check if we have an actual value
+                        if actual.is_some() {
+                            let expected =
+                                ssz_decode_file_with(&self.path.join(expected_path), |bytes| {
+                                    LightClientBootstrap::from_ssz_bytes(bytes, fork_name)
+                                })?;
+                            if actual != Some(expected) {
+                                return Err(Error::NotEqual(format!(
+                                    "bootstrap mismatch for {}",
+                                    block_root_str
+                                )));
+                            }
+                        }
+                    }
+                    for (period, expected_path) in &checks.best_updates {
+                        let updates = harness
+                            .chain
+                            .get_light_client_updates(*period, 1)
+                            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+                        let actual = updates.into_iter().next();
+                        let expected =
+                            ssz_decode_file_with(&self.path.join(expected_path), |bytes| {
+                                LightClientUpdate::from_ssz_bytes(bytes, &fork_name)
+                            })?;
+                        if actual.as_ref() != Some(&expected) {
+                            return Err(Error::NotEqual(format!(
+                                "best_update mismatch for period {}",
+                                period
+                            )));
+                        }
                     }
                 }
-                Step::NewHead {block_id: _,checks,} => {
-			harness.chain.task_executor.clone()
-			    .block_on_dangerous(
-        		    	harness.chain.recompute_head_at_current_slot(),
-            		    	"ef_tests_block_on",
-        		    )
-        		    .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
-
-    			if let Some(expected_path) = &checks.latest_finality_update {
-        			let expected = ssz_decode_file_with(
-            			    &self.path.join(expected_path),
-            			    |bytes| LightClientFinalityUpdate::from_ssz_bytes(bytes, fork_name),
-        			)?;
-        			let actual = harness.chain.light_client_server_cache
-        			    .get_latest_finality_update();
-				    eprintln!("DEBUG finality: actual_is_some={}", actual.is_some());
-
-        			if actual != Some(expected) {
-        			    return Err(Error::NotEqual("latest_finality_update mismatch".into()));
-        			}
-    			}
-
-    			if let Some(expected_path) = &checks.latest_optimistic_update {
-        			let expected = ssz_decode_file_with(
-        			    &self.path.join(expected_path),
-        			    |bytes| LightClientOptimisticUpdate::from_ssz_bytes(bytes, fork_name),
-        			)?;
-        			let actual = harness.chain.light_client_server_cache
-        			    .get_latest_optimistic_update();
-        			if actual != Some(expected) {
-        			    return Err(Error::NotEqual("latest_optimistic_update mismatch".into()));
-        			}
-    			}
-
-			for (block_root_str, expected_path) in &checks.bootstraps {
-			    let block_root = Hash256::from_slice(
-			        &hex::decode(block_root_str.trim_start_matches("0x"))
-			            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
-			    );
-			    let actual = harness.chain
-			        .get_light_client_bootstrap(&block_root)
-			        .ok() // ignore errors for now
-			        .flatten()
-			        .map(|(b, _)| b);
-			    // only check if we have an actual value
-			    if actual.is_some() {
-			        let expected = ssz_decode_file_with(
-			            &self.path.join(expected_path),
-			            |bytes| LightClientBootstrap::from_ssz_bytes(bytes, fork_name),
-			        )?;
-			        if actual != Some(expected) {
-			            return Err(Error::NotEqual(format!("bootstrap mismatch for {}", block_root_str)));
-			        }
-			    }
-			}
-    			for (period, expected_path) in &checks.best_updates {
-    			    let updates = harness.chain
-    			        .get_light_client_updates(*period, 1)
-    			        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    			    let actual = updates.into_iter().next();
-    			    let expected = ssz_decode_file_with(
-    			        &self.path.join(expected_path),
-    			        |bytes| LightClientUpdate::from_ssz_bytes(bytes, &fork_name),
-    			    )?;
-    			    if actual.as_ref() != Some(&expected) {
-    			        return Err(Error::NotEqual(format!("best_update mismatch for period {}", period)));
-    			    }
-    			}
-		
-		}
             }
         }
         Ok(())
