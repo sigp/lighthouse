@@ -238,7 +238,7 @@ pub trait ValidatorStore: Send + Sync {
     fn sign_inclusion_list(
         &self,
         validator_pubkey: PublicKeyBytes,
-        data: InclusionList,
+        inclusion_list: InclusionList,
     ) -> impl Future<Output = Result<SignedInclusionList, Error<Self::Error>>> + Send;
 }
 
