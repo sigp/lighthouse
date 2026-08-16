@@ -458,10 +458,9 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
     /// Per-validator committee slot assignments across the last 3 epochs.
     pub slot_assignments: Mutex<SlotAssignments>,
-    /// Set when a database write failure has left fork choice containing a block that the
-    /// store does not have, and restoring fork choice from the store also failed (see
-    /// `handle_import_block_db_write_error`). Once set, fork choice must never be persisted,
-    /// as it would overwrite the last consistent version on disk.
+    /// Set when a database write failure has left fork choice in an inconsistent state.
+    /// Once this flag is set fork choice must never be persisted. This is to avoid
+    /// overwriting the last consistent version on disk.
     fork_choice_poisoned: AtomicBool,
 }
 
@@ -598,14 +597,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok(())
     }
 
-    /// Mark the in-memory fork choice as diverged from the store, preventing it from ever
-    /// being persisted (see `BeaconChain::persist_fork_choice`).
+    /// Mark fork choice as poisoned, preventing it from ever being persisted
+    /// (see `BeaconChain::persist_fork_choice`).
     pub fn poison_fork_choice(&self) {
         self.fork_choice_poisoned.store(true, Ordering::Relaxed);
     }
 
-    /// Returns `true` if a database write failure has left fork choice containing a block that
-    /// the store does not have, and the store could not be read to restore fork choice.
+    /// Returns `true` if a database write failure has left fork choice in an inconsistent state.
     pub fn fork_choice_poisoned(&self) -> bool {
         self.fork_choice_poisoned.load(Ordering::Relaxed)
     }
@@ -1707,16 +1705,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persist fork choice to disk, writing immediately.
     ///
-    /// Fails if fork choice has been poisoned by a database write failure during block import
-    /// (see `handle_import_block_db_write_error`), or if it contains a block that is missing
-    /// from the store. Overwriting the fork choice on disk with a diverged one would cause the
-    /// next start-up to fail when resolving the head block, whereas the fork choice already on
-    /// disk allows the node to recover on restart.
+    /// Fails if fork choice has been marked as poisoned (see `handle_import_block_db_write_error`).
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
-        // This check requires no database reads, so it works even when the divergence was
-        // caused by a database fault that is still ongoing.
         if self.canonical_head.fork_choice_poisoned() {
             crit!(
                 advice = "restarting the node will recover the last consistent fork choice \
@@ -1748,9 +1740,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Return the root of a block that is in fork choice but absent from the store, if any
-    /// exists. Pruned fork blocks may linger in the proto-array without their blocks being on
-    /// disk, so only descendants of the finalized checkpoint are checked.
+    /// Return a block root that is in fork choice but missing from the store, if any.
+    /// Pruned blocks from non-canonical forks may linger in proto-array without their
+    /// blocks being on disk, so only descendants of the finalized checkpoint are checked.
     fn fork_choice_block_missing_from_store(
         &self,
         fork_choice: &BeaconForkChoice<T>,
