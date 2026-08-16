@@ -24,6 +24,7 @@ logging = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
 network = { workspace = true }
+proof_engine = { workspace = true }
 rand = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
