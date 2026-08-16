@@ -3,18 +3,18 @@
 //! Tests for the handling of database write failures during block import.
 //!
 //! If the database write for a block fails after the block has been added to the in-memory
-//! fork choice, then fork choice contains a block that the store does not. There is no
-//! reliable in-process recovery: restoring fork choice by reading the database is likely to
-//! fail for the same reason the write failed (e.g. file descriptor exhaustion affects both
-//! reads and writes), and a node that keeps running with the divergence is wedged:
+//! fork choice, then fork choice contains a block that the store does not. A node that keeps
+//! running with the divergence is wedged:
 //!
 //! - the node refuses to re-import the phantom block (duplicate detection uses fork choice),
 //! - children of the phantom block fail with `MissingBeaconBlock` instead of `ParentUnknown`,
 //! - head recomputation fails and the head cannot advance.
 //!
-//! Instead of running wedged, the chain poisons fork choice and initiates shutdown. The
-//! poisoned fork choice is never persisted, so a restart recovers the last consistent fork
-//! choice from disk and re-syncs the phantom blocks.
+//! The chain first tries to restore fork choice from the last version persisted to the store,
+//! which recovers from a transient write failure in-process. If the restore also fails (e.g.
+//! file descriptor exhaustion affects both reads and writes), the chain poisons fork choice
+//! and initiates shutdown. The poisoned fork choice is never persisted, so a restart recovers
+//! the last consistent fork choice from disk and re-syncs the phantom blocks.
 
 use beacon_chain::{
     BeaconChainError, BlockError,
@@ -48,8 +48,9 @@ struct WedgedChain {
 
 /// Build a chain, then import a block while every store operation fails.
 ///
-/// The import adds the block to fork choice, then fails the database write. The returned
-/// chain has a fork choice containing `phantom_root` while the store does not.
+/// The import adds the block to fork choice, then fails the database write, then fails
+/// the restore of fork choice from the store. The returned chain has a fork choice
+/// containing `phantom_root` while the store does not.
 async fn wedged_chain() -> WedgedChain {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
@@ -131,8 +132,8 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
         "the store should not contain the phantom block"
     );
 
-    // The failure poisons fork choice and requests shutdown, because there is no reliable
-    // in-process recovery from the divergence.
+    // The restore from the store fails too, so the failure poisons fork choice and requests
+    // shutdown.
     assert!(
         harness.chain.canonical_head.fork_choice_poisoned(),
         "fork choice should be poisoned"
@@ -184,6 +185,89 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
         phantom_root,
         "the head should not advance to the phantom block"
     );
+}
+
+/// A transient write failure, where the store stays readable, is recovered in-process by
+/// restoring fork choice from the store. No shutdown is requested.
+#[tokio::test]
+async fn transient_db_write_failure_restores_fork_choice() {
+    if incompatible_fork() {
+        return;
+    }
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_root_before = harness.chain.canonical_head.cached_head().head_block_root();
+    let state = harness.get_current_state();
+    let slot = harness.chain.slot().unwrap() + 1;
+    let (block_contents, _) = harness.make_block(state, slot).await;
+    let block_root = block_contents.0.canonical_root();
+
+    // Fail only the block's database write. Reads and later writes succeed.
+    harness
+        .chain
+        .store
+        .hot_db
+        .inject_transient_fault_on_next_block_write();
+
+    let err = harness
+        .process_block(slot, block_root, block_contents.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, BlockError::BeaconChainError(_)),
+        "import should fail with an internal error, got: {err:?}"
+    );
+
+    // Fork choice was restored from the store, so it no longer contains the block and is
+    // consistent with the store again.
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root),
+        "fork choice should not contain the block after the restore"
+    );
+    assert!(
+        !harness.chain.canonical_head.fork_choice_poisoned(),
+        "fork choice should not be poisoned"
+    );
+    assert!(
+        harness.shutdown_reasons().is_empty(),
+        "the chain should not request shutdown"
+    );
+    assert_eq!(
+        harness.chain.canonical_head.cached_head().head_block_root(),
+        head_root_before,
+        "the head should be unchanged"
+    );
+
+    // The block can be re-imported and becomes the head.
+    harness
+        .process_block(slot, block_root, block_contents)
+        .await
+        .unwrap();
+    harness.chain.recompute_head_at_current_slot().await;
+    assert_eq!(
+        harness.chain.canonical_head.cached_head().head_block_root(),
+        block_root,
+        "the head should advance to the re-imported block"
+    );
+    harness.chain.persist_fork_choice().unwrap();
 }
 
 #[tokio::test]

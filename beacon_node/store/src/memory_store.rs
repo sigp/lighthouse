@@ -13,6 +13,7 @@ pub struct MemoryStore {
     db: RwLock<DBMap>,
     fault: AtomicBool,
     fault_armed: AtomicBool,
+    transient_fault_armed: AtomicBool,
 }
 
 impl MemoryStore {
@@ -22,6 +23,7 @@ impl MemoryStore {
             db: RwLock::new(BTreeMap::new()),
             fault: AtomicBool::new(false),
             fault_armed: AtomicBool::new(false),
+            transient_fault_armed: AtomicBool::new(false),
         }
     }
 
@@ -33,6 +35,7 @@ impl MemoryStore {
         self.fault.store(enabled, Ordering::SeqCst);
         if !enabled {
             self.fault_armed.store(false, Ordering::SeqCst);
+            self.transient_fault_armed.store(false, Ordering::SeqCst);
         }
     }
 
@@ -41,6 +44,13 @@ impl MemoryStore {
     /// Simulates resource exhaustion during a block write.
     pub fn inject_faults_on_next_block_write(&self) {
         self.fault_armed.store(true, Ordering::SeqCst);
+    }
+
+    /// Fail only the next batch that writes a block. Every operation after it succeeds.
+    ///
+    /// Simulates a transient write error, where the database is readable throughout.
+    pub fn inject_transient_fault_on_next_block_write(&self) {
+        self.transient_fault_armed.store(true, Ordering::SeqCst);
     }
 
     fn check_fault(&self) -> Result<(), Error> {
@@ -96,17 +106,21 @@ impl KeyValueStore for MemoryStore {
 
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         self.check_fault()?;
-        if self.fault_armed.load(Ordering::SeqCst)
-            && batch.iter().any(|op| {
-                matches!(
-                    op,
-                    KeyValueStoreOp::PutKeyValue(DBColumn::BeaconBlock, _, _)
-                )
-            })
-        {
+        let writes_block = batch.iter().any(|op| {
+            matches!(
+                op,
+                KeyValueStoreOp::PutKeyValue(DBColumn::BeaconBlock, _, _)
+            )
+        });
+        if writes_block && self.fault_armed.load(Ordering::SeqCst) {
             self.fault_armed.store(false, Ordering::SeqCst);
             self.fault.store(true, Ordering::SeqCst);
             return self.check_fault();
+        }
+        if writes_block && self.transient_fault_armed.swap(false, Ordering::SeqCst) {
+            return Err(Error::DBError {
+                message: "Injected transient fault: write failed".to_string(),
+            });
         }
         for op in batch {
             match op {
