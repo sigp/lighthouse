@@ -2,19 +2,18 @@
 
 //! Tests for the handling of database write failures during block import.
 //!
-//! If the database write for a block fails after the block has been added to the in-memory
-//! fork choice, then fork choice contains a block that the store does not. A node that keeps
-//! running with the divergence is wedged:
+//! If the node fails to write a block to disk after its been imported to fork choice, this puts
+//! fork choice in an inconsistent state. We call this missing block a "phantom" block.
+//! A node that continues running in this state is stuck
 //!
-//! - the node refuses to re-import the phantom block (duplicate detection uses fork choice),
+//! - the node refuses to re-import the phantom block.
 //! - children of the phantom block fail with `MissingBeaconBlock` instead of `ParentUnknown`,
 //! - head recomputation fails and the head cannot advance.
 //!
-//! The chain first tries to restore fork choice from the last version persisted to the store,
-//! which recovers from a transient write failure in-process. If the restore also fails (e.g.
-//! file descriptor exhaustion affects both reads and writes), the chain poisons fork choice
-//! and initiates shutdown. The poisoned fork choice is never persisted, so a restart recovers
-//! the last consistent fork choice from disk and re-syncs the phantom blocks.
+//! The node first tries to restore the last persisted fork choice from disk. If the restore fails
+//! we mark fork choice as poisoned and initiate a forced shutdown. The posioned fork choice is
+//! never persisted to disk, so a restart recovers the last valid fork choice from disk and re-syncs
+//! any missing blocks, including the phantom block.
 
 use beacon_chain::{
     BeaconChainError, BlockError,
@@ -146,11 +145,9 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
         "the chain should request shutdown"
     );
 
-    // The assertions below pin the wedged behaviour that makes shutdown the only safe
-    // option. Until the process exits, the divergence is self-perpetuating:
-
-    // The node refuses to re-import the phantom block, because duplicate detection only
-    // checks fork choice.
+    // The assertions below pin the "stuck node" behaviour that makes shutdown the only safe
+    // option. Until the process exits the node refuses to re-import the phantom block, because
+    // duplicate detection only checks fork choice.
     let err = harness
         .process_block(phantom_slot, phantom_root, phantom_contents)
         .await
@@ -187,8 +184,8 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
     );
 }
 
-/// A transient write failure, where the store stays readable, is recovered in-process by
-/// restoring fork choice from the store. No shutdown is requested.
+/// A transient write failure is recoverabe by restoring fork choice from the store.
+/// No shutdown is requested.
 #[tokio::test]
 async fn transient_db_write_failure_restores_fork_choice() {
     if incompatible_fork() {
@@ -284,9 +281,7 @@ async fn restart_after_db_write_failure_recovers() {
     let store = harness.chain.store.clone();
     let slot_clock = harness.chain.slot_clock.clone();
 
-    // A graceful shutdown refuses to persist the poisoned fork choice, keeping the last
-    // consistent fork choice on disk (see `Drop` for `BeaconChain`). This check requires no
-    // database reads, so it holds even if the database fault is still ongoing.
+    // A graceful shutdown refuses to persist the poisoned fork choice.
     let err = harness.chain.persist_fork_choice().unwrap_err();
     assert!(
         matches!(err, BeaconChainError::ForkChoicePoisoned),
@@ -319,9 +314,8 @@ async fn restart_after_db_write_failure_recovers() {
     );
 }
 
-/// The persist-time store scan is a second line of defence: it catches divergence that
-/// arose without the poison flag being set, e.g. from a database fault on a path that does
-/// not run `handle_import_block_db_write_error`.
+/// Persisting fork choice checks the store for every block, so it refuses even when the
+/// poison flag was never set.
 #[tokio::test]
 async fn persist_refuses_diverged_fork_choice() {
     if incompatible_fork() {
