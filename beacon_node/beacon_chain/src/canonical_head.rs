@@ -458,9 +458,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
     /// Per-validator committee slot assignments across the last 3 epochs.
     pub slot_assignments: Mutex<SlotAssignments>,
-    /// Set when a database write failure has left fork choice in an inconsistent state.
-    /// Once this flag is set fork choice must never be persisted. This is to avoid
-    /// overwriting the last consistent version on disk.
+    /// Set when fork choice has diverged from the store. Poisoned fork choice is never persisted.
     fork_choice_poisoned: AtomicBool,
 }
 
@@ -597,13 +595,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok(())
     }
 
-    /// Mark fork choice as poisoned, preventing it from ever being persisted
-    /// (see `BeaconChain::persist_fork_choice`).
+    /// Mark fork choice as poisoned so it is never persisted.
     pub fn poison_fork_choice(&self) {
         self.fork_choice_poisoned.store(true, Ordering::Relaxed);
     }
 
-    /// Returns `true` if a database write failure has left fork choice in an inconsistent state.
+    /// Returns `true` if fork choice has diverged from the store.
     pub fn fork_choice_poisoned(&self) -> bool {
         self.fork_choice_poisoned.load(Ordering::Relaxed)
     }
@@ -1705,7 +1702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persist fork choice to disk, writing immediately.
     ///
-    /// Fails if fork choice has been marked as poisoned (see `handle_import_block_db_write_error`).
+    /// Fails if fork choice is poisoned.
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
