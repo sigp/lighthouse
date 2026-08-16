@@ -1718,43 +1718,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::ForkChoicePoisoned);
         }
 
-        let batch = {
-            let fork_choice = self.canonical_head.fork_choice_read_lock();
-            if let Some(missing_block_root) =
-                self.fork_choice_block_missing_from_store(&fork_choice)?
-            {
-                crit!(
-                    ?missing_block_root,
-                    advice = "restarting the node will recover the last consistent fork choice \
-                              from disk",
-                    "Refusing to persist diverged fork choice"
-                );
-                return Err(Error::ForkChoiceDivergedFromStore { missing_block_root });
-            }
-            vec![Self::persist_fork_choice_in_batch_standalone(
-                &fork_choice,
-                self.store.get_config(),
-            )?]
-        };
+        let batch = vec![self.persist_fork_choice_in_batch()?];
         self.store.hot_db.do_atomically(batch)?;
         Ok(())
-    }
-
-    /// Return a block root that is in fork choice but missing from the store, if any.
-    /// Pruned blocks from non-canonical forks may linger in proto-array without their
-    /// blocks being on disk, so only descendants of the finalized checkpoint are checked.
-    fn fork_choice_block_missing_from_store(
-        &self,
-        fork_choice: &BeaconForkChoice<T>,
-    ) -> Result<Option<Hash256>, Error> {
-        for node in &fork_choice.proto_array().core_proto_array().nodes {
-            if fork_choice.is_finalized_checkpoint_or_descendant(node.root())
-                && !self.store.block_exists(&node.root())?
-            {
-                return Ok(Some(node.root()));
-            }
-        }
-        Ok(None)
     }
 
     /// Return a database operation for writing fork choice to disk.
