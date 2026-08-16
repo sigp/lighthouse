@@ -39,6 +39,7 @@ pub enum Domain {
     ProposerPreferences,
     BuilderDeposit,
     InclusionListCommittee,
+    ExecutionProof,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -152,6 +153,7 @@ pub struct ChainSpec {
     pub(crate) domain_proposer_preferences: u32,
     pub(crate) domain_builder_deposit: u32,
     pub(crate) domain_inclusion_list_committee: u32,
+    pub(crate) domain_execution_proof: u32,
 
     /*
      * Fork choice
@@ -327,7 +329,7 @@ pub struct ChainSpec {
     /*
      * Networking Heze
      */
-    pub max_bytes_per_inclusion_list: u64,
+    pub max_transactions_bytes_per_inclusion_list: u64,
     pub max_request_inclusion_list: u64,
     pub min_slots_for_inclusion_lists_requests: u64,
 
@@ -561,6 +563,7 @@ impl ChainSpec {
             Domain::ProposerPreferences => self.domain_proposer_preferences,
             Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::InclusionListCommittee => self.domain_inclusion_list_committee,
+            Domain::ExecutionProof => self.domain_execution_proof,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1202,6 +1205,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_execution_proof: 0x0F,
 
             /*
              * Fork choice
@@ -1347,7 +1351,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -1646,6 +1650,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_execution_proof: 0x0F,
 
             /*
              * Fork choice
@@ -1793,7 +1798,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -2275,6 +2280,16 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit_gloas: u64,
+
+    #[serde(default = "default_max_transactions_bytes_per_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_transactions_bytes_per_inclusion_list: u64,
+    #[serde(default = "default_max_request_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_inclusion_list: u64,
+    #[serde(default = "default_min_slots_for_inclusion_lists_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_slots_for_inclusion_lists_requests: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2553,6 +2568,18 @@ const fn default_reorg_max_epochs_since_finalization() -> u64 {
     2
 }
 
+const fn default_max_transactions_bytes_per_inclusion_list() -> u64 {
+    8192
+}
+
+const fn default_max_request_inclusion_list() -> u64 {
+    16
+}
+
+const fn default_min_slots_for_inclusion_lists_requests() -> u64 {
+    1
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::new(
@@ -2811,6 +2838,10 @@ impl Config {
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
 
             churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            max_transactions_bytes_per_inclusion_list: spec
+                .max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list: spec.max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests: spec.min_slots_for_inclusion_lists_requests,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -2919,6 +2950,9 @@ impl Config {
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+            max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3036,6 +3070,10 @@ impl Config {
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
 
+            max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
+
             ..chain_spec.clone()
         };
         Some(spec.compute_derived_values::<E>())
@@ -3103,6 +3141,7 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(Domain::ExecutionProof, spec.domain_execution_proof, &spec);
         test_domain(
             Domain::InclusionListCommittee,
             spec.domain_inclusion_list_committee,
@@ -4007,10 +4046,6 @@ mod yaml_tests {
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
-        // Heze networking
-        "MAX_REQUEST_INCLUSION_LIST",
-        "MAX_BYTES_PER_INCLUSION_LIST",
-        "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
