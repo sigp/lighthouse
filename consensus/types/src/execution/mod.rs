@@ -7,6 +7,7 @@ mod dumb_macros;
 mod execution_payload_bid;
 mod execution_payload_envelope;
 mod execution_payload_header;
+mod execution_proof;
 mod execution_requests;
 mod inclusion_list;
 mod payload;
@@ -33,6 +34,10 @@ pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+};
+pub use execution_proof::{
+    ExecutionProof, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType, PublicInput,
+    SignedExecutionProof,
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,

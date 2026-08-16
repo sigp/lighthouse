@@ -1584,6 +1584,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
+        self.observed_execution_proofs.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
         // Prune the Gloas pending-payload cache. Anything older than the data-availability
         // boundary cannot still be in flight; finalised entries are also safe to drop.
         if self.spec.gloas_fork_epoch.is_some() {
