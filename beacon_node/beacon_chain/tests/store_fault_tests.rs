@@ -1,18 +1,17 @@
 #![cfg(not(debug_assertions))]
 
-//! Tests for the divergence between fork choice and the store when the database fails
+//! Tests for divergence between fork choice and the store when the db fails
 //! during block import.
 //!
-//! If the database write for a block fails after the block has been added to the in-memory
-//! fork choice, and the recovery read in `handle_import_block_db_write_error` also fails
-//! (e.g. due to file descriptor exhaustion affecting both reads and writes), then fork
-//! choice contains a block that the store does not. These tests pin the resulting
-//! behaviour:
+//! If the database write for a block fails after the block has been added to
+//! fork choice, and the recovery step `handle_import_block_db_write_error` also fails,
+//! then fork choice contains a block that the store does not. These tests check for the
+//! following behaviour:
 //!
-//! - the node refuses to re-import the lost block (duplicate detection uses fork choice),
-//! - children of the lost block fail with `MissingBeaconBlock` instead of `ParentUnknown`,
-//! - head recomputation fails and the head cannot advance,
-//! - a graceful shutdown persists the diverged fork choice, making the next startup fail
+//! - The node refuses to re-import the missing block.
+//! - Children of the missing block fail with `MissingBeaconBlock` instead of `ParentUnknown`.
+//! - Head recomputation fails and the head cannot advance.
+//! - A graceful shutdown persists the diverged fork choice, making the next startup fail
 //!   with "Head block not found in store".
 
 use beacon_chain::{
@@ -36,7 +35,7 @@ fn incompatible_fork() -> bool {
 
 struct WedgedChain {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    /// Root of the block that is in fork choice but not in the store.
+    /// Root of the block that is in fork choice but not in the store, i.e. the phantom block.
     phantom_root: Hash256,
     phantom_slot: Slot,
     phantom_contents: SignedBlockContentsTuple<E>,
@@ -44,11 +43,11 @@ struct WedgedChain {
     post_state: BeaconState<E>,
 }
 
-/// Build a chain, then import a block whilst every store operation fails.
+/// Build a chain, then import a block while every store operation fails.
 ///
 /// The import adds the block to fork choice, then fails the database write, then fails
 /// the recovery read. The returned chain has a fork choice containing `phantom_root`
-/// whilst the store does not.
+/// while the store does not.
 async fn wedged_chain() -> WedgedChain {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
@@ -71,8 +70,7 @@ async fn wedged_chain() -> WedgedChain {
     let (phantom_contents, post_state) = harness.make_block(state, slot).await;
     let phantom_root = phantom_contents.0.canonical_root();
 
-    // Fail the block's database write and every store operation after it, simulating
-    // file descriptor exhaustion striking at the moment of the write.
+    // Fail the block's database write and every store operation after it.
     harness
         .chain
         .store
@@ -116,7 +114,7 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
         post_state,
     } = wedged_chain().await;
 
-    // The divergence: fork choice contains the block, the store does not.
+    // fork choice contains the phantom block, the store does not.
     assert!(
         harness
             .chain
@@ -134,7 +132,7 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
         "the store should not contain the phantom block"
     );
 
-    // The node refuses to re-import the lost block, because duplicate detection only
+    // The node refuses to re-import the phantom block, because duplicate detection only
     // checks fork choice.
     let err = harness
         .process_block(phantom_slot, phantom_root, phantom_contents)
@@ -145,7 +143,7 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
         "re-import should be treated as a duplicate, got: {err:?}"
     );
 
-    // A child of the lost block fails with `MissingBeaconBlock` rather than
+    // A child of the phantom block fails with `MissingBeaconBlock` rather than
     // `ParentUnknown`, because the parent lookup checks fork choice before the store.
     let child_slot = phantom_slot + 1;
     let (child_contents, _) = harness.make_block(post_state, child_slot).await;
@@ -166,11 +164,7 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
     // never advances to the phantom block.
     harness.chain.recompute_head_at_current_slot().await;
     assert_ne!(
-        harness
-            .chain
-            .canonical_head
-            .cached_head()
-            .head_block_root(),
+        harness.chain.canonical_head.cached_head().head_block_root(),
         phantom_root,
         "the head should not advance to the phantom block"
     );
