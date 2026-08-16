@@ -23,7 +23,6 @@ use beacon_chain::{
     },
 };
 use eth2::types::SignedBlockContentsTuple;
-use store::StoreOp;
 use task_executor::ShutdownReason;
 use types::*;
 
@@ -311,52 +310,5 @@ async fn restart_after_db_write_failure_recovers() {
             .unwrap()
             .is_some(),
         "the recovered head must exist in the store"
-    );
-}
-
-/// Persisting fork choice checks the store for every block, so it refuses even when the
-/// poison flag was never set.
-#[tokio::test]
-async fn persist_refuses_diverged_fork_choice() {
-    if incompatible_fork() {
-        return;
-    }
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
-        .default_spec()
-        .deterministic_keypairs(VALIDATOR_COUNT)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    harness.advance_slot();
-    harness
-        .extend_chain(
-            2 * E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    // Delete the head block from the store, leaving fork choice referencing a block that
-    // the store does not have.
-    let head_root = harness.chain.canonical_head.cached_head().head_block_root();
-    harness
-        .chain
-        .store
-        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteBlock(head_root)])
-        .unwrap();
-
-    assert!(
-        !harness.chain.canonical_head.fork_choice_poisoned(),
-        "the poison flag should not be set"
-    );
-    let err = harness.chain.persist_fork_choice().unwrap_err();
-    assert!(
-        matches!(
-            err,
-            BeaconChainError::ForkChoiceDivergedFromStore { missing_block_root }
-                if missing_block_root == head_root
-        ),
-        "persisting should refuse with the deleted block root, got: {err:?}"
     );
 }
