@@ -29,9 +29,11 @@ fixed_bytes = { workspace = true }
 int_to_bytes = { workspace = true }
 integer-sqrt = "0.1.5"
 itertools = { workspace = true }
+lru = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
 milhouse = { workspace = true }
+parking_lot = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 safe_arith = { workspace = true }
