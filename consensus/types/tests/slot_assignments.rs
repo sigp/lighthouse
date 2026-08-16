@@ -1,4 +1,4 @@
-use state_processing::per_slot_processing;
+use state_processing::{GloasVerificationContext, per_slot_processing};
 use types::*;
 
 type E = MinimalEthSpec;
@@ -30,7 +30,13 @@ fn genesis_state(n: usize) -> (BeaconState<E>, ChainSpec) {
 
 fn advance_state(state: &mut BeaconState<E>, target: Slot, spec: &ChainSpec) {
     while state.slot() < target {
-        per_slot_processing(state, None, spec).expect("advance slot");
+        per_slot_processing(
+            state,
+            None,
+            GloasVerificationContext::FullVerification,
+            spec,
+        )
+        .expect("advance slot");
     }
     state
         .build_all_committee_caches(spec)
