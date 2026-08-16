@@ -12,6 +12,7 @@ use beacon_chain::{
 use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
+use state_processing::GloasVerificationContext;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
@@ -107,7 +108,12 @@ fn massive_skips() {
 
     // Run per_slot_processing until it returns an error.
     let error = loop {
-        match per_slot_processing(&mut state, None, spec) {
+        match per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            spec,
+        ) {
             Ok(_) => continue,
             Err(e) => break e,
         }

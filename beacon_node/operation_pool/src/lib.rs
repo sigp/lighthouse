@@ -2392,6 +2392,7 @@ mod release_tests {
             &mut advanced_state,
             None,
             Slot::new(2),
+            None,
             &spec,
         )
         .unwrap();
@@ -2460,6 +2461,7 @@ mod release_tests {
             &mut advanced_state,
             None,
             Slot::new(2),
+            None,
             &spec,
         )
         .unwrap();

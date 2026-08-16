@@ -141,6 +141,7 @@ impl TestContext {
             store: &self.store,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            builder_onboarding_cache: None,
             genesis_validators_root: self.genesis_validators_root,
         }
     }

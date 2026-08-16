@@ -235,7 +235,7 @@ async fn prepare_payload_generic(
     let unadvanced_empty_state = &cached_head.snapshot.beacon_state;
 
     let mut advanced_empty_state = unadvanced_empty_state.clone();
-    complete_state_advance(&mut advanced_empty_state, None, prepare_slot, &spec).unwrap();
+    complete_state_advance(&mut advanced_empty_state, None, prepare_slot, None, &spec).unwrap();
 
     let mut unadvanced_full_state = unadvanced_empty_state.clone();
     apply_parent_execution_payload(
@@ -375,7 +375,7 @@ async fn prepare_payload_on_genesis_generic(prepare_slot: Slot) {
     let unadvanced_state = &cached_head.snapshot.beacon_state;
 
     let mut advanced_state = unadvanced_state.clone();
-    complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
 
     let withdrawals_advanced: Withdrawals<E> = get_expected_withdrawals(&advanced_state, &spec)
         .unwrap()
@@ -507,7 +507,7 @@ async fn prepare_payload_on_fork_boundary(
     let unadvanced_state = &cached_head.snapshot.beacon_state;
 
     let mut advanced_state = unadvanced_state.clone();
-    complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
 
     let withdrawals_unadvanced: Withdrawals<E> = get_expected_withdrawals(unadvanced_state, &spec)
         .unwrap()
@@ -606,7 +606,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
     // Produce a Gloas block directly via produce_block_on_state_gloas so we can
     // inspect the pending cache before it's consumed.
     let mut state = harness.get_current_state();
-    complete_state_advance(&mut state, None, slot, &spec).unwrap();
+    complete_state_advance(&mut state, None, slot, None, &spec).unwrap();
     state.build_caches(&spec).unwrap();
 
     let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
