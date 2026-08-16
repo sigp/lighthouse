@@ -30,7 +30,8 @@ pub use verify_attestation::{
 };
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
-    get_existing_validator_index, is_valid_deposit_signature, verify_deposit_merkle_proof,
+    get_existing_validator_index, is_valid_deposit_signature, is_valid_deposit_signature_batch,
+    verify_deposit_merkle_proof,
 };
 pub use verify_exit::verify_exit;
 pub use withdrawals::get_expected_withdrawals;
