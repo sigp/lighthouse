@@ -15,13 +15,17 @@ use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+use crate::data::partial_data_column_sidecar::{
+    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnSidecarFulu,
+    PartialDataColumnSidecarGloas, PartialDataColumnViewFulu, PartialDataColumnViewGloas,
+};
 use crate::{
     ListRef,
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
     data::{
-        CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
-        PartialDataColumnSidecarError, PartialDataColumnSidecarRef,
+        CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecarError,
+        PartialDataColumnView,
     },
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
@@ -168,10 +172,13 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     /// The header will NOT be set.
     ///
     /// Uses the supplied filter to determine which cells to include in the partial sidecar.
-    pub fn try_filter_to_partial_ref<F, Err>(
+    ///
+    /// The new bitmap keeps one bit per blob index, so each kept cell still maps to its KZG
+    /// commitment by blob index.
+    pub fn try_filter_to_partial_view<F, Err>(
         &self,
         filter: F,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'_, E>>, Err>
+    ) -> Result<Option<PartialDataColumnView<'_, E>>, Err>
     where
         F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
         Err: From<PartialDataColumnSidecarError>,
@@ -199,12 +206,61 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             return Ok(None);
         }
 
-        Ok(Some(PartialDataColumnSidecarRef {
-            cells_present_bitmap: new_bitmap,
-            column: new_column,
-            kzg_proofs: new_proofs,
-            header: None.into(),
+        Ok(Some(match self {
+            DataColumnSidecar::Fulu(_) => PartialDataColumnView::Fulu(PartialDataColumnViewFulu {
+                cells_present_bitmap: new_bitmap,
+                column: new_column,
+                kzg_proofs: new_proofs,
+                header: None.into(),
+            }),
+            DataColumnSidecar::Gloas(_) => {
+                PartialDataColumnView::Gloas(PartialDataColumnViewGloas {
+                    cells_present_bitmap: new_bitmap,
+                    column: new_column,
+                    kzg_proofs: new_proofs,
+                })
+            }
         }))
+    }
+
+    /// Convert this full data column into a verifiable partial data column.
+    /// Note: This is not expected to ever fail.
+    pub fn to_partial(&self) -> Result<PartialDataColumn<E>, PartialDataColumnSidecarError> {
+        let cell_count = self.column().len();
+        let mut bitmap = CellBitmap::<E>::with_capacity(cell_count)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        bitmap.not_inplace();
+
+        let block_root = self.block_root();
+        Ok(match self {
+            DataColumnSidecar::Fulu(fulu) => PartialDataColumn::Fulu(PartialDataColumnFulu {
+                block_root,
+                index: fulu.index,
+                sidecar: PartialDataColumnSidecarFulu {
+                    cells_present_bitmap: bitmap,
+                    column: fulu.column.clone(),
+                    kzg_proofs: fulu.kzg_proofs.clone(),
+                    header: Some(PartialDataColumnHeader {
+                        kzg_commitments: fulu.kzg_commitments.clone(),
+                        signed_block_header: fulu.signed_block_header.clone(),
+                        kzg_commitments_inclusion_proof: fulu
+                            .kzg_commitments_inclusion_proof
+                            .clone(),
+                    })
+                    .into(),
+                },
+            }),
+            DataColumnSidecar::Gloas(gloas) => PartialDataColumn::Gloas(PartialDataColumnGloas {
+                block_root,
+                slot: gloas.slot,
+                index: gloas.index,
+                sidecar: PartialDataColumnSidecarGloas {
+                    cells_present_bitmap: bitmap,
+                    column: gloas.column.clone(),
+                    kzg_proofs: gloas.kzg_proofs.clone(),
+                },
+            }),
+        })
     }
 }
 
@@ -273,33 +329,6 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
         }
         .as_ssz_bytes()
         .len()
-    }
-
-    /// Convert this full data column into a verifiable partial data column.
-    /// Note: This is not expected to ever fail.
-    pub fn to_partial(&self) -> Result<PartialDataColumn<E>, PartialDataColumnSidecarError> {
-        let cell_count = self.column.len();
-        let mut bitmap = CellBitmap::<E>::with_capacity(cell_count)
-            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
-        bitmap.not_inplace();
-
-        let block_root = self.block_root();
-
-        Ok(PartialDataColumn {
-            block_root,
-            index: self.index,
-            sidecar: PartialDataColumnSidecar {
-                cells_present_bitmap: bitmap,
-                column: self.column.clone(),
-                kzg_proofs: self.kzg_proofs.clone(),
-                header: Some(PartialDataColumnHeader {
-                    kzg_commitments: self.kzg_commitments.clone(),
-                    signed_block_header: self.signed_block_header.clone(),
-                    kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof.clone(),
-                })
-                .into(),
-            },
-        })
     }
 }
 
