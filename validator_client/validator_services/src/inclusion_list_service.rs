@@ -336,7 +336,8 @@ mod tests {
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Epoch, MainnetEthSpec};
+    use types::test_utils::generate_deterministic_keypair;
+    use types::{Domain, Epoch, MainnetEthSpec, SignedRoot};
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     type E = MainnetEthSpec;
@@ -620,6 +621,9 @@ mod tests {
             assert_eq!(signed_il.message.dependent_root, dependent_root);
             assert_eq!(signed_il.message.transactions, transactions.transactions);
         }
+        // Each message carries its own validator's signature
+        assert_ne!(messages[0].signature, messages[1].signature);
+        assert_ne!(messages[1].signature, messages[2].signature);
     }
 
     #[tokio::test]
@@ -764,5 +768,79 @@ mod tests {
             .unwrap();
         let result = harness.service.sign_and_publish(slot, duties, data).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn signed_inclusion_list_verifies_against_consensus_signature_check() {
+        let harness = TestHarness::new_with_validators(1).await;
+        let slot = Slot::new(1);
+        let pubkey = harness.harness.pubkeys[0];
+
+        let inclusion_list = InclusionList {
+            slot,
+            validator_index: 0,
+            dependent_root: Hash256::repeat_byte(0xab),
+            transactions: Default::default(),
+        };
+        let signed = harness
+            .harness
+            .validator_store
+            .sign_inclusion_list(pubkey, inclusion_list)
+            .await
+            .unwrap();
+
+        // Independent consensus-side derivation
+        let spec = &harness.harness.spec;
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let fork = spec.fork_at_epoch(epoch);
+        let domain = spec.get_domain(epoch, Domain::InclusionListCommittee, &fork, Hash256::ZERO);
+        let signing_root = signed.message.signing_root(domain);
+        assert!(
+            signed
+                .signature
+                .verify(&pubkey.decompress().unwrap(), signing_root)
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_failure_for_unknown_validator_skips_publish() {
+        let mut harness = TestHarness::new_with_validators(1).await;
+        let slot = Slot::new(1);
+
+        // A duty for a validator the store does not hold
+        let duty = InclusionListDuty {
+            pubkey: generate_deterministic_keypair(99).pk.into(),
+            validator_index: 99,
+            slot,
+            inclusion_list_committee_root: Hash256::ZERO,
+        };
+        harness.service.duties_service.il_duties.write().insert(
+            slot.epoch(E::slots_per_epoch()),
+            (Hash256::repeat_byte(0xab), vec![duty]),
+        );
+
+        let transactions = InclusionListTransactions {
+            transactions: Default::default(),
+        };
+        harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_inclusion_list(&transactions, slot);
+        let ssz_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_inclusion_list_ssz(ForkName::Heze);
+
+        let (duties, data) = harness
+            .service
+            .produce_inclusion_list_duties_data(slot)
+            .await
+            .unwrap()
+            .unwrap();
+        let result = harness.service.sign_and_publish(slot, duties, data).await;
+
+        // Nothing signed means nothing to publish, not a total publish failure
+        assert_eq!(result, Ok(()));
+        ssz_mock.expect(0).assert();
     }
 }
