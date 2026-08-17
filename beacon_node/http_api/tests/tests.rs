@@ -893,9 +893,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -990,9 +988,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().to_vec()
-                    }
+                    Some((state, _execution_optimistic, _finalized)) => state.validators().to_vec(),
                     None => vec![],
                 };
 
@@ -1058,6 +1054,97 @@ impl ApiTester {
                         validators
                     }
                 });
+
+                assert_eq!(result_index_ids, expected, "{:?}", state_id);
+                assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+            }
+        }
+        self
+    }
+
+    pub async fn test_beacon_states_validator_identities_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            for validator_indices in self.interesting_validator_indices() {
+                let state_opt = state_id.state(&self.chain).ok();
+
+                let validators: Vec<Validator> = match state_opt.as_ref() {
+                    Some((state, _, _)) => state.validators().to_vec(),
+                    None => vec![],
+                };
+
+                let validator_index_ids: Vec<ValidatorId> = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(ValidatorId::Index)
+                    .collect();
+
+                let validator_pubkey_ids: Vec<ValidatorId> = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(|i| {
+                        ValidatorId::PublicKey(
+                            validators
+                                .get(i as usize)
+                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                        )
+                    })
+                    .collect();
+
+                let ssz_result = match self
+                    .client
+                    .post_beacon_states_validator_identities_ssz(state_id.0, validator_index_ids)
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(e) => panic!("query failed incorrectly: {e:?}"),
+                };
+
+                if ssz_result.is_none() && state_opt.is_none() {
+                    continue;
+                }
+
+                let ssz_bytes = ssz_result.expect("response should exist");
+                let result_index_ids = Vec::<ValidatorIdentityData>::from_ssz_bytes(&ssz_bytes)
+                    .expect("should decode SSZ validator identities");
+
+                let ssz_bytes_pubkey = self
+                    .client
+                    .post_beacon_states_validator_identities_ssz(state_id.0, validator_pubkey_ids)
+                    .await
+                    .unwrap()
+                    .expect("response should exist");
+                let result_pubkey_ids =
+                    Vec::<ValidatorIdentityData>::from_ssz_bytes(&ssz_bytes_pubkey)
+                        .expect("should decode SSZ validator identities");
+
+                let expected: Vec<ValidatorIdentityData> = {
+                    let (state, _, _) = state_opt.as_ref().expect("state should exist");
+                    if validator_indices.is_empty() {
+                        state
+                            .validators()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, validator)| ValidatorIdentityData {
+                                index: index as u64,
+                                pubkey: validator.pubkey,
+                                activation_epoch: validator.activation_epoch,
+                            })
+                            .collect()
+                    } else {
+                        let mut validators = Vec::with_capacity(validator_indices.len());
+                        for i in validator_indices {
+                            if i < state.validators().len() as u64 {
+                                let validator = state.validators().get(i as usize).unwrap();
+                                validators.push(ValidatorIdentityData {
+                                    index: i,
+                                    pubkey: validator.pubkey,
+                                    activation_epoch: validator.activation_epoch,
+                                });
+                            }
+                        }
+                        validators
+                    }
+                };
 
                 assert_eq!(result_index_ids, expected, "{:?}", state_id);
                 assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
@@ -1489,6 +1576,38 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_pending_deposits_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_pending_deposits_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("state should exist");
+            let expected = state.pending_deposits().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::PendingDeposit>::from_ssz_bytes(&response)
+                .expect("should decode SSZ pending deposits");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
+
+        self
+    }
+
     pub async fn test_beacon_states_pending_partial_withdrawals(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let mut state_opt = state_id
@@ -1523,6 +1642,38 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_pending_partial_withdrawals_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_pending_partial_withdrawals_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("state should exist");
+            let expected = state.pending_partial_withdrawals().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::PendingPartialWithdrawal>::from_ssz_bytes(&response)
+                .expect("should decode SSZ pending partial withdrawals");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
+
+        self
+    }
+
     pub async fn test_beacon_states_pending_consolidations(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let mut state_opt = state_id
@@ -1552,6 +1703,39 @@ impl ApiTester {
             // Check that the version header is returned in the response
             let fork_name = state.fork_name(&self.chain.spec).unwrap();
             assert_eq!(response.version(), Some(fork_name),);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_consolidations_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_pending_consolidations_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("state should exist");
+            let expected = state.pending_consolidations().unwrap();
+
+            let ssz_bytes = ssz_response.expect("response should exist");
+
+            let decoded = Vec::<types::PendingConsolidation>::from_ssz_bytes(&ssz_bytes)
+                .expect("should decode SSZ pending consolidations");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
         }
 
         self
@@ -2777,6 +2961,9 @@ impl ApiTester {
             AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
+            AttesterSlashing::Gloas(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
         }
 
         self.client
@@ -2801,6 +2988,9 @@ impl ApiTester {
             AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
+            AttesterSlashing::Gloas(slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
         }
 
         let fork_name = self
@@ -2815,6 +3005,33 @@ impl ApiTester {
         assert!(
             self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid attester slashing should not be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_attester_slashings_future_fork_v2(mut self) -> Self {
+        let current_fork = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(self.chain.slot_clock.now().unwrap());
+        let Some(future_fork) = current_fork.next_fork() else {
+            return self;
+        };
+
+        // Use a fresh slashing, as `self.attester_slashing` is already in the pool.
+        let slashing = self.harness.make_attester_slashing(vec![2, 3]);
+
+        // A header for a fork that is not yet active is accepted, e.g. a slashing posted
+        // just before the fork boundary. Block production converts the variant as needed.
+        self.client
+            .post_beacon_pool_attester_slashings_v2(&slashing, future_fork)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid attester slashing should be sent to network"
         );
 
         self
@@ -3223,6 +3440,7 @@ impl ApiTester {
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
             execution_requests_root: Hash256::zero(),
+            _phantom: std::marker::PhantomData,
         };
 
         let signed = SignedExecutionPayloadBid {
@@ -5561,6 +5779,32 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_attestation_data_ssz(self) -> Self {
+        let mut state = self.chain.head_beacon_state_cloned();
+        let slot = state.slot();
+        state
+            .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+            .unwrap();
+        for index in 0..state.get_committee_count_at_slot(slot).unwrap() {
+            let result = self
+                .client
+                .get_validator_attestation_data_ssz(slot, index)
+                .await
+                .unwrap();
+
+            let expected = self
+                .chain
+                .produce_unaggregated_attestation(slot, index)
+                .unwrap()
+                .data()
+                .clone();
+
+            assert_eq!(result, expected);
+        }
+
+        self
+    }
+
     pub async fn test_get_validator_payload_attestation_data(self) -> Self {
         // Payload attestations are only valid for the current slot when a block has
         // already arrived. The harness setup leaves the slot clock at `head_slot + 1`
@@ -5839,6 +6083,36 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_aggregate_attestation_v2_ssz(self) -> Self {
+        let attestations = self
+            .chain
+            .naive_aggregation_pool
+            .read()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for attestation in attestations {
+            let slot = attestation.data().slot;
+            let attestation_data_root = attestation.data().tree_hash_root();
+            let committee_index = attestation.committee_index().expect("committee index");
+
+            let result = self
+                .client
+                .get_validator_aggregate_attestation_v2_ssz::<E>(
+                    slot,
+                    attestation_data_root,
+                    committee_index,
+                )
+                .await
+                .unwrap()
+                .expect("response should exist");
+
+            assert_eq!(result, attestation);
+        }
+        self
+    }
+
     pub async fn get_aggregate(&mut self) -> SignedAggregateAndProof<E> {
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -5955,6 +6229,9 @@ impl ApiTester {
             SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
+            SignedAggregateAndProof::Gloas(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
         }
 
         self.client
@@ -5990,6 +6267,9 @@ impl ApiTester {
                 aggregate.message.aggregate.data.slot += 1;
             }
             SignedAggregateAndProof::Electra(aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Gloas(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -9133,6 +9413,8 @@ async fn beacon_get_state_info() {
         .test_beacon_states_validator_id()
         .await
         .test_beacon_states_randao()
+        .await
+        .test_beacon_states_validator_identities_ssz()
         .await;
 }
 
@@ -9148,9 +9430,15 @@ async fn beacon_get_state_info_electra() {
         .await
         .test_beacon_states_pending_deposits()
         .await
+        .test_beacon_states_pending_deposits_ssz()
+        .await
         .test_beacon_states_pending_partial_withdrawals()
         .await
+        .test_beacon_states_pending_partial_withdrawals_ssz()
+        .await
         .test_beacon_states_pending_consolidations()
+        .await
+        .test_beacon_states_pending_consolidations_ssz()
         .await;
 }
 
@@ -9342,9 +9630,18 @@ async fn beacon_pools_post_attester_slashings_invalid_v1() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid_v2() {
-    ApiTester::new()
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+
+    ApiTester::new_from_config(config)
         .await
         .test_post_beacon_pool_attester_slashings_valid_v2()
+        .await
+        .test_post_beacon_pool_attester_slashings_future_fork_v2()
         .await;
 }
 
@@ -9735,6 +10032,14 @@ async fn get_validator_attestation_data() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_attestation_data_ssz() {
+    ApiTester::new()
+        .await
+        .test_get_validator_attestation_data_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data_with_skip_slots() {
     ApiTester::new()
         .await
@@ -9854,6 +10159,14 @@ async fn get_validator_aggregate_attestation_v2() {
     ApiTester::new()
         .await
         .test_get_validator_aggregate_attestation_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_attestation_v2_ssz() {
+    ApiTester::new()
+        .await
+        .test_get_validator_aggregate_attestation_v2_ssz()
         .await;
 }
 

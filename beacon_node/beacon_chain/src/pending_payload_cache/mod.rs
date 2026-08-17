@@ -25,19 +25,21 @@ use std::sync::Arc;
 use tracing::{Span, debug, error, instrument};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    PartialDataColumnSidecarRef,
+    PartialDataColumn, PartialDataColumnView,
 };
 
 mod pending_column;
 mod pending_components;
 
 use crate::data_column_verification::{
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
+use crate::partial_data_column_assembler::PartialMergeResult;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
@@ -48,6 +50,10 @@ use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 /// `PendingComponents` are now never removed from the cache manually and are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
 const AVAILABILITY_CACHE_CAPACITY: usize = 32;
+
+/// What `update_pending_components` returns: the value that the update closure computed, next to
+/// a read guard on the entry it updated.
+type UpdatedComponents<'a, E, R> = (R, MappedRwLockReadGuard<'a, PendingComponents<E>>);
 
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
@@ -71,6 +77,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 }
 
 pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
+pub type AvailabilityAndPartialMergeResult<E> = (Availability<E>, PartialMergeResult<E>);
 
 #[derive(Debug)]
 pub enum DataColumnReconstructionResult<E: EthSpec> {
@@ -93,6 +100,7 @@ pub struct PendingPayloadCache<T: BeaconChainTypes> {
     availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T>>,
+    disable_get_blobs: bool,
     spec: Arc<ChainSpec>,
 }
 
@@ -100,12 +108,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn new(
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T>>,
+        disable_get_blobs: bool,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             availability_cache: RwLock::new(LruCache::new(AVAILABILITY_CACHE_CAPACITY)),
             kzg,
             custody_context,
+            disable_get_blobs,
             spec,
         })
     }
@@ -180,23 +190,51 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn missing_cells_for_column_sidecar<'a>(
         &'_ self,
         data_column: &'a DataColumnSidecar<T::EthSpec>,
-    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+    ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
         let block_root = data_column.block_root();
         let column_index = *data_column.index();
 
         self.peek_pending_components(&block_root, |components| {
             let Some(cached) = components.and_then(|c| c.verified_data_columns.get(&column_index))
             else {
-                return data_column.try_filter_to_partial_ref(|_, _, _| Ok(true));
+                return data_column.try_filter_to_partial_view(|_, _, _| Ok(true));
             };
 
-            data_column.try_filter_to_partial_ref(|cell_idx, cell, proof| {
+            data_column.try_filter_to_partial_view(|cell_idx, cell, proof| {
                 match cached.cell_matches(cell_idx, cell, proof) {
                     None => Ok(true),
                     Some(true) => Ok(false),
                     Some(false) => Err(MissingCellsError::MismatchesCachedColumn),
                 }
             })
+        })
+    }
+
+    /// Filter out cells that are already cached for the given partial column sidecar.
+    /// Returns the cells that still need KZG verification, or `None` if all cells are cached.
+    #[instrument(skip_all, level = "trace")]
+    pub fn missing_cells_for_partial_column_sidecar<'a>(
+        &'_ self,
+        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
+        let block_root = *partial_data_column.block_root();
+        let column_index = *partial_data_column.index();
+
+        self.peek_pending_components(&block_root, |components| {
+            let Some(cached) = components.and_then(|c| c.verified_data_columns.get(&column_index))
+            else {
+                return partial_data_column.sidecar().try_filter(|_, _, _| Ok(true));
+            };
+
+            partial_data_column
+                .sidecar()
+                .try_filter(|cell_idx, cell, proof| {
+                    match cached.cell_matches(cell_idx, cell, proof) {
+                        None => Ok(true),
+                        Some(true) => Ok(false),
+                        Some(false) => Err(MissingCellsError::MismatchesCachedColumn),
+                    }
+                })
         })
     }
 
@@ -210,8 +248,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .get_bid(&beacon_block_root)
             .ok_or(AvailabilityCheckError::MissingBid(beacon_block_root))?;
 
-        let pending_components =
-            self.update_pending_components(beacon_block_root, bid, |pending_components| {
+        let (_, pending_components) =
+            self.update_pending_components(beacon_block_root, &bid, |pending_components| {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
@@ -248,7 +286,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
             custody_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.kzg,
         )
         .map_err(AvailabilityCheckError::InvalidColumn)?;
@@ -286,6 +324,64 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         self.put_kzg_verified_custody_data_columns(block_root, &custody_columns)
     }
 
+    /// Merge KZG verified partial custody columns into the cache. Returns the columns that became
+    /// fully populated as a result of this merge, plus the accumulated partials that gained cells
+    /// (for republishing).
+    #[instrument(skip_all, level = "trace")]
+    pub fn merge_partial_data_columns(
+        &self,
+        block_root: Hash256,
+        kzg_verified_partial_data_columns: &[KzgVerifiedCustodyPartialDataColumnGloas<
+            T::EthSpec,
+        >],
+    ) -> Result<AvailabilityAndPartialMergeResult<T::EthSpec>, AvailabilityCheckError> {
+        let bid = self
+            .get_bid(&block_root)
+            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
+
+        let (outcome, pending_components) =
+            self.update_pending_components(block_root, &bid, |pending_components| {
+                pending_components.merge_partial_data_columns(kzg_verified_partial_data_columns)
+            })?;
+
+        let partial_merge_result =
+            pending_components.to_partial_merge_result(outcome, self.disable_get_blobs);
+
+        let availability = self.check_availability(block_root, pending_components)?;
+
+        Ok((availability, partial_merge_result))
+    }
+
+    /// Returns the partial columns currently held for `block_root` so the caller can republish
+    /// them after a local `getBlobs` fetch, and marks the entry as locally-fetched so subsequent
+    /// merges don't trigger another republish wave.
+    #[instrument(skip_all, level = "trace")]
+    pub fn get_partials_and_mark_as_local_fetched(
+        &self,
+        block_root: Hash256,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+    ) -> Vec<KzgVerifiedCustodyPartialDataColumnGloas<T::EthSpec>> {
+        let Ok((_, pending_components)) =
+            self.update_pending_components(block_root, bid, |components| {
+                components.local_fetch_settled = true;
+            })
+        else {
+            return Vec::new();
+        };
+        pending_components.get_cached_partial_data_columns()
+    }
+
+    /// Returns true if the given column is fully populated in the cache.
+    pub fn is_column_complete(&self, block_root: &Hash256, column_index: ColumnIndex) -> bool {
+        self.peek_pending_components(block_root, |components| {
+            components.is_some_and(|c| {
+                c.verified_data_columns
+                    .get(&column_index)
+                    .is_some_and(|column| column.is_complete())
+            })
+        })
+    }
+
     /// Insert KZG verified columns into the cache.
     /// After insertion check if the envelope becomes available.
     pub fn put_kzg_verified_custody_data_columns(
@@ -297,8 +393,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
 
-        let pending_components =
-            self.update_pending_components(block_root, bid.clone(), |pending_components| {
+        let (_, pending_components) =
+            self.update_pending_components(block_root, &bid, |pending_components| {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
@@ -339,7 +435,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
@@ -423,34 +519,35 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         }
     }
 
-    /// Gets or creates `PendingComponents` and applies the `update_fn` while holding the write lock.
-    ///
-    /// Once the update is complete, the write lock is downgraded and a read guard with a
-    /// reference of the updated `PendingComponents` is returned.
-    fn update_pending_components<F>(
+    /// Applies `update_fn` to the entry for `block_root` under the write lock, then downgrades to
+    /// a read guard. Returns whatever `update_fn` computed, next to that guard.
+    fn update_pending_components<R, F>(
         &self,
         block_root: Hash256,
-        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
         update_fn: F,
-    ) -> Result<MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>, AvailabilityCheckError>
+    ) -> Result<UpdatedComponents<'_, T::EthSpec, R>, AvailabilityCheckError>
     where
-        F: FnOnce(&mut PendingComponents<T::EthSpec>),
+        F: FnOnce(&mut PendingComponents<T::EthSpec>) -> R,
     {
         let mut write_lock = self.availability_cache.write();
 
-        {
+        let outcome = {
             let pending_components = write_lock
                 .entry(block_root)
-                .or_insert_with(|| PendingComponents::new(block_root, bid));
+                .or_insert_with(|| PendingComponents::new(block_root, bid.clone()));
             update_fn(pending_components)
-        }
+        };
 
-        RwLockReadGuard::try_map(RwLockWriteGuard::downgrade(write_lock), |cache| {
-            cache.peek(&block_root)
-        })
-        .map_err(|_| {
-            AvailabilityCheckError::Unexpected("pending components should exist".to_string())
-        })
+        let pending_components =
+            RwLockReadGuard::try_map(RwLockWriteGuard::downgrade(write_lock), |cache| {
+                cache.peek(&block_root)
+            })
+            .map_err(|_| {
+                AvailabilityCheckError::Unexpected("pending components should exist".to_string())
+            })?;
+
+        Ok((outcome, pending_components))
     }
 
     fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
@@ -530,12 +627,15 @@ mod data_availability_checker_tests {
         generate_rand_block_and_data_columns, get_kzg,
     };
     use fork_choice::PayloadVerificationStatus;
+    use kzg::KzgProof;
     use logging::create_test_tracing_subscriber;
     use slot_clock::{SlotClock, TestingSlotClock};
+    use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
     use types::{
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
+        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
+        ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
     };
 
     type E = MinimalEthSpec;
@@ -571,7 +671,7 @@ mod data_availability_checker_tests {
             spec.clone(),
         ));
         let cache = Arc::new(
-            PendingPayloadCache::<T>::new(kzg, custody_context, spec.clone())
+            PendingPayloadCache::<T>::new(kzg, custody_context, false, spec.clone())
                 .expect("create cache"),
         );
 
@@ -800,5 +900,78 @@ mod data_availability_checker_tests {
 
         s.put_columns(vec![last]);
         assert_lengths_match(&s);
+    }
+
+    // ────────── Gloas partial column merge ─────────────────────────────────
+    //
+    // `merge_partial_data_columns` accumulates cells from partial (incomplete) columns until each
+    // column has a cell for every expected blob. These tests drive that state machine directly.
+
+    /// Build a Gloas KZG-verified custody partial column for `index` carrying cells at the `present`
+    /// blob indices. Cell contents are irrelevant: the cache keys cells by blob index and never
+    /// re-verifies them on merge.
+    fn gloas_partial(
+        block_root: Hash256,
+        slot: Slot,
+        index: ColumnIndex,
+        total_blobs: usize,
+        present: &[usize],
+    ) -> KzgVerifiedCustodyPartialDataColumnGloas<E> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &i in present {
+            bitmap.set(i, true).unwrap();
+        }
+        let column: ProgressiveVariableList<_> =
+            present.iter().map(|_| Cell::<E>::default()).collect();
+        let kzg_proofs: ProgressiveVariableList<_> =
+            present.iter().map(|_| KzgProof::empty()).collect();
+        KzgVerifiedCustodyPartialDataColumnGloas::from_cached(Arc::new(PartialDataColumnGloas {
+            block_root,
+            slot,
+            index,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: bitmap,
+                column,
+                kzg_proofs,
+            },
+        }))
+    }
+
+    /// Two partial arrivals for the same column complete it: the first (one cell of two expected) is
+    /// `MissingComponents` with no full column; the second fills the gap and yields one full column.
+    #[tokio::test]
+    async fn merge_partial_columns_completes_column_across_arrivals() {
+        let s = setup_with(NodeCustodyType::Fullnode, NumBlobs::Number(2));
+        let slot = s.cache.get_bid(&s.block_root).expect("bid").message.slot;
+
+        // First arrival: column 0 carries only blob 0's cell — incomplete (1 of 2 expected).
+        let first = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[first])
+            .expect("merge");
+        assert_missing(availability);
+        assert_eq!(result.added_cells, 1);
+        assert!(result.full_columns.is_empty(), "column not yet complete");
+        assert!(!s.cache.is_column_complete(&s.block_root, 0));
+
+        // Re-merging blob 0 while the column is still incomplete adds nothing.
+        let duplicate = gloas_partial(s.block_root, slot, 0, 2, &[0]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[duplicate])
+            .expect("merge");
+        assert_eq!(result.added_cells, 0);
+
+        // Second arrival: column 0 gains blob 1's cell — now complete.
+        let second = gloas_partial(s.block_root, slot, 0, 2, &[1]);
+        let (_availability, result) = s
+            .cache
+            .merge_partial_data_columns(s.block_root, &[second])
+            .expect("merge");
+        assert_eq!(result.added_cells, 1);
+        assert_eq!(result.full_columns.len(), 1, "column 0 becomes complete");
+        assert_eq!(result.full_columns[0].index(), 0);
+        assert!(s.cache.is_column_complete(&s.block_root, 0));
     }
 }

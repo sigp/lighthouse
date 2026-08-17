@@ -1335,6 +1335,7 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot",
+ "proof_engine",
  "proto_array",
  "rand 0.9.2",
  "rand_xorshift 0.4.0",
@@ -2007,6 +2008,7 @@ dependencies = [
  "monitoring_api",
  "network",
  "operation_pool",
+ "proof_engine",
  "rand 0.9.2",
  "sensitive_url",
  "serde",
@@ -3375,8 +3377,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e462875ad8693755ea8913d6e905715c76ea4836e2254e18c9cf0f7a8f8c2a13"
+source = "git+https://github.com/sigp/ethereum_ssz?rev=2059c21ba52cd3a7e39a8ad537012b761812a393#2059c21ba52cd3a7e39a8ad537012b761812a393"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -3391,9 +3392,8 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz_derive"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cd82c68120c89361e1a457245cf212f7d9f541bffaffed530c8f2d54a160b2"
+version = "0.10.4"
+source = "git+https://github.com/sigp/ethereum_ssz?rev=2059c21ba52cd3a7e39a8ad537012b761812a393#2059c21ba52cd3a7e39a8ad537012b761812a393"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -3495,6 +3495,8 @@ dependencies = [
  "lighthouse_version",
  "logging",
  "metrics",
+ "opentelemetry",
+ "opentelemetry-http",
  "parking_lot",
  "pretty_reqwest_error",
  "rand 0.9.2",
@@ -3513,6 +3515,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "tracing-opentelemetry",
  "tree_hash",
  "tree_hash_derive",
  "triehash",
@@ -5927,8 +5930,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "259dd9da2ae5e0278b95da0b7ecef9c18c309d0a2d9e6db57ed33b9e8910c5e7"
+source = "git+https://github.com/sigp/milhouse?rev=c70f128976ac0d60ea65a978dabd117a921c36ee#c70f128976ac0d60ea65a978dabd117a921c36ee"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -6262,6 +6264,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "tree_hash",
  "typenum",
  "types",
 ]
@@ -7145,6 +7148,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "proof_engine"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "types",
 ]
 
 [[package]]
@@ -8647,8 +8660,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d625e4de8e0057eefe7e0b1510ba1dd7adf10cd375fad6cc7fcceac7c39623c9"
+source = "git+https://github.com/sigp/ssz_types?rev=9203d56ad2d7bc5f12133d043e085843f81edcd6#9203d56ad2d7bc5f12133d043e085843f81edcd6"
 dependencies = [
  "arbitrary",
  "context_deserialize",
@@ -9508,8 +9520,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7fd51aa83d2eb83b04570808430808b5d24fdbf479a4d5ac5dee4a2e2dd2be4"
+source = "git+https://github.com/sigp/tree_hash?rev=03d9fa474586c125f306dd7a00cf46284575a01f#03d9fa474586c125f306dd7a00cf46284575a01f"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
@@ -9521,8 +9532,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8840ad4d852e325d3afa7fde8a50b2412f89dce47d7eb291c0cc7f87cd040f38"
+source = "git+https://github.com/sigp/tree_hash?rev=03d9fa474586c125f306dd7a00cf46284575a01f#03d9fa474586c125f306dd7a00cf46284575a01f"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",

@@ -39,6 +39,7 @@ pub enum Domain {
     ProposerPreferences,
     BuilderDeposit,
     InclusionListCommittee,
+    ExecutionProof,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -113,9 +114,11 @@ pub struct ChainSpec {
     pub payload_due_bps: u64,
     pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
+    pub aggregate_due_bps_gloas: u64,
     pub sync_message_due_bps: u64,
     pub sync_message_due_bps_gloas: u64,
     pub contribution_due_bps: u64,
+    pub contribution_due_bps_gloas: u64,
     pub inclusion_list_due_bps: u64,
 
     /*
@@ -154,6 +157,7 @@ pub struct ChainSpec {
     pub(crate) domain_proposer_preferences: u32,
     pub(crate) domain_builder_deposit: u32,
     pub(crate) domain_inclusion_list_committee: u32,
+    pub(crate) domain_execution_proof: u32,
 
     /*
      * Fork choice
@@ -329,7 +333,7 @@ pub struct ChainSpec {
     /*
      * Networking Heze
      */
-    pub max_bytes_per_inclusion_list: u64,
+    pub max_transactions_bytes_per_inclusion_list: u64,
     pub max_request_inclusion_list: u64,
     pub min_slots_for_inclusion_lists_requests: u64,
 
@@ -563,6 +567,7 @@ impl ChainSpec {
             Domain::ProposerPreferences => self.domain_proposer_preferences,
             Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::InclusionListCommittee => self.domain_inclusion_list_committee,
+            Domain::ExecutionProof => self.domain_execution_proof,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1161,7 +1166,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1178,12 +1183,14 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
+            aggregate_due_bps_gloas: 5000,
             sync_message_due_bps: 3333,
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
+            contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
 
             /*
@@ -1191,7 +1198,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
             unaggregated_attestation_due_gloas: Duration::from_millis(3000),
-            payload_due: Duration::from_millis(9000),
+            payload_due: Duration::from_millis(6000),
             payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
@@ -1223,6 +1230,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_execution_proof: 0x0F,
 
             /*
              * Fork choice
@@ -1352,7 +1360,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1368,7 +1376,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -1534,7 +1542,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
             unaggregated_attestation_due_gloas: Duration::from_millis(1500),
-            payload_due: Duration::from_millis(4500),
+            payload_due: Duration::from_millis(3000),
             payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
@@ -1610,7 +1618,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
-            builder_withdrawal_prefix_byte: 0x03,
+            builder_withdrawal_prefix_byte: 0xB0,
 
             /*
              * Time parameters
@@ -1627,9 +1635,10 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
-            payload_due_bps: 7500,
+            payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
+            aggregate_due_bps_gloas: 5000,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1637,7 +1646,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
             unaggregated_attestation_due_gloas: Duration::from_millis(1250),
-            payload_due: Duration::from_millis(3750),
+            payload_due: Duration::from_millis(2500),
             payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
@@ -1669,6 +1678,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_execution_proof: 0x0F,
 
             /*
              * Fork choice
@@ -1722,6 +1732,7 @@ impl ChainSpec {
             sync_message_due_bps: 3333,
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
+            contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
 
             /*
@@ -1801,7 +1812,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(8192),
+            min_builder_withdrawability_delay: Epoch::new(64),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1817,7 +1828,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
-            max_bytes_per_inclusion_list: 8192,
+            max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
 
@@ -2276,6 +2287,9 @@ pub struct Config {
     #[serde(default = "default_aggregate_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     aggregate_due_bps: u64,
+    #[serde(default = "default_aggregate_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregate_due_bps_gloas: u64,
     #[serde(default = "default_sync_message_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     sync_message_due_bps: u64,
@@ -2285,6 +2299,9 @@ pub struct Config {
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+    #[serde(default = "default_contribution_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    contribution_due_bps_gloas: u64,
     #[serde(default = "default_inclusion_list_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     inclusion_list_due_bps: u64,
@@ -2302,6 +2319,19 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit_gloas: u64,
+
+    #[serde(default = "default_max_transactions_bytes_per_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_transactions_bytes_per_inclusion_list: u64,
+    #[serde(default = "default_max_request_inclusion_list")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_inclusion_list: u64,
+    #[serde(default = "default_min_slots_for_inclusion_lists_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_slots_for_inclusion_lists_requests: u64,
+    #[serde(default = "default_max_request_payloads")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_payloads: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2529,7 +2559,7 @@ const fn default_attestation_due_bps_gloas() -> u64 {
 }
 
 const fn default_payload_due_bps() -> u64 {
-    7500
+    5000
 }
 
 const fn default_payload_attestation_due_bps() -> u64 {
@@ -2538,6 +2568,10 @@ const fn default_payload_attestation_due_bps() -> u64 {
 
 const fn default_aggregate_due_bps() -> u64 {
     6667
+}
+
+const fn default_aggregate_due_bps_gloas() -> u64 {
+    5000
 }
 
 const fn default_inclusion_list_due_bps() -> u64 {
@@ -2556,8 +2590,12 @@ const fn default_contribution_due_bps() -> u64 {
     6667
 }
 
+const fn default_contribution_due_bps_gloas() -> u64 {
+    5000
+}
+
 const fn default_min_builder_withdrawability_delay() -> u64 {
-    8192
+    64
 }
 
 const fn default_churn_limit_quotient_gloas() -> u64 {
@@ -2582,6 +2620,18 @@ const fn default_reorg_parent_weight_threshold() -> u64 {
 
 const fn default_reorg_max_epochs_since_finalization() -> u64 {
     2
+}
+
+const fn default_max_transactions_bytes_per_inclusion_list() -> u64 {
+    8192
+}
+
+const fn default_max_request_inclusion_list() -> u64 {
+    16
+}
+
+const fn default_min_slots_for_inclusion_lists_requests() -> u64 {
+    1
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2835,14 +2885,21 @@ impl Config {
             payload_due_bps: spec.payload_due_bps,
             payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
+            aggregate_due_bps_gloas: spec.aggregate_due_bps_gloas,
             sync_message_due_bps: spec.sync_message_due_bps,
             sync_message_due_bps_gloas: spec.sync_message_due_bps_gloas,
             contribution_due_bps: spec.contribution_due_bps,
+            contribution_due_bps_gloas: spec.contribution_due_bps_gloas,
             inclusion_list_due_bps: spec.inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
 
             churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            max_transactions_bytes_per_inclusion_list: spec
+                .max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list: spec.max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests: spec.min_slots_for_inclusion_lists_requests,
+            max_request_payloads: spec.max_request_payloads,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -2943,15 +3000,21 @@ impl Config {
             payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
+            aggregate_due_bps_gloas,
             sync_message_due_bps,
             sync_message_due_bps_gloas,
             contribution_due_bps,
+            contribution_due_bps_gloas,
             confirmation_byzantine_threshold,
             inclusion_list_due_bps,
             min_builder_withdrawability_delay,
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+            max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
+            max_request_payloads,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3059,9 +3122,11 @@ impl Config {
             payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
+            aggregate_due_bps_gloas,
             sync_message_due_bps,
             sync_message_due_bps_gloas,
             contribution_due_bps,
+            contribution_due_bps_gloas,
             inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
@@ -3069,6 +3134,11 @@ impl Config {
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+
+            max_transactions_bytes_per_inclusion_list,
+            max_request_inclusion_list,
+            min_slots_for_inclusion_lists_requests,
+            max_request_payloads,
 
             ..chain_spec.clone()
         };
@@ -3137,6 +3207,7 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
         test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
         test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
+        test_domain(Domain::ExecutionProof, spec.domain_execution_proof, &spec);
         test_domain(
             Domain::InclusionListCommittee,
             spec.domain_inclusion_list_committee,
@@ -3899,10 +3970,10 @@ mod yaml_tests {
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
 
-        // Test payload due (7500 bps = 75% of 12s = 9s)
+        // Test payload due (5000 bps = 50% of 12s = 6s)
         let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
         let payload_due = spec.get_payload_due();
-        assert_eq!(payload_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+        assert_eq!(payload_due, Duration::from_millis(6000)); // 12000 * 5000 / 10000
 
         // Test payload attestation due (7500 bps = 75% of 12s = 9s)
         let payload_att_due = spec.get_payload_attestation_due();
@@ -3961,8 +4032,8 @@ mod yaml_tests {
             Duration::from_millis(8000)
         );
 
-        // Mainnet payload due: 12000ms slots, 7500 bps = 9000ms
-        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(9000));
+        // Mainnet payload due: 12000ms slots, 5000 bps = 6000ms
+        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(6000));
         assert_eq!(
             mainnet.get_payload_attestation_due(),
             Duration::from_millis(9000)
@@ -3989,8 +4060,8 @@ mod yaml_tests {
             minimal.get_contribution_message_due(),
             Duration::from_millis(4000)
         );
-        // Minimal payload due: 6000ms slots, 7500 bps = 4500ms
-        assert_eq!(minimal.get_payload_due(), Duration::from_millis(4500));
+        // Minimal payload due: 6000ms slots, 5000 bps = 3000ms
+        assert_eq!(minimal.get_payload_due(), Duration::from_millis(3000));
         assert_eq!(
             minimal.get_payload_attestation_due(),
             Duration::from_millis(4500)
@@ -4017,8 +4088,8 @@ mod yaml_tests {
             gnosis.get_contribution_message_due(),
             Duration::from_millis(3333)
         );
-        // Gnosis payload due: 5000ms slots, 7500 bps = 3750ms
-        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(3750));
+        // Gnosis payload due: 5000ms slots, 5000 bps = 2500ms
+        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(2500));
         assert_eq!(
             gnosis.get_payload_attestation_due(),
             Duration::from_millis(3750)
@@ -4063,14 +4134,6 @@ mod yaml_tests {
         // Forks not yet implemented
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
-        // Gloas params not yet in Config
-        "AGGREGATE_DUE_BPS_GLOAS",
-        "CONTRIBUTION_DUE_BPS_GLOAS",
-        "MAX_REQUEST_PAYLOADS",
-        // Heze networking
-        "MAX_REQUEST_INCLUSION_LIST",
-        "MAX_BYTES_PER_INCLUSION_LIST",
-        "MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.

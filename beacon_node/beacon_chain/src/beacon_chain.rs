@@ -34,6 +34,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -111,6 +112,7 @@ use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
 use parking_lot::{Mutex, RwLock};
+use proof_engine::ProofEngine;
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
@@ -435,6 +437,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
+    /// Maintains a record of execution proofs seen over the gossip network.
+    pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
@@ -450,6 +454,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
+    /// Client for the EIP-8025 proof engine, if one is configured.
+    pub proof_engine: Option<Arc<ProofEngine>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -1258,7 +1264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
                 debug!(
-                    bytes = format!("0x{}", hex::encode(&**txn)),
+                    bytes = format!("0x{}", hex::encode(txn)),
                     "Reconstructed txn"
                 );
             }
@@ -1746,12 +1752,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
         match attestation {
             AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
-            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
-                att.data.slot,
-                &att.data.tree_hash_root(),
-                att.committee_index()
-                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
-            ),
+            AttestationRef::Electra(_) | AttestationRef::Gloas(_) => self
+                .get_aggregated_attestation_electra(
+                    attestation.data().slot,
+                    &attestation.data().tree_hash_root(),
+                    attestation
+                        .committee_index()
+                        .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+                ),
         }
     }
 
@@ -2449,23 +2457,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_partial_data_column_sidecar_for_gossip(
+    pub async fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> PartialColumnVerificationResult<T::EthSpec> {
-        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer =
-            metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        let ret = validate_partial_data_column_sidecar_for_gossip(
-            data_column_sidecar,
-            self,
-            seen_timestamp,
+        let chain = self.clone();
+        // Verification may hit the disk (Gloas bid lookup) and performs KZG verification, so it
+        // must not run directly on the async runtime.
+        let handle = self.task_executor.clone().spawn_blocking_handle(
+            move || {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                let _timer = metrics::start_timer(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                );
+                let ret = validate_partial_data_column_sidecar_for_gossip(
+                    data_column_sidecar,
+                    &chain,
+                    seen_timestamp,
+                );
+                if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+                    metrics::inc_counter(
+                        &metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                    );
+                }
+                ret
+            },
+            "gossip_partial_data_column_verification_handle",
         );
-        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
-            metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        }
-        ret
+        let Some(handle) = handle else {
+            return PartialColumnVerificationResult::Err(BeaconChainError::RuntimeShutdown.into());
+        };
+        handle.await.unwrap_or_else(|err| {
+            PartialColumnVerificationResult::Err(BeaconChainError::TokioJoin(err).into())
+        })
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
@@ -3378,29 +3403,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .await
     }
 
-    /// Process a gossip-verified partial data column by attempting to merge it in the assembler.
-    /// Returns the merge result which indicates if a column was completed.
+    /// Process a gossip-verified partial data column by attempting to merge it into the appropriate
+    /// store for its fork (the Fulu assembler, or the Gloas pending payload cache). Returns the
+    /// merge result, which indicates whether any column was completed.
+    ///
+    /// `verified_header` must be `Some` for Fulu partials (the assembler needs it) and `None`
+    /// for Gloas partials.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
         slot: Slot,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
         let block_root = verified_partial.block_root();
-        let partial = verified_partial.as_data_column();
-        let index_str = partial.index.to_string();
+        let column_index = verified_partial.index();
+        let index_str = column_index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
-            partial.sidecar.column.len() as u64,
+            verified_partial.sidecar().column().len() as u64,
         );
 
         // Check if we have custody of this column
         let sampling_columns = self
             .custody_context
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        let verified_partial = if sampling_columns.contains(&partial.index) {
+        let verified_partial = if sampling_columns.contains(&column_index) {
             KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
         } else {
             return Ok(None);
@@ -3410,19 +3439,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
-            // Partial messages are apparently not activated
-            return Ok(None);
-        };
+        let (merge_result, gloas_availability) = match verified_partial {
+            KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
+                // Fulu: merge via the partial assembler.
+                let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+                    // Partial messages are apparently not activated
+                    return Ok(None);
+                };
+                let Some(header) = verified_header else {
+                    return Err(BlockError::InternalError(
+                        "Fulu partial data column received without a header".to_string(),
+                    ));
+                };
 
-        // Merge the partial into the assembler
-        let merge_result = assembler
-            .merge_partials(
-                block_root,
-                vec![verified_partial],
-                verified_header.into_header(),
-            )
-            .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
+                let merge_result = assembler
+                    .merge_partials(block_root, vec![verified_partial], header.into_header())
+                    .ok_or_else(|| {
+                        BlockError::InternalError("No assembly found for block".to_string())
+                    })?;
+                (merge_result, None)
+            }
+            KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
+                // Gloas: merge directly into the pending payload cache.
+                let (availability, merge_result) = self
+                    .pending_payload_cache
+                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .map_err(BlockError::from)?;
+                (merge_result, Some(availability))
+            }
+        };
 
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
@@ -3430,7 +3475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             merge_result.added_cells as u64,
         );
 
-        let availability = if !merge_result.full_columns.is_empty() {
+        if !merge_result.full_columns.is_empty() {
             metrics::inc_counter_vec_by(
                 &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
                 &[index_str.as_str()],
@@ -3444,29 +3489,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .iter()
                     .map(|column| column.as_data_column()),
             );
+        }
 
-            if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled()
-            {
-                let availability = self
-                    .pending_payload_cache
-                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
-                    .map_err(BlockError::from)?;
-                self.process_payload_envelope_availability(slot, availability, || Ok(()))
-                    .await?
-            } else {
-                let availability = self
-                    .data_availability_checker
-                    .put_kzg_verified_custody_data_columns(
-                        block_root,
-                        merge_result.full_columns.clone(),
-                    )
-                    .map_err(BlockError::from)?;
-                self.process_availability(slot, availability, || Ok(()))
-                    .await?
-            }
+        let availability = if let Some(availability) = gloas_availability {
+            self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await?
+        } else if !merge_result.full_columns.is_empty() {
+            // The above branch already handles gloas availability, so we only care about Fulu here.
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(
+                    block_root,
+                    merge_result.full_columns.clone(),
+                )
+                .map_err(BlockError::from)?;
+            self.process_availability(slot, availability, || Ok(()))
+                .await?
         } else {
             AvailabilityProcessingStatus::MissingComponents(slot, block_root)
         };
@@ -3512,7 +3550,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
-    pub async fn process_engine_blobs(
+    pub async fn process_engine_blobs_fulu(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
@@ -5892,27 +5930,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (attester_slashings_base, attester_slashings_electra) =
-            attester_slashings.into_iter().fold(
-                (Vec::new(), Vec::new()),
-                |(mut base, mut electra), slashing| {
-                    match slashing {
-                        AttesterSlashing::Base(slashing) => base.push(slashing),
-                        AttesterSlashing::Electra(slashing) => electra.push(slashing),
+        let fork_name = state.fork_name_unchecked();
+        let mut attester_slashings_base = Vec::new();
+        let mut attester_slashings_electra = Vec::new();
+        for slashing in attester_slashings {
+            if fork_name.electra_enabled() {
+                // Convert Base and Gloas slashings into the Electra type. The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let (attestation_1, attestation_2) = match slashing {
+                    AttesterSlashing::Base(slashing) => (
+                        IndexedAttestation::Base(slashing.attestation_1),
+                        IndexedAttestation::Base(slashing.attestation_2),
+                    ),
+                    AttesterSlashing::Electra(slashing) => {
+                        attester_slashings_electra.push(slashing);
+                        continue;
                     }
-                    (base, electra)
-                },
-            );
-        let (attestations_base, attestations_electra) = attestations.into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut base, mut electra), attestation| {
-                match attestation {
-                    Attestation::Base(attestation) => base.push(attestation),
-                    Attestation::Electra(attestation) => electra.push(attestation),
+                    AttesterSlashing::Gloas(slashing) => (
+                        IndexedAttestation::Gloas(slashing.attestation_1),
+                        IndexedAttestation::Gloas(slashing.attestation_2),
+                    ),
+                };
+                match (attestation_1.to_electra(), attestation_2.to_electra()) {
+                    (Ok(attestation_1), Ok(attestation_2)) => {
+                        attester_slashings_electra.push(AttesterSlashingElectra {
+                            attestation_1,
+                            attestation_2,
+                        })
+                    }
+                    _ => warn!(
+                        block_slot = %slot,
+                        "Dropping attester slashing that exceeds the Electra size limits"
+                    ),
                 }
-                (base, electra)
-            },
-        );
+            } else {
+                match slashing {
+                    AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
+                    // Post-Electra slashings cannot be included in pre-Electra blocks.
+                    AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) => warn!(
+                        block_slot = %slot,
+                        "Dropping post-Electra attester slashing in pre-Electra block production"
+                    ),
+                }
+            }
+        }
+        let mut attestations_base = Vec::new();
+        let mut attestations_electra = Vec::new();
+        for attestation in attestations {
+            match attestation {
+                Attestation::Base(attestation) => attestations_base.push(attestation),
+                Attestation::Electra(attestation) => attestations_electra.push(attestation),
+                // Gloas-typed attestations cannot be included in pre-Gloas blocks, and Gloas
+                // blocks are produced via `complete_partial_beacon_block_gloas`.
+                Attestation::Gloas(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Gloas attestation in pre-Gloas block production".to_owned(),
+                    ));
+                }
+            }
+        }
 
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
@@ -6167,11 +6243,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
@@ -6226,11 +6297,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
-                                .map(|r| ExecutionRequestsElectra {
-                                    deposits: r.deposits().clone(),
-                                    withdrawals: r.withdrawals().clone(),
-                                    consolidations: r.consolidations().clone(),
-                                })
                                 .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),

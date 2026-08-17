@@ -7,6 +7,7 @@ mod dumb_macros;
 mod execution_payload_bid;
 mod execution_payload_envelope;
 mod execution_payload_header;
+mod execution_proof;
 mod execution_requests;
 mod inclusion_list;
 mod payload;
@@ -19,9 +20,10 @@ pub use bls_to_execution_change::BlsToExecutionChange;
 pub use eth1_data::Eth1Data;
 pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use execution_payload::{
-    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionPayloadRef, Transaction, Transactions,
+    BlockAccessList, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
+    Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
 pub use execution_payload_bid::ExecutionPayloadBid;
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
@@ -29,6 +31,10 @@ pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+};
+pub use execution_proof::{
+    ExecutionProof, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType, PublicInput,
+    SignedExecutionProof,
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,

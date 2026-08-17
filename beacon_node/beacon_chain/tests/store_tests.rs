@@ -2,7 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -50,7 +50,7 @@ use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
-    BlobInfo, DBColumn, HotColdDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
 };
@@ -394,13 +394,17 @@ async fn light_client_updates_test() {
 /// switching to big-endian keys.
 #[tokio::test]
 async fn get_light_client_updates_crosses_256_period_boundary() {
-    let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    if spec.altair_fork_epoch.is_none() {
+        // No-op prior to Altair.
+        return;
+    }
 
     if spec.is_gloas_scheduled() {
         return;
     }
 
+    let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
 
     let below = 100u64;
@@ -3104,6 +3108,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let chain_config = ChainConfig {
         archive: true,
+        verify_envelope_payload_hash_in_backfill: false,
         ..ChainConfig::default()
     };
 
@@ -3168,6 +3173,79 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
             "Split block payload must exist in the new node's store after checkpoint sync"
         );
     }
+}
+
+/// Fetch the anchor (checkpoint) block and append it to a backfill batch, so the batch
+/// exercises the anchor re-import path.
+///
+/// Deliberately not `async`: awaited futures fold their locals into the caller's stack frame,
+/// and `weak_subjectivity_sync_test` is close to the `large_stack_frames` limit.
+fn push_anchor_range_sync_block(
+    harness: &TestHarness,
+    anchor_block_root: Hash256,
+    batch: &mut Vec<RangeSyncBlock<E>>,
+) {
+    let anchor_full_block = harness
+        .chain
+        .store
+        .get_full_block(&anchor_block_root)
+        .expect("should get anchor block")
+        .expect("anchor block should exist");
+    batch.push(harness.build_range_sync_block_from_store_blobs(
+        Some(anchor_block_root),
+        Arc::new(anchor_full_block),
+    ));
+}
+
+/// Delete the anchor block's data columns. Returns `true` if any were deleted.
+fn delete_anchor_columns(
+    beacon_chain: &Arc<BeaconChain<DiskHarnessType<E>>>,
+    anchor_block_root: Hash256,
+) -> bool {
+    let column_indices = beacon_chain
+        .store
+        .get_data_columns(&anchor_block_root, ForkName::Gloas)
+        .unwrap()
+        .unwrap_or_default()
+        .iter()
+        .map(|column| *column.index())
+        .collect::<Vec<_>>();
+    if column_indices.is_empty() {
+        return false;
+    }
+    beacon_chain
+        .store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteDataColumns(
+            anchor_block_root,
+            column_indices,
+            ForkName::Gloas,
+        )])
+        .unwrap();
+    true
+}
+
+/// Assert that the anchor block's envelope and data columns are present in the store.
+fn assert_anchor_data_restored(
+    beacon_chain: &Arc<BeaconChain<DiskHarnessType<E>>>,
+    anchor_block_root: Hash256,
+) {
+    assert!(
+        beacon_chain
+            .store
+            .get_payload_envelope(&anchor_block_root)
+            .unwrap()
+            .is_some(),
+        "checkpoint block envelope must be present after anchor re-import"
+    );
+    let restored_columns = beacon_chain
+        .store
+        .get_data_columns(&anchor_block_root, ForkName::Gloas)
+        .unwrap()
+        .unwrap_or_default();
+    assert!(
+        !restored_columns.is_empty(),
+        "checkpoint block columns must be restored by the anchor re-import"
+    );
 }
 
 async fn weak_subjectivity_sync_test(
@@ -3255,6 +3333,9 @@ async fn weak_subjectivity_sync_test(
         // Set archive to true from the start in the genesis case. This makes
         // some of the later checks more uniform across the genesis/non-genesis cases.
         archive: checkpoint_slot == 0,
+        // The mock EL produces synthetic execution block hashes which cannot survive a real
+        // RLP block hash recompute.
+        verify_envelope_payload_hash_in_backfill: false,
         ..ChainConfig::default()
     };
 
@@ -3300,6 +3381,7 @@ async fn weak_subjectivity_sync_test(
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
+    let mut deleted_anchor_columns = false;
 
     // For Gloas, blobs aren't a standalone shape — the WSS data is the column sidecar set, which
     // `get_or_reconstruct_blobs` returns `None` for. Copy the WSS block's columns straight from
@@ -3506,27 +3588,44 @@ async fn weak_subjectivity_sync_test(
 
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
-
-            let (fully_available_block, _envelope) =
-                range_sync_block.into_available_block().unwrap();
-            harness
-                .chain
-                .data_availability_checker
-                .verify_kzg_for_available_block(&fully_available_block)
-                .expect("should verify kzg");
-            available_blocks.push(fully_available_block);
+            available_blocks.push(range_sync_block);
         }
+
+        // Include the anchor block itself so the batch exercises the anchor re-import path,
+        // which must restore the checkpoint block's envelope and columns.
+        push_anchor_range_sync_block(&harness, wss_block_root, &mut available_blocks);
+
+        harness
+            .chain
+            .data_availability_checker
+            .batch_verify_kzg_for_range_sync_blocks(&available_blocks)
+            .expect("should verify kzg");
 
         // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
         // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-        let mut batch_with_invalid_first_block =
-            available_blocks.iter().map(clone_block).collect::<Vec<_>>();
-        batch_with_invalid_first_block[0] = {
-            let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
-            let mut corrupt_block = (*block).clone();
-            *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::new(Arc::new(corrupt_block), data, &beacon_chain.custody_context)
-                .expect("available block")
+        let mut batch_with_invalid_first_block = available_blocks.clone();
+        batch_with_invalid_first_block[0] = match available_blocks[0].clone() {
+            RangeSyncBlock::Base(first_block) => {
+                let (_, block, data) = first_block.deconstruct();
+                let mut corrupt_block = (*block).clone();
+                *corrupt_block.signature_mut() = Signature::empty();
+                RangeSyncBlock::Base(
+                    AvailableBlock::new(
+                        Arc::new(corrupt_block),
+                        data,
+                        &beacon_chain.custody_context,
+                    )
+                    .expect("available block"),
+                )
+            }
+            RangeSyncBlock::Gloas { block, envelope } => {
+                let mut corrupt_block = (*block).clone();
+                *corrupt_block.signature_mut() = Signature::empty();
+                RangeSyncBlock::Gloas {
+                    block: Arc::new(corrupt_block),
+                    envelope,
+                }
+            }
         };
 
         // Importing the invalid batch should error.
@@ -3538,12 +3637,18 @@ async fn weak_subjectivity_sync_test(
         ));
         assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
 
+        // Delete the checkpoint block's pre-seeded columns so that the anchor re-import below
+        // is the only thing that can restore them. Regression test for the reveal-status
+        // self-comparison dropping the anchor's envelope and columns during re-import.
+        deleted_anchor_columns = wss_block.fork_name_unchecked().gloas_enabled()
+            && delete_anchor_columns(&beacon_chain, wss_block_root);
+
         let batch_size = backfill_batch_size.unwrap_or(available_blocks.len());
 
         for batch in available_blocks.rchunks(batch_size) {
             let available_blocks_slots = batch
                 .iter()
-                .map(|block| (block.block().slot(), block.block().canonical_root()))
+                .map(|block| (block.as_block().slot(), block.block_root()))
                 .collect::<Vec<_>>();
             info!(
                 ?available_blocks_slots,
@@ -3552,21 +3657,23 @@ async fn weak_subjectivity_sync_test(
             );
 
             // Importing the batch with valid signatures should succeed.
-            let available_blocks_batch1 = batch.iter().map(clone_block).collect::<Vec<_>>();
             beacon_chain
-                .import_historical_block_batch(available_blocks_batch1)
+                .import_historical_block_batch(batch.to_vec())
                 .unwrap();
 
             // We should be able to load the block root at the `oldest_block_slot`.
             //
             // This is a regression test for: https://github.com/sigp/lighthouse/issues/7690
             let oldest_block_imported = &batch[0];
-            let (oldest_block_slot, oldest_block_root) =
-                if oldest_block_imported.block().parent_root() == beacon_chain.genesis_block_root {
-                    (Slot::new(0), beacon_chain.genesis_block_root)
-                } else {
-                    available_blocks_slots[0]
-                };
+            let (oldest_block_slot, oldest_block_root) = if oldest_block_imported
+                .as_block()
+                .parent_root()
+                == beacon_chain.genesis_block_root
+            {
+                (Slot::new(0), beacon_chain.genesis_block_root)
+            } else {
+                available_blocks_slots[0]
+            };
             assert_eq!(
                 beacon_chain.store.get_oldest_block_slot(),
                 oldest_block_slot
@@ -3580,13 +3687,18 @@ async fn weak_subjectivity_sync_test(
             );
 
             // Resupplying the blocks should not fail, they can be safely ignored.
-            let available_blocks_batch2 = batch.iter().map(clone_block).collect::<Vec<_>>();
             beacon_chain
-                .import_historical_block_batch(available_blocks_batch2)
+                .import_historical_block_batch(batch.to_vec())
                 .unwrap();
         }
     }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
+
+    // The anchor re-import must have restored the checkpoint block's columns (and stored its
+    // envelope) rather than dropping them via the reveal-status self-comparison.
+    if deleted_anchor_columns {
+        assert_anchor_data_restored(&beacon_chain, wss_block_root);
+    }
 
     // Store envelopes for all historic blocks (needed for dumping the chain from the new node).
     for snapshot in chain_dump.iter() {
@@ -4404,12 +4516,16 @@ async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
 
 #[tokio::test]
 async fn light_client_update_schema_v30_migration() {
-    let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    if spec.altair_fork_epoch.is_none() {
+        // No-op prior to Altair.
+        return;
+    }
     if spec.is_gloas_scheduled() {
         return;
     }
 
+    let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
 
     // Write entries directly under the OLD little-endian key encoding, bypassing
@@ -6519,8 +6635,4 @@ fn get_blocks(
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
-}
-
-fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
-    block.__clone_without_recv().unwrap()
 }
