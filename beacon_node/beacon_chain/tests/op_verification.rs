@@ -11,9 +11,11 @@ use beacon_chain::{
     },
 };
 use bls::Keypair;
+use fork_choice::ForkChoiceStore;
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
+use state_processing::state_advance::complete_state_advance;
 use std::sync::{Arc, LazyLock};
 use store::StoreConfig;
 use store::database::interface::BeaconNodeBackend;
@@ -700,5 +702,181 @@ async fn electra_attester_slashing_included_in_gloas_block() {
             .get(slashed_validator as usize)
             .unwrap()
             .slashed
+    );
+}
+
+#[tokio::test]
+async fn attester_slashing_updates_equivocating_committee_weights() {
+    let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+
+    // Advance to a mid-epoch slot so the weights are computed for a single epoch.
+    harness
+        .extend_chain(
+            3,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // No equivocations: the map is empty.
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .fc_store()
+            .equivocating_committee_weights()
+            .is_empty()
+    );
+
+    // Slash a validator and import the slashing into fork choice.
+    let slashed_validator = 0;
+    let slashing = harness.make_attester_slashing(vec![slashed_validator]);
+    let ObservationOutcome::New(verified_slashing) = harness
+        .chain
+        .verify_attester_slashing_for_gossip(slashing)
+        .unwrap()
+    else {
+        panic!("slashing should verify");
+    };
+    harness.chain.import_attester_slashing(verified_slashing);
+
+    harness.chain.recompute_head_at_current_slot().await;
+
+    // The map now contains the slashed validator's justified balance at its duty slot.
+    let mut head_state = harness.get_current_state();
+    head_state
+        .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+        .unwrap();
+    let duty = head_state
+        .get_attestation_duties(slashed_validator as usize, RelativeEpoch::Current)
+        .unwrap()
+        .expect("slashed validator should have an attestation duty");
+
+    let fork_choice_read_lock = harness.chain.canonical_head.fork_choice_read_lock();
+    let fc_store = fork_choice_read_lock.fc_store();
+    let expected_balance =
+        fc_store.justified_balances().effective_balances[slashed_validator as usize];
+    assert!(expected_balance > 0);
+    assert_eq!(
+        fc_store
+            .equivocating_committee_weights()
+            .get(&duty.slot)
+            .copied(),
+        Some(expected_balance)
+    );
+}
+
+#[tokio::test]
+async fn equivocating_committee_weights_use_raw_justified_balances() {
+    let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            3,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slash a validator: fork choice learns of the equivocation and the op pool
+    // includes the slashing in a subsequent block.
+    let slashed_validator = 0;
+    let slashing = harness.make_attester_slashing(vec![slashed_validator]);
+    let ObservationOutcome::New(verified_slashing) = harness
+        .chain
+        .verify_attester_slashing_for_gossip(slashing)
+        .unwrap()
+    else {
+        panic!("slashing should verify");
+    };
+    harness.chain.import_attester_slashing(verified_slashing);
+    harness.advance_slot();
+
+    // Advance until the justified state has the validator marked as slashed,
+    // skipping slots where the slashed validator is the proposer.
+    while harness.get_current_slot() < Slot::new(29) {
+        let slot = harness.get_current_slot();
+        let mut state = harness.get_current_state();
+        complete_state_advance(&mut state, None, slot, &harness.chain.spec).unwrap();
+        state
+            .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+            .unwrap();
+        let proposer = state
+            .get_beacon_proposer_index(slot, &harness.chain.spec)
+            .unwrap();
+        if proposer != slashed_validator as usize {
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        harness.advance_slot();
+    }
+    harness.chain.recompute_head_at_current_slot().await;
+
+    let justified_state_root = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .fc_store()
+        .justified_state_root();
+    let justified_state = harness
+        .chain
+        .store
+        .get_hot_state(&justified_state_root, false)
+        .unwrap()
+        .expect("justified state should exist");
+    let validator = justified_state
+        .validators()
+        .get(slashed_validator as usize)
+        .unwrap();
+    assert!(
+        validator.slashed,
+        "slashing should be reflected in the justified state"
+    );
+    let raw_balance = validator.effective_balance;
+    assert!(raw_balance > 0);
+
+    let mut head_state = harness.get_current_state();
+    head_state
+        .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+        .unwrap();
+    let duty = head_state
+        .get_attestation_duties(slashed_validator as usize, RelativeEpoch::Current)
+        .unwrap()
+        .expect("slashed validator should have an attestation duty");
+
+    let fork_choice_read_lock = harness.chain.canonical_head.fork_choice_read_lock();
+    let fc_store = fork_choice_read_lock.fc_store();
+    // The zeroed justified balances differ from the raw balance here; a regression
+    // to reading them would make the map entry zero.
+    assert_eq!(
+        fc_store.justified_balances().effective_balances[slashed_validator as usize],
+        0
+    );
+    assert_eq!(
+        fc_store
+            .equivocating_committee_weights()
+            .get(&duty.slot)
+            .copied(),
+        Some(raw_balance)
     );
 }
