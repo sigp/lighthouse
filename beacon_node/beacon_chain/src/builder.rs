@@ -1082,7 +1082,7 @@ where
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
             gossip_verified_proposer_preferences_cache: <_>::default(),
-            gossip_seen_envelope_cache: <_>::default(),
+            observed_payload_envelopes: <_>::default(),
         };
 
         let head = beacon_chain.head_snapshot();

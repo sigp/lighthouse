@@ -11,7 +11,7 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
-use crate::payload_envelope_verification::gossip_seen_envelope_cache::GossipSeenEnvelopeCache;
+use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
@@ -31,7 +31,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
-    pub gossip_seen_envelope_cache: &'a GossipSeenEnvelopeCache,
+    pub observed_payload_envelopes: &'a ObservedPayloadEnvelopes,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
 }
@@ -167,7 +167,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         drop(fork_choice_read_lock);
 
         if ctx.source == EnvelopeSource::Gossip
-            && ctx.gossip_seen_envelope_cache.has_seen_envelope(
+            && ctx.observed_payload_envelopes.envelope_has_been_observed(
                 block_slot,
                 beacon_block_root,
                 builder_index,
@@ -285,13 +285,13 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             snapshot: opt_snapshot,
         };
 
-        // Mark the envelope as seen regardless of its source, so that gossip
-        // deduplicates against envelopes we already hold, regardless of their source path.
+        // Mark the envelope as seen regardless of its source, so that gossip deduplicates
+        // against envelopes we already hold, whichever path they arrived through.
         // The operation is atomic, so if a concurrent verification marked the same
         // `(block_root, builder_index)` pair first, this envelope is considered a duplicate.
         let envelope_already_seen = !ctx
-            .gossip_seen_envelope_cache
-            .mark_envelope_seen(&gossip_verified_envelope);
+            .observed_payload_envelopes
+            .observe_envelope(&gossip_verified_envelope);
 
         if envelope_already_seen && ctx.source == EnvelopeSource::Gossip {
             return Err(EnvelopeError::EnvelopeAlreadySeen {
@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec: &self.spec,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
-            gossip_seen_envelope_cache: &self.gossip_seen_envelope_cache,
+            observed_payload_envelopes: &self.observed_payload_envelopes,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
         }

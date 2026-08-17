@@ -6,11 +6,11 @@ use types::{BuilderIndex, Hash256, Slot};
 
 type SeenEnvelopeMap = BTreeMap<Slot, HashSet<(Hash256, BuilderIndex)>>;
 
-pub struct GossipSeenEnvelopeCache {
+pub struct ObservedPayloadEnvelopes {
     seen_envelopes: RwLock<SeenEnvelopeMap>,
 }
 
-impl Default for GossipSeenEnvelopeCache {
+impl Default for ObservedPayloadEnvelopes {
     fn default() -> Self {
         Self {
             seen_envelopes: RwLock::new(BTreeMap::new()),
@@ -18,12 +18,11 @@ impl Default for GossipSeenEnvelopeCache {
     }
 }
 
-impl GossipSeenEnvelopeCache {
-    /// Mark the gossip verified payload envelope as seen for its
-    /// `(slot, block_root, builder_index)` tuple
+impl ObservedPayloadEnvelopes {
+    /// Observe the verified payload envelope for its `(slot, block_root, builder_index)` tuple
     ///
-    /// Returns `true` if the envelope was newly marked, `false` if it had already been seen
-    pub fn mark_envelope_seen<T: BeaconChainTypes>(
+    /// Returns `true` if the envelope was newly observed, `false` if it had already been seen
+    pub fn observe_envelope<T: BeaconChainTypes>(
         &self,
         envelope: &GossipVerifiedEnvelope<T>,
     ) -> bool {
@@ -37,7 +36,7 @@ impl GossipSeenEnvelopeCache {
 
     /// Checks if a payload envelope revealed by `builder_index` at `block_root`
     /// was already seen for `slot`
-    pub fn has_seen_envelope(
+    pub fn envelope_has_been_observed(
         &self,
         slot: Slot,
         block_root: Hash256,
@@ -60,7 +59,7 @@ impl GossipSeenEnvelopeCache {
 #[cfg(test)]
 mod tests {
 
-    use super::GossipSeenEnvelopeCache;
+    use super::ObservedPayloadEnvelopes;
     use crate::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
     use crate::test_utils::EphemeralHarnessType;
     use bls::Signature;
@@ -102,22 +101,22 @@ mod tests {
 
     #[test]
     fn marks_envelope_as_seen() {
-        let cache = GossipSeenEnvelopeCache::default();
+        let cache = ObservedPayloadEnvelopes::default();
         let slot = Slot::new(1);
         let block_root = Hash256::random();
         let builder_index: BuilderIndex = 1;
         let envelope = make_verified_envelope(slot, block_root, builder_index);
 
-        assert!(cache.mark_envelope_seen(&envelope));
+        assert!(cache.observe_envelope(&envelope));
 
-        assert!(cache.has_seen_envelope(slot, block_root, builder_index));
+        assert!(cache.envelope_has_been_observed(slot, block_root, builder_index));
         // Marking the same envelope again reports it as already seen.
-        assert!(!cache.mark_envelope_seen(&envelope));
+        assert!(!cache.observe_envelope(&envelope));
     }
 
     #[test]
     fn prune_removes_entries_prior_to_finalized_slot() {
-        let cache = GossipSeenEnvelopeCache::default();
+        let cache = ObservedPayloadEnvelopes::default();
         let block_root = Hash256::random();
         let builder_index: BuilderIndex = 1;
         let total_slots = 10;
@@ -125,19 +124,19 @@ mod tests {
 
         for slot in 0..=total_slots {
             let envelope = make_verified_envelope(Slot::new(slot), block_root, builder_index);
-            cache.mark_envelope_seen(&envelope);
+            cache.observe_envelope(&envelope);
         }
 
         cache.prune(Slot::new(finalized_slot));
 
         // Slots prior to the finalized slot are pruned.
         for slot in 0..finalized_slot {
-            assert!(!cache.has_seen_envelope(Slot::new(slot), block_root, builder_index));
+            assert!(!cache.envelope_has_been_observed(Slot::new(slot), block_root, builder_index));
         }
 
         // The finalized slot and later slots are retained.
         for slot in finalized_slot..=total_slots {
-            assert!(cache.has_seen_envelope(Slot::new(slot), block_root, builder_index));
+            assert!(cache.envelope_has_been_observed(Slot::new(slot), block_root, builder_index));
         }
     }
 }

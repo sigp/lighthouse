@@ -1583,7 +1583,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.gossip_seen_envelope_cache.prune(
+        self.observed_payload_envelopes.prune(
             new_view
                 .finalized_checkpoint
                 .epoch

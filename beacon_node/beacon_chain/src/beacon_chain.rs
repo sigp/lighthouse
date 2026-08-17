@@ -65,7 +65,7 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
-use crate::payload_envelope_verification::gossip_seen_envelope_cache::GossipSeenEnvelopeCache;
+use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -494,7 +494,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to track the already seen verified payload envelopes.
-    pub gossip_seen_envelope_cache: GossipSeenEnvelopeCache,
+    pub observed_payload_envelopes: ObservedPayloadEnvelopes,
     /// A cache used to produce light_client server messages
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
