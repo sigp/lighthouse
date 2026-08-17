@@ -106,12 +106,19 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
-        let sync_message_slot_component = spec.get_sync_message_due();
-
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    // Wait for contribution broadcast interval 1/3 of the way through the slot.
+                    let sync_message_slot = self
+                        .slot_clock
+                        .now()
+                        .map_or_else(|| self.slot_clock.genesis_slot(), |slot| slot + 1);
+                    let sync_message_slot_component = self
+                        .duties_service
+                        .spec
+                        .get_sync_message_due::<S::E>(sync_message_slot);
+
+                    // Wait for the fork-appropriate sync message due time.
                     sleep(duration_to_next_slot + sync_message_slot_component).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
@@ -150,11 +157,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .duration_to_next_slot()
             .ok_or("Unable to determine duration to next slot")?;
 
-        // If a validator needs to publish a sync aggregate, they must do so at 2/3
-        // through the slot. This delay triggers at this time
+        // If a validator needs to publish a sync aggregate, trigger it at the
+        // fork-appropriate contribution due time.
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_add(spec.get_contribution_message_due())
+                .checked_add(spec.get_contribution_message_due::<S::E>(slot))
                 .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 

@@ -130,8 +130,10 @@ pub struct ChainSpec {
     pub payload_attestation_due: Duration,
     aggregate_attestation_due: Duration,
     aggregate_attestation_due_gloas: Duration,
-    pub sync_message_due: Duration,
-    pub contribution_and_proof_due: Duration,
+    sync_message_due: Duration,
+    sync_message_due_gloas: Duration,
+    contribution_and_proof_due: Duration,
+    contribution_and_proof_due_gloas: Duration,
 
     /*
      * Reward and penalty quotients
@@ -952,16 +954,22 @@ impl ChainSpec {
         }
     }
 
-    /// Get the duration into a slot in which a `SignedContributionAndProof` is due.
-    /// Returns the pre-computed value from `compute_derived_values()`.
-    pub fn get_contribution_message_due(&self) -> Duration {
-        self.contribution_and_proof_due
+    /// Spec: `get_contribution_due_ms`. Returns the epoch-appropriate threshold.
+    pub fn get_contribution_message_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            self.contribution_and_proof_due_gloas
+        } else {
+            self.contribution_and_proof_due
+        }
     }
 
-    /// Get the duration into a slot in which a sync committee message is due.
-    /// Returns the pre-computed value from `compute_derived_values()`.
-    pub fn get_sync_message_due(&self) -> Duration {
-        self.sync_message_due
+    /// Spec: `get_sync_message_due_ms`. Returns the epoch-appropriate threshold.
+    pub fn get_sync_message_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            self.sync_message_due_gloas
+        } else {
+            self.sync_message_due
+        }
     }
 
     /// Calculate the duration into a slot for a given slot component
@@ -1041,9 +1049,15 @@ impl ChainSpec {
         self.sync_message_due = self
             .compute_slot_component_duration(self.sync_message_due_bps)
             .expect("invalid chain spec: cannot compute sync_message_due");
+        self.sync_message_due_gloas = self
+            .compute_slot_component_duration(self.sync_message_due_bps_gloas)
+            .expect("invalid chain spec: cannot compute sync_message_due_gloas");
         self.contribution_and_proof_due = self
             .compute_slot_component_duration(self.contribution_due_bps)
             .expect("invalid chain spec: cannot compute contribution_and_proof_due");
+        self.contribution_and_proof_due_gloas = self
+            .compute_slot_component_duration(self.contribution_due_bps_gloas)
+            .expect("invalid chain spec: cannot compute contribution_and_proof_due_gloas");
 
         self.attestation_subnet_prefix_bits = compute_attestation_subnet_prefix_bits(
             self.attestation_subnet_count,
@@ -1186,7 +1200,9 @@ impl ChainSpec {
             aggregate_attestation_due: Duration::from_millis(8000),
             aggregate_attestation_due_gloas: Duration::from_millis(6000),
             sync_message_due: Duration::from_millis(3999),
+            sync_message_due_gloas: Duration::from_millis(3000),
             contribution_and_proof_due: Duration::from_millis(8000),
+            contribution_and_proof_due_gloas: Duration::from_millis(6000),
 
             /*
              * Reward and penalty quotients
@@ -1530,7 +1546,9 @@ impl ChainSpec {
             aggregate_attestation_due: Duration::from_millis(4000),
             aggregate_attestation_due_gloas: Duration::from_millis(3000),
             sync_message_due: Duration::from_millis(1999),
+            sync_message_due_gloas: Duration::from_millis(1500),
             contribution_and_proof_due: Duration::from_millis(4000),
+            contribution_and_proof_due_gloas: Duration::from_millis(3000),
 
             // Networking Fulu
             blob_schedule: BlobSchedule::default(),
@@ -1634,7 +1652,9 @@ impl ChainSpec {
             aggregate_attestation_due: Duration::from_millis(3333),
             aggregate_attestation_due_gloas: Duration::from_millis(2500),
             sync_message_due: Duration::from_millis(1666),
+            sync_message_due_gloas: Duration::from_millis(1250),
             contribution_and_proof_due: Duration::from_millis(3333),
+            contribution_and_proof_due_gloas: Duration::from_millis(2500),
 
             /*
              * Reward and penalty quotients
@@ -3894,11 +3914,11 @@ mod yaml_tests {
         assert_eq!(agg_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
 
         // Test sync message (3333 bps = 33.33% of 12s = 4s)
-        let sync_msg_due = spec.get_sync_message_due();
+        let sync_msg_due = spec.get_sync_message_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(sync_msg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
 
         // Test contribution message (6667 bps = 66.67% of 12s = 8s)
-        let contribution_due = spec.get_contribution_message_due();
+        let contribution_due = spec.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(contribution_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
 
         // Test slot duration
@@ -3985,6 +4005,20 @@ mod yaml_tests {
             custom_spec.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(4800)
         ); // 12000 * 4000 / 10000
+
+        // Test Gloas sync committee due times with custom bps
+        let mut custom_spec = custom_spec;
+        custom_spec.sync_message_due_bps_gloas = 4000;
+        custom_spec.contribution_due_bps_gloas = 6000;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        assert_eq!(
+            custom_spec.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(4800)
+        ); // 12000 * 4000 / 10000
+        assert_eq!(
+            custom_spec.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(7200)
+        ); // 12000 * 6000 / 10000
     }
 
     #[test]
@@ -4036,6 +4070,54 @@ mod yaml_tests {
     }
 
     #[test]
+    fn test_sync_message_due_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let gloas_fork_epoch = Epoch::new(1);
+        let mut spec = ChainSpec::mainnet();
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+        let spec = spec.compute_derived_values::<E>();
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+
+        assert_eq!(
+            spec.get_sync_message_due::<E>(first_gloas_slot - 1),
+            Duration::from_millis(3999)
+        );
+        assert_eq!(
+            spec.get_sync_message_due::<E>(first_gloas_slot),
+            Duration::from_millis(3000)
+        );
+        assert_eq!(
+            spec.get_sync_message_due::<E>(first_gloas_slot + 1),
+            Duration::from_millis(3000)
+        );
+    }
+
+    #[test]
+    fn test_contribution_message_due_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let gloas_fork_epoch = Epoch::new(1);
+        let mut spec = ChainSpec::mainnet();
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+        let spec = spec.compute_derived_values::<E>();
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+
+        assert_eq!(
+            spec.get_contribution_message_due::<E>(first_gloas_slot - 1),
+            Duration::from_millis(8000)
+        );
+        assert_eq!(
+            spec.get_contribution_message_due::<E>(first_gloas_slot),
+            Duration::from_millis(6000)
+        );
+        assert_eq!(
+            spec.get_contribution_message_due::<E>(first_gloas_slot + 1),
+            Duration::from_millis(6000)
+        );
+    }
+
+    #[test]
     fn test_default_duration_values_without_compute_derived_values() {
         // Verify that mainnet, minimal, and gnosis have correct pre-computed defaults
         // without needing to call compute_derived_values()
@@ -4048,9 +4130,12 @@ mod yaml_tests {
             mainnet.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(8000)
         );
-        assert_eq!(mainnet.get_sync_message_due(), Duration::from_millis(3999));
         assert_eq!(
-            mainnet.get_contribution_message_due(),
+            mainnet.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(3999)
+        );
+        assert_eq!(
+            mainnet.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(8000)
         );
 
@@ -4072,6 +4157,14 @@ mod yaml_tests {
             mainnet_gloas.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(6000)
         );
+        assert_eq!(
+            mainnet_gloas.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(3000)
+        );
+        assert_eq!(
+            mainnet_gloas.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(6000)
+        );
 
         // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
         let minimal = ChainSpec::minimal();
@@ -4083,9 +4176,12 @@ mod yaml_tests {
             minimal.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(4000)
         );
-        assert_eq!(minimal.get_sync_message_due(), Duration::from_millis(1999));
         assert_eq!(
-            minimal.get_contribution_message_due(),
+            minimal.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(1999)
+        );
+        assert_eq!(
+            minimal.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(4000)
         );
         // Minimal payload due: 6000ms slots, 5000 bps = 3000ms
@@ -4106,6 +4202,14 @@ mod yaml_tests {
             minimal_gloas.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(3000)
         );
+        assert_eq!(
+            minimal_gloas.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(1500)
+        );
+        assert_eq!(
+            minimal_gloas.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(3000)
+        );
 
         // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
         let gnosis = ChainSpec::gnosis();
@@ -4117,9 +4221,12 @@ mod yaml_tests {
             gnosis.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(3333)
         );
-        assert_eq!(gnosis.get_sync_message_due(), Duration::from_millis(1666));
         assert_eq!(
-            gnosis.get_contribution_message_due(),
+            gnosis.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(1666)
+        );
+        assert_eq!(
+            gnosis.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(3333)
         );
         // Gnosis payload due: 5000ms slots, 5000 bps = 2500ms
@@ -4138,6 +4245,14 @@ mod yaml_tests {
         gnosis_gloas.gloas_fork_epoch = Some(Epoch::new(0));
         assert_eq!(
             gnosis_gloas.get_aggregate_attestation_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(2500)
+        );
+        assert_eq!(
+            gnosis_gloas.get_sync_message_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(1250)
+        );
+        assert_eq!(
+            gnosis_gloas.get_contribution_message_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(2500)
         );
     }
