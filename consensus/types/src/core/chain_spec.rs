@@ -114,8 +114,11 @@ pub struct ChainSpec {
     pub payload_due_bps: u64,
     pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
+    pub aggregate_due_bps_gloas: u64,
     pub sync_message_due_bps: u64,
+    pub sync_message_due_bps_gloas: u64,
     pub contribution_due_bps: u64,
+    pub contribution_due_bps_gloas: u64,
     pub inclusion_list_due_bps: u64,
 
     /*
@@ -1165,8 +1168,11 @@ impl ChainSpec {
             payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
+            aggregate_due_bps_gloas: 5000,
             sync_message_due_bps: 3333,
+            sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
+            contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
 
             /*
@@ -1612,6 +1618,7 @@ impl ChainSpec {
             payload_due_bps: 5000,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
+            aggregate_due_bps_gloas: 5000,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1702,7 +1709,9 @@ impl ChainSpec {
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
             altair_fork_epoch: Some(Epoch::new(512)),
             sync_message_due_bps: 3333,
+            sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
+            contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
 
             /*
@@ -2257,12 +2266,21 @@ pub struct Config {
     #[serde(default = "default_aggregate_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     aggregate_due_bps: u64,
+    #[serde(default = "default_aggregate_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregate_due_bps_gloas: u64,
     #[serde(default = "default_sync_message_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     sync_message_due_bps: u64,
+    #[serde(default = "default_sync_message_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    sync_message_due_bps_gloas: u64,
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+    #[serde(default = "default_contribution_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    contribution_due_bps_gloas: u64,
     #[serde(default = "default_inclusion_list_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     inclusion_list_due_bps: u64,
@@ -2290,6 +2308,9 @@ pub struct Config {
     #[serde(default = "default_min_slots_for_inclusion_lists_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_slots_for_inclusion_lists_requests: u64,
+    #[serde(default = "default_max_request_payloads")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_payloads: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2528,6 +2549,10 @@ const fn default_aggregate_due_bps() -> u64 {
     6667
 }
 
+const fn default_aggregate_due_bps_gloas() -> u64 {
+    5000
+}
+
 const fn default_inclusion_list_due_bps() -> u64 {
     6667
 }
@@ -2536,8 +2561,16 @@ const fn default_sync_message_due_bps() -> u64 {
     3333
 }
 
+const fn default_sync_message_due_bps_gloas() -> u64 {
+    2500
+}
+
 const fn default_contribution_due_bps() -> u64 {
     6667
+}
+
+const fn default_contribution_due_bps_gloas() -> u64 {
+    5000
 }
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
@@ -2831,8 +2864,11 @@ impl Config {
             payload_due_bps: spec.payload_due_bps,
             payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
+            aggregate_due_bps_gloas: spec.aggregate_due_bps_gloas,
             sync_message_due_bps: spec.sync_message_due_bps,
+            sync_message_due_bps_gloas: spec.sync_message_due_bps_gloas,
             contribution_due_bps: spec.contribution_due_bps,
+            contribution_due_bps_gloas: spec.contribution_due_bps_gloas,
             inclusion_list_due_bps: spec.inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
@@ -2842,6 +2878,7 @@ impl Config {
                 .max_transactions_bytes_per_inclusion_list,
             max_request_inclusion_list: spec.max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests: spec.min_slots_for_inclusion_lists_requests,
+            max_request_payloads: spec.max_request_payloads,
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
@@ -2942,8 +2979,11 @@ impl Config {
             payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
+            aggregate_due_bps_gloas,
             sync_message_due_bps,
+            sync_message_due_bps_gloas,
             contribution_due_bps,
+            contribution_due_bps_gloas,
             confirmation_byzantine_threshold,
             inclusion_list_due_bps,
             min_builder_withdrawability_delay,
@@ -2953,6 +2993,7 @@ impl Config {
             max_transactions_bytes_per_inclusion_list,
             max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests,
+            max_request_payloads,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3060,8 +3101,11 @@ impl Config {
             payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
+            aggregate_due_bps_gloas,
             sync_message_due_bps,
+            sync_message_due_bps_gloas,
             contribution_due_bps,
+            contribution_due_bps_gloas,
             inclusion_list_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
@@ -3073,6 +3117,7 @@ impl Config {
             max_transactions_bytes_per_inclusion_list,
             max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests,
+            max_request_payloads,
 
             ..chain_spec.clone()
         };
@@ -4041,11 +4086,6 @@ mod yaml_tests {
         // Forks not yet implemented
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
-        // Gloas params not yet in Config
-        "AGGREGATE_DUE_BPS_GLOAS",
-        "SYNC_MESSAGE_DUE_BPS_GLOAS",
-        "CONTRIBUTION_DUE_BPS_GLOAS",
-        "MAX_REQUEST_PAYLOADS",
     ];
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
