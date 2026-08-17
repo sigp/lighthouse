@@ -11,7 +11,7 @@ use fork_choice::ForkChoiceStore;
 use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
 use ssz_derive::{Decode, Encode};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
@@ -120,6 +120,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
+    equivocating_committee_weights: BTreeMap<Slot, u64>,
     _phantom: PhantomData<E>,
 }
 
@@ -187,8 +188,14 @@ where
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
+            equivocating_committee_weights: BTreeMap::new(),
             _phantom: PhantomData,
         })
+    }
+
+    /// Returns the state root of the justified state.
+    pub fn justified_state_root(&self) -> Hash256 {
+        self.justified_state_root
     }
 
     /// Save the current state of `Self` to a `PersistedForkChoiceStore` which can be stored to the
@@ -235,6 +242,7 @@ where
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
+            equivocating_committee_weights: BTreeMap::new(),
             _phantom: PhantomData,
         })
     }
@@ -381,6 +389,14 @@ where
 
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>) {
         self.equivocating_indices.extend(indices);
+    }
+
+    fn equivocating_committee_weights(&self) -> &BTreeMap<Slot, u64> {
+        &self.equivocating_committee_weights
+    }
+
+    fn set_equivocating_committee_weights(&mut self, weights: BTreeMap<Slot, u64>) {
+        self.equivocating_committee_weights = weights;
     }
 }
 

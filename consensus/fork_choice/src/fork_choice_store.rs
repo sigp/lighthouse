@@ -1,5 +1,5 @@
 use proto_array::JustifiedBalances;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 
@@ -89,4 +89,10 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
 
     /// Adds to the set of equivocating indices.
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
+
+    /// Gets the per-slot committee weight of equivocating validators.
+    fn equivocating_committee_weights(&self) -> &BTreeMap<Slot, u64>;
+
+    /// Replaces the per-slot equivocating committee weights.
+    fn set_equivocating_committee_weights(&mut self, weights: BTreeMap<Slot, u64>);
 }
