@@ -19,7 +19,6 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     chain_reorg_tx: Sender<EventKind<E>>,
     contribution_tx: Sender<EventKind<E>>,
     payload_attributes_tx: Sender<EventKind<E>>,
-    late_head: Sender<EventKind<E>>,
     light_client_finality_update_tx: Sender<EventKind<E>>,
     light_client_optimistic_update_tx: Sender<EventKind<E>>,
     proposer_slashing_tx: Sender<EventKind<E>>,
@@ -53,7 +52,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
         let (payload_attributes_tx, _) = broadcast::channel(capacity);
-        let (late_head, _) = broadcast::channel(capacity);
         let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
         let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
         let (proposer_slashing_tx, _) = broadcast::channel(capacity);
@@ -81,7 +79,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             chain_reorg_tx,
             contribution_tx,
             payload_attributes_tx,
-            late_head,
             light_client_finality_update_tx,
             light_client_optimistic_update_tx,
             proposer_slashing_tx,
@@ -155,10 +152,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .payload_attributes_tx
                 .send(kind)
                 .map(|count| log_count("payload attributes", count)),
-            EventKind::LateHead(_) => self
-                .late_head
-                .send(kind)
-                .map(|count| log_count("late head", count)),
             EventKind::LightClientFinalityUpdate(_) => self
                 .light_client_finality_update_tx
                 .send(kind)
@@ -265,10 +258,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.payload_attributes_tx.subscribe()
     }
 
-    pub fn subscribe_late_head(&self) -> Receiver<EventKind<E>> {
-        self.late_head.subscribe()
-    }
-
     pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<E>> {
         self.light_client_finality_update_tx.subscribe()
     }
@@ -367,10 +356,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_payload_attributes_subscribers(&self) -> bool {
         self.payload_attributes_tx.receiver_count() > 0
-    }
-
-    pub fn has_late_head_subscribers(&self) -> bool {
-        self.late_head.receiver_count() > 0
     }
 
     pub fn has_proposer_slashing_subscribers(&self) -> bool {
