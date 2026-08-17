@@ -124,8 +124,8 @@ pub struct ChainSpec {
     /*
      * Derived time values (computed at startup via `compute_derived_values()`)
      */
-    pub unaggregated_attestation_due: Duration,
-    pub unaggregated_attestation_due_gloas: Duration,
+    unaggregated_attestation_due: Duration,
+    unaggregated_attestation_due_gloas: Duration,
     pub payload_due: Duration,
     pub payload_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
@@ -921,12 +921,6 @@ impl ChainSpec {
             //1MB
             1024 * 1024,
         )
-    }
-
-    /// Get the duration into a slot in which an unaggregated attestation is due.
-    /// Returns the pre-computed value from `compute_derived_values()`.
-    pub fn get_unaggregated_attestation_due(&self) -> Duration {
-        self.unaggregated_attestation_due
     }
 
     /// Spec: `get_attestation_due_ms`. Returns the epoch-appropriate threshold.
@@ -3882,7 +3876,7 @@ mod yaml_tests {
         let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
 
         // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
-        let unagg_due = spec.get_unaggregated_attestation_due();
+        let unagg_due = spec.unaggregated_attestation_due;
         assert_eq!(unagg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
 
         // Test aggregate attestation (6667 bps = 66.67% of 12s = 8s)
@@ -3907,21 +3901,21 @@ mod yaml_tests {
         // Edge case: 0 bps should give 0 duration
         custom_spec.attestation_due_bps = 0;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let zero_due = custom_spec.get_unaggregated_attestation_due();
+        let zero_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(zero_due, Duration::from_millis(0));
 
         // Edge case: 10000 bps (100%) should give full slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 10_000;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let full_due = custom_spec.get_unaggregated_attestation_due();
+        let full_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(full_due, Duration::from_millis(12000));
 
         // Edge case: 5000 bps (50%) should give half slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 5_000;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let half_due = custom_spec.get_unaggregated_attestation_due();
+        let half_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(half_due, Duration::from_millis(6000));
 
         // Test with different slot duration (Gnosis: 5s slots)
@@ -3929,7 +3923,7 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 5000;
         custom_spec.attestation_due_bps = 3333;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let gnosis_due = custom_spec.get_unaggregated_attestation_due();
+        let gnosis_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
 
         // Test with very small slot duration
@@ -3937,7 +3931,7 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 1000; // 1 second
         custom_spec.attestation_due_bps = 3333;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let small_due = custom_spec.get_unaggregated_attestation_due();
+        let small_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
 
         // Test rounding behavior with non-divisible values
@@ -3945,7 +3939,7 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 12000;
         custom_spec.attestation_due_bps = 1; // 0.01%
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let tiny_due = custom_spec.get_unaggregated_attestation_due();
+        let tiny_due = custom_spec.unaggregated_attestation_due;
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
 
         // Test payload due (5000 bps = 50% of 12s = 6s)
@@ -3974,12 +3968,36 @@ mod yaml_tests {
     }
 
     #[test]
+    fn test_attestation_due_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let gloas_fork_epoch = Epoch::new(1);
+        let mut spec = ChainSpec::mainnet();
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+        let spec = spec.compute_derived_values::<E>();
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+
+        assert_eq!(
+            spec.get_attestation_due::<E>(first_gloas_slot - 1),
+            Duration::from_millis(3999)
+        );
+        assert_eq!(
+            spec.get_attestation_due::<E>(first_gloas_slot),
+            Duration::from_millis(3000)
+        );
+        assert_eq!(
+            spec.get_attestation_due::<E>(first_gloas_slot + 1),
+            Duration::from_millis(3000)
+        );
+    }
+
+    #[test]
     fn test_default_duration_values_without_compute_derived_values() {
         // Verify that mainnet, minimal, and gnosis have correct pre-computed defaults
         // without needing to call compute_derived_values()
         let mainnet = ChainSpec::mainnet();
         assert_eq!(
-            mainnet.get_unaggregated_attestation_due(),
+            mainnet.unaggregated_attestation_due,
             Duration::from_millis(3999)
         );
         assert_eq!(
@@ -4008,7 +4026,7 @@ mod yaml_tests {
         // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
         let minimal = ChainSpec::minimal();
         assert_eq!(
-            minimal.get_unaggregated_attestation_due(),
+            minimal.unaggregated_attestation_due,
             Duration::from_millis(1999)
         );
         assert_eq!(
@@ -4036,7 +4054,7 @@ mod yaml_tests {
         // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
         let gnosis = ChainSpec::gnosis();
         assert_eq!(
-            gnosis.get_unaggregated_attestation_due(),
+            gnosis.unaggregated_attestation_due,
             Duration::from_millis(1666)
         );
         assert_eq!(

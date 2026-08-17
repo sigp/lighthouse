@@ -1622,7 +1622,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
-                if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
+                if block_delay
+                    >= self
+                        .chain
+                        .spec
+                        .get_attestation_due::<T::EthSpec>(block.slot())
+                {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?verified_block.block_root,
