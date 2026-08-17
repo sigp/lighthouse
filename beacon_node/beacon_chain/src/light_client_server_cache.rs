@@ -158,24 +158,39 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if is_latest_finality {
-            // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block.as_ref() {
-                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
-                    &attested_block,
-                    finalized_block,
-                    cached_parts.finality_branch.clone(),
-                    sync_aggregate.clone(),
-                    signature_slot,
-                    chain_spec,
-                )?);
-            } else {
-                debug!(
-                    finalized_block_root = %cached_parts.finalized_block_root,
-                    "Finalized block not available in store for light_client server"
-                );
-            }
-        }
+    	    let update = if cached_parts.finalized_block_root.is_zero() {
+	        // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
+	        // cannot be proven, so finalized_header must be empty/default initialized.
+	        Some(LightClientFinalityUpdate::new_with_empty_finalized_header(
+	            &attested_block,
+	            cached_parts.finality_branch.clone(),
+	            sync_aggregate.clone(),
+	            signature_slot,
+	            chain_spec,
+	        )?)
+	    } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+	        Some(LightClientFinalityUpdate::new(
+	            &attested_block,
+	            finalized_block,
+	            cached_parts.finality_branch.clone(),
+	            sync_aggregate.clone(),
+	            signature_slot,
+	            chain_spec,
+	        )?)
+	    } else {
+	        debug!(
+	            finalized_block_root = %cached_parts.finalized_block_root,
+	            "Finalized block not available in store for light_client server"
+	        );
+	        None
+	    };
+	    if let Some(update) = update {
+	        *self.latest_finality_update.write() = Some(update);
+	    }
+	}
 
+
+	
         let new_light_client_update = LightClientUpdate::new(
             sync_aggregate,
             block_slot,
@@ -183,8 +198,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             cached_parts.next_sync_committee_branch,
             cached_parts.finality_branch,
             &attested_block,
-            maybe_finalized_block.as_ref(),
-            chain_spec,
+	    if cached_parts.finalized_block_root.is_zero() {
+	        None
+	    } else {
+    	        maybe_finalized_block.as_ref()
+		},
+	    chain_spec,
         )?;
 
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)

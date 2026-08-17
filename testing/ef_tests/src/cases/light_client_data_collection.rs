@@ -7,6 +7,8 @@ use beacon_chain::ChainConfig;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::custody_context::NodeCustodyType;
 use bls::Signature;
+use hex;
+use ssz::Encode;
 use std::path::PathBuf;
 use std::time::Duration;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -92,7 +94,8 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
         let step_yamls: Vec<StepYaml> = yaml_decode_file(&path.join("steps.yaml"))?;
         let mut steps = vec![];
         for step in step_yamls {
-            if let Some(new_block) = step.new_block {
+            eprintln!("DEBUG yaml step: new_block={} new_head={}",step.new_block.is_some(),step.new_head.is_some()); 
+	    if let Some(new_block) = step.new_block {
                 let block_path = path.join(format!("{}.ssz_snappy", new_block.data));
                 let block = ssz_decode_file_with(&block_path, |bytes| {
                     SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
@@ -156,6 +159,13 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
                 });
             }
         }
+		eprintln!("DEBUG steps built: {}", steps.len());
+		for (i, s) in steps.iter().enumerate().take(4) {
+		    match s {
+		        Step::NewBlock { block } => eprintln!("DEBUG steps[{}] = NewBlock slot={}", i, block.slot()),
+		        Step::NewHead { .. } => eprintln!("DEBUG steps[{}] = NewHead", i),
+	    }
+	}
         Ok(Self {
 	    path: path.to_path_buf(),
             initial_state,
@@ -212,22 +222,34 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
 	    .mock_execution_layer_all_payloads_valid()
 	    .testing_slot_clock(slot_clock)
 	    .build();
-
-        let mut skip_first = true;
-        for step in &self.steps {
-            match step {
-                Step::NewBlock { block } => {
-                    if skip_first {
-                        skip_first = false;
-                        continue;
-                    }
+	
+	harness.chain.canonical_head
+    	    .fork_choice_write_lock()
+    	    .proto_array_mut()
+    	    .set_prune_threshold(usize::MAX);
+        eprintln!("DEBUG harness initial slot: {:?}", harness.chain.slot());
+        for (i,step) in self.steps.iter().enumerate() {
+            eprintln!("DEBUG step {} is NewBlock: {}", i, matches!(step, Step::NewBlock { .. }));    
+	    match step {
+                Step::NewBlock { block } => {		
+    		    eprintln!("DEBUG ENTERING NewBlock arm slot={}", block.slot());
+    		    eprintln!("DEBUG about to set_current_slot to {}", block.slot());
 		    let genesis_root = harness.chain.genesis_block_root;
 		    let found = harness.chain.store.get_blinded_block(&genesis_root).unwrap();
 		    eprintln!("DEBUG genesis_root={:?} found={}", genesis_root, found.is_some());
-                    let block_root = block.canonical_root();
+		    let is_parent_in_fc = harness.chain.canonical_head
+			.fork_choice_read_lock()
+			.contains_block(&block.parent_root());
+		    eprintln!("DEBUG parent {} in fork choice: {}", block.parent_root(), is_parent_in_fc);
+		    eprintln!("DEBUG ENTERING NewBlock arm slot={}", block.slot());
+
                     harness.set_current_slot(block.slot());
+		    eprintln!("DEBUG set_current_slot done");
+		    let block_root = block.canonical_root();
                     let lookup_block = LookupBlock::new(Arc::new(block.as_ref().clone()));
-                    harness
+                    eprintln!("DEBUG attempting to import block at slot {}", block.slot());
+
+		    let import_result = harness
                         .chain
                         .task_executor
                         .clone()
@@ -243,7 +265,10 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         )
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
                         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-                    if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
+                    eprintln!("DEBUG block {} import result: {:?}", block_root, import_result);  
+		     if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
+			eprintln!("DEBUG calling recompute slot={} parent={}", block.slot(), block.parent_root());
+
                         let result = harness
                             .chain
                             .light_client_server_cache
@@ -254,9 +279,12 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                                 sync_aggregate,
                                 &spec,
                             );
-			    eprintln!("DEBUG recompute result: {:?}", result.is_ok());
-
+			
                     }
+		eprintln!("DEBUG block {} in fc after import: {}",
+		block.canonical_root(),
+		harness.chain.canonical_head.fork_choice_read_lock().contains_block(&block.canonical_root())
+		);
                 }
                 Step::NewHead {block_id: _,checks,} => {
 			harness.chain.task_executor.clone()
@@ -265,19 +293,29 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
             		    	"ef_tests_block_on",
         		    )
         		    .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
-
+			eprintln!("DEBUG finalized epoch: {:?}", harness.chain.canonical_head.cached_head().finalized_checkpoint().epoch);
     			if let Some(expected_path) = &checks.latest_finality_update {
+				eprintln!("DEBUG checking finality at step {}", i);
         			let expected = ssz_decode_file_with(
             			    &self.path.join(expected_path),
             			    |bytes| LightClientFinalityUpdate::from_ssz_bytes(bytes, fork_name),
         			)?;
         			let actual = harness.chain.light_client_server_cache
         			    .get_latest_finality_update();
-				    eprintln!("DEBUG finality: actual_is_some={}", actual.is_some());
+				let expected_clone = expected.clone();
+        			eprintln!("DEBUG finality actual_is_some: {}", actual.is_some());
+				eprintln!("DEBUG actual is Altair: {}", actual.as_ref().map_or(false, |u| matches!(u, LightClientFinalityUpdate::Altair(_))));
+				eprintln!("DEBUG expected is Altair: {}", matches!(expected, LightClientFinalityUpdate::Altair(_)));
+				if actual != Some(expected_clone) {
+				    eprintln!("DEBUG MISMATCH at step {}", i);
 
-        			if actual != Some(expected) {
-        			    return Err(Error::NotEqual("latest_finality_update mismatch".into()));
-        			}
+				    if let Some(ref a) = actual {
+       			                eprintln!("DEBUG actual_ssz step {}: {}", i, hex::encode(a.as_ssz_bytes()));
+					}
+
+			    eprintln!("DEBUG expected_ssz step {}: {}", i, hex::encode(expected.as_ssz_bytes()));
+			    return Err(Error::NotEqual("latest_finality_update mismatch".into()));
+			    }
     			}
 
     			if let Some(expected_path) = &checks.latest_optimistic_update {
@@ -314,14 +352,21 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
 			    }
 			}
     			for (period, expected_path) in &checks.best_updates {
-    			    let updates = harness.chain
+    			    eprintln!("DEBUG checking period {} expected: {}", period, expected_path); 
+			    let updates = harness.chain
     			        .get_light_client_updates(*period, 1)
     			        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+			    eprintln!("DEBUG updates count: {}", updates.len());
+
     			    let actual = updates.into_iter().next();
+			    if let Some(ref a) = actual {
+				    eprintln!("DEBUG actual_hex: {}", hex::encode(a.as_ssz_bytes()));
+				}
     			    let expected = ssz_decode_file_with(
-    			        &self.path.join(expected_path),
+				&self.path.join(expected_path),
     			        |bytes| LightClientUpdate::from_ssz_bytes(bytes, &fork_name),
     			    )?;
+			    eprintln!("DEBUG expected_hex: {}", hex::encode(expected.as_ssz_bytes()));
     			    if actual.as_ref() != Some(&expected) {
     			        return Err(Error::NotEqual(format!("best_update mismatch for period {}", period)));
     			    }
