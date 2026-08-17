@@ -82,7 +82,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
+            self.compute_beacon_block_attestation_reward_altair_and_later(block, state)
                 .map_err(|e| {
                     error!(
                         error = ?e,
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_altair_deneb<
+    fn compute_beacon_block_attestation_reward_altair_and_later<
         Payload: AbstractExecPayload<T::EthSpec>,
     >(
         &self,
@@ -267,13 +267,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut previous_epoch_participation =
             state.previous_epoch_participation()?.to_owned_list();
 
+        let parent_slot = state
+            .latest_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.slot);
+
         for attestation in block.body().attestations() {
             let data = attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
                 state,
                 data,
+                parent_slot,
                 inclusion_delay,
                 &self.spec,
             )?;
