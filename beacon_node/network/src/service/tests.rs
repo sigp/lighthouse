@@ -13,7 +13,7 @@ use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use types::{Epoch, EthSpec, MinimalEthSpec, SubnetId};
+use types::{Epoch, EthSpec, MinimalEthSpec, Slot, SubnetId};
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     fn get_topic_params(&self, topic: GossipTopic) -> Option<&gossipsub::TopicScoreParams> {
@@ -198,4 +198,124 @@ fn test_removing_topic_weight_on_old_topics() {
         .get_topic_params(old_topic2)
         .expect("topic score params");
     assert_eq!(0.0, old_topic_params2.topic_weight);
+}
+
+fn fulu_then_gloas_spec(gloas_epoch: u64) -> types::ChainSpec {
+    let mut spec = MinimalEthSpec::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(0));
+    spec.deneb_fork_epoch = Some(Epoch::new(0));
+    spec.electra_fork_epoch = Some(Epoch::new(0));
+    spec.fulu_fork_epoch = Some(Epoch::new(0));
+    spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
+    spec
+}
+
+fn build_network_service_for_early_prefs(
+    runtime: &Arc<Runtime>,
+    gloas_epoch: u64,
+    current_slot: Slot,
+    tcp_port: u16,
+) -> (
+    NetworkService<impl BeaconChainTypes>,
+    Arc<lighthouse_network::NetworkGlobals<MinimalEthSpec>>,
+    Arc<beacon_chain::BeaconChain<impl BeaconChainTypes>>,
+) {
+    let spec = fulu_then_gloas_spec(gloas_epoch);
+    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build()
+        .chain;
+
+    beacon_chain.slot_clock.set_slot(current_slot.as_u64());
+    assert_eq!(
+        beacon_chain.slot().expect("slot"),
+        current_slot,
+        "test clock must be positioned before NetworkService::build"
+    );
+
+    let (network_service, network_globals, _network_senders) = runtime.block_on(async {
+        let (_, exit) = async_channel::bounded(1);
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = task_executor::TaskExecutor::new(Arc::downgrade(runtime), exit, shutdown_tx);
+
+        let mut config = NetworkConfig::default();
+        config.set_ipv4_listening_address(
+            std::net::Ipv4Addr::UNSPECIFIED,
+            tcp_port,
+            tcp_port,
+            tcp_port.saturating_add(1),
+        );
+        config.discv5_config.table_filter = |_| true;
+        config.upnp_enabled = false;
+        let config = Arc::new(config);
+
+        let beacon_processor_channels =
+            BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
+        NetworkService::build(
+            beacon_chain.clone(),
+            config,
+            executor,
+            None,
+            beacon_processor_channels.beacon_processor_tx,
+            secp256k1::Keypair::generate().into(),
+        )
+        .await
+        .expect("network service should build")
+    });
+
+    (network_service, network_globals, beacon_chain)
+}
+
+fn gloas_topic(kind: GossipKind, gloas_digest: [u8; 4]) -> GossipTopic {
+    GossipTopic::new(kind, GossipEncoding::default(), gloas_digest)
+}
+
+/// Startup inside the early-subscribe window must join only Gloas `proposer_preferences`.
+#[test]
+fn early_proposer_preferences_subscribed_when_built_in_window() {
+    let runtime = Arc::new(Runtime::new().unwrap());
+    let gloas_epoch = 2;
+    let early_slot = Epoch::new(1).start_slot(MinimalEthSpec::slots_per_epoch());
+
+    let (_network_service, network_globals, beacon_chain) =
+        build_network_service_for_early_prefs(&runtime, gloas_epoch, early_slot, 21320);
+
+    let gloas_digest = beacon_chain.compute_fork_digest(Epoch::new(gloas_epoch));
+    let prefs_topic = gloas_topic(GossipKind::ProposerPreferences, gloas_digest);
+    let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
+
+    assert!(
+        subscriptions.contains(&prefs_topic),
+        "expected early subscribe to Gloas proposer_preferences, subscriptions={subscriptions:?}"
+    );
+    // Selective: do not early-join the rest of the Gloas topic set.
+    assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayload, gloas_digest)));
+    assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayloadBid, gloas_digest)));
+    assert!(!subscriptions.contains(&gloas_topic(GossipKind::PayloadAttestation, gloas_digest)));
+}
+
+/// Startup before the early-subscribe window must not join Gloas `proposer_preferences` yet.
+#[test]
+fn early_proposer_preferences_not_subscribed_before_window() {
+    let runtime = Arc::new(Runtime::new().unwrap());
+    let gloas_epoch = 2;
+    let before_window_slot = Epoch::new(0).start_slot(MinimalEthSpec::slots_per_epoch());
+
+    let (_network_service, network_globals, beacon_chain) =
+        build_network_service_for_early_prefs(&runtime, gloas_epoch, before_window_slot, 21330);
+
+    let gloas_digest = beacon_chain.compute_fork_digest(Epoch::new(gloas_epoch));
+    let prefs_topic = gloas_topic(GossipKind::ProposerPreferences, gloas_digest);
+    let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
+
+    assert!(
+        !subscriptions.contains(&prefs_topic),
+        "must not early-subscribe before gloas_epoch - 1, subscriptions={subscriptions:?}"
+    );
+    assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayload, gloas_digest)));
 }
