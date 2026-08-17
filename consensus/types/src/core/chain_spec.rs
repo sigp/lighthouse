@@ -1008,9 +1008,19 @@ impl ChainSpec {
             self.attestation_due_bps
         );
         assert!(
+            self.attestation_due_bps_gloas <= BASIS_POINTS,
+            "invalid chain spec: attestation_due_bps_gloas ({}) exceeds slot duration",
+            self.attestation_due_bps_gloas
+        );
+        assert!(
             self.aggregate_due_bps <= BASIS_POINTS,
             "invalid chain spec: aggregate_due_bps ({}) exceeds slot duration",
             self.aggregate_due_bps
+        );
+        assert!(
+            self.aggregate_due_bps_gloas <= BASIS_POINTS,
+            "invalid chain spec: aggregate_due_bps_gloas ({}) exceeds slot duration",
+            self.aggregate_due_bps_gloas
         );
         assert!(
             self.sync_message_due_bps <= BASIS_POINTS,
@@ -1018,9 +1028,19 @@ impl ChainSpec {
             self.sync_message_due_bps
         );
         assert!(
+            self.sync_message_due_bps_gloas <= BASIS_POINTS,
+            "invalid chain spec: sync_message_due_bps_gloas ({}) exceeds slot duration",
+            self.sync_message_due_bps_gloas
+        );
+        assert!(
             self.contribution_due_bps <= BASIS_POINTS,
             "invalid chain spec: contribution_due_bps ({}) exceeds slot duration",
             self.contribution_due_bps
+        );
+        assert!(
+            self.contribution_due_bps_gloas <= BASIS_POINTS,
+            "invalid chain spec: contribution_due_bps_gloas ({}) exceeds slot duration",
+            self.contribution_due_bps_gloas
         );
         assert!(
             self.inclusion_list_due_bps <= BASIS_POINTS,
