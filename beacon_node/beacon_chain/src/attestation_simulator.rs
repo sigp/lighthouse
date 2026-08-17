@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 use types::{ChainSpec, EthSpec, Slot};
 
 /// Don't run the attestation simulator if the head slot is this many epochs
@@ -54,7 +54,11 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                 let inner_chain = chain.clone();
                 executor.spawn(
                     async move {
-                        produce_unaggregated_attestation(inner_chain, attestation_slot);
+                        if let Some(slot) = inner_chain.slot_clock.now() && slot == attestation_slot {
+                            produce_unaggregated_attestation(inner_chain, attestation_slot);
+                        } else {
+                            warn!(%attestation_slot, "Missed attestation simulator slot due to lag");
+                        }
                     },
                     "attestation_simulator_service",
                 );
