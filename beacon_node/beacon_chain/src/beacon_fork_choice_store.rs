@@ -193,11 +193,6 @@ where
         })
     }
 
-    /// Returns the state root of the justified state.
-    pub fn justified_state_root(&self) -> Hash256 {
-        self.justified_state_root
-    }
-
     /// Save the current state of `Self` to a `PersistedForkChoiceStore` which can be stored to the
     /// on-disk database.
     pub fn to_persisted(&self) -> PersistedForkChoiceStore {
