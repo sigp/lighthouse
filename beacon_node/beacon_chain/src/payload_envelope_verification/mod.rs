@@ -42,6 +42,15 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
+/// The path through which a payload envelope reached this node.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, AsRefStr)]
+pub enum EnvelopeSource {
+    #[default]
+    Gossip,
+    Rpc,
+    Http,
+}
+
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,

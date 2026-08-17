@@ -17,23 +17,15 @@ use crate::{
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeProcessingSnapshot, load_snapshot_from_state_root,
+        EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
-/// Indicates if we should dedup envelopes for `(block_root, builder_index)`
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum AllowDuplicates {
-    Yes,
-    #[default]
-    No,
-}
-
 /// Bundles only the dependencies needed for gossip verification of execution payload envelopes,
 /// decoupling `GossipVerifiedEnvelope::new` from the full `BeaconChain`.
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
-    pub allow_duplicates: AllowDuplicates,
+    pub source: EnvelopeSource,
     pub canonical_head: &'a CanonicalHead<T>,
     pub store: &'a BeaconStore<T>,
     pub spec: &'a ChainSpec,
@@ -174,7 +166,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         drop(fork_choice_read_lock);
 
-        if ctx.allow_duplicates == AllowDuplicates::No
+        if ctx.source == EnvelopeSource::Gossip
             && ctx.gossip_seen_envelope_cache.has_seen_envelope(
                 block_slot,
                 beacon_block_root,
@@ -293,15 +285,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             snapshot: opt_snapshot,
         };
 
-        // Mark the envelope as seen regardless of the duplicate policy, so that gossip
-        // deduplicates against locally published envelopes. The operation is atomic, so if a
-        // concurrent verification marked the same `(block_root, builder_index)` pair first,
-        // this envelope is considered a duplicate.
+        // Mark the envelope as seen regardless of its source, so that gossip
+        // deduplicates against envelopes we already hold, regardless of their source path.
+        // The operation is atomic, so if a concurrent verification marked the same
+        // `(block_root, builder_index)` pair first, this envelope is considered a duplicate.
         let envelope_already_seen = !ctx
             .gossip_seen_envelope_cache
             .mark_envelope_seen(&gossip_verified_envelope);
 
-        if envelope_already_seen && ctx.allow_duplicates == AllowDuplicates::No {
+        if envelope_already_seen && ctx.source == EnvelopeSource::Gossip {
             return Err(EnvelopeError::EnvelopeAlreadySeen {
                 block_root: beacon_block_root,
                 builder_index,
@@ -337,10 +329,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedEnvelope`.
     pub fn payload_envelope_gossip_verification_context(
         &self,
-        allow_duplicates: AllowDuplicates,
+        source: EnvelopeSource,
     ) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
-            allow_duplicates,
+            source,
             canonical_head: &self.canonical_head,
             store: &self.store,
             spec: &self.spec,
@@ -355,9 +347,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(GossipVerifiedEnvelope)` if the supplied `envelope` should be forwarded onto the
     /// gossip network. The envelope is not imported into the chain, it is just partially verified.
     ///
-    /// `allow_duplicates` controls whether an envelope for an already seen
-    /// `(block_root, builder_index)` pair is verified again or errors with
-    /// `EnvelopeError::EnvelopeAlreadySeen`.
+    /// `source` is the path the envelope arrived through. An envelope for an already seen
+    /// `(block_root, builder_index)` pair errors with `EnvelopeError::EnvelopeAlreadySeen`
+    /// only on the gossip path.
     ///
     /// The returned `GossipVerifiedEnvelope` should be provided to `Self::process_execution_payload_envelope` immediately
     /// after it is returned, unless some other circumstance decides it should not be imported at
@@ -369,7 +361,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_envelope_for_gossip(
         self: &Arc<Self>,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        allow_duplicates: AllowDuplicates,
+        source: EnvelopeSource,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
         self.task_executor
@@ -379,7 +371,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 
-                    let ctx = chain.payload_envelope_gossip_verification_context(allow_duplicates);
+                    let ctx = chain.payload_envelope_gossip_verification_context(source);
                     match GossipVerifiedEnvelope::new(envelope, &ctx) {
                         Ok(verified) => {
                             debug!(

@@ -1,5 +1,5 @@
 use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::payload_envelope_verification::gossip_verified_envelope::AllowDuplicates;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
 use bls::PublicKeyBytes;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
 
     let result = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), AllowDuplicates::No)
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
         .await;
     assert!(matches!(
         result,
@@ -89,12 +89,12 @@ async fn gossip_ignores_subsequent_envelope_from_same_builder() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::No)
+        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
         .await
         .expect("first envelope should pass gossip verification");
     let second_result = harness
         .chain
-        .verify_envelope_for_gossip(envelope, AllowDuplicates::No)
+        .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
         .await;
 
     assert!(matches!(
@@ -137,18 +137,18 @@ async fn already_seen_envelope_is_verified_when_duplicates_are_allowed() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::Yes)
+        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Http)
         .await
         .expect("first envelope should pass gossip verification");
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), AllowDuplicates::Yes)
+        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Http)
         .await
         .expect("already seen envelope should pass gossip verification");
 
     let gossip_result = harness
         .chain
-        .verify_envelope_for_gossip(envelope, AllowDuplicates::No)
+        .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
         .await;
 
     assert!(matches!(

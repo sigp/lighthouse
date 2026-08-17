@@ -11,7 +11,7 @@ use crate::version::{
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::payload_envelope_verification::gossip_verified_envelope::AllowDuplicates;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     NotifyExecutionLayer,
@@ -256,7 +256,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // Gossip-verify the envelope before publishing.
     let gossip_verified = chain
-        .verify_envelope_for_gossip(Arc::new(envelope), AllowDuplicates::Yes)
+        .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Http)
         .await
         .map_err(|e| {
             warn!(%slot, error = ?e, "Execution payload envelope failed gossip verification");
