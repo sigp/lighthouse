@@ -10,7 +10,7 @@ use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -177,6 +177,7 @@ impl ForkChoiceTestDefinition {
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
+        let equivocating_committee_weights = BTreeMap::new();
         let mut last_current_slot = Slot::new(0);
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
@@ -199,6 +200,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             Hash256::zero(),
                             &equivocating_indices,
+                            &equivocating_committee_weights,
                             current_slot,
                             &spec,
                         )
@@ -223,6 +225,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         current_slot,
                         Hash256::zero(),
+                        &equivocating_committee_weights,
                         &spec,
                         payload_status,
                         op_index,
@@ -247,6 +250,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             proposer_boost_root,
                             &equivocating_indices,
+                            &equivocating_committee_weights,
                             Slot::new(0),
                             &spec,
                         )
@@ -264,6 +268,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         Slot::new(0),
                         proposer_boost_root,
+                        &equivocating_committee_weights,
                         &spec,
                         payload_status,
                         op_index,
@@ -284,6 +289,7 @@ impl ForkChoiceTestDefinition {
                         &justified_balances,
                         Hash256::zero(),
                         &equivocating_indices,
+                        &equivocating_committee_weights,
                         Slot::new(0),
                         &spec,
                     );
@@ -607,6 +613,7 @@ impl ForkChoiceTestDefinition {
                             &block_root,
                             current_slot.unwrap_or(last_current_slot),
                             proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            &equivocating_committee_weights,
                             &spec,
                         )
                         .unwrap();
@@ -666,11 +673,13 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 
 /// Checks that `get_canonical_payload_status` agrees with the `payload_status`
 /// returned by `find_head` for the head block.
+#[allow(clippy::too_many_arguments)]
 fn assert_canonical_payload_status_matches_find_head(
     fork_choice: &ProtoArrayForkChoice,
     head: &Hash256,
     current_slot: Slot,
     proposer_boost_root: Hash256,
+    equivocating_committee_weights: &BTreeMap<Slot, u64>,
     spec: &ChainSpec,
     expected: PayloadStatus,
     op_index: usize,
@@ -679,6 +688,7 @@ fn assert_canonical_payload_status_matches_find_head(
         head,
         current_slot,
         proposer_boost_root,
+        equivocating_committee_weights,
         spec,
     ) {
         Ok(actual) => assert_eq!(

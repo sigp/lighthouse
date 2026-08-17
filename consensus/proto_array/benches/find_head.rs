@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fixed_bytes::FixedBytesExtended;
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -82,6 +82,7 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
 fn bench_find_head(c: &mut Criterion) {
     let mut group = c.benchmark_group("find_head");
     let equivocating_indices = BTreeSet::new();
+    let equivocating_committee_weights = BTreeMap::new();
     let finalized_checkpoint = Checkpoint {
         epoch: Epoch::new(0),
         root: get_root(0),
@@ -103,6 +104,7 @@ fn bench_find_head(c: &mut Criterion) {
                             &balances,
                             Hash256::zero(),
                             &equivocating_indices,
+                            &equivocating_committee_weights,
                             Slot::new(num_blocks),
                             &spec,
                         )

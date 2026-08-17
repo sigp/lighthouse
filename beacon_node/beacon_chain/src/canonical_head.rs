@@ -63,6 +63,7 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwL
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use state_processing::state_advance::complete_state_advance;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -692,7 +693,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_payload_status = old_cached_head.head_payload_status();
         let old_forkchoice_update_parameters = old_cached_head.forkchoice_update_parameters();
 
+        let equivocating_committee_weights = self.compute_equivocating_committee_weights(
+            old_cached_head.head_block_root(),
+            current_slot,
+        );
+
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
+
+        match equivocating_committee_weights {
+            Ok(weights) => fork_choice_write_lock.set_equivocating_committee_weights(weights),
+            Err(e) => error!(
+                error = ?e,
+                "Failed to update equivocating committee weights"
+            ),
+        }
 
         // Recompute the current head via the fork choice algorithm.
         let (_, new_payload_status) = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
@@ -1417,6 +1431,103 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             fork_choice_store: fork_choice.fc_store().to_persisted(),
         };
         persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, store_config)
+    }
+
+    /// Compute the justified effective balances of equivocating validators, summed
+    /// per attestation duty slot. Used by the post-Gloas `is_head_weak` check.
+    fn compute_equivocating_committee_weights(
+        &self,
+        head_block_root: Hash256,
+        current_slot: Slot,
+    ) -> Result<BTreeMap<Slot, u64>, Error> {
+        // Don't keep track of pre-gloas equivocating committee weight. This ensures
+        // that pre-gloas `is_head_weak` is correctly calculated.
+        if !self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(current_slot)
+            .gloas_enabled()
+        {
+            return Ok(BTreeMap::new());
+        }
+
+        // TODO(gloas): once any slashing has been observed the state lookup and `equivocating_validator_balances` calculation
+        // run on every head recompute forever. We could prevent this by introducing some type of cache key like:
+        // (epoch, justified_state_root, equivocating_indices.len()).
+        let (equivocating_indices, justified_state_root) = {
+            let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
+            let fc_store = fork_choice_read_lock.fc_store();
+            (
+                fc_store
+                    .equivocating_indices()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>(),
+                fc_store.justified_state_root(),
+            )
+        };
+
+        if equivocating_indices.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        // The spec reads raw effective balances from the justified state, without
+        // filtering by slashed or active status.
+        let justified_state = self
+            .store
+            .get_hot_state(&justified_state_root, true)
+            .map_err(Error::DBError)?
+            .ok_or(Error::MissingBeaconState(justified_state_root))?;
+
+        let equivocating_validator_balances: Vec<(u64, u64)> = equivocating_indices
+            .iter()
+            .map(|&index| {
+                let balance = justified_state
+                    .validators()
+                    .get(index as usize)
+                    .map(|validator| validator.effective_balance)
+                    .unwrap_or(0);
+                (index, balance)
+            })
+            .collect();
+
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let previous_slot_epoch = current_slot
+            .saturating_sub(1u64)
+            .epoch(T::EthSpec::slots_per_epoch());
+
+        // Re-org checks evaluate at `current_slot - 1` which can fall to the
+        // previous epoch when `current_slot` is at an epoch boundary.
+        let epochs = if previous_slot_epoch == current_epoch {
+            vec![current_epoch]
+        } else {
+            vec![previous_slot_epoch, current_epoch]
+        };
+
+        let mut equivocating_committee_weights = BTreeMap::new();
+
+        for epoch in epochs {
+            let duty_weights: Vec<(Slot, u64)> =
+                self.with_committee_cache(head_block_root, epoch, |shuffling, _| {
+                    let mut duty_weights =
+                        Vec::with_capacity(equivocating_validator_balances.len());
+                    for &(index, balance) in &equivocating_validator_balances {
+                        if let Some(duty) = shuffling
+                            .committee_cache
+                            .get_attestation_duties(index as usize)?
+                        {
+                            duty_weights.push((duty.slot, balance));
+                        }
+                    }
+                    Ok(duty_weights)
+                })?;
+
+            for (slot, balance) in duty_weights {
+                let entry = equivocating_committee_weights.entry(slot).or_insert(0u64);
+                *entry = entry.saturating_add(balance);
+            }
+        }
+
+        Ok(equivocating_committee_weights)
     }
 }
 
