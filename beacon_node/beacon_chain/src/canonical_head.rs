@@ -878,14 +878,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_payload_status = old_cached_head.head_payload_status();
         let old_forkchoice_update_parameters = old_cached_head.forkchoice_update_parameters();
 
-        let equivocating_committee_weights = self.compute_equivocating_committee_weights(
-            old_cached_head.head_block_root(),
-            current_slot,
-        );
-
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
-        match equivocating_committee_weights {
+        // Compute under the write lock so the weights and `get_head` see one consistent view
+        // of the equivocating indices and justified balances.
+        match self.compute_equivocating_committee_weights(&fork_choice_write_lock, current_slot) {
             Ok(weights) => fork_choice_write_lock.set_equivocating_committee_weights(weights),
             Err(e) => error!(
                 error = ?e,
@@ -1724,9 +1721,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Compute the justified effective balances of equivocating validators, summed
     /// per attestation duty slot. Used by the post-Gloas `is_head_weak` check.
+    ///
+    /// Duties come from the head's `slot_assignments` cache, which covers the three epochs up
+    /// to the last head update. Every slot that `is_head_weak` evaluates is within that window.
     fn compute_equivocating_committee_weights(
         &self,
-        head_block_root: Hash256,
+        fork_choice: &BeaconForkChoice<T>,
         current_slot: Slot,
     ) -> Result<BTreeMap<Slot, u64>, Error> {
         // Don't keep track of pre-gloas equivocating committee weight. This ensures
@@ -1739,62 +1739,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BTreeMap::new());
         }
 
-        let equivocating_validator_balances: Vec<(u64, u64)> = {
-            let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
-            let fc_store = fork_choice_read_lock.fc_store();
-            let justified_balances = fc_store.justified_balances();
-            fc_store
-                .equivocating_indices()
-                .iter()
-                .map(|&index| {
-                    let balance = justified_balances
-                        .effective_balances
-                        .get(index as usize)
-                        .copied()
-                        .filter(|balance| *balance != 0)
-                        .or_else(|| justified_balances.slashed_balances.get(&index).copied())
-                        .unwrap_or(0);
-                    (index, balance)
-                })
-                .collect()
-        };
-
-        if equivocating_validator_balances.is_empty() {
+        let fc_store = fork_choice.fc_store();
+        let equivocating_indices = fc_store.equivocating_indices();
+        if equivocating_indices.is_empty() {
             return Ok(BTreeMap::new());
         }
+        let justified_balances = fc_store.justified_balances();
 
-        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let previous_slot_epoch = current_slot
-            .saturating_sub(1u64)
-            .epoch(T::EthSpec::slots_per_epoch());
-
-        // Re-org checks evaluate at `current_slot - 1` which can fall to the
-        // previous epoch when `current_slot` is at an epoch boundary.
-        let epochs = if previous_slot_epoch == current_epoch {
-            vec![current_epoch]
-        } else {
-            vec![previous_slot_epoch, current_epoch]
-        };
-
+        let slot_assignments = self.canonical_head.slot_assignments.lock();
         let mut equivocating_committee_weights = BTreeMap::new();
-
-        for epoch in epochs {
-            let duty_weights: Vec<(Slot, u64)> =
-                self.with_committee_cache(head_block_root, epoch, |shuffling, _| {
-                    let mut duty_weights =
-                        Vec::with_capacity(equivocating_validator_balances.len());
-                    for &(index, balance) in &equivocating_validator_balances {
-                        if let Some(duty) = shuffling
-                            .committee_cache
-                            .get_attestation_duties(index as usize)?
-                        {
-                            duty_weights.push((duty.slot, balance));
-                        }
-                    }
-                    Ok(duty_weights)
-                })?;
-
-            for (slot, balance) in duty_weights {
+        for &index in equivocating_indices {
+            // Validators activated after the justified epoch count as zero weight (spec reads their raw balance).
+            let balance = justified_balances
+                .effective_balances
+                .get(index as usize)
+                .copied()
+                .filter(|balance| *balance != 0)
+                .or_else(|| justified_balances.slashed_balances.get(&index).copied())
+                .unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+            for slot in slot_assignments.assigned_slots(index as usize)? {
                 let entry = equivocating_committee_weights.entry(slot).or_insert(0u64);
                 *entry = entry.saturating_add(balance);
             }
