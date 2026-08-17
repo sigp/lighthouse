@@ -173,6 +173,57 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
+    pub fn new_with_empty_finalized_header(
+	    attested_block: &SignedBlindedBeaconBlock<E>,
+	    finality_branch: Vec<Hash256>,
+	    sync_aggregate: SyncAggregate<E>,
+	    signature_slot: Slot,
+	    chain_spec: &ChainSpec,
+	) -> Result<Self, LightClientError> {
+	    let finality_update = match attested_block
+	        .fork_name(chain_spec)
+	        .map_err(|_| LightClientError::InconsistentFork)?
+	    {
+	        ForkName::Altair | ForkName::Bellatrix => {
+        	    Self::Altair(LightClientFinalityUpdateAltair {
+        	        attested_header: LightClientHeaderAltair::block_to_light_client_header(
+        	            attested_block,
+        	        )?,
+        	        finalized_header: LightClientHeaderAltair::default(),
+        	        finality_branch: finality_branch
+        	            .try_into()
+        	            .map_err(LightClientError::SszTypesError)?,
+        	        sync_aggregate,
+        	        signature_slot,
+        	    })
+	        }
+	        ForkName::Capella => Self::Capella(LightClientFinalityUpdateCapella {
+	            attested_header: LightClientHeaderCapella::block_to_light_client_header(
+	                attested_block,
+	            )?,
+	            finalized_header: LightClientHeaderCapella::default(),
+	            finality_branch: finality_branch
+	                .try_into()
+	                .map_err(LightClientError::SszTypesError)?,
+	            sync_aggregate,
+	            signature_slot,
+	        }),
+	        ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb {
+	            attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+	                attested_block,
+	            )?,
+	            finalized_header: LightClientHeaderDeneb::default(),
+	            finality_branch: finality_branch
+	                .try_into()
+	                .map_err(LightClientError::SszTypesError)?,
+	            sync_aggregate,
+	            signature_slot,
+	        }),
+	        _ => return Err(LightClientError::InconsistentFork),
+	    };
+	    Ok(finality_update)
+    }
+
     pub fn map_with_fork_name<F, R>(&self, func: F) -> R
     where
         F: Fn(ForkName) -> R,
