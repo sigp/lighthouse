@@ -170,7 +170,7 @@ where
         let triggered_early = matches!(trigger, PayloadAttestationTrigger::PayloadAvailable(_));
         let mut data_result = self.produce_payload_attestation_data(trigger).await;
 
-        if triggered_early && !matches!(data_result, Ok(Some(_))) {
+        if triggered_early && data_result.is_err() {
             if let Err(ref e) = data_result {
                 warn!(error = %e, %attestation_slot, "Early attempt failed, retrying at deadline");
             }
