@@ -599,6 +599,8 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_slot = parent_bid.slot;
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
+    verify_execution_request_list_lengths(requests)?;
+
     // Process execution requests from the parent's payload
     process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
     process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
@@ -641,6 +643,42 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     // Update latest_block_hash to the parent bid's block_hash
     *state.latest_block_hash_mut()? = parent_bid.block_hash;
 
+    Ok(())
+}
+
+/// Deposit requests are deliberately unbounded (see the `deposit_requests_greater_than_electra_max`
+/// spec test).
+pub fn verify_execution_request_list_lengths<E: EthSpec>(
+    requests: &ExecutionRequestsGloas<E>,
+) -> Result<(), BlockProcessingError> {
+    let checks = [
+        (
+            "withdrawal_requests",
+            requests.withdrawals.len(),
+            E::MaxWithdrawalRequestsPerPayload::to_usize(),
+        ),
+        (
+            "consolidation_requests",
+            requests.consolidations.len(),
+            E::MaxConsolidationRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::MaxBuilderDepositRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::MaxBuilderExitRequestsPerPayload::to_usize(),
+        ),
+    ];
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
+    }
     Ok(())
 }
 

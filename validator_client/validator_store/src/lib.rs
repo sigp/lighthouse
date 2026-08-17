@@ -6,12 +6,12 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
+    Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
     ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
     ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
     SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -22,7 +22,6 @@ pub enum Error<T> {
     Slashable(NotSafe),
     SameData,
     GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
-    UnableToSignAttestation(AttestationError),
     SpecificError(T),
     ExecutorError,
     Middleware(String),
@@ -35,11 +34,11 @@ impl<T> From<T> for Error<T> {
 }
 
 /// Input for batch attestation signing
-pub struct AttestationToSign<E: EthSpec> {
-    pub validator_index: u64,
+pub struct AttestationToSign {
+    pub attester_index: u64,
     pub pubkey: PublicKeyBytes,
-    pub validator_committee_index: usize,
-    pub attestation: Attestation<E>,
+    pub committee_index: u64,
+    pub data: AttestationData,
 }
 
 /// Input for batch aggregate signing
@@ -140,18 +139,12 @@ pub trait ValidatorStore: Send + Sync {
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
     ///
-    /// Returns a stream of batches of successfully signed attestations. Each batch contains
-    /// attestations that passed slashing protection, along with the validator index of the signer.
-    /// Eventually this will be replaced by `SingleAttestation` use.
-    ///
-    /// Output:
-    ///
-    /// * Vec of (validator_index, signed_attestation).
-    #[allow(clippy::type_complexity)]
+    /// Returns a stream of batches of successfully signed `SingleAttestation`s. Each batch
+    /// contains attestations that passed slashing protection.
     fn sign_attestations(
         self: &Arc<Self>,
-        attestations: Vec<AttestationToSign<Self::E>>,
-    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<Self::E>)>, Error<Self::Error>>> + Send;
+        attestations: Vec<AttestationToSign>,
+    ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data(
         &self,
@@ -230,6 +223,20 @@ pub trait ValidatorStore: Send + Sync {
 pub enum UnsignedBlock<E: EthSpec> {
     Full(FullBlockContents<E>),
     Blinded(BlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> UnsignedBlock<E> {
+    /// The canonical root of this beacon block (identical for the full and blinded forms).
+    ///
+    /// This is the root of the block *this node produced*, which the local beacon node keys its
+    /// pending payload-envelope cache by. It is not necessarily the block ultimately signed or
+    /// published (e.g. under distributed validators).
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            UnsignedBlock::Full(block) => block.block().canonical_root(),
+            UnsignedBlock::Blinded(block) => block.canonical_root(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

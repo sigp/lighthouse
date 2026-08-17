@@ -62,29 +62,29 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
     "tests/.*/gloas/fast_confirmation/.*",
-    # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
-    "tests/general/phase0/ssz_generic/progressive_bitlist",
-    "tests/general/phase0/ssz_generic/basic_progressive_list",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveBitsStruct.*",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveTestStruct.*",
-    "tests/general/phase0/ssz_generic/progressive_containers/.*",
-    "tests/general/phase0/ssz_generic/compatible_unions/.*",
-    # Ignore full epoch tests for now (just test the sub-transitions).
-    "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
-    "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
-    # TODO: Remaining gossip validation topics not yet implemented
-    "tests/.*/.*/networking/gossip_beacon_block/.*",
-    "tests/.*/.*/networking/gossip_beacon_attestation/.*",
-    "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
-    "tests/.*/.*/networking/gossip_voluntary_exit/.*",
-    "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
-    "tests/.*/.*/networking/gossip_sync_committee_message/.*",
-    "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    # These cases return SkippedKnownFailure before their fixture files are loaded. Keep these
+    # synchronized with IGNORED_BEACON_BLOCK_CASES in gossip_validation.rs, where the per-case
+    # rationale is documented.
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
+    # Gossip validation tests target the latest stable fork.
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_attestation/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_voluntary_exit/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_bls_to_execution_change/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_message/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_contribution_and_proof/.*",
+    # The production-backed harness cannot construct these synthetic fixture histories.
+    # Keep these patterns synchronized with GossipValidation::has_known_harness_limitation.
+    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
+    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
+    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",

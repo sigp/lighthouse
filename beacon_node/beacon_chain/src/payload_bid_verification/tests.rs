@@ -1,4 +1,3 @@
-use std::assert_matches;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +8,7 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
@@ -51,7 +50,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
-    bid_cache: GossipVerifiedPayloadBidCache<T>,
+    bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
@@ -413,7 +412,10 @@ fn invalid_bid_slot() {
         ctx.genesis_block_root,
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
-    assert_matches!(result, Err(PayloadBidError::InvalidBidSlot { .. }));
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::InvalidBidSlot { .. })
+    ));
 }
 
 #[test]
@@ -668,7 +670,7 @@ fn invalid_blob_kzg_commitments() {
             value: 0,
             parent_block_root: ctx.genesis_block_root,
             prev_randao: ctx.expected_prev_randao(),
-            blob_kzg_commitments: VariableList::new(commitments).unwrap(),
+            blob_kzg_commitments: ProgressiveVariableList::new(commitments),
             ..ExecutionPayloadBid::default()
         },
         signature: Signature::empty(),

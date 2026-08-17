@@ -14,6 +14,7 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     data_column_sidecar_tx: Sender<EventKind<E>>,
     finalized_tx: Sender<EventKind<E>>,
     head_tx: Sender<EventKind<E>>,
+    head_v2_tx: Sender<EventKind<E>>,
     exit_tx: Sender<EventKind<E>>,
     chain_reorg_tx: Sender<EventKind<E>>,
     contribution_tx: Sender<EventKind<E>>,
@@ -47,6 +48,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (data_column_sidecar_tx, _) = broadcast::channel(capacity);
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
+        let (head_v2_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
@@ -74,6 +76,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             data_column_sidecar_tx,
             finalized_tx,
             head_tx,
+            head_v2_tx,
             exit_tx,
             chain_reorg_tx,
             contribution_tx,
@@ -132,6 +135,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .head_tx
                 .send(kind)
                 .map(|count| log_count("head", count)),
+            EventKind::HeadV2(_) => self
+                .head_v2_tx
+                .send(kind)
+                .map(|count| log_count("head_v2", count)),
             EventKind::VoluntaryExit(_) => self
                 .exit_tx
                 .send(kind)
@@ -238,6 +245,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.head_tx.subscribe()
     }
 
+    pub fn subscribe_head_v2(&self) -> Receiver<EventKind<E>> {
+        self.head_v2_tx.subscribe()
+    }
+
     pub fn subscribe_exit(&self) -> Receiver<EventKind<E>> {
         self.exit_tx.subscribe()
     }
@@ -336,6 +347,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_head_subscribers(&self) -> bool {
         self.head_tx.receiver_count() > 0
+    }
+
+    pub fn has_head_v2_subscribers(&self) -> bool {
+        self.head_v2_tx.receiver_count() > 0
     }
 
     pub fn has_exit_subscribers(&self) -> bool {

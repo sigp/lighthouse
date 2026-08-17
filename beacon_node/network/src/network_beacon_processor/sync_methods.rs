@@ -11,6 +11,7 @@ use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
+use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -199,14 +200,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                if let Ok(header) = signed_beacon_block.as_ref().try_into() {
+                if let Some(header_or_bid) =
+                    PartialHeaderOrBid::try_from_block(signed_beacon_block.as_ref())
+                {
                     let publish_blobs = false;
                     self.fetch_engine_blobs_and_publish_full(
-                        Arc::new(header),
+                        header_or_bid,
                         block_root,
                         publish_blobs,
                     )
                     .await;
+                } else {
+                    error!(
+                        ?block_root,
+                        slot = %signed_beacon_block.slot(),
+                        "Lookup block is missing components but predates blobs",
+                    )
                 }
             }
             _ => {}
@@ -653,73 +662,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let total_blocks = downloaded_blocks.len();
-        let available_blocks = match downloaded_blocks
-            .into_iter()
-            .map(|block| {
-                block
-                    .into_available_block()
-                    .map(|(available, _envelope)| available)
-            })
-            .collect::<Result<Vec<_>, _>>()
-        {
-            Ok(blocks) => blocks,
-            Err(e) => {
-                return (
-                    0,
-                    Err(ChainSegmentFailed {
-                        peer_action: Some(PeerAction::LowToleranceError),
-                        message: format!("Block failed availability construction: {:?}", e),
-                    }),
-                );
-            }
-        };
-
-        // TODO(gloas) when implementing backfill sync for gloas
-        // we need a batch verify kzg function in the new da checker
-        match self
+        // Verify KZG proofs for blobs and data columns, including columns carried by Gloas
+        // payload envelopes.
+        if let Err(e) = self
             .chain
             .data_availability_checker
-            .batch_verify_kzg_for_available_blocks(&available_blocks)
+            .batch_verify_kzg_for_range_sync_blocks(&downloaded_blocks)
         {
-            Ok(()) => {}
-            Err(e) => match e {
-                AvailabilityCheckError::StoreError(_) => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: None,
-                            message: "Failed to check block availability".into(),
-                        }),
-                    );
-                }
-                e => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: Some(PeerAction::LowToleranceError),
-                            message: format!("Failed to check block availability : {:?}", e),
-                        }),
-                    );
-                }
-            },
-        };
-
-        if available_blocks.len() != total_blocks {
-            return (
-                0,
-                Err(ChainSegmentFailed {
+            // Don't penalize peers for internal store errors.
+            let failure = match e {
+                AvailabilityCheckError::StoreError(_) => ChainSegmentFailed {
+                    peer_action: None,
+                    message: "Failed to check block availability".into(),
+                },
+                e => ChainSegmentFailed {
                     peer_action: Some(PeerAction::LowToleranceError),
-                    message: format!(
-                        "{} out of {} blocks were unavailable",
-                        (total_blocks - available_blocks.len()),
-                        total_blocks
-                    ),
-                }),
-            );
+                    message: format!("Failed to check block availability : {:?}", e),
+                },
+            };
+            return (0, Err(failure));
         }
 
-        match self.chain.import_historical_block_batch(available_blocks) {
+        match self.chain.import_historical_block_batch(downloaded_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
@@ -762,7 +726,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // This is an internal error, do not penalize the peer.
                         None
                     }
+                    HistoricalBlockError::MissingEnvelope { block_root } => {
+                        debug!(
+                            ?block_root,
+                            error = "missing_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer is faulty if they omit the envelope for a revealed payload.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalBlockError::InvalidEnvelope { block_root, reason } => {
+                        debug!(
+                            ?block_root,
+                            reason,
+                            error = "invalid_envelope",
+                            "Backfill batch processing error"
+                        );
+                        // The peer sent an envelope whose payload doesn't match the bid
+                        // committed in the block.
+                        Some(PeerAction::LowToleranceError)
+                    }
 
+                    HistoricalBlockError::MissingProposerPubkey {
+                        block_root,
+                        proposer_index,
+                    } => {
+                        warn!(
+                            ?block_root,
+                            proposer_index,
+                            error = "missing_proposer_pubkey",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",

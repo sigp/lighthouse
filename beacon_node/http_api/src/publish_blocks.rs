@@ -28,9 +28,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSubnetId, EthSpec,
+    ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
+    KzgProofs, PartialDataColumn, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -408,21 +408,38 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let mut full_messages = Vec::new();
-    let mut partial_columns = Vec::new();
-    let mut partial_header = None;
+    let mut partial_messages = Vec::new();
 
     for data_col in data_column_sidecars {
-        if chain.config.enable_partial_columns
-            && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref()
-        {
-            match fulu_data_col.to_partial() {
-                Ok(mut partial) => {
-                    if let Some(header) = partial.sidecar.header.take() {
-                        partial_header = Some(header);
+        if chain.config.enable_partial_columns {
+            match data_col.to_partial() {
+                Ok(PartialDataColumn::Fulu(mut fulu)) => {
+                    // All cells are present in a full column, so request all of them.
+                    let request_cells = fulu.sidecar.cells_present_bitmap.clone();
+                    match fulu.sidecar.header.take() {
+                        Some(header) => {
+                            partial_messages.push(PubsubPartialMessage::DataColumnFulu {
+                                column: Arc::new(fulu),
+                                request_cells,
+                                header: Arc::new(header),
+                            })
+                        }
+                        None => {
+                            crit!("Converting from full to partial yielded headerless partial");
+                        }
                     }
-                    partial_columns.push(Arc::new(partial));
                 }
-                Err(err) => crit!(?err, "Could not convert from full to partial"),
+                Ok(PartialDataColumn::Gloas(gloas)) => {
+                    // All cells are present in a full column, so request all of them.
+                    let request_cells = gloas.sidecar.cells_present_bitmap.clone();
+                    partial_messages.push(PubsubPartialMessage::DataColumnGloas {
+                        column: Arc::new(gloas),
+                        request_cells,
+                    });
+                }
+                Err(err) => {
+                    crit!(?err, "Could not convert from full to partial");
+                }
             }
         }
 
@@ -440,31 +457,14 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     }
 
     // Publish partial messages
-    if !partial_columns.is_empty() {
-        if let Some(header) = partial_header {
-            let header = Arc::new(header);
-            let messages = partial_columns
-                .into_iter()
-                .map(|column| {
-                    let mut request_cells = column.sidecar.cells_present_bitmap.clone();
-                    request_cells.not_inplace();
-                    PubsubPartialMessage::DataColumnFulu {
-                        column,
-                        request_cells,
-                        header: header.clone(),
-                    }
-                })
-                .collect();
-            crate::utils::publish_network_message(
-                sender_clone,
-                NetworkMessage::PublishPartialColumns { messages },
-            )
-            .map_err(|_| {
-                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
-            })?;
-        } else {
-            crit!("Unable to extract header from full columns")
-        }
+    if !partial_messages.is_empty() {
+        crate::utils::publish_network_message(
+            sender_clone,
+            NetworkMessage::PublishPartialColumns {
+                messages: partial_messages,
+            },
+        )
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))?;
     }
 
     Ok(())
@@ -726,7 +726,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
 }
 
 /// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
-fn check_slashable<T: BeaconChainTypes>(
+pub(crate) fn check_slashable<T: BeaconChainTypes>(
     chain_clone: &BeaconChain<T>,
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
