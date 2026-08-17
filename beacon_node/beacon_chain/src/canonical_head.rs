@@ -1739,45 +1739,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BTreeMap::new());
         }
 
-        // TODO(gloas): once any slashing has been observed the state lookup and `equivocating_validator_balances` calculation
-        // run on every head recompute forever. We could prevent this by introducing some type of cache key like:
-        // (epoch, justified_state_root, equivocating_indices.len()).
-        let (equivocating_indices, justified_state_root) = {
+        let equivocating_validator_balances: Vec<(u64, u64)> = {
             let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
             let fc_store = fork_choice_read_lock.fc_store();
-            (
-                fc_store
-                    .equivocating_indices()
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>(),
-                fc_store.justified_state_root(),
-            )
+            let justified_balances = fc_store.justified_balances();
+            fc_store
+                .equivocating_indices()
+                .iter()
+                .map(|&index| {
+                    let balance = justified_balances
+                        .effective_balances
+                        .get(index as usize)
+                        .copied()
+                        .filter(|balance| *balance != 0)
+                        .or_else(|| justified_balances.slashed_balances.get(&index).copied())
+                        .unwrap_or(0);
+                    (index, balance)
+                })
+                .collect()
         };
 
-        if equivocating_indices.is_empty() {
+        if equivocating_validator_balances.is_empty() {
             return Ok(BTreeMap::new());
         }
-
-        // The spec reads raw effective balances from the justified state, without
-        // filtering by slashed or active status.
-        let justified_state = self
-            .store
-            .get_hot_state(&justified_state_root, true)
-            .map_err(Error::DBError)?
-            .ok_or(Error::MissingBeaconState(justified_state_root))?;
-
-        let equivocating_validator_balances: Vec<(u64, u64)> = equivocating_indices
-            .iter()
-            .map(|&index| {
-                let balance = justified_state
-                    .validators()
-                    .get(index as usize)
-                    .map(|validator| validator.effective_balance)
-                    .unwrap_or(0);
-                (index, balance)
-            })
-            .collect();
 
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let previous_slot_epoch = current_slot
