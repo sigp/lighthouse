@@ -27,8 +27,9 @@ async fn poll_for_current_slot_head<T: SlotClock>(
     loop {
         match receiver.recv().await {
             Ok(head_event) => {
-                // A clock read only fails when the system clock is broken, so treat it like
-                // a closed channel and disable head monitoring.
+                // A clock read only fails pre-genesis (services start after the genesis
+                // wait) or when the system clock is broken, so treat it like a closed
+                // channel and disable head monitoring.
                 let Some(current_slot) = slot_clock.now() else {
                     warn!("Failed to read slot clock while polling head events");
                     return None;
