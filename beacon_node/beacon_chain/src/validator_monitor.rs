@@ -728,10 +728,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 let data = unaggregated_attestation.data();
 
+                // The simulated attestation is included in the block right after `data.slot`,
+                // whose parent is the attested block. So the payload availability check uses the
+                // attested block's slot.
                 let parent_slot = state
-                    .latest_execution_payload_bid()
-                    .ok()
-                    .map(|bid| bid.slot);
+                    .fork_name_unchecked()
+                    .gloas_enabled()
+                    .then(|| attested_block_slot(state, data));
 
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
@@ -2051,6 +2054,20 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             }
         }
     }
+}
+
+/// Returns the slot of the block that `data` votes for, by walking back over the skipped slots
+/// after it. Returns `data.slot` if that block is not in `state`'s block roots.
+fn attested_block_slot<E: EthSpec>(state: &BeaconState<E>, data: &AttestationData) -> Slot {
+    let mut slot = data.slot;
+    while slot > 0
+        && state
+            .get_block_root(slot - 1)
+            .is_ok_and(|root| *root == data.beacon_block_root)
+    {
+        slot -= 1;
+    }
+    slot
 }
 
 fn register_simulated_attestation(
