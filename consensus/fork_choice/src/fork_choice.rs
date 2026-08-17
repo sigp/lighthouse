@@ -1595,6 +1595,18 @@ where
         }
     }
 
+    /// Returns the blocks of the direct children of the block with `block_root`.
+    ///
+    /// Returns an empty vec if the block is unknown, has no children, or is not a
+    /// descendant of the finalized root.
+    pub fn get_children(&self, block_root: &Hash256) -> Vec<ProtoBlock> {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
+            self.proto_array.get_children(block_root)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Returns whether the execution payload for a block has been received.
     ///
     /// Returns `false` for unknown blocks and pre-Gloas nodes.
