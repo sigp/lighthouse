@@ -196,8 +196,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
-        //                 for this block root from this builder - envelope status table check
         let block = match ctx.store.try_get_full_block(&beacon_block_root)? {
             Some(DatabaseBlock::Full(block)) => Arc::new(block),
             Some(DatabaseBlock::Blinded(_)) | None => {
