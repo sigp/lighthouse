@@ -1043,6 +1043,16 @@ impl ChainSpec {
             self.contribution_due_bps_gloas
         );
         assert!(
+            self.payload_due_bps <= BASIS_POINTS,
+            "invalid chain spec: payload_due_bps ({}) exceeds slot duration",
+            self.payload_due_bps
+        );
+        assert!(
+            self.payload_attestation_due_bps <= BASIS_POINTS,
+            "invalid chain spec: payload_attestation_due_bps ({}) exceeds slot duration",
+            self.payload_attestation_due_bps
+        );
+        assert!(
             self.inclusion_list_due_bps <= BASIS_POINTS,
             "invalid chain spec: inclusion_list_due_bps ({}) exceeds slot duration",
             self.inclusion_list_due_bps
