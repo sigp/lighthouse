@@ -257,6 +257,14 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             inner.finalized_header.beacon.canonical_root()
         })
     }
+    pub fn get_finalized_header_slot<'a>(&'a self) -> Slot {
+    	map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.finalized_header.beacon.slot
+        })
+    }
+
+
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
