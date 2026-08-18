@@ -24,7 +24,6 @@ use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 use superstruct::superstruct;
 
 // TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
@@ -1217,21 +1216,6 @@ pub struct SseChainReorg {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct SseLateHead {
-    pub slot: Slot,
-    pub block: Hash256,
-    pub proposer_index: u64,
-    pub peer_id: Option<String>,
-    pub peer_client: Option<String>,
-    pub proposer_graffiti: String,
-    pub block_delay: Duration,
-    pub observed_delay: Option<Duration>,
-    pub imported_delay: Option<Duration>,
-    pub set_as_head_delay: Option<Duration>,
-    pub execution_optimistic: bool,
-}
-
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
@@ -1345,7 +1329,6 @@ pub enum EventKind<E: EthSpec> {
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
-    LateHead(SseLateHead),
     LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
     LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
     PayloadAttributes(VersionedSsePayloadAttributes),
@@ -1377,7 +1360,6 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
             EventKind::PayloadAttributes(_) => "payload_attributes",
-            EventKind::LateHead(_) => "late_head",
             EventKind::LightClientFinalityUpdate(_) => "light_client_finality_update",
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             EventKind::ProposerSlashing(_) => "proposer_slashing",
@@ -1430,9 +1412,6 @@ impl<E: EthSpec> EventKind<E> {
                 serde_json::from_str(data)
                     .map_err(|e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)))?,
             ))),
-            "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
-            )?)),
             "voluntary_exit" => Ok(EventKind::VoluntaryExit(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
@@ -1556,7 +1535,6 @@ pub enum EventTopic {
     FinalizedCheckpoint,
     ChainReorg,
     ContributionAndProof,
-    LateHead,
     PayloadAttributes,
     LightClientFinalityUpdate,
     LightClientOptimisticUpdate,
@@ -1590,7 +1568,6 @@ impl FromStr for EventTopic {
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             "payload_attributes" => Ok(EventTopic::PayloadAttributes),
-            "late_head" => Ok(EventTopic::LateHead),
             "light_client_finality_update" => Ok(EventTopic::LightClientFinalityUpdate),
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             "attester_slashing" => Ok(EventTopic::AttesterSlashing),
@@ -1624,7 +1601,6 @@ impl fmt::Display for EventTopic {
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
             EventTopic::PayloadAttributes => write!(f, "payload_attributes"),
-            EventTopic::LateHead => write!(f, "late_head"),
             EventTopic::LightClientFinalityUpdate => write!(f, "light_client_finality_update"),
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
