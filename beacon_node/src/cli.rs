@@ -846,6 +846,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("proof-engine-endpoint")
+                .long("proof-engine-endpoint")
+                .value_name("PROOF-ENGINE-ENDPOINT")
+                .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
+                       proofs. When present, the node subscribes to the execution_proof gossip \
+                       topic and propagates proofs that verify. Experimental.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("execution-jwt")
                 .long("execution-jwt")
                 .value_name("EXECUTION-JWT")

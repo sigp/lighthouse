@@ -231,6 +231,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
     pub fn as_topic_config(&self) -> TopicConfig {
         TopicConfig {
             enable_light_client_server: self.config.enable_light_client_server,
+            enable_execution_proof: self.config.enable_execution_proof,
             subscribe_all_subnets: self.config.subscribe_all_subnets,
             sampling_subnets: self.sampling_subnets.read().clone(),
         }
