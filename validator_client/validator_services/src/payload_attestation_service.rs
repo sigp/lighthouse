@@ -6,9 +6,10 @@ use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use types::{ChainSpec, EthSpec, PayloadAttestationData, Slot};
 use validator_store::ValidatorStore;
 
@@ -19,6 +20,10 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
+    /// Last slot for which a payload-attestation attempt was made. `u64::MAX` means none.
+    ///
+    /// Prevents a zero wait from spinning or double-publishing the same slot.
+    latest_attempted_slot: AtomicU64,
 }
 
 pub struct PayloadAttestationService<S, T> {
@@ -62,6 +67,7 @@ where
                 beacon_nodes,
                 executor,
                 chain_spec,
+                latest_attempted_slot: AtomicU64::new(u64::MAX),
             }),
         }
     }
@@ -91,6 +97,10 @@ where
             return Ok(());
         };
 
+        // Consume the slot after any attempt so a zero wait cannot spin the loop.
+        self.latest_attempted_slot
+            .store(attestation_slot.as_u64(), Ordering::SeqCst);
+
         let Some((duties, attestation_data)) = self
             .produce_payload_attestation_data(attestation_slot)
             .await?
@@ -116,18 +126,16 @@ where
 
     async fn wait_for_attestation_slot(&self) -> Option<Slot> {
         let slot_duration = self.chain_spec.get_slot_duration();
-        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
-
-        let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
+        let Some(now) = self.slot_clock.now_duration() else {
             error!("Failed to read slot clock");
             sleep(slot_duration).await;
             return None;
         };
 
-        let Some(current_slot) = self.slot_clock.now() else {
-            error!("Failed to read slot clock after trigger");
-            return None;
-        };
+        let current_slot = self
+            .slot_clock
+            .slot_of(now)
+            .unwrap_or_else(|| self.slot_clock.genesis_slot());
 
         if !self
             .chain_spec
@@ -137,19 +145,38 @@ where
             let duration_to_next_epoch = self
                 .slot_clock
                 .duration_to_next_epoch(S::E::slots_per_epoch())
-                .unwrap_or_else(|| {
-                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                });
+                .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
             sleep(duration_to_next_epoch).await;
             return None;
         }
 
-        sleep(duration_to_next_slot + payload_attestation_due).await;
-
-        let Some(attestation_slot) = self.slot_clock.now() else {
-            error!("Failed to read slot clock after sleep");
+        let last = self.latest_attempted_slot.load(Ordering::SeqCst);
+        let after = (last != u64::MAX).then(|| Slot::new(last));
+        let Some((attestation_slot, wait)) = self.slot_clock.duration_to_deadline_after(
+            now,
+            |_| self.chain_spec.get_payload_attestation_due(),
+            after,
+        ) else {
+            error!("Failed to determine payload attestation deadline");
+            sleep(slot_duration).await;
             return None;
         };
+
+        sleep(wait).await;
+
+        // Sleep can overshoot into a later slot. Consume the target and skip so we never
+        // produce a late payload attestation.
+        let now_slot = self.slot_clock.now();
+        if now_slot != Some(attestation_slot) {
+            warn!(
+                %attestation_slot,
+                ?now_slot,
+                "Missed payload attestation slot due to lag"
+            );
+            self.latest_attempted_slot
+                .store(attestation_slot.as_u64(), Ordering::SeqCst);
+            return None;
+        }
 
         Some(attestation_slot)
     }
@@ -304,6 +331,7 @@ mod tests {
     use eth2::types::PtcDuty;
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
     use types::{
         Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot,
@@ -391,30 +419,118 @@ mod tests {
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
 
-        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
-        // It calls sleep(duration_to_next_slot + payload_attestation_due).await which registers a timer with a deadline of 21s
+        // Gloas is enabled at genesis in this harness, so we wait until the current slot's
+        // payload attestation due time (not the next slot).
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
         let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
-        let duration_to_wait = duration_to_next_slot + payload_attestation_due;
-        // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
+        // Advance both slot_clock and tokio::time to the sleep deadline.
         // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
-        // so the following assert! should return None
-        // This verifies that the function wait_for_attestation_slot waits for the correct duration before returning a slot.
-        advance_time(&harness.service.slot_clock, duration_to_wait).await;
+        advance_time(&harness.service.slot_clock, payload_attestation_due).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Function should return None before the sleep duration has elapsed"
         );
 
-        // Advance time for 1 more second, the sleep should have completed and the function should return Some(attestation_slot)
-        // slot_clock is now at 22s, which is slot 1
-        // Removing this advance_time should cause the following assert_eq! to fail
+        // Advance time for 1 more second so the sleep completes. Target is the current slot (0).
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(0))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_after_deadline_uses_next_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        // Advance past the current slot's PTC deadline before waiting.
+        advance_time(
+            &harness.service.slot_clock,
+            payload_attestation_due + Duration::from_millis(1),
+        )
+        .await;
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let (target_slot, wait) = harness
+            .service
+            .slot_clock
+            .duration_to_deadline(harness.service.slot_clock.now_duration().unwrap(), |_| {
+                payload_attestation_due
+            })
+            .unwrap();
+        assert_eq!(target_slot, Slot::new(1));
+
+        advance_time(&harness.service.slot_clock, wait).await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
         advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
             Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_after_consumed_slot_uses_next() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        harness
+            .service
+            .latest_attempted_slot
+            .store(0, Ordering::SeqCst);
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let (target_slot, wait) = harness
+            .service
+            .slot_clock
+            .duration_to_deadline_after(
+                harness.service.slot_clock.now_duration().unwrap(),
+                |_| payload_attestation_due,
+                Some(Slot::new(0)),
+            )
+            .unwrap();
+        assert_eq!(target_slot, Slot::new(1));
+
+        advance_time(&harness.service.slot_clock, wait).await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_lag_skips_and_consumes() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let slot_duration = harness.service.chain_spec.get_slot_duration();
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        // Advance past the end of slot 0 so the sleep completes in slot 1.
+        advance_time(
+            &harness.service.slot_clock,
+            slot_duration + Duration::from_secs(1),
+        )
+        .await;
+        assert_eq!(service_wait.as_mut().now_or_never().unwrap(), None);
+        assert_eq!(
+            harness.service.latest_attempted_slot.load(Ordering::SeqCst),
+            0
         );
     }
 
