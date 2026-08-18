@@ -4158,6 +4158,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // This may be the proof the block's envelope was waiting on.
+                match self
+                    .chain
+                    .check_execution_proof_availability_and_import(verified)
+                    .await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
+                        info!(
+                            ?block_root,
+                            %slot,
+                            "Execution payload envelope imported after execution proof"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                        // The payload envelope is imported (`is_payload_received` is now true);
+                        // release any attestations awaiting this block's payload.
+                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
+                    }
+                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
+                    Err(error) => {
+                        debug!(
+                            %beacon_block_root,
+                            proof_type,
+                            ?error,
+                            "Could not cache execution proof"
+                        );
+                    }
+                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");

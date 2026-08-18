@@ -34,7 +34,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::ObservedExecutionProofs;
+use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -4181,6 +4181,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_availability(slot, availability, || Ok(()))
                 .await?)
         }
+    }
+
+    /// Caches an execution proof, importing the payload envelope if that was the last piece.
+    pub async fn check_execution_proof_availability_and_import(
+        self: &Arc<Self>,
+        verified_proof: GossipVerifiedExecutionProof,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
+        let availability = self
+            .pending_payload_cache
+            .put_execution_proof(proof)
+            .map_err(BlockError::from)?;
+        self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
+            .await
     }
 
     fn check_data_column_sidecar_header_signature_and_slashability<'a>(
