@@ -125,7 +125,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let attested_slot = attested_block.slot();
 
         let maybe_finalized_block = store.get_blinded_block(&cached_parts.finalized_block_root)?;
-
+	eprintln!("DEBUG lc_cache: slot={} attested_root={} finalized_root={}", 
+    	    block_slot, attested_block_root, cached_parts.finalized_block_root);
         let sync_period = block_slot
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
@@ -158,16 +159,16 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if is_latest_finality {
-    	    let update = if cached_parts.finalized_block_root.is_zero() {
+    	    eprintln!("DEBUG is_latest=true slot={} finalized_root={}", block_slot, cached_parts.finalized_block_root);
+	    let update = if cached_parts.finalized_block_root.is_zero() {
+	        let u = LightClientFinalityUpdate::new_with_empty_finalized_header(&attested_block, cached_parts.finality_branch.clone(),sync_aggregate.clone(), signature_slot, chain_spec,)?;
+	        eprintln!("DEBUG created empty finality update attested_slot={}", u.get_attested_header_slot());
+	        Some(u)
+
+	
 	        // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
 	        // cannot be proven, so finalized_header must be empty/default initialized.
-	        Some(LightClientFinalityUpdate::new_with_empty_finalized_header(
-	            &attested_block,
-	            cached_parts.finality_branch.clone(),
-	            sync_aggregate.clone(),
-	            signature_slot,
-	            chain_spec,
-	        )?)
+
 	    } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
 	        Some(LightClientFinalityUpdate::new(
 	            &attested_block,
