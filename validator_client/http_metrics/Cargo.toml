@@ -5,6 +5,8 @@ edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
+axum = { workspace = true }
+axum_utils = { workspace = true }
 health_metrics = { workspace = true }
 lighthouse_validator_store = { workspace = true }
 lighthouse_version = { workspace = true }
@@ -14,9 +16,8 @@ metrics = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_services = { workspace = true }
-warp = { workspace = true }
-warp_utils = { workspace = true }

@@ -791,7 +791,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let available_columns = self.chain.custody_columns_for_epoch(None);
+        let available_columns = self.chain.custody_context.custody_columns_for_epoch(None);
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             let indices_to_retrieve = data_column_ids_by_root
@@ -1337,10 +1337,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots i.e. duplicated roots
-        Ok(block_roots
+        let mut block_roots_and_slots = block_roots
             .into_iter()
             .unique_by(|(root, _)| *root)
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+
+        // If `start_slot` is a skip slot, the first root belongs to a block before the range, remove it.
+        if let Some((first_root, _)) = block_roots_and_slots.first() {
+            let first_block = self.chain.get_blinded_block(first_root).map_err(|e| {
+                error!(
+                    %start_slot,
+                    count,
+                    error = ?e,
+                    "Error fetching first block for range request"
+                );
+                (RpcErrorResponse::ServerError, "Database error")
+            })?;
+            if first_block.is_none_or(|block| block.slot() < start_slot) {
+                block_roots_and_slots.remove(0);
+            }
+        }
+
+        Ok(block_roots_and_slots)
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRange` request from the peer.
@@ -1595,13 +1613,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             req.count
         };
 
-        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
-            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-            None => {
-                debug!("Deneb fork is disabled");
-                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
-            }
-        };
+        let data_availability_boundary_slot =
+            match self.chain.custody_context.data_availability_boundary() {
+                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                None => {
+                    debug!("Deneb fork is disabled");
+                    return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
+                }
+            };
 
         let oldest_blob_slot = self
             .chain
@@ -1745,14 +1764,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
 
-        let column_data_availability_boundary_slot =
-            match self.chain.column_data_availability_boundary() {
-                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                None => {
-                    debug!("Fulu fork is disabled");
-                    return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
-                }
-            };
+        let column_data_availability_boundary_slot = match self
+            .chain
+            .custody_context
+            .column_data_availability_boundary()
+        {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            None => {
+                debug!("Fulu fork is disabled");
+                return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
+            }
+        };
 
         let earliest_custodied_data_column_slot =
             match self.chain.earliest_custodied_data_column_epoch() {
@@ -1798,6 +1820,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
         let available_columns = self
             .chain
+            .custody_context
             .custody_columns_for_epoch(Some(request_start_epoch));
 
         let indices_to_retrieve = req
@@ -1916,9 +1939,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let non_custody_indices = {
             let custody_columns = self
                 .chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
+                .custody_context
+                .custody_columns_for_epoch(epoch_opt);
             requested_indices
                 .iter()
                 .filter(|subnet_id| !custody_columns.contains(subnet_id))

@@ -82,7 +82,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
+            self.compute_beacon_block_attestation_reward_altair_and_later(block, state)
                 .map_err(|e| {
                     error!(
                         error = ?e,
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_altair_deneb<
+    fn compute_beacon_block_attestation_reward_altair_and_later<
         Payload: AbstractExecPayload<T::EthSpec>,
     >(
         &self,
@@ -263,16 +263,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
 
-        let mut current_epoch_participation = state.current_epoch_participation()?.clone();
-        let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
+        let mut current_epoch_participation = state.current_epoch_participation()?.to_owned_list();
+        let mut previous_epoch_participation =
+            state.previous_epoch_participation()?.to_owned_list();
+
+        let parent_slot = state
+            .latest_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.slot);
 
         for attestation in block.body().attestations() {
             let data = attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
                 state,
                 data,
+                parent_slot,
                 inclusion_delay,
                 &self.spec,
             )?;
@@ -289,7 +297,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     };
 
                     let validator_participation = epoch_participation
-                        .get_mut(index)
+                        .as_mut()
+                        .into_get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if participation_flag_indices.contains(&flag_index)

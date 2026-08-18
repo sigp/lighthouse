@@ -24,6 +24,7 @@ pub mod envelope_times_cache;
 mod errors;
 pub mod events;
 pub mod execution_payload;
+pub mod execution_proof_verification;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod graffiti_calculator;
@@ -75,6 +76,7 @@ pub use self::beacon_chain::{
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;

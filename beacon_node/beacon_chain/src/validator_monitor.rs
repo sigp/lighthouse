@@ -728,10 +728,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 let data = unaggregated_attestation.data();
 
+                let parent_slot = state
+                    .latest_execution_payload_bid()
+                    .ok()
+                    .map(|bid| bid.slot);
+
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
                     unaggregated_attestation.data(),
+                    parent_slot,
                     inclusion_delay,
                     spec,
                 ) {
@@ -1893,7 +1899,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 epoch - 2
             };
 
-            for (_, validator) in self.validators.iter() {
+            for validator in self.validators.values() {
                 let id = &validator.id;
                 let summaries = validator.summaries.read();
 

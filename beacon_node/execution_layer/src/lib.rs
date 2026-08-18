@@ -43,18 +43,17 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
-use types::kzg_ext::KzgCommitments;
+use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -204,9 +203,9 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
     pub payload_value: Uint256,
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
@@ -215,13 +214,17 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
         Self {
             payload: response.execution_payload,
             payload_value: response.block_value,
-            blob_kzg_commitments: response.blobs_bundle.commitments,
+            // Convert the EL blob commitments to the progressive list type used from Gloas
+            // onwards (EIP-7688).
+            blob_kzg_commitments: response.blobs_bundle.commitments.into_iter().collect(),
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
             should_override_builder: response.should_override_builder,
         }
     }
 }
+
+// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
@@ -236,7 +239,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
         // See: https://github.com/sigp/lighthouse/issues/6981
-        requests: Option<ExecutionRequests<E>>,
+        requests: Option<ExecutionRequestsElectra<E>>,
     },
 }
 
@@ -282,7 +285,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
+                // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
+                requests: match maybe_requests {
+                    Some(ExecutionRequests::Electra(requests)) => Some(requests),
+                    Some(ExecutionRequests::Gloas(_)) => {
+                        return Err(Error::InvalidPayloadConversion);
+                    }
+                    None => None,
+                },
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -311,7 +321,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
         Uint256,
     ) {
         match self {
@@ -406,6 +416,10 @@ impl ProposerPreparationDataEntry {
     }
 }
 
+// NOTE: This key should arguably include the `suggested_fee_recipient`, as it is part of the
+// `Proposer::payload_attributes` value that is cached based on it. However, in some cases where
+// this key is constructed the fee recipient is not straight-forward to determine. Therefore we
+// accept the risk of loading a stale fee recipient within the timespan of a single slot.
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
@@ -937,6 +951,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(payload_response.into())
     }
 
+    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
+
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -1118,7 +1134,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "Chain is optimistic; can't build payload"
                 ),
                 ChainHealth::Healthy => {
-                    crit!("got healthy but also not healthy.. this shouldn't happen!")
+                    crit!("got healthy but also not healthy.. this shouldn't happen!");
                 }
             }
             return self
@@ -1695,6 +1711,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     return Err(Error::InvalidForkForPayload);
                 }
                 ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::Heze => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };

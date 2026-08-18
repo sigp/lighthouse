@@ -313,6 +313,10 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
+      --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
+          Server endpoint for an EIP-8025 proof engine used to verify execution
+          proofs. When present, the node subscribes to the execution_proof
+          gossip topic and propagates proofs that verify. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
@@ -494,6 +498,11 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
+      --enable-fast-confirmation
+          Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
+          faster block confirmation (typically within 1-2 slots of the head) by
+          computing a confirmed root that is fed into the execution layer's
+          safe_block_hash.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.

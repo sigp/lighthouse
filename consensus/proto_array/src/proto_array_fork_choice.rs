@@ -41,6 +41,18 @@ pub struct VoteTrackerV28 {
     next_epoch: Epoch,
 }
 
+impl VoteTracker {
+    /// The block root this validator most recently voted for.
+    pub fn current_root(&self) -> Hash256 {
+        self.current_root
+    }
+
+    /// The slot of this validator's latest message.
+    pub fn current_slot(&self) -> Slot {
+        self.current_slot
+    }
+}
+
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
 // The payload status is `false` for pre-Gloas nodes.
 impl From<VoteTrackerV28> for VoteTracker {
@@ -102,6 +114,7 @@ pub enum ExecutionStatus {
 
 /// Represents the status of an execution payload post-Gloas.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
@@ -938,12 +951,34 @@ impl ProtoArrayForkChoice {
 
     pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
         let block = self.get_proto_node(block_root)?;
+        Some(self.proto_node_to_block(block))
+    }
+
+    /// Returns the blocks of the direct children of the block with `block_root`.
+    ///
+    /// Returns an empty vec if the block is unknown or has no children.
+    pub fn get_children(&self, block_root: &Hash256) -> Vec<Block> {
+        self.proto_array
+            .indices
+            .get(block_root)
+            .and_then(|&index| self.proto_array.children.get(index))
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|&child_index| self.proto_array.nodes.get(child_index))
+                    .map(|child| self.proto_node_to_block(child))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn proto_node_to_block(&self, block: &ProtoNode) -> Block {
         let parent_root = block
             .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root());
 
-        Some(Block {
+        Block {
             slot: block.slot(),
             root: block.root(),
             parent_root,
@@ -962,7 +997,7 @@ impl ProtoArrayForkChoice {
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
             payload_received: block.payload_received().unwrap_or(false),
-        })
+        }
     }
 
     /// Called by the proposer to decide whether to build on the full or empty
@@ -999,6 +1034,7 @@ impl ProtoArrayForkChoice {
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         block_root: &Hash256,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, String> {
         let block_index = self
@@ -1017,7 +1053,7 @@ impl ProtoArrayForkChoice {
             payload_status: proto_node.get_parent_payload_status(),
         };
         self.proto_array
-            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
             .map_err(|e| format!("{e:?}"))
     }
 
@@ -1150,6 +1186,13 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// Read-only access to the per-validator votes.
+    ///
+    /// Used by the fast confirmation rule to compute attestation support.
+    pub fn votes(&self) -> &[VoteTracker] {
+        &self.votes.0
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.

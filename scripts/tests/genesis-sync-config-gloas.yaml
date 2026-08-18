@@ -2,18 +2,26 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethpandaops/geth:master
+    supernode: true
     count: 2
   # nodes without validators, used for testing sync.
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethpandaops/geth:master
+    supernode: true
     validator_count: 0
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethpandaops/geth:master
+    supernode: false
     validator_count: 0
 network_params:
+  gloas_fork_epoch: 0
   slot_duration_ms: 6000
-  electra_fork_epoch: 0
-  fulu_fork_epoch: 100000 # a really big number so this test stays in electra
   preset: "minimal"
 additional_services:
   - tx_fuzz

@@ -232,3 +232,98 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
 
     Ok(())
 }
+
+#[cfg(not(debug_assertions))]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use fixed_bytes::FixedBytesExtended;
+    use std::sync::LazyLock;
+    use types::test_utils::generate_deterministic_keypairs;
+    use types::{ForkName, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    const VALIDATOR_COUNT: usize = 32;
+
+    static KEYPAIRS: LazyLock<Vec<bls::Keypair>> =
+        LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
+
+    fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .keypairs(KEYPAIRS.to_vec())
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build()
+    }
+
+    #[tokio::test]
+    async fn reject_envelope_with_mismatched_beacon_block_root() {
+        let harness = get_harness();
+        harness.advance_slot();
+
+        let state = harness.get_current_state();
+        let slot = harness.get_current_slot();
+        let ((block, _blob), envelope, post_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let mut envelope = envelope.unwrap();
+
+        // Manually modify the beacon_block_root to make it invalid.
+        envelope.message.beacon_block_root = Hash256::zero();
+
+        let block_state_root = block.state_root();
+
+        // Skip the signature verification
+        let result = verify_execution_payload_envelope(
+            &post_state,
+            &envelope,
+            VerifySignatures::False,
+            block_state_root,
+            &harness.spec,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(EnvelopeProcessingError::LatestBlockHeaderMismatch { .. })
+            ),
+            "expected LatestBlockHeaderMismatch, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_envelope_with_mismatched_parent_beacon_block_root() {
+        let harness = get_harness();
+        harness.advance_slot();
+
+        let state = harness.get_current_state();
+        let slot = harness.get_current_slot();
+        let ((block, _blob), envelope, post_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let mut envelope = envelope.unwrap();
+
+        // Manually modify the parent beacon_block_root to make it invalid.
+        envelope.message.parent_beacon_block_root = Hash256::zero();
+
+        let block_state_root = block.state_root();
+
+        let result = verify_execution_payload_envelope(
+            &post_state,
+            &envelope,
+            VerifySignatures::False,
+            block_state_root,
+            &harness.spec,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(EnvelopeProcessingError::ParentBeaconBlockRootMismatch { .. })
+            ),
+            "expected ParentBeaconBlockRootMismatch, got: {result:?}"
+        );
+    }
+}

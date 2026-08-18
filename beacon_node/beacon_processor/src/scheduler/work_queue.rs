@@ -111,6 +111,7 @@ pub struct BeaconProcessorQueueLengths {
     attestation_queue: usize,
     unknown_block_aggregate_queue: usize,
     unknown_block_attestation_queue: usize,
+    unknown_block_payload_attestation_queue: usize,
     unknown_block_data_column_queue: usize,
     sync_message_queue: usize,
     sync_contribution_queue: usize,
@@ -142,6 +143,7 @@ pub struct BeaconProcessorQueueLengths {
     payload_envelopes_broots_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     gossip_execution_payload_queue: usize,
+    gossip_execution_proof_queue: usize,
     gossip_execution_payload_bid_queue: usize,
     gossip_payload_attestation_queue: usize,
     gossip_proposer_preferences_queue: usize,
@@ -187,6 +189,8 @@ impl BeaconProcessorQueueLengths {
                 active_validator_count / slots_per_epoch,
                 MIN_QUEUE_LEN,
             ),
+            // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
+            unknown_block_payload_attestation_queue: 1536,
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
             gossip_voluntary_exit_queue: 4096,
@@ -221,6 +225,7 @@ impl BeaconProcessorQueueLengths {
             gossip_bls_to_execution_change_queue: 16384,
             // TODO(EIP-7732): verify 1024 is preferable.
             gossip_execution_payload_queue: 1024,
+            gossip_execution_proof_queue: 1024,
             // TODO(EIP-7732) how big should this queue be?
             gossip_execution_payload_bid_queue: 1024,
             // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
@@ -244,10 +249,10 @@ pub struct WorkQueues<E: EthSpec> {
     pub aggregate_queue: LifoQueue<Work<E>>,
     pub aggregate_debounce: TimeLatch,
     pub attestation_queue: LifoQueue<Work<E>>,
-    pub attestation_to_convert_queue: LifoQueue<Work<E>>,
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_payload_attestation_queue: LifoQueue<Work<E>>,
     pub unknown_block_data_column_queue: FifoQueue<Work<E>>,
     pub sync_message_queue: LifoQueue<Work<E>>,
     pub sync_contribution_queue: LifoQueue<Work<E>>,
@@ -279,6 +284,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub dcbrange_queue: FifoQueue<Work<E>>,
     pub gossip_bls_to_execution_change_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_queue: FifoQueue<Work<E>>,
+    pub gossip_execution_proof_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_bid_queue: FifoQueue<Work<E>>,
     pub gossip_payload_attestation_queue: FifoQueue<Work<E>>,
     pub gossip_proposer_preferences_queue: FifoQueue<Work<E>>,
@@ -300,12 +306,13 @@ impl<E: EthSpec> WorkQueues<E> {
         let aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let aggregate_debounce = TimeLatch::default();
         let attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
-        let attestation_to_convert_queue = LifoQueue::new(queue_lengths.attestation_queue);
         let attestation_debounce = TimeLatch::default();
         let unknown_block_aggregate_queue =
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
         let unknown_block_attestation_queue =
             LifoQueue::new(queue_lengths.unknown_block_attestation_queue);
+        let unknown_block_payload_attestation_queue =
+            LifoQueue::new(queue_lengths.unknown_block_payload_attestation_queue);
         let unknown_block_data_column_queue =
             FifoQueue::new(queue_lengths.unknown_block_data_column_queue);
 
@@ -359,6 +366,8 @@ impl<E: EthSpec> WorkQueues<E> {
 
         let gossip_execution_payload_queue =
             FifoQueue::new(queue_lengths.gossip_execution_payload_queue);
+        let gossip_execution_proof_queue =
+            FifoQueue::new(queue_lengths.gossip_execution_proof_queue);
         let gossip_execution_payload_bid_queue =
             FifoQueue::new(queue_lengths.gossip_execution_payload_bid_queue);
         let gossip_payload_attestation_queue =
@@ -385,10 +394,10 @@ impl<E: EthSpec> WorkQueues<E> {
             aggregate_queue,
             aggregate_debounce,
             attestation_queue,
-            attestation_to_convert_queue,
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
+            unknown_block_payload_attestation_queue,
             unknown_block_data_column_queue,
             sync_message_queue,
             sync_contribution_queue,
@@ -420,6 +429,7 @@ impl<E: EthSpec> WorkQueues<E> {
             payload_envelopes_broots_queue,
             gossip_bls_to_execution_change_queue,
             gossip_execution_payload_queue,
+            gossip_execution_proof_queue,
             gossip_execution_payload_bid_queue,
             gossip_payload_attestation_queue,
             gossip_proposer_preferences_queue,
