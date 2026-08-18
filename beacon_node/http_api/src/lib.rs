@@ -3235,9 +3235,6 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::PayloadAttributes => {
                                     event_handler.subscribe_payload_attributes()
                                 }
-                                api_types::EventTopic::LateHead => {
-                                    event_handler.subscribe_late_head()
-                                }
                                 api_types::EventTopic::LightClientFinalityUpdate => {
                                     event_handler.subscribe_light_client_finality_update()
                                 }
