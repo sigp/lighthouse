@@ -39,6 +39,7 @@ use types::{
     Withdrawals,
 };
 
+use crate::payload_bid_verification::payload_bid_cache::BidParent;
 use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
@@ -930,8 +931,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> WinningBid<T::EthSpec> {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
             local_signed_bid.message.slot,
-            local_signed_bid.message.parent_block_hash,
-            local_signed_bid.message.parent_block_root,
+            BidParent::from_bid(&local_signed_bid.message),
         );
         select_payload_bid_pure(
             local_signed_bid,

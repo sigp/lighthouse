@@ -951,12 +951,34 @@ impl ProtoArrayForkChoice {
 
     pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
         let block = self.get_proto_node(block_root)?;
+        Some(self.proto_node_to_block(block))
+    }
+
+    /// Returns the blocks of the direct children of the block with `block_root`.
+    ///
+    /// Returns an empty vec if the block is unknown or has no children.
+    pub fn get_children(&self, block_root: &Hash256) -> Vec<Block> {
+        self.proto_array
+            .indices
+            .get(block_root)
+            .and_then(|&index| self.proto_array.children.get(index))
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|&child_index| self.proto_array.nodes.get(child_index))
+                    .map(|child| self.proto_node_to_block(child))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn proto_node_to_block(&self, block: &ProtoNode) -> Block {
         let parent_root = block
             .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root());
 
-        Some(Block {
+        Block {
             slot: block.slot(),
             root: block.root(),
             parent_root,
@@ -975,7 +997,7 @@ impl ProtoArrayForkChoice {
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
             payload_received: block.payload_received().unwrap_or(false),
-        })
+        }
     }
 
     /// Called by the proposer to decide whether to build on the full or empty

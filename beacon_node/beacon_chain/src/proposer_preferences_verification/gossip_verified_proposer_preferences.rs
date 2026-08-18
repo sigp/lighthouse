@@ -88,8 +88,42 @@ impl GossipVerifiedProposerPreferences {
             ctx.spec,
         )?;
 
-        // Resolve the proposer for `proposal_slot` via the proposer shuffling cache.
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let lookahead_epoch = proposal_epoch.saturating_sub(ctx.spec.min_seed_lookahead);
+        let head_block_root = ctx.canonical_head.cached_head().head_block_root();
+        let fork_choice_read = ctx.canonical_head.fork_choice_read_lock();
+
+        let dependent_block = fork_choice_read
+            .get_block(&dependent_root)
+            .ok_or(ProposerPreferencesError::DependentRootUnknown { dependent_root })?;
+
+        // Ensure the dependent root block is before the start of the lookahead epoch.
+        // Skip this check for gloas at genesis/epoch 1.
+        if dependent_block.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            && dependent_block.slot != 0
+        {
+            return Err(ProposerPreferencesError::DependentRootTooRecent {
+                dependent_root,
+                block_slot: dependent_block.slot,
+                epoch_start_slot: lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            });
+        }
+
+        // Look for at least one child that crosses the epoch boundary directly after `dependent_block`.
+        let has_qualifying_child = fork_choice_read
+            .get_children(&dependent_root)
+            .iter()
+            .any(|child| child.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()));
+
+        // Head is exempt from this check, it may eventually have a child that crosses the epoch boundary.
+        if !has_qualifying_child && dependent_root != head_block_root {
+            return Err(ProposerPreferencesError::InvalidDependentRoot { dependent_root });
+        }
+
+        drop(fork_choice_read);
+
+        // Resolve the proposer for `proposal_slot` via the proposer shuffling cache.
         let proposer = with_proposer_cache(
             ctx.beacon_proposer_cache,
             dependent_root,
