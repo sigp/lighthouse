@@ -153,8 +153,10 @@ impl TestContext {
         state
             .build_all_caches(&self.spec)
             .expect("should build state caches");
-        ensure_state_can_determine_proposers_for_epoch(&mut state, state_root, epoch, &self.spec)
-            .expect("should advance state to determine proposers");
+        ensure_state_can_determine_proposers_for_epoch(
+            &mut state, state_root, epoch, None, &self.spec,
+        )
+        .expect("should advance state to determine proposers");
         let proposers = state
             .get_beacon_proposer_indices(epoch, &self.spec)
             .expect("should compute proposer indices");
