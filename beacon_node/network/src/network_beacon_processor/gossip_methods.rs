@@ -4233,7 +4233,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
-                | PayloadBidError::ParentBlockRootNotCanonical { .. }
+                | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
