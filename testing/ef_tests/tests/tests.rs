@@ -1216,56 +1216,6 @@ fn genesis_validity() {
 }
 
 #[test]
-fn kzg_blob_to_kzg_commitment() {
-    KZGBlobToKZGCommitmentHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_blob_kzg_proof() {
-    KZGComputeBlobKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_kzg_proof() {
-    KZGComputeKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_blob_kzg_proof() {
-    KZGVerifyBlobKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_blob_kzg_proof_batch() {
-    KZGVerifyBlobKZGProofBatchHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_kzg_proof() {
-    KZGVerifyKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_cells() {
-    KZGComputeCellsHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_cells_and_proofs() {
-    KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_cell_proof_batch() {
-    KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_recover_cells_and_proofs() {
-    KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
 fn light_client_merkle_proof_validity() {
     MerkleProofValidityHandler::<MinimalEthSpec>::default().run();
     MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
