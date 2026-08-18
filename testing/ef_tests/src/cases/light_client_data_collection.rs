@@ -9,6 +9,7 @@ use bls::Signature;
 use serde::Deserialize;
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::path::{Path, PathBuf};
+use ssz::Encode;
 use std::sync::Arc;
 use std::time::Duration;
 use types::BlockImportSource;
@@ -208,7 +209,11 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                             |bytes| LightClientFinalityUpdate::from_ssz_bytes(bytes, fork_name),
                         )?;
                         let actual = harness.chain.light_client_server_cache.get_latest_finality_update();
-                        if actual != Some(expected) {
+                        let expected_clone = expected.clone();
+			if actual != Some(expected.clone()) {
+			    eprintln!("DEBUG actual sig_slot bytes: {}", hex::encode(&actual.as_ref().map(|a| a.as_ssz_bytes()).unwrap_or_default()[516..524]));
+			    eprintln!("DEBUG expected sig_slot bytes: {}", hex::encode(&expected.as_ssz_bytes()[516..524]));
+			
                             return Err(Error::NotEqual("latest_finality_update mismatch".into()));
                         }
                     }
