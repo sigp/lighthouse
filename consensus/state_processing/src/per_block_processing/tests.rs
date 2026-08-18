@@ -441,10 +441,15 @@ async fn invalid_attestation_no_committee_for_index() {
         .into_data_mut()
         .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
@@ -491,10 +496,15 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
@@ -545,10 +555,15 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
     }
 
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
@@ -585,10 +600,15 @@ async fn invalid_attestation_bad_signature() {
         .into_signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
@@ -629,10 +649,15 @@ async fn invalid_attestation_included_too_early() {
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
@@ -680,10 +705,15 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .epoch += Epoch::new(1);
 
     let mut ctxt = ConsensusContext::new(state.slot());
+    let parent_slot = state
+        .latest_execution_payload_bid()
+        .ok()
+        .map(|bid| bid.slot);
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
         VerifySignatures::True,
+        parent_slot,
         &mut ctxt,
         &spec,
     );
