@@ -53,6 +53,56 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Returns the duration until the next slot.
     fn duration_to_next_slot(&self) -> Option<Duration>;
 
+    /// Returns the soonest slot whose deadline has not yet elapsed, and the wait until that
+    /// deadline.
+    ///
+    /// The deadline for a slot is `start_of(slot) + offset_for_slot(slot)`. If `now` is at or
+    /// before the current slot's deadline, that slot is returned (the wait may be zero).
+    /// Otherwise the next slot is returned.
+    ///
+    /// `now` should be a single snapshot from `now_duration()`.
+    fn duration_to_deadline<F: Fn(Slot) -> Duration>(
+        &self,
+        now: Duration,
+        offset_for_slot: F,
+    ) -> Option<(Slot, Duration)> {
+        let current_slot = self.slot_of(now).unwrap_or_else(|| self.genesis_slot());
+        let current_deadline = self
+            .start_of(current_slot)?
+            .checked_add(offset_for_slot(current_slot))?;
+        if let Some(wait) = current_deadline.checked_sub(now) {
+            return Some((current_slot, wait));
+        }
+        let next_slot = current_slot + 1;
+        let next_deadline = self
+            .start_of(next_slot)?
+            .checked_add(offset_for_slot(next_slot))?;
+        next_deadline.checked_sub(now).map(|wait| (next_slot, wait))
+    }
+
+    /// Like [`Self::duration_to_deadline`], skipping any slot `<= after`.
+    ///
+    /// Duty loops pass the last attempted slot so a zero wait cannot spin on that slot.
+    fn duration_to_deadline_after<F: Fn(Slot) -> Duration>(
+        &self,
+        now: Duration,
+        offset_for_slot: F,
+        after: Option<Slot>,
+    ) -> Option<(Slot, Duration)> {
+        let (slot, wait) = self.duration_to_deadline(now, &offset_for_slot)?;
+        let Some(after) = after else {
+            return Some((slot, wait));
+        };
+        if slot > after {
+            return Some((slot, wait));
+        }
+        let next_slot = after + 1;
+        let next_deadline = self
+            .start_of(next_slot)?
+            .checked_add(offset_for_slot(next_slot))?;
+        next_deadline.checked_sub(now).map(|wait| (next_slot, wait))
+    }
+
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
@@ -119,4 +169,201 @@ pub fn timestamp_now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SLOT_DURATION: Duration = Duration::from_secs(12);
+    const GENESIS_DURATION: Duration = Duration::from_secs(12);
+    const OFFSET: Duration = Duration::from_secs(4);
+    const PRE_FORK_OFFSET: Duration = Duration::from_secs(4);
+    const POST_FORK_OFFSET: Duration = Duration::from_secs(3);
+    const FORK_SLOT: Slot = Slot::new(32);
+
+    fn clock() -> ManualSlotClock {
+        ManualSlotClock::new(Slot::new(0), GENESIS_DURATION, SLOT_DURATION)
+    }
+
+    fn constant_offset(_slot: Slot) -> Duration {
+        OFFSET
+    }
+
+    fn fork_aware_offset(slot: Slot) -> Duration {
+        if slot >= FORK_SLOT {
+            POST_FORK_OFFSET
+        } else {
+            PRE_FORK_OFFSET
+        }
+    }
+
+    #[test]
+    fn duration_to_deadline_pre_genesis() {
+        let clock = clock();
+        let now = GENESIS_DURATION - Duration::from_secs(1);
+        assert_eq!(
+            clock.duration_to_deadline(now, constant_offset),
+            Some((Slot::new(0), Duration::from_secs(5)))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_at_slot_start() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(0)).unwrap();
+        assert_eq!(
+            clock.duration_to_deadline(now, constant_offset),
+            Some((Slot::new(0), OFFSET))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_one_ms_before_due() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(0)).unwrap() + OFFSET - Duration::from_millis(1);
+        assert_eq!(
+            clock.duration_to_deadline(now, constant_offset),
+            Some((Slot::new(0), Duration::from_millis(1)))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_exactly_at_due() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(0)).unwrap() + OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline(now, constant_offset),
+            Some((Slot::new(0), Duration::ZERO))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_one_ms_after_due() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(0)).unwrap() + OFFSET + Duration::from_millis(1);
+        let expected_wait = SLOT_DURATION - OFFSET - Duration::from_millis(1) + OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline(now, constant_offset),
+            Some((Slot::new(1), expected_wait))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_uses_current_slot_offset_at_fork_boundary() {
+        let clock = clock();
+        let last_pre_fork = FORK_SLOT - 1;
+        let now = clock.start_of(last_pre_fork).unwrap();
+        assert_eq!(
+            clock.duration_to_deadline(now, fork_aware_offset),
+            Some((last_pre_fork, PRE_FORK_OFFSET))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_uses_next_slot_offset_after_current_deadline() {
+        let clock = clock();
+        let last_pre_fork = FORK_SLOT - 1;
+        let now =
+            clock.start_of(last_pre_fork).unwrap() + PRE_FORK_OFFSET + Duration::from_millis(1);
+        let expected_wait =
+            SLOT_DURATION - PRE_FORK_OFFSET - Duration::from_millis(1) + POST_FORK_OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline(now, fork_aware_offset),
+            Some((FORK_SLOT, expected_wait))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_at_fork_slot_start() {
+        let clock = clock();
+        let now = clock.start_of(FORK_SLOT).unwrap();
+        assert_eq!(
+            clock.duration_to_deadline(now, fork_aware_offset),
+            Some((FORK_SLOT, POST_FORK_OFFSET))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_non_zero_genesis_slot() {
+        let genesis_slot = Slot::new(1);
+        let genesis_duration = Duration::from_secs(10);
+        let slot_duration = Duration::from_secs(1);
+        let offset = Duration::from_millis(200);
+        let clock = ManualSlotClock::new(genesis_slot, genesis_duration, slot_duration);
+        let now = genesis_duration;
+        assert_eq!(
+            clock.duration_to_deadline(now, |_| offset),
+            Some((genesis_slot, offset))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_pre_genesis_with_non_zero_genesis_slot() {
+        let genesis_slot = Slot::new(1);
+        let genesis_duration = Duration::from_secs(10);
+        let slot_duration = Duration::from_secs(1);
+        let offset = Duration::from_millis(200);
+        let clock = ManualSlotClock::new(genesis_slot, genesis_duration, slot_duration);
+        let now = Duration::from_secs(5);
+        assert_eq!(
+            clock.duration_to_deadline(now, |_| offset),
+            Some((genesis_slot, Duration::from_secs(5) + offset))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_after_none_matches_duration_to_deadline() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(0)).unwrap();
+        assert_eq!(
+            clock.duration_to_deadline_after(now, constant_offset, None),
+            clock.duration_to_deadline(now, constant_offset)
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_after_exact_due_skips_attempted_slot() {
+        let clock = clock();
+        let slot = Slot::new(0);
+        let now = clock.start_of(slot).unwrap() + OFFSET;
+        let expected_wait = SLOT_DURATION - OFFSET + OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline_after(now, constant_offset, Some(slot)),
+            Some((Slot::new(1), expected_wait))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_after_before_due_skips_attempted_slot() {
+        let clock = clock();
+        let slot = Slot::new(0);
+        let now = clock.start_of(slot).unwrap();
+        let expected_wait = SLOT_DURATION + OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline_after(now, constant_offset, Some(slot)),
+            Some((Slot::new(1), expected_wait))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_after_already_in_next_slot_before_due() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(1)).unwrap() + Duration::from_secs(1);
+        assert_eq!(
+            clock.duration_to_deadline_after(now, constant_offset, Some(Slot::new(0))),
+            Some((Slot::new(1), OFFSET - Duration::from_secs(1)))
+        );
+    }
+
+    #[test]
+    fn duration_to_deadline_after_past_next_deadline_skips_to_slot_after_current() {
+        let clock = clock();
+        let now = clock.start_of(Slot::new(1)).unwrap() + OFFSET + Duration::from_millis(1);
+        let expected_wait = SLOT_DURATION - OFFSET - Duration::from_millis(1) + OFFSET;
+        assert_eq!(
+            clock.duration_to_deadline_after(now, constant_offset, Some(Slot::new(0))),
+            Some((Slot::new(2), expected_wait))
+        );
+    }
 }
