@@ -89,7 +89,7 @@ fn into_store_builder_config(config: api_types::BuilderConfig) -> ValidatorBuild
                 .into_iter()
                 .map(|builder| ValidatorBuilderDefinition {
                     url: builder.url,
-                    auth_data: builder.auth_data.map(|data| data.0),
+                    auth_data: builder.auth_data,
                     builder_pubkeys: builder.builder_pubkeys.unwrap_or_default(),
                     max_execution_payment: builder.max_execution_payment.map(|value| value.value),
                     min_bid: builder.min_bid.map(|value| value.value),
@@ -109,11 +109,11 @@ fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderC
     let builders = builders
         .into_iter()
         .map(|builder| {
-            let auth_data = Some(api_types::HexRequestAuthData(
+            let auth_data = Some(
                 builder
                     .auth_data
                     .unwrap_or_else(|| builder.url.to_default_auth_data()),
-            ));
+            );
             api_types::BuilderEntry {
                 url: builder.url,
                 auth_data,

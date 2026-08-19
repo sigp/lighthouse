@@ -1071,9 +1071,7 @@ async fn validator_builder_configuration_endpoints() {
         builder_boost_factor: Some(Quoted { value: 115 }),
         builders: Some(vec![BuilderEntry {
             url: "https://builder.example".parse().unwrap(),
-            auth_data: Some(HexRequestAuthData(
-                RequestAuthData::new(b"validator-auth".to_vec()).unwrap(),
-            )),
+            auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
             builder_pubkeys: Some(vec![]),
             max_execution_payment: Some(Quoted { value: 8 }),
             min_bid: None,
@@ -1092,9 +1090,7 @@ async fn validator_builder_configuration_endpoints() {
             builder_boost_factor: Some(Quoted { value: 115 }),
             builders: Some(vec![BuilderEntry {
                 url: "https://builder.example".parse().unwrap(),
-                auth_data: Some(HexRequestAuthData(
-                    RequestAuthData::new(b"validator-auth".to_vec()).unwrap(),
-                )),
+                auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
                 builder_pubkeys: Some(vec![]),
                 max_execution_payment: Some(Quoted { value: 8 }),
                 min_bid: Some(Quoted { value: 3 }),
@@ -1173,7 +1169,7 @@ async fn builder_configuration_rejects_invalid_input() {
     let empty_auth = BuilderConfig {
         builders: Some(vec![BuilderEntry {
             url: "https://builder.example".parse().unwrap(),
-            auth_data: Some(HexRequestAuthData(RequestAuthData::default())),
+            auth_data: Some(RequestAuthData::default()),
             builder_pubkeys: Some(vec![]),
             max_execution_payment: Some(Quoted { value: 1 }),
             min_bid: None,
