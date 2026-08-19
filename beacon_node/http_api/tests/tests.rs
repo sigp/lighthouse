@@ -8629,7 +8629,7 @@ impl ApiTester {
         let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
         // Check that there aren't any trusted peers on startup
         assert!(trusted_peers.is_empty());
-        let enr = AdminPeer {enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string()};
+        let enr = AdminPeer { enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string() };
         self.client
             .post_lighthouse_add_peer(enr.clone())
             .await
@@ -9367,6 +9367,125 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(result.execution_optimistic, Some(true));
+    }
+
+    pub async fn test_inclusion_list_post_fork_name_invalid_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let epoch = self.chain.epoch().unwrap();
+        let slot = self.chain.slot().unwrap();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let head_state = self.chain.head_beacon_state_cloned();
+        let dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+        // TODO: use get_inclusion_list_committee from the beacon state when available
+        let beacon_committee = head_state.get_beacon_committees_at_slot(slot).unwrap();
+        let validator_index = beacon_committee[0].committee[0] as u64;
+        let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
+        let inclusion_list = InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: ProgressiveTransactions::new(Vec::new()).unwrap(),
+        };
+
+        let signed_il = self.sign_inclusion_list(
+            inclusion_list,
+            sk,
+            epoch,
+            &head_state.fork(),
+            genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, ForkName::Gloas)
+            .await
+            .expect_err("publishing inclusion list should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_ssz_fork_name_invalid_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let epoch = self.chain.epoch().unwrap();
+        let slot = self.chain.slot().unwrap();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let head_state = self.chain.head_beacon_state_cloned();
+        let dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+        // TODO: use get_inclusion_list_committee from the beacon state when available
+        let beacon_committee = head_state.get_beacon_committees_at_slot(slot).unwrap();
+        let validator_index = beacon_committee[0].committee[0] as u64;
+        let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
+        let inclusion_list = InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: ProgressiveTransactions::new(Vec::new()).unwrap(),
+        };
+
+        let signed_il = self.sign_inclusion_list(
+            inclusion_list,
+            sk,
+            epoch,
+            &head_state.fork(),
+            genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list_ssz(&signed_il, ForkName::Gloas)
+            .await
+            .expect_err("publishing inclusion list should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    fn sign_inclusion_list(
+        &self,
+        inclusion_list: InclusionList,
+        sk: &SecretKey,
+        epoch: Epoch,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+    ) -> SignedInclusionList {
+        let domain = self.chain.spec.get_domain(
+            epoch,
+            Domain::InclusionListCommittee,
+            fork,
+            genesis_validators_root,
+        );
+        let signing_root = inclusion_list.signing_root(domain);
+        let signature = sk.sign(signing_root);
+
+        SignedInclusionList {
+            message: inclusion_list,
+            signature,
+        }
     }
 
     async fn test_get_beacon_rewards_blocks_at_head(
@@ -11248,4 +11367,42 @@ async fn post_beacon_execution_payload_bids() {
         .await
         .test_post_beacon_execution_payload_bids_ssz()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inclusion_list_publish_pre_heze() {
+    if fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+
+    /*    ApiTester::new_with_hard_forks()
+    .await
+    .test_inclusion_list_post_pre_heze_returns_400()
+    .await
+    .test_inclusion_list_post_ssz_pre_heze_returns_400()*/
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inclusion_list_api() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_inclusion_list_post_fork_name_invalid_returns_400()
+        .await
+        .test_inclusion_list_post_ssz_fork_name_invalid_returns_400()
+        .await;
+
+    /*
+    .test_inclusion_list_post_while_syincing_returns_503()
+    .await
+    .test_inclusion_list_post_ssz_while_syncing_returns_503()
+    .await
+    .test_inclusion_list_post_valid()
+    .await
+    .test_inclusion_list_post_ssz_valid()
+    .await
+    .test_inclusion_list_post_ssz_malformed_returns_400();*/
 }
