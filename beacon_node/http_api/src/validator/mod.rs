@@ -1564,7 +1564,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
         .boxed()
 }
 
-/// POST validator/proposer_preferences (SSZ)
+/// POST validator/inclusion_list (SSZ)
 pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     not_while_syncing_filter: NotWhileSyncingFilter,
@@ -1606,7 +1606,7 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
 
 fn publish_inclusion_list<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    _network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     signed_inclusion_list: SignedInclusionList,
 ) -> Result<(), warp::Rejection> {
     let slot = signed_inclusion_list.message.slot;
@@ -1620,8 +1620,13 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
     }
 
     match chain.verify_inclusion_list_for_gossip(Arc::new(signed_inclusion_list)) {
-        Ok(_verified_inclusion_list) => {
-            // inclusion list is verified, so we can publish it to the network
+        Ok(verified_inclusion_list) => {
+            crate::utils::publish_pubsub_message(
+                network_tx,
+                PubsubMessage::InclusionList(Box::new(
+                    (*verified_inclusion_list.signed_inclusion_list).clone(),
+                )),
+            )?;
             Ok(())
         }
         Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {
@@ -1642,17 +1647,17 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 "internal error verifying inclusion list: {e:?}"
             )))
         }
-        // TODO(heze): remove once the the IL gossip verification errors are added to InclusionListVerificationError
+        // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError
         #[allow(unreachable_patterns)]
         Err(e) => {
             warn!(
                 %slot,
                 %validator_index,
                 error = ?e,
-                "Unable to process sync subscriptions"
+                "Inclusion list failed gossip verification"
             );
             Err(warp_utils::reject::custom_bad_request(format!(
-                "Error publishing inclusion list: {e}"
+                "inclusion list failed gossip verification: {e}"
             )))
         }
     }
