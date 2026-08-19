@@ -1,0 +1,1 @@
+review response: rename post_validator_blocks_v4_path (verb was a GET-era fossil), builder_url max-size test + compile-time MaxDataSize invariant, BuilderConfig doc rewrite (fully-resolved / not-defaults), typed SubmittedBuilderPreferences list bound (4096, beacon-APIs #630)
