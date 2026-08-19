@@ -182,8 +182,7 @@ impl BuilderStore {
     ///
     /// The update returns `false` when it made no change and no save is required.
     /// The upgradable read guard serializes writers from snapshot through save. The brief upgrade
-    /// publishes only a successfully persisted candidate. The replaced config is dropped after the
-    /// write guard is released because it can contain a large per-validator map.
+    /// publishes only a successfully persisted candidate.
     fn persist_update(
         &self,
         update: impl FnOnce(&mut BuilderConfigFile) -> Result<bool, Error>,
@@ -194,12 +193,7 @@ impl BuilderStore {
             return Ok(());
         }
         candidate.save(&self.validators_dir)?;
-
-        let previous = {
-            let mut config = RwLockUpgradableReadGuard::upgrade(config);
-            std::mem::replace(&mut *config, candidate)
-        };
-        drop(previous);
+        *RwLockUpgradableReadGuard::upgrade(config) = candidate;
         Ok(())
     }
 }
