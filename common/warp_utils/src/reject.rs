@@ -66,6 +66,15 @@ pub fn custom_bad_request(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct CustomForbidden(pub String);
+
+impl Reject for CustomForbidden {}
+
+pub fn custom_forbidden(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(CustomForbidden(msg))
+}
+
+#[derive(Debug)]
 pub struct CustomDeserializeError(pub String);
 
 impl Reject for CustomDeserializeError {}
@@ -176,9 +185,6 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
         code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
         message = "UNSUPPORTED_MEDIA_TYPE".to_string();
-    } else if err.find::<warp::reject::PayloadTooLarge>().is_some() {
-        code = StatusCode::PAYLOAD_TOO_LARGE;
-        message = "PAYLOAD_TOO_LARGE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;
@@ -197,6 +203,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::CustomBadRequest>() {
         code = StatusCode::BAD_REQUEST;
         message = format!("BAD_REQUEST: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::CustomForbidden>() {
+        code = StatusCode::FORBIDDEN;
+        message = format!("FORBIDDEN: {}", e.0);
     } else if let Some(e) = err.find::<crate::reject::CustomServerError>() {
         code = StatusCode::INTERNAL_SERVER_ERROR;
         message = format!("INTERNAL_SERVER_ERROR: {}", e.0);

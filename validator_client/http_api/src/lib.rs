@@ -82,18 +82,18 @@ impl From<String> for Error {
 
 fn into_store_builder_config(config: api_types::BuilderConfig) -> ValidatorBuilderConfig {
     ValidatorBuilderConfig {
-        min_bid: config.min_bid,
-        builder_boost_factor: config.builder_boost_factor,
+        min_bid: config.min_bid.map(|value| value.value),
+        builder_boost_factor: config.builder_boost_factor.map(|value| value.value),
         builders: config.builders.map(|builders| {
             builders
                 .into_iter()
                 .map(|builder| ValidatorBuilderDefinition {
                     url: builder.url,
-                    auth_data: builder.auth_data,
+                    auth_data: builder.auth_data.map(|data| data.0),
                     builder_pubkeys: builder.builder_pubkeys.unwrap_or_default(),
-                    max_execution_payment: builder.max_execution_payment,
-                    min_bid: builder.min_bid,
-                    builder_boost_factor: builder.builder_boost_factor,
+                    max_execution_payment: builder.max_execution_payment.map(|value| value.value),
+                    min_bid: builder.min_bid.map(|value| value.value),
+                    builder_boost_factor: builder.builder_boost_factor.map(|value| value.value),
                 })
                 .collect()
         }),
@@ -109,27 +109,33 @@ fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderC
     let builders = builders
         .into_iter()
         .map(|builder| {
-            let auth_data = Some(
+            let auth_data = Some(api_types::HexRequestAuthData(
                 builder
                     .auth_data
                     .unwrap_or_else(|| builder.url.to_default_auth_data()),
-            );
+            ));
             api_types::BuilderEntry {
                 url: builder.url,
                 auth_data,
                 builder_pubkeys: Some(builder.builder_pubkeys),
-                max_execution_payment: Some(builder.max_execution_payment),
-                min_bid: Some(builder.min_bid.unwrap_or(min_bid)),
-                builder_boost_factor: Some(
-                    builder.builder_boost_factor.unwrap_or(builder_boost_factor),
-                ),
+                max_execution_payment: Some(api_types::Quoted {
+                    value: builder.max_execution_payment,
+                }),
+                min_bid: Some(api_types::Quoted {
+                    value: builder.min_bid.unwrap_or(min_bid),
+                }),
+                builder_boost_factor: Some(api_types::Quoted {
+                    value: builder.builder_boost_factor.unwrap_or(builder_boost_factor),
+                }),
             }
         })
         .collect();
 
     api_types::BuilderConfig {
-        min_bid: Some(min_bid),
-        builder_boost_factor: Some(builder_boost_factor),
+        min_bid: Some(api_types::Quoted { value: min_bid }),
+        builder_boost_factor: Some(api_types::Quoted {
+            value: builder_boost_factor,
+        }),
         builders: Some(builders),
     }
 }
@@ -147,10 +153,11 @@ fn builder_store_rejection(error: builder_store::Error) -> warp::Rejection {
     }
 }
 
-// The API bounds each configuration at 64 entries, each with bounded URLs, auth data, and
-// builder public keys. Keep body decoding bounded as well, so malformed authenticated requests
-// cannot allocate without limit before those per-field checks run.
-const MAX_BUILDER_CONFIG_BODY_SIZE: u64 = 2 * 1024 * 1024;
+fn builder_store_delete_rejection(error: builder_store::Error) -> warp::Rejection {
+    warp_utils::reject::custom_forbidden(format!(
+        "builder configuration could not be removed: {error:?}"
+    ))
+}
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -1137,9 +1144,6 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("validator"))
         .and(warp::path::param::<PublicKey>())
         .and(warp::path("builder_config"))
-        .and(warp::body::content_length_limit(
-            MAX_BUILDER_CONFIG_BODY_SIZE,
-        ))
         .and(warp::body::json())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
@@ -1211,7 +1215,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 warp::http::StatusCode::NO_CONTENT,
                             )
                         })
-                        .map_err(builder_store_rejection)
+                        .map_err(builder_store_delete_rejection)
                 })
             },
         );

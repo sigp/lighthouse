@@ -1,11 +1,12 @@
 use account_utils::write_file_via_temporary;
 use bls::PublicKeyBytes;
 use builder_types::{BuilderPubkeys, BuilderUrl, MAX_BUILDER_ENTRIES, RequestAuthData};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 /// The file name for the serialized `BuilderConfigFile` struct.
 pub const BUILDERS_FILENAME: &str = "builder_definitions.yml";
@@ -80,7 +81,7 @@ fn default_builder_boost_factor() -> u64 {
 
 /// Serde helper: represent `Option<RequestAuthData>` as a `0x`-prefixed hex string in the config
 /// file (matching how other byte fields are encoded), omitting it entirely when `None`.
-pub(crate) mod serde_option_auth_data {
+mod serde_option_auth_data {
     use super::RequestAuthData;
     use serde::{Deserialize, Deserializer, Serializer, de};
 
@@ -169,12 +170,17 @@ impl ValidatorBuilderConfig {
 
         let mut seen_auth_urls = HashSet::new();
         for builder in builders {
-            validate_builder_definition(
-                &builder.url,
-                &builder.auth_data,
-                &builder.builder_pubkeys,
-                &mut seen_auth_urls,
-            )?;
+            validate_builder_definition(&builder.url, &builder.auth_data, &mut seen_auth_urls)?;
+            if BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_err() {
+                return Err(Error::TooManyBuilderPubkeys(builder.url.clone()));
+            }
+            if builder
+                .auth_data
+                .as_ref()
+                .is_some_and(|data| data.is_empty())
+            {
+                return Err(Error::EmptyAuthData(builder.url.clone()));
+            }
         }
 
         Ok(())
@@ -200,8 +206,37 @@ pub struct BuilderConfigFile {
     #[serde(default)]
     pub builders: Vec<BuilderDefinition>,
     /// Per-validator overrides. The key is the compressed validator public key in hex form.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "serde_validator_configs"
+    )]
     pub validator_configs: BTreeMap<String, ValidatorBuilderConfig>,
+}
+
+mod serde_validator_configs {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(
+        configs: &BTreeMap<String, ValidatorBuilderConfig>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        configs.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<String, ValidatorBuilderConfig>, D::Error> {
+        let configs = BTreeMap::<String, ValidatorBuilderConfig>::deserialize(deserializer)?;
+        let mut canonical = BTreeMap::new();
+        for (key, config) in configs {
+            let public_key = PublicKeyBytes::from_str(&key).map_err(de::Error::custom)?;
+            if canonical.insert(public_key.to_string(), config).is_some() {
+                return Err(de::Error::custom("duplicate validator public key"));
+            }
+        }
+        Ok(canonical)
+    }
 }
 
 impl Default for BuilderConfigFile {
@@ -286,12 +321,7 @@ impl BuilderConfigFile {
                 continue;
             }
             let url = &definition.url;
-            validate_builder_definition(
-                url,
-                &definition.auth_data,
-                &definition.builder_pubkeys,
-                &mut seen_auth_urls,
-            )?;
+            validate_builder_definition(url, &definition.auth_data, &mut seen_auth_urls)?;
         }
 
         for config in self.validator_configs.values() {
@@ -321,7 +351,14 @@ impl BuilderConfigFile {
             None => self
                 .builders
                 .iter()
-                .filter(|builder| builder.enabled)
+                .filter(|builder| {
+                    builder.enabled
+                        && BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_ok()
+                        && !builder
+                            .auth_data
+                            .as_ref()
+                            .is_some_and(|auth_data| auth_data.is_empty())
+                })
                 .map(|builder| {
                     let mut builder = builder.clone();
                     builder.min_bid = Some(builder.min_bid.unwrap_or(min_bid));
@@ -386,7 +423,6 @@ impl BuilderConfigFile {
 fn validate_builder_definition(
     url: &BuilderUrl,
     auth_data: &Option<RequestAuthData>,
-    builder_pubkeys: &[PublicKeyBytes],
     seen_auth_urls: &mut HashSet<(BuilderUrl, RequestAuthData)>,
 ) -> Result<(), Error> {
     // Reject malformed or non-http(s) builder URLs here, at config load, rather than silently
@@ -398,17 +434,9 @@ fn validate_builder_definition(
         return Err(Error::UnsupportedUrlScheme(url.clone()));
     }
 
-    if BuilderPubkeys::new(builder_pubkeys.to_vec()).is_err() {
-        return Err(Error::TooManyBuilderPubkeys(url.clone()));
-    }
-
     let auth = auth_data
         .clone()
         .unwrap_or_else(|| url.to_default_auth_data());
-    if auth.is_empty() {
-        return Err(Error::EmptyAuthData(url.clone()));
-    }
-
     // Two entries cannot contain the same URL and auth data.
     if !seen_auth_urls.insert((url.clone(), auth)) {
         return Err(Error::DuplicateBuilderAuth(url.clone()));
@@ -476,5 +504,19 @@ mod tests {
                 "unset `{field}` should be omitted:\n{yaml}"
             );
         }
+    }
+
+    #[test]
+    fn validator_config_keys_are_canonicalized() {
+        let public_key = bls::Keypair::random().pk.compress();
+        let encoded = public_key.to_string();
+        let uppercase = format!("0x{}", encoded[2..].to_uppercase());
+        let yaml = format!("validator_configs:\n  {uppercase}: {{}}\n");
+
+        let config: BuilderConfigFile = yaml_serde::from_str(&yaml).unwrap();
+        assert!(config.validator_configs.contains_key(&encoded));
+
+        let invalid = "validator_configs:\n  not-a-public-key: {}\n";
+        assert!(yaml_serde::from_str::<BuilderConfigFile>(invalid).is_err());
     }
 }

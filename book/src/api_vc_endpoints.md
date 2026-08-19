@@ -20,21 +20,10 @@
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
 | [`GET /lighthouse/beacon/health`](#get-lighthousebeaconhealth) | Get health information for each connected beacon node. |
 | [`POST /lighthouse/beacon/update`](#post-lighthousebeaconupdate) | Update the `--beacon-nodes` list. |
-| `GET /eth/v1/validator/:voting_pubkey/builder_config` | Get the resolved external-builder configuration for a validator. |
-| `POST /eth/v1/validator/:voting_pubkey/builder_config` | Replace the external-builder configuration for a validator. |
-| `DELETE /eth/v1/validator/:voting_pubkey/builder_config` | Remove the external-builder configuration and restore inheritance. |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api_vc_auth_header.md).
 
-In addition to the above endpoints Lighthouse supports the standard keymanager endpoints listed in
-the [keymanager API specification](https://ethereum.github.io/keymanager-APIs/).
-
-The builder configuration endpoints use the path
-`/eth/v1/validator/{voting_pubkey}/builder_config`. `GET` returns resolved values. `POST` replaces the
-per-validator configuration and accepts an empty object. Omitted fields inherit the global builder
-configuration, while `builders: []` explicitly disables direct builders. `DELETE` removes the
-per-validator configuration and restores global inheritance. Payment and boost values are quoted
-decimal strings, and `auth_data` is `0x`-prefixed hex.
+In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
 ## `GET /lighthouse/version`
 
