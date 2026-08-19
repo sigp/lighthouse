@@ -396,8 +396,14 @@ pub mod gloas {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             // [New in Gloas:EIP7732]
-            // For same-slot attestations, check if we're setting any new flags
-            // If we are, this validator hasn't contributed to this slot's quorum yet
+            let had_no_participation = state
+                .get_epoch_participation_mut(data.target.epoch, previous_epoch, current_epoch)?
+                .get(index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?
+                .into_u8()
+                == 0;
+
+            // [New in Gloas:EIP7732]
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
@@ -430,9 +436,8 @@ pub mod gloas {
             }
 
             // [New in Gloas:EIP7732]
-            // Add weight for same-slot attestations when any new flag is set.
-            // This ensures each validator contributes exactly once per slot.
             if will_set_new_flag
+                && had_no_participation
                 && state.is_attestation_same_slot(data)?
                 && payment_withdrawal_amount > 0
             {
