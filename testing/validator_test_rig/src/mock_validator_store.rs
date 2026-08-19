@@ -57,7 +57,7 @@ impl ValidatorStore for MockValidatorStore {
     }
 
     fn validator_index(&self, _pubkey: &PublicKeyBytes) -> Option<u64> {
-        unimplemented!()
+        panic!("MockValidatorStore::validator_index called without a hook")
     }
 
     fn voting_pubkeys<I, F>(&self, _filter_func: F) -> I
@@ -65,27 +65,27 @@ impl ValidatorStore for MockValidatorStore {
         I: FromIterator<PublicKeyBytes>,
         F: Fn(DoppelgangerStatus) -> Option<PublicKeyBytes>,
     {
-        unimplemented!()
+        panic!("MockValidatorStore::voting_pubkeys called without a hook")
     }
 
     fn doppelganger_protection_allows_signing(&self, _validator_pubkey: PublicKeyBytes) -> bool {
-        unimplemented!()
+        panic!("MockValidatorStore::doppelganger_protection_allows_signing called without a hook")
     }
 
     fn num_voting_validators(&self) -> usize {
-        unimplemented!()
+        panic!("MockValidatorStore::num_voting_validators called without a hook")
     }
 
     fn graffiti(&self, _validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
-        unimplemented!()
+        panic!("MockValidatorStore::graffiti called without a hook")
     }
 
     fn get_fee_recipient(&self, _validator_pubkey: &PublicKeyBytes) -> Option<Address> {
-        unimplemented!()
+        panic!("MockValidatorStore::get_fee_recipient called without a hook")
     }
 
     fn determine_builder_boost_factor(&self, _validator_pubkey: &PublicKeyBytes) -> Option<u64> {
-        unimplemented!()
+        panic!("MockValidatorStore::determine_builder_boost_factor called without a hook")
     }
 
     async fn randao_reveal(
@@ -93,11 +93,11 @@ impl ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _signing_epoch: Epoch,
     ) -> Result<Signature, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::randao_reveal called without a hook")
     }
 
     fn set_validator_index(&self, _validator_pubkey: &PublicKeyBytes, _index: u64) {
-        unimplemented!()
+        panic!("MockValidatorStore::set_validator_index called without a hook")
     }
 
     async fn sign_block(
@@ -106,7 +106,7 @@ impl ValidatorStore for MockValidatorStore {
         _block: UnsignedBlock<Self::E>,
         _current_slot: Slot,
     ) -> Result<SignedBlock<Self::E>, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::sign_block called without a hook")
     }
 
     fn sign_attestations(
@@ -120,7 +120,7 @@ impl ValidatorStore for MockValidatorStore {
         &self,
         _validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::sign_validator_registration_data called without a hook")
     }
 
     async fn produce_selection_proof(
@@ -128,7 +128,7 @@ impl ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _slot: Slot,
     ) -> Result<SelectionProof, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::produce_selection_proof called without a hook")
     }
 
     async fn produce_sync_selection_proof(
@@ -137,7 +137,7 @@ impl ValidatorStore for MockValidatorStore {
         _slot: Slot,
         _subnet_id: SyncSubnetId,
     ) -> Result<SyncSelectionProof, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::produce_sync_selection_proof called without a hook")
     }
 
     fn sign_aggregate_and_proofs(
@@ -165,7 +165,7 @@ impl ValidatorStore for MockValidatorStore {
     }
 
     fn prune_slashing_protection_db(&self, _current_epoch: Epoch, _first_run: bool) {
-        unimplemented!()
+        panic!("MockValidatorStore::prune_slashing_protection_db called without a hook")
     }
 
     async fn sign_execution_payload_envelope(
@@ -173,7 +173,7 @@ impl ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _envelope: ExecutionPayloadEnvelope<Self::E>,
     ) -> Result<SignedExecutionPayloadEnvelope<Self::E>, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::sign_execution_payload_envelope called without a hook")
     }
 
     async fn sign_proposer_preferences(
@@ -181,10 +181,10 @@ impl ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _preferences: ProposerPreferences,
     ) -> Result<SignedProposerPreferences, StoreError<Self::Error>> {
-        unimplemented!()
+        panic!("MockValidatorStore::sign_proposer_preferences called without a hook")
     }
 
     fn proposal_data(&self, _pubkey: &PublicKeyBytes) -> Option<ProposalData> {
-        unimplemented!()
+        panic!("MockValidatorStore::proposal_data called without a hook")
     }
 }

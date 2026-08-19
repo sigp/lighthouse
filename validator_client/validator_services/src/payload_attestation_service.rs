@@ -331,10 +331,10 @@ mod tests {
         }
     }
 
-    fn build_service<St: ValidatorStore + 'static>(
+    fn build_service<S: ValidatorStore + 'static>(
         harness: &ValidatorClientHarness,
-        store: Arc<St>,
-    ) -> PayloadAttestationService<St, ManualSlotClock> {
+        store: Arc<S>,
+    ) -> PayloadAttestationService<S, ManualSlotClock> {
         let duties_service = Arc::new(
             DutiesServiceBuilder::new()
                 .validator_store(store.clone())
