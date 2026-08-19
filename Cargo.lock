@@ -1304,6 +1304,7 @@ dependencies = [
  "beacon_chain",
  "bitvec",
  "bls",
+ "builder_client",
  "criterion",
  "educe",
  "eth2",
@@ -1694,16 +1695,61 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "eth2",
  "ethereum_ssz",
+ "futures",
  "lighthouse_version",
  "mockito",
+ "parking_lot",
+ "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "types",
+]
+
+[[package]]
+name = "builder_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "builder_types",
+ "filesystem",
+ "futures",
+ "hex",
+ "parking_lot",
+ "serde",
+ "ssz_types",
+ "tempfile",
+ "tracing",
+ "types",
+ "yaml_serde",
+]
+
+[[package]]
+name = "builder_types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bls",
+ "builder_types",
+ "context_deserialize",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
+ "typenum",
  "types",
 ]
 
@@ -1990,6 +2036,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "beacon_processor",
+ "builder_client",
  "directory",
  "dirs",
  "environment",
@@ -3217,6 +3264,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "educe",
  "eip_3076",
@@ -5637,6 +5685,7 @@ dependencies = [
  "account_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_types",
  "doppelganger_service",
  "either",
  "environment",
@@ -8416,6 +8465,7 @@ name = "signing_method"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2_keystore",
  "ethereum_serde_utils",
  "lockfile",
@@ -9780,6 +9830,7 @@ version = "8.2.2"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
+ "builder_store",
  "clap",
  "clap_utils",
  "directory",
@@ -9836,6 +9887,7 @@ dependencies = [
  "axum_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_store",
  "deposit_contract",
  "directory",
  "dirs",
@@ -9945,6 +9997,8 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
+ "builder_store",
+ "builder_types",
  "either",
  "eth2",
  "futures",
@@ -9969,6 +10023,7 @@ name = "validator_store"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2",
  "futures",
  "slashing_protection",
