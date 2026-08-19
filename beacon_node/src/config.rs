@@ -32,6 +32,11 @@ use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
+fn persist_execution_jwt_secret(secret_file: &Path, jwt_secret_key: &[u8]) -> Result<(), String> {
+    filesystem::create_with_600_perms(secret_file, jwt_secret_key)
+        .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))
+}
+
 /// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
@@ -316,19 +321,8 @@ pub fn get_config<E: EthSpec>(
     // Check if the JWT secret key is passed directly via cli flag and persist it to the default
     // file location.
     } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
-        use std::fs::File;
-        use std::io::Write;
         secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
-        let mut jwt_secret_key_file = File::create(secret_file.clone())
-            .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
-        jwt_secret_key_file
-            .write_all(jwt_secret_key.as_bytes())
-            .map_err(|e| {
-                format!(
-                    "Error occurred while writing to jwt_secret_key file: {:?}",
-                    e
-                )
-            })?;
+        persist_execution_jwt_secret(&secret_file, jwt_secret_key.as_bytes())?;
     } else {
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
     }
@@ -1594,4 +1588,29 @@ fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result
     }
 
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod jwt_perm_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn persist_execution_jwt_secret_is_0600() {
+        let dir = std::env::temp_dir().join(format!(
+            "lh-bn-jwt-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("jwt.hex");
+        persist_execution_jwt_secret(&path, b"00").expect("write jwt");
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(mode, 0o600);
+    }
 }
