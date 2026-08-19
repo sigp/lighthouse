@@ -14,6 +14,9 @@ The validator client reads its external-builder settings from a YAML file named
 - **Per-validator configurations** under `validator_configs`, managed through the standard keymanager
   API. Each map key is a validator public key.
 
+Use `GET`, `POST`, and `DELETE` at `/eth/v1/validator/{pubkey}/builder_config`. `GET` returns the
+configuration in use. `POST` replaces the stored configuration. `DELETE` restores global inheritance.
+
 ## Example
 
 ```yaml

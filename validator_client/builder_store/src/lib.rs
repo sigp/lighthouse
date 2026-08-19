@@ -189,7 +189,8 @@ impl BuilderStore {
     ) -> Result<(), Error> {
         let config = self.config.upgradable_read();
         let mut candidate = config.clone();
-        if !update(&mut candidate)? {
+        let changed = update(&mut candidate)?;
+        if !changed {
             return Ok(());
         }
         candidate.save(&self.validators_dir)?;
