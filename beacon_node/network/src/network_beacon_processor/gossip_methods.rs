@@ -4238,7 +4238,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
-                | PayloadBidError::ParentBlockRootNotCanonical { .. }
+                | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
@@ -4280,13 +4280,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
                 | ProposerPreferencesError::UnableToReadSlot
-                | ProposerPreferencesError::DependentRootUnknown { .. },
+                | ProposerPreferencesError::DependentRootUnknown { .. }
+                | ProposerPreferencesError::InvalidDependentRoot { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(
                 ProposerPreferencesError::InvalidProposalSlot { .. }
-                | ProposerPreferencesError::BadSignature,
+                | ProposerPreferencesError::BadSignature
+                | ProposerPreferencesError::DependentRootTooRecent { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
