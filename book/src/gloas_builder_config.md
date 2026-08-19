@@ -11,6 +11,8 @@ The validator client reads its external-builder settings from a YAML file named
   (gossip) and used as the default for any builder that does not set its own.
 - **A list of builders** to request bids from directly, each with optional per-builder overrides of
   the global policy.
+- **Per-validator configurations** under `validator_configs`, managed through the standard keymanager
+  API. Each map key is a validator public key.
 
 ## Example
 
@@ -35,6 +37,12 @@ builders:
     builder_pubkeys:                    # optional — reject a bid not signed by one of these keys
       - "0xa1b2c3d4..."
     # auth_data: "0x68747470..."        # optional — defaults to the UTF-8 bytes of `url`
+
+# Optional per-validator replacement or override.
+# validator_configs:
+#   "0x<validator-public-key>":
+#     min_bid: 500000000
+#     builders: []                 # explicitly disable direct builders for this validator
 ```
 
 > **Comments are not preserved.** The validator client rewrites this file when builders are added or
@@ -50,6 +58,7 @@ builders:
 | `min_bid` | no | `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. |
 | `builder_boost_factor` | no | `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. |
 | `builders` | no | `[]` | The list of builders to request bids from directly. |
+| `validator_configs` | no | `{}` | Per-validator configurations. An entry replaces only the fields it contains; omitted fields inherit the global configuration. |
 
 ### Per builder (each entry under `builders`)
 
@@ -65,6 +74,15 @@ builders:
 
 All byte fields (`builder_pubkeys` entries, `auth_data`) are `0x`-prefixed hex strings. All payment values
 (`min_bid`, `max_execution_payment`) are in gwei.
+
+## Per-validator configuration
+
+The standard keymanager API manages entries under `validator_configs` without a validator-client
+restart. `GET /eth/v1/validator/{pubkey}/builder_config` returns all values after inheritance is resolved.
+`POST` replaces the complete per-validator configuration, while `DELETE` removes it and restores the
+global configuration. An omitted `builders` field inherits the global builder list; `builders: []`
+means that the validator has no direct builders. An entry without `max_execution_payment` inherits
+the value from a matching global builder URL and authentication value.
 
 ## How bids are selected
 

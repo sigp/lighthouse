@@ -501,7 +501,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             // inside `builder_config`, so this never fails the proposal.
             let builder_config = self_ref
                 .configured_builders
-                .builder_config(|auth_data| {
+                .builder_config(&validator_pubkey, |auth_data| {
                     self_ref.request_auth_cache.get_or_sign(
                         slot,
                         validator_pubkey,
