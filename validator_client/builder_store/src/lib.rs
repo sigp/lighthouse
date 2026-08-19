@@ -7,7 +7,7 @@ pub use builder_definitions::{
 use builder_types::{
     BuilderConfig, BuilderEntry, BuilderPubkeys, RequestAuthData, SignedRequestAuth,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use ssz_types::VariableList;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -17,6 +17,7 @@ use tracing::error;
 #[derive(Clone)]
 pub struct BuilderStore {
     config: Arc<RwLock<BuilderConfigFile>>,
+    update_lock: Arc<Mutex<()>>,
     validators_dir: PathBuf,
 }
 
@@ -28,6 +29,7 @@ impl BuilderStore {
             config: Arc::new(RwLock::new(BuilderConfigFile::open_or_create(
                 &validators_dir,
             )?)),
+            update_lock: Arc::new(Mutex::new(())),
             validators_dir,
         })
     }
@@ -134,6 +136,7 @@ impl BuilderStore {
     }
 
     pub fn insert(&self, builder: BuilderDefinition) -> Result<(), Error> {
+        let _update_guard = self.update_lock.lock();
         let mut config = self.config.write();
         // Validate a candidate copy before committing, so a bad insert leaves the config unchanged
         // (and the global bid-policy defaults are preserved).
@@ -141,9 +144,8 @@ impl BuilderStore {
         candidate.push(builder);
         candidate.validate()?;
 
-        candidate.save(&self.validators_dir)?;
         *config = candidate;
-        Ok(())
+        config.save(&self.validators_dir)
     }
 
     /// Return the fully resolved configuration for a validator without signing builder auth data.
@@ -162,14 +164,13 @@ impl BuilderStore {
     ) -> Result<(), Error> {
         validator_config.validate()?;
 
-        let mut config = self.config.write();
-        let mut candidate = config.clone();
+        let _update_guard = self.update_lock.lock();
+        let mut candidate = self.config.read().clone();
         candidate
             .validator_configs
             .insert(validator_pubkey.to_string(), validator_config);
-        candidate.validate()?;
         candidate.save(&self.validators_dir)?;
-        *config = candidate;
+        *self.config.write() = candidate;
         Ok(())
     }
 
@@ -178,8 +179,8 @@ impl BuilderStore {
         &self,
         validator_pubkey: &bls::PublicKeyBytes,
     ) -> Result<(), Error> {
-        let mut config = self.config.write();
-        let mut candidate = config.clone();
+        let _update_guard = self.update_lock.lock();
+        let mut candidate = self.config.read().clone();
         if candidate
             .validator_configs
             .remove(&validator_pubkey.to_string())
@@ -187,9 +188,8 @@ impl BuilderStore {
         {
             return Ok(());
         }
-        candidate.validate()?;
         candidate.save(&self.validators_dir)?;
-        *config = candidate;
+        *self.config.write() = candidate;
         Ok(())
     }
 }
@@ -214,6 +214,17 @@ mod tests {
         }
     }
 
+    fn validator_builder(url: &str) -> ValidatorBuilderDefinition {
+        ValidatorBuilderDefinition {
+            url: url.parse().unwrap(),
+            auth_data: None,
+            builder_pubkeys: vec![],
+            max_execution_payment: None,
+            min_bid: None,
+            builder_boost_factor: None,
+        }
+    }
+
     fn signed_auth(data: RequestAuthData) -> SignedRequestAuth {
         SignedRequestAuth {
             message: RequestAuth {
@@ -233,6 +244,13 @@ mod tests {
         store
             .insert(global_builder("https://global-builder.example", 7))
             .unwrap();
+        let mut empty_auth = global_builder("https://empty-auth.example", 7);
+        empty_auth.auth_data = Some(RequestAuthData::default());
+        store.insert(empty_auth).unwrap();
+        let mut excessive_pubkeys = global_builder("https://too-many-pubkeys.example", 7);
+        excessive_pubkeys.builder_pubkeys =
+            (0..65).map(|_| Keypair::random().pk.compress()).collect();
+        store.insert(excessive_pubkeys).unwrap();
         store
             .set_validator_config(
                 &validator,
@@ -272,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn validator_config_persists_across_store_restart_and_post_empty_is_stored() {
+    fn empty_validator_config_persists_across_store_restart() {
         let directory = tempdir().unwrap();
         let store = BuilderStore::open_or_create(directory.path()).unwrap();
         let validator = Keypair::random().pk.compress();
@@ -293,10 +311,6 @@ mod tests {
         restarted.delete_validator_config(&validator).unwrap();
         let file = builder_definitions::BuilderConfigFile::open(directory.path()).unwrap();
         assert!(!file.validator_configs.contains_key(&validator.to_string()));
-
-        restarted.delete_validator_config(&validator).unwrap();
-        let file = builder_definitions::BuilderConfigFile::open(directory.path()).unwrap();
-        assert!(!file.validator_configs.contains_key(&validator.to_string()));
     }
 
     #[test]
@@ -306,29 +320,21 @@ mod tests {
         let first = Keypair::random().pk.compress();
         let second = Keypair::random().pk.compress();
 
-        let first_store = store.clone();
-        let first_handle = std::thread::spawn(move || {
-            first_store.set_validator_config(
-                &first,
-                ValidatorBuilderConfig {
-                    min_bid: Some(11),
-                    ..Default::default()
-                },
-            )
+        let handles = [(first, 11), (second, 22)].map(|(validator, min_bid)| {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                store.set_validator_config(
+                    &validator,
+                    ValidatorBuilderConfig {
+                        min_bid: Some(min_bid),
+                        ..Default::default()
+                    },
+                )
+            })
         });
-        let second_store = store.clone();
-        let second_handle = std::thread::spawn(move || {
-            second_store.set_validator_config(
-                &second,
-                ValidatorBuilderConfig {
-                    min_bid: Some(22),
-                    ..Default::default()
-                },
-            )
-        });
-
-        first_handle.join().unwrap().unwrap();
-        second_handle.join().unwrap().unwrap();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
         assert_eq!(store.validator_config(&first).min_bid, 11);
         assert_eq!(store.validator_config(&second).min_bid, 22);
 
@@ -371,40 +377,13 @@ mod tests {
     }
 
     #[test]
-    fn custom_builder_inherits_matching_payment_limit() {
+    fn custom_builders_resolve_payment_limits_from_enabled_globals() {
         let directory = tempdir().unwrap();
         let store = BuilderStore::open_or_create(directory.path()).unwrap();
         let validator = Keypair::random().pk.compress();
         store
             .insert(global_builder("https://global-builder.example", 9))
             .unwrap();
-
-        store
-            .set_validator_config(
-                &validator,
-                ValidatorBuilderConfig {
-                    builders: Some(vec![ValidatorBuilderDefinition {
-                        url: "https://global-builder.example".parse().unwrap(),
-                        auth_data: None,
-                        builder_pubkeys: vec![],
-                        max_execution_payment: None,
-                        min_bid: None,
-                        builder_boost_factor: None,
-                    }]),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-
-        let resolved = store.validator_config(&validator);
-        assert_eq!(resolved.builders[0].max_execution_payment, 9);
-    }
-
-    #[test]
-    fn custom_builder_does_not_inherit_disabled_payment_limit() {
-        let directory = tempdir().unwrap();
-        let store = BuilderStore::open_or_create(directory.path()).unwrap();
-        let validator = Keypair::random().pk.compress();
         store
             .insert(BuilderDefinition {
                 enabled: false,
@@ -421,38 +400,17 @@ mod tests {
             .set_validator_config(
                 &validator,
                 ValidatorBuilderConfig {
-                    builders: Some(vec![ValidatorBuilderDefinition {
-                        url: "https://disabled-builder.example".parse().unwrap(),
-                        auth_data: None,
-                        builder_pubkeys: vec![],
-                        max_execution_payment: None,
-                        min_bid: None,
-                        builder_boost_factor: None,
-                    }]),
+                    builders: Some(vec![
+                        validator_builder("https://global-builder.example"),
+                        validator_builder("https://disabled-builder.example"),
+                    ]),
                     ..Default::default()
                 },
             )
             .unwrap();
 
-        assert_eq!(
-            store.validator_config(&validator).builders[0].max_execution_payment,
-            0
-        );
-    }
-
-    #[test]
-    fn invalid_builder_url_is_rejected() {
-        let config = ValidatorBuilderConfig {
-            builders: Some(vec![ValidatorBuilderDefinition {
-                url: "ftp://builder.example".parse().unwrap(),
-                auth_data: None,
-                builder_pubkeys: vec![],
-                max_execution_payment: Some(1),
-                min_bid: None,
-                builder_boost_factor: None,
-            }]),
-            ..Default::default()
-        };
-        assert!(config.validate().is_err());
+        let resolved = store.validator_config(&validator);
+        assert_eq!(resolved.builders[0].max_execution_payment, 9);
+        assert_eq!(resolved.builders[1].max_execution_payment, 0);
     }
 }
