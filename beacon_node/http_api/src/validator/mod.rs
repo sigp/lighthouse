@@ -32,9 +32,9 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
-    BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
-    SyncContributionData, ValidatorSubscription,
+    BeaconState, Epoch, EthSpec, ForkName, InclusionList, ProposerPreparationData,
+    SignedAggregateAndProof, SignedContributionAndProof, SignedProposerPreferences,
+    SignedValidatorRegistrationData, Slot, SyncContributionData, ValidatorSubscription,
 };
 use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
@@ -1516,4 +1516,78 @@ fn publish_proposer_preferences<T: BeaconChainTypes>(
             failures,
         ))
     }
+}
+
+/// POST validator/inclusion_list (JSON)
+pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |inclusion_list: InclusionList,
+             _fork_name: ForkName,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    publish_inclusion_list(&chain, &network_tx, inclusion_list)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+/// POST validator/proposer_preferences (SSZ)
+pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |body_bytes: Bytes,
+             _fork_name: ForkName,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    let inclusion_list =
+                        InclusionList::from_ssz_bytes(&body_bytes).map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
+                    publish_inclusion_list(&chain, &network_tx, inclusion_list)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+fn publish_inclusion_list<T: BeaconChainTypes>(
+    _chain: &BeaconChain<T>,
+    _network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    _inclusion_list: InclusionList,
+) -> Result<(), warp::Rejection> {
+    unimplemented!("Function not yet implemented");
 }
