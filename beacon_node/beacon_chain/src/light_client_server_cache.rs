@@ -115,7 +115,17 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch
             .sync_committee_period(chain_spec)?;
 
-        store.store_sync_committee_branch(	    block_slot, attested_block_root, cached_parts.finalized_block_root);
+        store.store_sync_committee_branch(
+            attested_block.message().tree_hash_root(),
+            &cached_parts.current_sync_committee_branch,
+        )?;
+
+        self.store_current_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
+
+        let attested_slot = attested_block.slot();
+
+        let maybe_finalized_block = store.get_blinded_block(&cached_parts.finalized_block_root)?;
+
         let sync_period = block_slot
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
@@ -124,10 +134,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
             Some(latest_optimistic_update) => {
-	    latest_optimistic_update.is_latest(attested_slot, signature_slot)
-	    }
+                latest_optimistic_update.is_latest(attested_slot, signature_slot)
+            }
             None => true,
-           };
+        };
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
             *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
@@ -142,20 +152,22 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
             Some(latest_finality_update) => {
-		    latest_finality_update.is_latest(attested_slot, signature_slot)
+                latest_finality_update.is_latest(attested_slot, signature_slot)
             }
             None => true,
         };
 
-        if is_latest_finality {
+	if is_latest_finality {
 	    let update = if cached_parts.finalized_block_root.is_zero() {
-	        let u = LightClientFinalityUpdate::new_with_empty_finalized_header(&attested_block, cached_parts.finality_branch.clone(),sync_aggregate.clone(), signature_slot, chain_spec,)?;
-		Some(u)
-
-	
 	        // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
 	        // cannot be proven, so finalized_header must be empty/default initialized.
-
+	        Some(LightClientFinalityUpdate::new_with_empty_finalized_header(
+	            &attested_block,
+	            cached_parts.finality_branch.clone(),
+	            sync_aggregate.clone(),
+	            signature_slot,
+	            chain_spec,
+	        )?)
 	    } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
 	        Some(LightClientFinalityUpdate::new(
 	            &attested_block,
@@ -177,8 +189,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 	    }
 	}
 
-
-	
         let new_light_client_update = LightClientUpdate::new(
             sync_aggregate,
             block_slot,
@@ -186,12 +196,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             cached_parts.next_sync_committee_branch,
             cached_parts.finality_branch,
             &attested_block,
-	    if cached_parts.finalized_block_root.is_zero() {
-	        None
+            if cached_parts.finalized_block_root.is_zero() {
+		None
 	    } else {
-    	        maybe_finalized_block.as_ref()
-		},
-	    chain_spec,
+		maybe_finalized_block.as_ref()
+	    },
+            chain_spec,
         )?;
 
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
