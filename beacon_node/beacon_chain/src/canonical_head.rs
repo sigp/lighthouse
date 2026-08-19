@@ -1502,7 +1502,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        observe_head_block_delays(
+        observe_head_block_delays::<T::EthSpec, _>(
             &mut self.block_times_cache.write(),
             &new_head_proto_block,
             new_snapshot.beacon_block.message().proposer_index(),
@@ -1970,7 +1970,7 @@ pub fn find_reorg_slot<E: EthSpec>(
         .start_slot(E::slots_per_epoch()))
 }
 
-fn observe_head_block_delays<S: SlotClock>(
+fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     block_times_cache: &mut BlockTimesCache,
     head_block: &ProtoBlock,
     head_block_proposer_index: u64,
