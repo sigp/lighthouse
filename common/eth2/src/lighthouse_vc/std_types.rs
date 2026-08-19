@@ -17,7 +17,7 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-fn deserialize_canonical_quoted_u64<'de, D>(
+fn deserialize_strict_uint64_string<'de, D>(
     deserializer: D,
 ) -> Result<Option<Quoted<u64>>, D::Error>
 where
@@ -87,13 +87,13 @@ pub struct BuilderConfig {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_canonical_quoted_u64"
+        deserialize_with = "deserialize_strict_uint64_string"
     )]
     pub min_bid: Option<Quoted<u64>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_canonical_quoted_u64"
+        deserialize_with = "deserialize_strict_uint64_string"
     )]
     pub builder_boost_factor: Option<Quoted<u64>>,
     #[serde(
@@ -123,19 +123,19 @@ pub struct BuilderEntry {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_canonical_quoted_u64"
+        deserialize_with = "deserialize_strict_uint64_string"
     )]
     pub max_execution_payment: Option<Quoted<u64>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_canonical_quoted_u64"
+        deserialize_with = "deserialize_strict_uint64_string"
     )]
     pub min_bid: Option<Quoted<u64>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_canonical_quoted_u64"
+        deserialize_with = "deserialize_strict_uint64_string"
     )]
     pub builder_boost_factor: Option<Quoted<u64>>,
 }
