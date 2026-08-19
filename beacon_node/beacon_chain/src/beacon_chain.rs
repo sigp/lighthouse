@@ -6648,7 +6648,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
+                let proposer_gas_limit = execution_layer
+                    .get_proposer_gas_limit(proposer)
+                    .await
+                    .or_else(|| {
+                        self.spec.get_scheduled_gas_limit(
+                            prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
+                        )
+                    });
                 if proposer_gas_limit.is_none() {
                     warn!(
                         %proposer,

@@ -1273,6 +1273,9 @@ where
     let target_gas_limit = execution_layer
         .get_proposer_gas_limit(proposer_index)
         .await
+        .or_else(|| {
+            spec.get_scheduled_gas_limit(builder_params.slot.epoch(T::EthSpec::slots_per_epoch()))
+        })
         .unwrap_or(DEFAULT_GAS_LIMIT);
 
     let payload_attributes = PayloadAttributes::new(

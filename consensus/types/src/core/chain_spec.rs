@@ -275,6 +275,7 @@ pub struct ChainSpec {
     pub churn_limit_quotient_gloas: u64,
     pub consolidation_churn_limit_quotient: u64,
     pub max_per_epoch_activation_churn_limit_gloas: u64,
+    pub gas_limit_schedule: GasLimitSchedule,
 
     /*
      * Heze hard fork params
@@ -822,6 +823,18 @@ impl ChainSpec {
                         max_blobs_per_block: self.max_blobs_per_block_electra,
                     })
                 }),
+            _ => None,
+        }
+    }
+
+    /// Return the scheduled gas limit at the given epoch, per EIP-8261.
+    ///
+    /// The schedule only applies from the Gloas fork onwards.
+    pub fn get_scheduled_gas_limit(&self, epoch: Epoch) -> Option<u64> {
+        match self.gloas_fork_epoch {
+            Some(gloas_epoch) if epoch >= gloas_epoch => {
+                self.gas_limit_schedule.gas_limit_for_epoch(epoch)
+            }
             _ => None,
         }
     }
@@ -1411,6 +1424,7 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            gas_limit_schedule: GasLimitSchedule::default(),
             max_request_payloads: 128,
 
             /*
@@ -1574,6 +1588,7 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            gas_limit_schedule: GasLimitSchedule::default(),
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
@@ -1867,6 +1882,7 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            gas_limit_schedule: GasLimitSchedule::default(),
             max_request_payloads: 128,
 
             /*
@@ -2063,6 +2079,93 @@ impl IntoIterator for BlobSchedule {
 
     fn into_iter(self) -> Self::IntoIter {
         self.schedule.into_iter()
+    }
+}
+
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct GasLimitScheduleEntry {
+    pub epoch: Epoch,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}
+
+// A wrapper around a vector of GasLimitScheduleEntry to ensure that the vector is
+// reverse sorted by epoch.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Educe, Clone)]
+#[educe(PartialEq)]
+pub struct GasLimitSchedule {
+    schedule: Vec<GasLimitScheduleEntry>,
+    // This is a hack to prevent the gas limit schedule being serialized on the
+    // /eth/v1/config/spec endpoint prior to the Gloas fork being scheduled.
+    //
+    // We can remove this once Gloas is live on mainnet.
+    #[educe(PartialEq(ignore))]
+    skip_serializing: bool,
+}
+
+impl<'de> Deserialize<'de> for GasLimitSchedule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec = Vec::<GasLimitScheduleEntry>::deserialize(deserializer)?;
+        Ok(GasLimitSchedule::new(vec))
+    }
+}
+
+impl GasLimitSchedule {
+    pub fn new(mut vec: Vec<GasLimitScheduleEntry>) -> Self {
+        // reverse sort by epoch
+        vec.sort_by_key(|e| std::cmp::Reverse(e.epoch));
+        Self {
+            schedule: vec,
+            skip_serializing: false,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.schedule.is_empty()
+    }
+
+    pub fn skip_serializing(&self) -> bool {
+        self.skip_serializing
+    }
+
+    pub fn set_skip_serializing(&mut self) {
+        self.skip_serializing = true;
+    }
+
+    pub fn gas_limit_for_epoch(&self, epoch: Epoch) -> Option<u64> {
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .map(|entry| entry.gas_limit)
+    }
+
+    pub const fn default() -> Self {
+        Self {
+            schedule: vec![],
+            skip_serializing: false,
+        }
+    }
+
+    pub fn as_vec(&self) -> &Vec<GasLimitScheduleEntry> {
+        &self.schedule
+    }
+}
+
+impl Serialize for GasLimitSchedule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut schedule = self.schedule.clone();
+        // reversing the list to get an ascending order
+        schedule.reverse();
+        schedule.serialize(serializer)
     }
 }
 
@@ -2378,6 +2481,9 @@ pub struct Config {
     #[serde(default = "default_max_request_payloads")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_payloads: u64,
+    #[serde(default = "GasLimitSchedule::default")]
+    #[serde(skip_serializing_if = "GasLimitSchedule::skip_serializing")]
+    pub gas_limit_schedule: GasLimitSchedule,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2949,6 +3055,7 @@ impl Config {
             consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas: spec
                 .max_per_epoch_activation_churn_limit_gloas,
+            gas_limit_schedule: spec.gas_limit_schedule.clone(),
         }
     }
 
@@ -3061,6 +3168,7 @@ impl Config {
             max_request_inclusion_list,
             min_slots_for_inclusion_lists_requests,
             max_request_payloads,
+            ref gas_limit_schedule,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -3180,6 +3288,7 @@ impl Config {
             churn_limit_quotient_gloas,
             consolidation_churn_limit_quotient,
             max_per_epoch_activation_churn_limit_gloas,
+            gas_limit_schedule: gas_limit_schedule.clone(),
 
             max_transactions_bytes_per_inclusion_list,
             max_request_inclusion_list,
@@ -3623,6 +3732,119 @@ mod yaml_tests {
             deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
             "BlobSchedule should serialize in ascending order by epoch"
         );
+    }
+
+    #[test]
+    fn gas_limit_schedule() {
+        let spec_contents = r#"
+        PRESET_BASE: 'mainnet'
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
+        MIN_GENESIS_TIME: 1748264340
+        GENESIS_FORK_VERSION: 0x10355025
+        GENESIS_DELAY: 60
+        SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
+        SECONDS_PER_ETH1_BLOCK: 12
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        PROPOSER_SCORE_BOOST: 40
+        REORG_HEAD_WEIGHT_THRESHOLD: 20
+        REORG_PARENT_WEIGHT_THRESHOLD: 160
+        REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
+        ATTESTATION_SUBNET_COUNT: 64
+        ATTESTATION_SUBNET_EXTRA_BITS: 0
+        DEPOSIT_CHAIN_ID: 7042643276
+        DEPOSIT_NETWORK_ID: 7042643276
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+
+        ALTAIR_FORK_VERSION: 0x20355025
+        ALTAIR_FORK_EPOCH: 0
+        BELLATRIX_FORK_VERSION: 0x30355025
+        BELLATRIX_FORK_EPOCH: 0
+        CAPELLA_FORK_VERSION: 0x40355025
+        CAPELLA_FORK_EPOCH: 0
+        DENEB_FORK_VERSION: 0x50355025
+        DENEB_FORK_EPOCH: 0
+        ELECTRA_FORK_VERSION: 0x60355025
+        ELECTRA_FORK_EPOCH: 0
+        FULU_FORK_VERSION: 0x70355025
+        FULU_FORK_EPOCH: 0
+        GLOAS_FORK_VERSION: 0x80355025
+        GLOAS_FORK_EPOCH: 512
+        GAS_LIMIT_SCHEDULE:
+          - EPOCH: 768
+            GAS_LIMIT: 75000000
+          - EPOCH: 512
+            GAS_LIMIT: 60000000
+        "#;
+        let config: Config =
+            yaml_serde::from_str(spec_contents).expect("error while deserializing");
+        let spec =
+            ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
+
+        // The schedule does not apply before the Gloas fork epoch.
+        assert_eq!(spec.get_scheduled_gas_limit(Epoch::new(0)), None);
+        assert_eq!(spec.get_scheduled_gas_limit(Epoch::new(511)), None);
+        assert_eq!(
+            spec.get_scheduled_gas_limit(Epoch::new(512)),
+            Some(60000000)
+        );
+        assert_eq!(
+            spec.get_scheduled_gas_limit(Epoch::new(767)),
+            Some(60000000)
+        );
+        assert_eq!(
+            spec.get_scheduled_gas_limit(Epoch::new(768)),
+            Some(75000000)
+        );
+        assert_eq!(
+            spec.get_scheduled_gas_limit(Epoch::new(u64::MAX)),
+            Some(75000000)
+        );
+
+        // gas limit schedule is reverse sorted by epoch
+        assert_eq!(
+            config.gas_limit_schedule.as_vec(),
+            &vec![
+                GasLimitScheduleEntry {
+                    epoch: Epoch::new(768),
+                    gas_limit: 75000000
+                },
+                GasLimitScheduleEntry {
+                    epoch: Epoch::new(512),
+                    gas_limit: 60000000
+                },
+            ]
+        );
+
+        // Check that serialization is in ascending order
+        let yaml = yaml_serde::to_string(&spec.gas_limit_schedule).expect("should serialize");
+        let deserialized: Vec<GasLimitScheduleEntry> =
+            yaml_serde::from_str(&yaml).expect("should deserialize");
+        assert!(
+            deserialized
+                .iter()
+                .map(|entry| entry.epoch.as_u64())
+                .is_sorted(),
+            "GasLimitSchedule should serialize in ascending order by epoch"
+        );
+
+        // An empty schedule returns no scheduled gas limit.
+        let empty = GasLimitSchedule::default();
+        assert_eq!(empty.gas_limit_for_epoch(Epoch::new(u64::MAX)), None);
+
+        // The schedule returns nothing when Gloas is not scheduled.
+        let mut no_gloas_spec = spec.clone();
+        no_gloas_spec.gloas_fork_epoch = None;
+        assert_eq!(no_gloas_spec.get_scheduled_gas_limit(Epoch::new(768)), None);
     }
 
     #[test]
