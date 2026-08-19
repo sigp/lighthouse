@@ -1,7 +1,7 @@
 use account_utils::write_file_via_temporary;
 use bls::PublicKeyBytes;
 use builder_types::{BuilderPubkeys, BuilderUrl, MAX_BUILDER_ENTRIES, RequestAuthData};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, create_dir_all};
 use std::io;
@@ -209,34 +209,23 @@ pub struct BuilderConfigFile {
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
-        with = "serde_validator_configs"
+        deserialize_with = "deserialize_canonical_validator_configs"
     )]
     pub validator_configs: BTreeMap<String, ValidatorBuilderConfig>,
 }
 
-mod serde_validator_configs {
-    use super::*;
-
-    pub fn serialize<S: Serializer>(
-        configs: &BTreeMap<String, ValidatorBuilderConfig>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        configs.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<BTreeMap<String, ValidatorBuilderConfig>, D::Error> {
-        let configs = BTreeMap::<String, ValidatorBuilderConfig>::deserialize(deserializer)?;
-        let mut canonical = BTreeMap::new();
-        for (key, config) in configs {
-            let public_key = PublicKeyBytes::from_str(&key).map_err(de::Error::custom)?;
-            if canonical.insert(public_key.to_string(), config).is_some() {
-                return Err(de::Error::custom("duplicate validator public key"));
-            }
+fn deserialize_canonical_validator_configs<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, ValidatorBuilderConfig>, D::Error> {
+    let configs = BTreeMap::<String, ValidatorBuilderConfig>::deserialize(deserializer)?;
+    let mut canonical = BTreeMap::new();
+    for (key, config) in configs {
+        let public_key = PublicKeyBytes::from_str(&key).map_err(de::Error::custom)?;
+        if canonical.insert(public_key.to_string(), config).is_some() {
+            return Err(de::Error::custom("duplicate validator public key"));
         }
-        Ok(canonical)
     }
+    Ok(canonical)
 }
 
 impl Default for BuilderConfigFile {

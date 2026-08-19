@@ -37,6 +37,7 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
 use types::graffiti::GraffitiString;
 use validator_store::ValidatorStore;
+use warp::Reply;
 use zeroize::Zeroizing;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -1027,8 +1028,19 @@ async fn builder_configuration_tester() -> (ApiTester, PublicKeyBytes) {
     (tester, validator)
 }
 
+fn builder_entry(url: &str) -> BuilderEntry {
+    BuilderEntry {
+        url: url.parse().unwrap(),
+        auth_data: None,
+        builder_pubkeys: None,
+        max_execution_payment: None,
+        min_bid: None,
+        builder_boost_factor: None,
+    }
+}
+
 #[tokio::test]
-async fn validator_builder_configuration_endpoints() {
+async fn builder_configuration_lifecycle() {
     let (tester, validator) = builder_configuration_tester().await;
     tester
         .configured_builders
@@ -1046,12 +1058,10 @@ async fn validator_builder_configuration_endpoints() {
     let inherited = tester.client.get_builder_config(&validator).await.unwrap();
     assert_eq!(inherited.min_bid.unwrap().value, 0);
     assert_eq!(inherited.builder_boost_factor.unwrap().value, 100);
-    assert_eq!(inherited.builders.as_ref().unwrap().len(), 1);
+    let inherited_builders = inherited.builders.as_ref().unwrap();
+    assert_eq!(inherited_builders.len(), 1);
     assert_eq!(
-        inherited.builders.as_ref().unwrap()[0]
-            .max_execution_payment
-            .unwrap()
-            .value,
+        inherited_builders[0].max_execution_payment.unwrap().value,
         7
     );
 
@@ -1070,12 +1080,10 @@ async fn validator_builder_configuration_endpoints() {
         min_bid: Some(Quoted { value: 3 }),
         builder_boost_factor: Some(Quoted { value: 115 }),
         builders: Some(vec![BuilderEntry {
-            url: "https://builder.example".parse().unwrap(),
             auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
             builder_pubkeys: Some(vec![]),
             max_execution_payment: Some(Quoted { value: 8 }),
-            min_bid: None,
-            builder_boost_factor: None,
+            ..builder_entry("https://builder.example")
         }]),
     };
     tester
@@ -1083,20 +1091,13 @@ async fn validator_builder_configuration_endpoints() {
         .post_builder_config(&validator, &custom)
         .await
         .unwrap();
+    let mut expected = custom.clone();
+    let expected_builder = &mut expected.builders.as_mut().unwrap()[0];
+    expected_builder.min_bid = custom.min_bid;
+    expected_builder.builder_boost_factor = custom.builder_boost_factor;
     assert_eq!(
         tester.client.get_builder_config(&validator).await.unwrap(),
-        BuilderConfig {
-            min_bid: Some(Quoted { value: 3 }),
-            builder_boost_factor: Some(Quoted { value: 115 }),
-            builders: Some(vec![BuilderEntry {
-                url: "https://builder.example".parse().unwrap(),
-                auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
-                builder_pubkeys: Some(vec![]),
-                max_execution_payment: Some(Quoted { value: 8 }),
-                min_bid: Some(Quoted { value: 3 }),
-                builder_boost_factor: Some(Quoted { value: 115 }),
-            }]),
-        }
+        expected
     );
 
     let empty_list = BuilderConfig {
@@ -1108,14 +1109,13 @@ async fn validator_builder_configuration_endpoints() {
         .post_builder_config(&validator, &empty_list)
         .await
         .unwrap();
+    let resolved_empty = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(resolved_empty.min_bid, inherited.min_bid);
     assert_eq!(
-        tester.client.get_builder_config(&validator).await.unwrap(),
-        BuilderConfig {
-            min_bid: Some(Quoted { value: 0 }),
-            builder_boost_factor: Some(Quoted { value: 100 }),
-            builders: Some(vec![]),
-        }
+        resolved_empty.builder_boost_factor,
+        inherited.builder_boost_factor
     );
+    assert_eq!(resolved_empty.builders, Some(vec![]));
 
     let delete = tester
         .client
@@ -1149,12 +1149,9 @@ async fn builder_configuration_rejects_invalid_input() {
     let (tester, validator) = builder_configuration_tester().await;
     let invalid = BuilderConfig {
         builders: Some(vec![BuilderEntry {
-            url: "ftp://builder.example".parse().unwrap(),
-            auth_data: None,
             builder_pubkeys: Some(vec![]),
             max_execution_payment: Some(Quoted { value: 1 }),
-            min_bid: None,
-            builder_boost_factor: None,
+            ..builder_entry("ftp://builder.example")
         }]),
         ..Default::default()
     };
@@ -1168,12 +1165,10 @@ async fn builder_configuration_rejects_invalid_input() {
 
     let empty_auth = BuilderConfig {
         builders: Some(vec![BuilderEntry {
-            url: "https://builder.example".parse().unwrap(),
             auth_data: Some(RequestAuthData::default()),
             builder_pubkeys: Some(vec![]),
             max_execution_payment: Some(Quoted { value: 1 }),
-            min_bid: None,
-            builder_boost_factor: None,
+            ..builder_entry("https://builder.example")
         }]),
         ..Default::default()
     };
@@ -1186,14 +1181,7 @@ async fn builder_configuration_rejects_invalid_input() {
     );
 
     let before = tester.client.get_builder_config(&validator).await.unwrap();
-    let duplicate = BuilderEntry {
-        url: "https://duplicate-builder.example".parse().unwrap(),
-        auth_data: None,
-        builder_pubkeys: None,
-        max_execution_payment: None,
-        min_bid: None,
-        builder_boost_factor: None,
-    };
+    let duplicate = builder_entry("https://duplicate-builder.example");
     assert_server_error_code(
         tester
             .client
@@ -1213,16 +1201,15 @@ async fn builder_configuration_rejects_invalid_input() {
     );
 }
 
-#[test]
-fn builder_delete_errors_are_forbidden() {
+#[tokio::test]
+async fn builder_delete_errors_are_forbidden() {
     let rejection = crate::builder_store_delete_rejection(builder_store::Error::UnableToOpenFile(
         std::io::Error::other("test"),
     ));
-    assert!(
-        rejection
-            .find::<warp_utils::reject::CustomForbidden>()
-            .is_some()
-    );
+    let reply = warp_utils::reject::handle_rejection(rejection)
+        .await
+        .unwrap();
+    assert_eq!(reply.into_response().status(), StatusCode::FORBIDDEN);
 }
 
 fn assert_server_error_code<T: std::fmt::Debug>(result: Result<T, ApiError>, expected: u16) {
