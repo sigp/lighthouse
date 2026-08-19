@@ -17,6 +17,9 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+/// Deserialize the keymanager `Uint64` format: a quoted decimal value without a sign or leading
+/// zeros. `Quoted<u64>` accepts strings such as `"+1"` and `"01"`, which the API schema rejects.
+/// The `Option` allows omission through `#[serde(default)]`; deserializing a `String` rejects null.
 fn deserialize_strict_uint64_string<'de, D>(
     deserializer: D,
 ) -> Result<Option<Quoted<u64>>, D::Error>
