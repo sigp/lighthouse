@@ -6,13 +6,13 @@ pub mod gossip_verified_inclusion_list;
 
 #[derive(Debug)]
 pub enum InclusionListVerificationError {
-    // Two valid inclusion lists were already seen from this validator for this slot.
+    /// Two valid inclusion lists were already seen from this validator for this slot.
     AlreadySeenTwice { validator_index: u64, slot: Slot },
-    // The slot clock cannot read.
+    /// The slot clock cannot read.
     UnableToReadSlot,
-    // Beacon Chain error
+    /// Beacon Chain error
     BeaconChainError(Arc<BeaconChainError>),
-    // Beacon State error
+    /// Beacon State error
     BeaconStateError(BeaconStateError),
 }
 

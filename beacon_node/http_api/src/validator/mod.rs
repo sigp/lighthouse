@@ -42,15 +42,6 @@ use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
 
-fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
-    if !fork_name.gloas_enabled() {
-        return Err(warp_utils::reject::custom_bad_request(format!(
-            "Eth-Consensus-Version {fork_name} is not supported for execution payload envelopes"
-        )));
-    }
-    Ok(())
-}
-
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.
 pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
@@ -83,7 +74,7 @@ pub fn get_validator_sync_committee_contribution<T: BeaconChainTypes>(
         .and(warp::path("sync_committee_contribution"))
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -130,7 +121,7 @@ pub fn post_validator_duties_sync<T: BeaconChainTypes>(
             ))
         }))
         .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -1585,12 +1576,12 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
         .then(
             |body_bytes: Bytes,
              fork_name: ForkName,
-             not_while_syncing_filter: Result<(), Rejection>,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
-                    not_while_syncing_filter?;
+                    not_synced_filter?;
                     ensure_heze_consensus_version(fork_name)?;
                     let signed_inclusion_list = SignedInclusionList::from_ssz_bytes(&body_bytes)
                         .map_err(|e| {
@@ -1602,6 +1593,15 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
             },
         )
         .boxed()
+}
+
+fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+    if !fork_name.heze_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "Eth-Consensus-Version {fork_name} is not supported for inclusion lists"
+        )));
+    }
+    Ok(())
 }
 
 fn publish_inclusion_list<T: BeaconChainTypes>(
@@ -1631,8 +1631,8 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
         }
         Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {
             debug!(
-                    %slot,
-                    %validator_index,
+                %slot,
+                %validator_index,
                 "Two valid inclusion lists were already seen"
             );
             Ok(())
@@ -1644,7 +1644,7 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
         ) => {
             error!(%slot, error = ?e, "Internal error verifying inclusion list");
             Err(warp_utils::reject::custom_server_error(format!(
-                "internal error verifying inclusion list: {e:?}"
+                "internal error verifying inclusion list: {e}"
             )))
         }
         // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError

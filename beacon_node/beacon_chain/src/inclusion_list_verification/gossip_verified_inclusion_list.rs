@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tracing::debug;
 use types::{ChainSpec, SignedInclusionList};
 
-pub struct GossipVerifiedInclusionListContext<'a, T: BeaconChainTypes> {
+pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     // TODO(heze): complete while implementing the gossip verification of inclusion lists
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
@@ -17,7 +17,7 @@ pub struct GossipVerifiedInclusionList {
 impl GossipVerifiedInclusionList {
     pub fn new<T: BeaconChainTypes>(
         signed_inclusion_list: Arc<SignedInclusionList>,
-        _ctx: &GossipVerifiedInclusionListContext<'_, T>,
+        _ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, InclusionListVerificationError> {
         // TODO(heze): implement gossip verification for inclusion lists
         Ok(Self {
@@ -27,8 +27,8 @@ impl GossipVerifiedInclusionList {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn inclusion_list_verification_context(&self) -> GossipVerifiedInclusionListContext<'_, T> {
-        GossipVerifiedInclusionListContext {
+    pub fn inclusion_list_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+        GossipVerificationContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
@@ -41,7 +41,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = signed_inclusion_list.message.slot;
         let validator_index = signed_inclusion_list.message.validator_index;
 
-        let ctx = self.inclusion_list_verification_context();
+        let ctx = self.inclusion_list_gossip_verification_context();
         match GossipVerifiedInclusionList::new(signed_inclusion_list, &ctx) {
             Ok(verified) => {
                 debug!(
@@ -56,7 +56,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             Err(e) => {
                 debug!(
-                    error = e.to_string(),
+                    error = ?e,
                     %slot,
                     %validator_index,
                     "Rejected gossip inclusion list"
