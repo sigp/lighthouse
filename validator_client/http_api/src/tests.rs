@@ -6,16 +6,20 @@ mod keystores;
 use doppelganger_service::DoppelgangerService;
 use initialized_validators::{Config as InitializedValidatorsConfig, InitializedValidators};
 
-use crate::{ApiSecret, Config as HttpConfig, Context};
+use crate::{ApiSecret, Config as HttpConfig, Context, MAX_BUILDER_CONFIG_BODY_SIZE};
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
     random_password_string, validator_definitions::ValidatorDefinitions,
 };
 use bls::{Keypair, PublicKeyBytes};
+use builder_store::{BuilderDefinition, BuilderStore};
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
     Error as ApiError,
-    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    lighthouse_vc::{
+        http_client::{StatusCode, ValidatorClientHttpClient},
+        types::*,
+    },
     types::ErrorMessage as ApiErrorMessage,
 };
 use eth2_keystore::KeystoreBuilder;
@@ -44,6 +48,7 @@ struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+    configured_builders: BuilderStore,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     spec: Arc<ChainSpec>,
@@ -65,6 +70,7 @@ impl ApiTester {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join("api-token.txt");
+        let configured_builders = BuilderStore::open_or_create(validator_dir.path()).unwrap();
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -115,6 +121,7 @@ impl ApiTester {
             api_secret,
             block_service: None,
             validator_dir: Some(validator_dir.path().into()),
+            configured_builders: configured_builders.clone(),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
@@ -154,6 +161,7 @@ impl ApiTester {
             client,
             initialized_validators,
             validator_store,
+            configured_builders,
             url,
             slot_clock,
             spec,
@@ -941,6 +949,20 @@ async fn routes_with_invalid_auth() {
                 .await
         })
         .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_builder_config(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_builder_config(&PublicKeyBytes::empty(), &BuilderConfig::default())
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.delete_builder_config(&PublicKeyBytes::empty()).await
+        })
+        .await
         .test_with_invalid_auth(|client| async move { client.get_keystores().await })
         .await
         .test_with_invalid_auth(|client| async move {
@@ -983,6 +1005,200 @@ async fn routes_with_invalid_auth() {
                 .await
         })
         .await;
+}
+
+#[tokio::test]
+async fn validator_builder_configuration_endpoints() {
+    let tester = ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 1,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await;
+    tester
+        .configured_builders
+        .insert(BuilderDefinition {
+            enabled: true,
+            url: "https://global-builder.example".parse().unwrap(),
+            auth_data: None,
+            builder_pubkeys: vec![],
+            max_execution_payment: 7,
+            min_bid: None,
+            builder_boost_factor: None,
+        })
+        .unwrap();
+    let validator = tester
+        .client
+        .get_lighthouse_validators()
+        .await
+        .unwrap()
+        .data[0]
+        .voting_pubkey;
+
+    let inherited = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(inherited.min_bid, Some(0));
+    assert_eq!(inherited.builder_boost_factor, Some(100));
+    assert_eq!(inherited.builders.as_ref().unwrap().len(), 1);
+    assert_eq!(
+        inherited.builders.as_ref().unwrap()[0].max_execution_payment,
+        Some(7)
+    );
+
+    let empty_post = tester
+        .client
+        .post_builder_config(&validator, &BuilderConfig::default())
+        .await
+        .unwrap();
+    assert_eq!(empty_post.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        inherited
+    );
+
+    let custom = BuilderConfig {
+        min_bid: Some(3),
+        builder_boost_factor: Some(115),
+        builders: Some(vec![BuilderEntry {
+            url: "https://builder.example".parse().unwrap(),
+            auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(8),
+            min_bid: None,
+            builder_boost_factor: None,
+        }]),
+    };
+    let custom_post = tester
+        .client
+        .post_builder_config(&validator, &custom)
+        .await
+        .unwrap();
+    assert_eq!(custom_post.status(), StatusCode::ACCEPTED);
+    let resolved = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(resolved.min_bid, Some(3));
+    assert_eq!(resolved.builder_boost_factor, Some(115));
+    let entry = &resolved.builders.as_ref().unwrap()[0];
+    assert_eq!(entry.url.to_string(), "https://builder.example");
+    assert_eq!(&entry.auth_data.as_ref().unwrap()[..], b"validator-auth");
+    assert_eq!(entry.max_execution_payment, Some(8));
+    assert_eq!(entry.min_bid, Some(3));
+    assert_eq!(entry.builder_boost_factor, Some(115));
+
+    let restarted = BuilderStore::open_or_create(tester._validator_dir.path()).unwrap();
+    let restarted_config = restarted.validator_config(&validator);
+    assert_eq!(restarted_config.min_bid, 3);
+    assert_eq!(restarted_config.builders[0].max_execution_payment, 8);
+
+    let empty_list = BuilderConfig {
+        min_bid: Some(9),
+        builder_boost_factor: Some(130),
+        builders: Some(vec![]),
+    };
+    tester
+        .client
+        .post_builder_config(&validator, &empty_list)
+        .await
+        .unwrap();
+    let explicitly_empty = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(explicitly_empty.min_bid, Some(9));
+    assert_eq!(explicitly_empty.builder_boost_factor, Some(130));
+    assert_eq!(explicitly_empty.builders, Some(vec![]));
+
+    let delete = tester
+        .client
+        .delete_builder_config(&validator)
+        .await
+        .unwrap();
+    assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        inherited
+    );
+    let delete_again = tester
+        .client
+        .delete_builder_config(&validator)
+        .await
+        .unwrap();
+    assert_eq!(delete_again.status(), StatusCode::NO_CONTENT);
+
+    let unknown = Keypair::random().pk.compress();
+    match tester.client.get_builder_config(&unknown).await {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code: 404, .. })) => (),
+        other => panic!("expected unknown validator to return 404, got {other:?}"),
+    }
+    match tester
+        .client
+        .post_builder_config(&unknown, &BuilderConfig::default())
+        .await
+    {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code: 404, .. })) => (),
+        other => panic!("expected unknown validator POST to return 404, got {other:?}"),
+    }
+    match tester.client.delete_builder_config(&unknown).await {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code: 404, .. })) => (),
+        other => panic!("expected unknown validator DELETE to return 404, got {other:?}"),
+    }
+
+    let invalid = BuilderConfig {
+        builders: Some(vec![BuilderEntry {
+            url: "ftp://builder.example".parse().unwrap(),
+            auth_data: None,
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(1),
+            min_bid: None,
+            builder_boost_factor: None,
+        }]),
+        ..Default::default()
+    };
+    match tester
+        .client
+        .post_builder_config(&validator, &invalid)
+        .await
+    {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code: 400, .. })) => (),
+        other => panic!("expected invalid builder input to return 400, got {other:?}"),
+    }
+
+    let empty_auth = BuilderConfig {
+        builders: Some(vec![BuilderEntry {
+            url: "https://builder.example".parse().unwrap(),
+            auth_data: Some(RequestAuthData::default()),
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(1),
+            min_bid: None,
+            builder_boost_factor: None,
+        }]),
+        ..Default::default()
+    };
+    match tester
+        .client
+        .post_builder_config(&validator, &empty_auth)
+        .await
+    {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code: 400, .. })) => (),
+        other => panic!("expected empty auth input to return 400, got {other:?}"),
+    }
+
+    let oversized_body = vec![b' '; (MAX_BUILDER_CONFIG_BODY_SIZE + 1) as usize];
+    let oversized_url = tester
+        .url
+        .expose_full()
+        .join(&format!("eth/v1/validator/{validator}/builder_config"))
+        .unwrap();
+    let oversized_response = reqwest::Client::new()
+        .post(oversized_url)
+        .header(
+            "Authorization",
+            format!("Bearer {}", tester.client.api_token().unwrap().as_str()),
+        )
+        .header("Content-Type", "application/json")
+        .body(oversized_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(oversized_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[tokio::test]

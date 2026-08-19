@@ -61,10 +61,8 @@ relays, run one of the following services and configure lighthouse to use it wit
 
 In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
 configured, Lighthouse will use a default gas limit of 60,000,000, which is the current default value used in execution
-engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
-`--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences for all validators.
-In order to manage these configurations per-validator, you can either make updates to the `validator_definitions.yml` file
-or you can use the HTTP requests described below.
+engines. You can also configure the external builders for one validator without changing the global builder settings.
+Use the standard keymanager API requests described below for per-validator builder configuration.
 
 Both the gas limit and fee recipient will be passed along as suggestions to connected builders. If there is a discrepancy
 in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are
@@ -85,10 +83,18 @@ To update gas limit per-validator you can use the [standard key manager API][gas
 
 Alternatively, you can use the [lighthouse API](api_vc_endpoints.md). See below for an example.
 
-### Enable/Disable builder proposals via HTTP
+### Configure external builders via HTTP
 
-Use the [lighthouse API](api_vc_endpoints.md) to enable/disable use of the builder API on a per-validator basis.
-You can also update the configured gas limit with these requests.
+Use the standard keymanager API to manage the external builders for one validator:
+
+- `GET /eth/v1/validator/{pubkey}/builder_config` returns the fully resolved configuration.
+- `POST /eth/v1/validator/{pubkey}/builder_config` replaces the per-validator configuration.
+- `DELETE /eth/v1/validator/{pubkey}/builder_config` removes the per-validator configuration.
+
+An omitted field inherits the global configuration. `builders: []` explicitly disables direct builder
+requests for that validator. `POST {}` stores no overrides and therefore has the same behavior as
+the global configuration. `DELETE` restores inheritance after any override. Payment and boost values
+use quoted decimal strings in JSON, and `auth_data` uses `0x`-prefixed hex.
 
 #### `PATCH /lighthouse/validators/:voting_pubkey`
 

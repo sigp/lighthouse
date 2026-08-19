@@ -3,9 +3,9 @@
 Lighthouse implements a JSON HTTP API for the validator client which enables programmatic management
 of validators and keys.
 
-The API includes all of the endpoints from the [standard keymanager
-API](https://ethereum.github.io/keymanager-APIs/) that is implemented by other clients and remote
-signers. It also includes some Lighthouse-specific endpoints which are described in
+The API includes the standard keymanager endpoints implemented by Lighthouse, including per-validator
+fee recipient, gas limit, graffiti, keystore, remote-key, and external-builder configuration. It also
+includes Lighthouse-specific endpoints which are described in
 [Endpoints](./api_vc_endpoints.md).
 
 > Note: All requests to the HTTP server must supply an

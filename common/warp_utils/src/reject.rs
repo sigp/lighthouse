@@ -176,6 +176,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
         code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
         message = "UNSUPPORTED_MEDIA_TYPE".to_string();
+    } else if err.find::<warp::reject::PayloadTooLarge>().is_some() {
+        code = StatusCode::PAYLOAD_TOO_LARGE;
+        message = "PAYLOAD_TOO_LARGE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;

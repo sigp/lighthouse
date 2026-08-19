@@ -19,6 +19,7 @@ use axum::Router;
 use axum_utils::server::Server;
 use beacon_node_fallback::CandidateInfo;
 use bls::{PublicKey, PublicKeyBytes};
+use builder_store::{ResolvedBuilderConfig, ValidatorBuilderConfig, ValidatorBuilderDefinition};
 use core::convert::Infallible;
 use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use create_validator::{
@@ -59,7 +60,7 @@ use validator_services::block_service::BlockService;
 use validator_store::ValidatorStore;
 use warp::{Filter, reply::Response, sse::Event};
 use warp_utils::reject::convert_rejection;
-use warp_utils::task::blocking_json_task;
+use warp_utils::task::{blocking_json_task, blocking_response_task};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -79,6 +80,78 @@ impl From<String> for Error {
     }
 }
 
+fn into_store_builder_config(config: api_types::BuilderConfig) -> ValidatorBuilderConfig {
+    ValidatorBuilderConfig {
+        min_bid: config.min_bid,
+        builder_boost_factor: config.builder_boost_factor,
+        builders: config.builders.map(|builders| {
+            builders
+                .into_iter()
+                .map(|builder| ValidatorBuilderDefinition {
+                    url: builder.url,
+                    auth_data: builder.auth_data,
+                    builder_pubkeys: builder.builder_pubkeys.unwrap_or_default(),
+                    max_execution_payment: builder.max_execution_payment,
+                    min_bid: builder.min_bid,
+                    builder_boost_factor: builder.builder_boost_factor,
+                })
+                .collect()
+        }),
+    }
+}
+
+fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderConfig {
+    let ResolvedBuilderConfig {
+        min_bid,
+        builder_boost_factor,
+        builders,
+    } = config;
+    let builders = builders
+        .into_iter()
+        .map(|builder| {
+            let auth_data = Some(
+                builder
+                    .auth_data
+                    .unwrap_or_else(|| builder.url.to_default_auth_data()),
+            );
+            api_types::BuilderEntry {
+                url: builder.url,
+                auth_data,
+                builder_pubkeys: Some(builder.builder_pubkeys),
+                max_execution_payment: Some(builder.max_execution_payment),
+                min_bid: Some(builder.min_bid.unwrap_or(min_bid)),
+                builder_boost_factor: Some(
+                    builder.builder_boost_factor.unwrap_or(builder_boost_factor),
+                ),
+            }
+        })
+        .collect();
+
+    api_types::BuilderConfig {
+        min_bid: Some(min_bid),
+        builder_boost_factor: Some(builder_boost_factor),
+        builders: Some(builders),
+    }
+}
+
+fn builder_store_rejection(error: builder_store::Error) -> warp::Rejection {
+    let message = format!("builder configuration error: {error:?}");
+    match error {
+        builder_store::Error::DuplicateBuilderAuth(_)
+        | builder_store::Error::InvalidBuilderUrl(_)
+        | builder_store::Error::UnsupportedUrlScheme(_)
+        | builder_store::Error::TooManyEnabledBuilders { .. }
+        | builder_store::Error::TooManyBuilderPubkeys(_)
+        | builder_store::Error::EmptyAuthData(_) => warp_utils::reject::custom_bad_request(message),
+        _ => warp_utils::reject::custom_server_error(message),
+    }
+}
+
+// The API bounds each configuration at 64 entries, each with bounded URLs, auth data, and
+// builder public keys. Keep body decoding bounded as well, so malformed authenticated requests
+// cannot allocate without limit before those per-field checks run.
+const MAX_BUILDER_CONFIG_BODY_SIZE: u64 = 2 * 1024 * 1024;
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -88,6 +161,7 @@ pub struct Context<T: SlotClock, E> {
     pub block_service: Option<BlockService<LighthouseValidatorStore<T, E>, T>>,
     pub validator_store: Option<Arc<LighthouseValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub configured_builders: builder_store::BuilderStore,
     pub secrets_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
     pub graffiti_flag: Option<Graffiti>,
@@ -212,6 +286,9 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )
             })
         });
+
+    let inner_configured_builders = ctx.configured_builders.clone();
+    let configured_builders_filter = warp::any().map(move || inner_configured_builders.clone());
 
     let inner_task_executor = ctx.task_executor.clone();
     let task_executor_filter = warp::any().map(move || inner_task_executor.clone());
@@ -1022,6 +1099,123 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         )
         .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
 
+    // GET /eth/v1/validator/{pubkey}/builder_config
+    let get_builder_config = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("builder_config"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(configured_builders_filter.clone())
+        .then(
+            |validator_pubkey: PublicKey,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
+             configured_builders: builder_store::BuilderStore| {
+                blocking_json_task(move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+
+                    Ok(GenericResponse::from(into_api_builder_config(
+                        configured_builders
+                            .validator_config(&PublicKeyBytes::from(&validator_pubkey)),
+                    )))
+                })
+            },
+        );
+
+    // POST /eth/v1/validator/{pubkey}/builder_config
+    let post_builder_config = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("builder_config"))
+        .and(warp::body::content_length_limit(
+            MAX_BUILDER_CONFIG_BODY_SIZE,
+        ))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(configured_builders_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             request: api_types::BuilderConfig,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
+             configured_builders: builder_store::BuilderStore| {
+                blocking_response_task(move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+
+                    configured_builders
+                        .set_validator_config(
+                            &PublicKeyBytes::from(&validator_pubkey),
+                            into_store_builder_config(request),
+                        )
+                        .map(|_| {
+                            warp::reply::with_status(
+                                warp::reply(),
+                                warp::http::StatusCode::ACCEPTED,
+                            )
+                        })
+                        .map_err(builder_store_rejection)
+                })
+            },
+        );
+
+    // DELETE /eth/v1/validator/{pubkey}/builder_config
+    let delete_builder_config = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("builder_config"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(configured_builders_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
+             configured_builders: builder_store::BuilderStore| {
+                blocking_response_task(move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+
+                    configured_builders
+                        .delete_validator_config(&PublicKeyBytes::from(&validator_pubkey))
+                        .map(|_| {
+                            warp::reply::with_status(
+                                warp::reply(),
+                                warp::http::StatusCode::NO_CONTENT,
+                            )
+                        })
+                        .map_err(builder_store_rejection)
+                })
+            },
+        );
+
     // GET /eth/v1/validator/{pubkey}/gas_limit
     let get_gas_limit = eth_v1
         .and(warp::path("validator"))
@@ -1364,6 +1558,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_ui_graffiti)
                         .or(get_lighthouse_beacon_health)
                         .or(get_fee_recipient)
+                        .or(get_builder_config)
                         .or(get_gas_limit)
                         .or(get_graffiti)
                         .or(get_std_keystores)
@@ -1377,6 +1572,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_web3signer)
                         .or(post_validators_voluntary_exits)
                         .or(post_fee_recipient)
+                        .or(post_builder_config)
                         .or(post_gas_limit)
                         .or(post_std_keystores)
                         .or(post_std_remotekeys)
@@ -1389,6 +1585,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 .or(warp::delete().and(
                     delete_lighthouse_keystores
                         .or(delete_fee_recipient)
+                        .or(delete_builder_config)
                         .or(delete_gas_limit)
                         .or(delete_std_keystores)
                         .or(delete_std_remotekeys)

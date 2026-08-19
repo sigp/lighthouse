@@ -1,8 +1,96 @@
 use bls::PublicKeyBytes;
+pub use builder_types::{BuilderUrl, RequestAuthData};
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
+use serde_utils::quoted_u64::Quoted;
 use types::{Address, Graffiti};
 use zeroize::Zeroizing;
+
+mod optional_auth_data {
+    use super::RequestAuthData;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(transparent)]
+    struct JsonRequestAuthData(
+        #[serde(with = "ssz_types::serde_utils::hex_var_list")] RequestAuthData,
+    );
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<RequestAuthData>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value
+            .as_ref()
+            .map(|data| JsonRequestAuthData(data.clone()))
+            .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<RequestAuthData>, D::Error> {
+        Option::<JsonRequestAuthData>::deserialize(deserializer)?
+            .map(|data| Some(data.0))
+            .ok_or_else(|| de::Error::custom("null is not allowed"))
+    }
+}
+
+mod optional_quoted_u64 {
+    use super::Quoted;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
+    pub fn serialize<S: Serializer>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error> {
+        value.map(|value| Quoted { value }).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u64>, D::Error> {
+        Option::<Quoted<u64>>::deserialize(deserializer)?
+            .map(|value| Some(value.value))
+            .ok_or_else(|| de::Error::custom("null is not allowed"))
+    }
+}
+
+mod optional_builder_pubkeys {
+    use bls::PublicKeyBytes;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Vec<PublicKeyBytes>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<PublicKeyBytes>>, D::Error> {
+        Option::<Vec<PublicKeyBytes>>::deserialize(deserializer)?
+            .map(Some)
+            .ok_or_else(|| de::Error::custom("null is not allowed"))
+    }
+}
+
+mod optional_builder_entries {
+    use super::BuilderEntry;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Vec<BuilderEntry>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<BuilderEntry>>, D::Error> {
+        Option::<Vec<BuilderEntry>>::deserialize(deserializer)?
+            .map(Some)
+            .ok_or_else(|| de::Error::custom("null is not allowed"))
+    }
+}
 
 pub use eip_3076::Interchange;
 
@@ -18,6 +106,128 @@ pub struct GetGasLimitResponse {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,
+}
+
+/// Per-validator external-builder configuration from the standard keymanager API.
+///
+/// A missing field inherits the validator client's global configuration. The GET endpoint returns
+/// all fields resolved, while POST accepts an omitted `builders` field and an explicitly empty
+/// list as distinct values.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct BuilderConfig {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub min_bid: Option<u64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_builder_entries"
+    )]
+    pub builders: Option<Vec<BuilderEntry>>,
+}
+
+/// An external-builder entry from the standard keymanager API.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct BuilderEntry {
+    pub url: BuilderUrl,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_auth_data"
+    )]
+    pub auth_data: Option<RequestAuthData>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_builder_pubkeys"
+    )]
+    pub builder_pubkeys: Option<Vec<PublicKeyBytes>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub max_execution_payment: Option<u64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub min_bid: Option<u64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_quoted_u64"
+    )]
+    pub builder_boost_factor: Option<u64>,
+}
+
+#[cfg(test)]
+mod builder_config_tests {
+    use super::*;
+
+    #[test]
+    fn builder_config_uses_keymanager_json_encoding() {
+        let config = BuilderConfig {
+            min_bid: Some(3),
+            builder_boost_factor: Some(110),
+            builders: Some(vec![BuilderEntry {
+                url: "https://builder.example".parse().unwrap(),
+                auth_data: Some(RequestAuthData::new(vec![1, 2]).unwrap()),
+                builder_pubkeys: Some(vec![]),
+                max_execution_payment: Some(8),
+                min_bid: None,
+                builder_boost_factor: None,
+            }]),
+        };
+
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["min_bid"], "3");
+        assert_eq!(json["builder_boost_factor"], "110");
+        assert_eq!(json["builders"][0]["auth_data"], "0x0102");
+        assert_eq!(json["builders"][0]["max_execution_payment"], "8");
+        assert_eq!(
+            json["builders"][0]["builder_pubkeys"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            serde_json::from_value::<BuilderConfig>(json).unwrap(),
+            config
+        );
+    }
+
+    #[test]
+    fn empty_post_serializes_without_overrides() {
+        assert_eq!(
+            serde_json::to_value(BuilderConfig::default()).unwrap(),
+            serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn null_optional_fields_are_rejected() {
+        for field in ["builders", "min_bid", "builder_boost_factor"] {
+            let json = serde_json::json!({(field): null});
+            assert!(
+                serde_json::from_value::<BuilderConfig>(json).is_err(),
+                "field {field} unexpectedly accepts null"
+            );
+        }
+
+        let json = serde_json::json!({
+            "builders": [{"url": "https://builder.example", "builder_pubkeys": null}]
+        });
+        assert!(serde_json::from_value::<BuilderConfig>(json).is_err());
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]

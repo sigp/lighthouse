@@ -5,6 +5,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
 };
 use bls::Keypair;
+use builder_store::BuilderStore;
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
 use eth2::{
@@ -57,6 +58,7 @@ pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
     pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+    pub configured_builders: BuilderStore,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -88,6 +90,7 @@ impl ApiTester {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
+        let configured_builders = BuilderStore::open_or_create(validator_dir.path()).unwrap();
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -134,6 +137,7 @@ impl ApiTester {
             api_secret,
             block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
+            configured_builders: configured_builders.clone(),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
@@ -166,6 +170,7 @@ impl ApiTester {
             client,
             initialized_validators,
             validator_store,
+            configured_builders,
             url,
             api_token: api_pubkey,
             test_runtime,

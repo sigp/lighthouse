@@ -17,6 +17,7 @@ axum = { workspace = true }
 axum_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
+builder_store = { workspace = true }
 deposit_contract = { workspace = true, optional = true }
 directory = { workspace = true }
 dirs = { workspace = true }
@@ -64,5 +65,6 @@ doppelganger_service = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
+reqwest = { workspace = true }
 ssz_types = { workspace = true }
 tempfile = { workspace = true }
