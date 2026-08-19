@@ -7,7 +7,7 @@ pub use builder_definitions::{
 use builder_types::{
     BuilderConfig, BuilderEntry, BuilderPubkeys, RequestAuthData, SignedRequestAuth,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use ssz_types::VariableList;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,6 @@ use tracing::error;
 #[derive(Clone)]
 pub struct BuilderStore {
     config: Arc<RwLock<BuilderConfigFile>>,
-    update_lock: Arc<Mutex<()>>,
     validators_dir: PathBuf,
 }
 
@@ -29,7 +28,6 @@ impl BuilderStore {
             config: Arc::new(RwLock::new(BuilderConfigFile::open_or_create(
                 &validators_dir,
             )?)),
-            update_lock: Arc::new(Mutex::new(())),
             validators_dir,
         })
     }
@@ -136,16 +134,11 @@ impl BuilderStore {
     }
 
     pub fn insert(&self, builder: BuilderDefinition) -> Result<(), Error> {
-        let _update_guard = self.update_lock.lock();
-        let mut config = self.config.write();
-        // Validate a candidate copy before committing, so a bad insert leaves the config unchanged
-        // (and the global bid-policy defaults are preserved).
-        let mut candidate = config.clone();
-        candidate.push(builder);
-        candidate.validate()?;
-
-        *config = candidate;
-        config.save(&self.validators_dir)
+        self.persist_update(|candidate| {
+            candidate.push(builder);
+            candidate.validate()?;
+            Ok(true)
+        })
     }
 
     /// Return the fully resolved configuration for a validator without signing builder auth data.
@@ -164,14 +157,12 @@ impl BuilderStore {
     ) -> Result<(), Error> {
         validator_config.validate()?;
 
-        let _update_guard = self.update_lock.lock();
-        let mut candidate = self.config.read().clone();
-        candidate
-            .validator_configs
-            .insert(validator_pubkey.to_string(), validator_config);
-        candidate.save(&self.validators_dir)?;
-        *self.config.write() = candidate;
-        Ok(())
+        self.persist_update(|candidate| {
+            candidate
+                .validator_configs
+                .insert(validator_pubkey.to_string(), validator_config);
+            Ok(true)
+        })
     }
 
     /// Remove a validator's override and persist the inherited global configuration atomically.
@@ -179,17 +170,36 @@ impl BuilderStore {
         &self,
         validator_pubkey: &bls::PublicKeyBytes,
     ) -> Result<(), Error> {
-        let _update_guard = self.update_lock.lock();
-        let mut candidate = self.config.read().clone();
-        if candidate
-            .validator_configs
-            .remove(&validator_pubkey.to_string())
-            .is_none()
-        {
+        self.persist_update(|candidate| {
+            Ok(candidate
+                .validator_configs
+                .remove(&validator_pubkey.to_string())
+                .is_some())
+        })
+    }
+
+    /// Apply and persist one update while ordinary readers continue using the current config.
+    ///
+    /// The update returns `false` when it made no change and no save is required.
+    /// The upgradable read guard serializes writers from snapshot through save. The brief upgrade
+    /// publishes only a successfully persisted candidate. The replaced config is dropped after the
+    /// write guard is released because it can contain a large per-validator map.
+    fn persist_update(
+        &self,
+        update: impl FnOnce(&mut BuilderConfigFile) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        let config = self.config.upgradable_read();
+        let mut candidate = config.clone();
+        if !update(&mut candidate)? {
             return Ok(());
         }
         candidate.save(&self.validators_dir)?;
-        *self.config.write() = candidate;
+
+        let previous = {
+            let mut config = RwLockUpgradableReadGuard::upgrade(config);
+            std::mem::replace(&mut *config, candidate)
+        };
+        drop(previous);
         Ok(())
     }
 }
@@ -311,6 +321,26 @@ mod tests {
         restarted.delete_validator_config(&validator).unwrap();
         let file = builder_definitions::BuilderConfigFile::open(directory.path()).unwrap();
         assert!(!file.validator_configs.contains_key(&validator.to_string()));
+    }
+
+    #[test]
+    fn failed_insert_is_not_published() {
+        let directory = tempdir().unwrap();
+        let store = BuilderStore::open_or_create(directory.path()).unwrap();
+        let validator = Keypair::random().pk.compress();
+        std::fs::create_dir(
+            directory
+                .path()
+                .join(builder_definitions::BUILDERS_TEMP_FILENAME),
+        )
+        .unwrap();
+
+        assert!(
+            store
+                .insert(global_builder("https://global-builder.example", 7))
+                .is_err()
+        );
+        assert!(store.validator_config(&validator).builders.is_empty());
     }
 
     #[test]

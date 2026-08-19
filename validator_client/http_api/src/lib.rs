@@ -2,6 +2,7 @@
 pub mod test_utils;
 
 mod api_secret;
+mod builder_config;
 mod create_signed_voluntary_exit;
 mod create_validator;
 mod graffiti;
@@ -19,7 +20,6 @@ use axum::Router;
 use axum_utils::server::Server;
 use beacon_node_fallback::CandidateInfo;
 use bls::{PublicKey, PublicKeyBytes};
-use builder_store::{ResolvedBuilderConfig, ValidatorBuilderConfig, ValidatorBuilderDefinition};
 use core::convert::Infallible;
 use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use create_validator::{
@@ -78,85 +78,6 @@ impl From<String> for Error {
     fn from(e: String) -> Self {
         Error::Other(e)
     }
-}
-
-fn into_store_builder_config(config: api_types::BuilderConfig) -> ValidatorBuilderConfig {
-    ValidatorBuilderConfig {
-        min_bid: config.min_bid.map(|value| value.value),
-        builder_boost_factor: config.builder_boost_factor.map(|value| value.value),
-        builders: config.builders.map(|builders| {
-            builders
-                .into_iter()
-                .map(|builder| ValidatorBuilderDefinition {
-                    url: builder.url,
-                    auth_data: builder.auth_data,
-                    builder_pubkeys: builder.builder_pubkeys.unwrap_or_default(),
-                    max_execution_payment: builder.max_execution_payment.map(|value| value.value),
-                    min_bid: builder.min_bid.map(|value| value.value),
-                    builder_boost_factor: builder.builder_boost_factor.map(|value| value.value),
-                })
-                .collect()
-        }),
-    }
-}
-
-fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderConfig {
-    let ResolvedBuilderConfig {
-        min_bid,
-        builder_boost_factor,
-        builders,
-    } = config;
-    let builders = builders
-        .into_iter()
-        .map(|builder| {
-            let auth_data = Some(
-                builder
-                    .auth_data
-                    .unwrap_or_else(|| builder.url.to_default_auth_data()),
-            );
-            api_types::BuilderEntry {
-                url: builder.url,
-                auth_data,
-                builder_pubkeys: Some(builder.builder_pubkeys),
-                max_execution_payment: Some(api_types::Quoted {
-                    value: builder.max_execution_payment,
-                }),
-                min_bid: Some(api_types::Quoted {
-                    value: builder.min_bid.unwrap_or(min_bid),
-                }),
-                builder_boost_factor: Some(api_types::Quoted {
-                    value: builder.builder_boost_factor.unwrap_or(builder_boost_factor),
-                }),
-            }
-        })
-        .collect();
-
-    api_types::BuilderConfig {
-        min_bid: Some(api_types::Quoted { value: min_bid }),
-        builder_boost_factor: Some(api_types::Quoted {
-            value: builder_boost_factor,
-        }),
-        builders: Some(builders),
-    }
-}
-
-fn builder_store_rejection(error: builder_store::Error) -> warp::Rejection {
-    let message = format!("builder configuration error: {error:?}");
-    match error {
-        builder_store::Error::DuplicateBuilderAuth(_)
-        | builder_store::Error::InvalidBuilderUrl(_)
-        | builder_store::Error::UnsupportedUrlScheme(_)
-        | builder_store::Error::TooManyEnabledBuilders { .. }
-        | builder_store::Error::TooManyBuilderPubkeys(_)
-        | builder_store::Error::EmptyAuthData(_) => warp_utils::reject::custom_bad_request(message),
-        _ => warp_utils::reject::custom_server_error(message),
-    }
-}
-
-fn builder_store_delete_rejection(error: builder_store::Error) -> warp::Rejection {
-    warp_utils::reject::custom_forbidden(format!(
-        "builder configuration could not be removed: {error:?}"
-    ))
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
@@ -1119,22 +1040,8 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              validator_store: Arc<LighthouseValidatorStore<T, E>>,
              configured_builders: builder_store::BuilderStore| {
                 blocking_json_task(move || {
-                    if validator_store
-                        .initialized_validators()
-                        .read()
-                        .is_enabled(&validator_pubkey)
-                        .is_none()
-                    {
-                        return Err(warp_utils::reject::custom_not_found(format!(
-                            "no validator found with pubkey {:?}",
-                            validator_pubkey
-                        )));
-                    }
-
-                    Ok(GenericResponse::from(into_api_builder_config(
-                        configured_builders
-                            .validator_config(&PublicKeyBytes::from(&validator_pubkey)),
-                    )))
+                    builder_config::get(validator_pubkey, validator_store, configured_builders)
+                        .map(GenericResponse::from)
                 })
             },
         );
@@ -1154,30 +1061,15 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              validator_store: Arc<LighthouseValidatorStore<T, E>>,
              configured_builders: builder_store::BuilderStore| {
                 blocking_response_task(move || {
-                    if validator_store
-                        .initialized_validators()
-                        .read()
-                        .is_enabled(&validator_pubkey)
-                        .is_none()
-                    {
-                        return Err(warp_utils::reject::custom_not_found(format!(
-                            "no validator found with pubkey {:?}",
-                            validator_pubkey
-                        )));
-                    }
-
-                    configured_builders
-                        .set_validator_config(
-                            &PublicKeyBytes::from(&validator_pubkey),
-                            into_store_builder_config(request),
-                        )
-                        .map(|_| {
-                            warp::reply::with_status(
-                                warp::reply(),
-                                warp::http::StatusCode::ACCEPTED,
-                            )
-                        })
-                        .map_err(builder_store_rejection)
+                    builder_config::set(
+                        validator_pubkey,
+                        request,
+                        validator_store,
+                        configured_builders,
+                    )
+                    .map(|_| {
+                        warp::reply::with_status(warp::reply(), warp::http::StatusCode::ACCEPTED)
+                    })
                 })
             },
         );
@@ -1195,27 +1087,13 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              validator_store: Arc<LighthouseValidatorStore<T, E>>,
              configured_builders: builder_store::BuilderStore| {
                 blocking_response_task(move || {
-                    if validator_store
-                        .initialized_validators()
-                        .read()
-                        .is_enabled(&validator_pubkey)
-                        .is_none()
-                    {
-                        return Err(warp_utils::reject::custom_not_found(format!(
-                            "no validator found with pubkey {:?}",
-                            validator_pubkey
-                        )));
-                    }
-
-                    configured_builders
-                        .delete_validator_config(&PublicKeyBytes::from(&validator_pubkey))
+                    builder_config::delete(validator_pubkey, validator_store, configured_builders)
                         .map(|_| {
                             warp::reply::with_status(
                                 warp::reply(),
                                 warp::http::StatusCode::NO_CONTENT,
                             )
                         })
-                        .map_err(builder_store_delete_rejection)
                 })
             },
         );

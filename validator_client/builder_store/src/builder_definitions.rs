@@ -209,23 +209,26 @@ pub struct BuilderConfigFile {
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "deserialize_canonical_validator_configs"
+        deserialize_with = "deserialize_validator_configs_and_standardize_pubkeys"
     )]
     pub validator_configs: BTreeMap<String, ValidatorBuilderConfig>,
 }
 
-fn deserialize_canonical_validator_configs<'de, D: Deserializer<'de>>(
+fn deserialize_validator_configs_and_standardize_pubkeys<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<BTreeMap<String, ValidatorBuilderConfig>, D::Error> {
     let configs = BTreeMap::<String, ValidatorBuilderConfig>::deserialize(deserializer)?;
-    let mut canonical = BTreeMap::new();
+    let mut standardized = BTreeMap::new();
     for (key, config) in configs {
         let public_key = PublicKeyBytes::from_str(&key).map_err(de::Error::custom)?;
-        if canonical.insert(public_key.to_string(), config).is_some() {
+        if standardized
+            .insert(public_key.to_string(), config)
+            .is_some()
+        {
             return Err(de::Error::custom("duplicate validator public key"));
         }
     }
-    Ok(canonical)
+    Ok(standardized)
 }
 
 impl Default for BuilderConfigFile {
@@ -496,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn validator_config_keys_are_canonicalized() {
+    fn validator_config_pubkey_keys_use_standard_format() {
         let public_key = bls::Keypair::random().pk.compress();
         let encoded = public_key.to_string();
         let uppercase = format!("0x{}", encoded[2..].to_uppercase());
