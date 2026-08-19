@@ -42,7 +42,7 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                         now_duration,
                     )
                 else {
-                    error!("Failed to determine current slot");
+                    error!("Failed to calculate attestation deadline");
                     sleep(slot_duration).await;
                     continue;
                 };
