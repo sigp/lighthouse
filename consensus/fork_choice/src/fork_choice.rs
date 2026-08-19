@@ -792,13 +792,6 @@ where
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
 
-        // If this block has already been processed we do not need to reprocess it.
-        // We check this immediately in case re-processing the block mutates some property of the
-        // global fork choice store, e.g. the justified checkpoints or the proposer boost root.
-        if self.proto_array.contains_block(&block_root) {
-            return Ok(());
-        }
-
         let head_root = if system_time_current_slot == self.fc_store.get_current_slot() {
             // Fork choice has already run for the current slot, so we can safely use the cached
             // head without recomputing it.
@@ -810,6 +803,25 @@ where
         };
         let current_slot = self.fc_store.get_current_slot();
         debug_assert_eq!(current_slot, system_time_current_slot);
+
+        // Check that block is later than the finalized epoch slot (optimization to reduce calls to
+        // get_ancestor).
+        let finalized_slot =
+            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
+        if block.slot() <= finalized_slot {
+            return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
+                finalized_slot,
+                block_slot: block.slot(),
+            }));
+        }
+
+        // If this block has already been processed we do not need to reprocess it.
+        // We check this before any store mutation in case re-processing the block mutates some
+        // property of the global fork choice store, e.g. the justified checkpoints or the
+        // proposer boost root.
+        if self.proto_array.contains_block(&block_root) {
+            return Ok(());
+        }
 
         // Parent block must be known.
         let parent_block = self
@@ -837,17 +849,6 @@ where
         if block.slot() > current_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FutureSlot {
                 current_slot,
-                block_slot: block.slot(),
-            }));
-        }
-
-        // Check that block is later than the finalized epoch slot (optimization to reduce calls to
-        // get_ancestor).
-        let finalized_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
-        if block.slot() <= finalized_slot {
-            return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
-                finalized_slot,
                 block_slot: block.slot(),
             }));
         }
