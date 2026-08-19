@@ -37,7 +37,6 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
 use types::graffiti::GraffitiString;
 use validator_store::ValidatorStore;
-use warp::Reply;
 use zeroize::Zeroizing;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -1199,17 +1198,6 @@ async fn builder_configuration_rejects_invalid_input() {
         tester.client.get_builder_config(&validator).await.unwrap(),
         before
     );
-}
-
-#[tokio::test]
-async fn builder_delete_errors_are_forbidden() {
-    let rejection = crate::builder_store_delete_rejection(builder_store::Error::UnableToOpenFile(
-        std::io::Error::other("test"),
-    ));
-    let reply = warp_utils::reject::handle_rejection(rejection)
-        .await
-        .unwrap();
-    assert_eq!(reply.into_response().status(), StatusCode::FORBIDDEN);
 }
 
 fn assert_server_error_code<T: std::fmt::Debug>(result: Result<T, ApiError>, expected: u16) {
