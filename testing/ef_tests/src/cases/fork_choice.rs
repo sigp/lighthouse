@@ -91,6 +91,7 @@ pub struct Checks {
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
     // Fast Confirmation Rule (FCR) checks
     confirmed_root: Option<Hash256>,
+    safe_execution_block_hash: Option<ExecutionBlockHash>,
     previous_epoch_observed_justified_checkpoint: Option<Checkpoint>,
     current_epoch_observed_justified_checkpoint: Option<Checkpoint>,
     previous_epoch_greatest_unrealized_checkpoint: Option<Checkpoint>,
@@ -411,6 +412,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
             "is_one_confirmed_passes_with_empty_slot_and_attester_in_two_consecutive_slots_2",
             "fcr_no_restart_if_head_gu_is_stale",
+            // This case runs past a sync committee period boundary. The vectors contain a real
+            // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
+            // infinity pubkey, so the state roots cannot match.
+            "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
         ];
         if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str()) {
             return Err(Error::SkippedKnownFailure);
@@ -464,6 +469,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
                         confirmed_root,
+                        safe_execution_block_hash,
                         previous_epoch_observed_justified_checkpoint,
                         current_epoch_observed_justified_checkpoint,
                         previous_epoch_greatest_unrealized_checkpoint,
@@ -521,6 +527,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected) = confirmed_root {
                         tester.check_confirmed_root(*expected)?;
+                    }
+                    if let Some(expected) = safe_execution_block_hash {
+                        tester.check_safe_execution_block_hash(*expected)?;
                     }
                     if let Some(expected) = previous_epoch_observed_justified_checkpoint {
                         tester.check_previous_epoch_observed_justified_checkpoint(*expected)?;
@@ -1381,6 +1390,26 @@ impl<E: EthSpec> Tester<E> {
 
         let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;
         check_equal("confirmed_root", actual, expected)
+    }
+
+    pub fn check_safe_execution_block_hash(
+        &self,
+        expected: ExecutionBlockHash,
+    ) -> Result<(), Error> {
+        let confirmed_root =
+            self.get_fcr_field("safe_execution_block_hash", |fcr| fcr.confirmed_root)?;
+        let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let block = fork_choice.get_block(&confirmed_root).ok_or_else(|| {
+            Error::InternalError(format!(
+                "confirmed block {confirmed_root:?} not found in fork choice"
+            ))
+        })?;
+        let actual = block
+            .execution_status
+            .block_hash()
+            .or(block.execution_payload_parent_hash)
+            .unwrap_or_else(ExecutionBlockHash::zero);
+        check_equal("safe_execution_block_hash", actual, expected)
     }
 
     pub fn check_previous_epoch_observed_justified_checkpoint(
