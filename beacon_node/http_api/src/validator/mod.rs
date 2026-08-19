@@ -42,6 +42,15 @@ use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
 
+fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+    if !fork_name.gloas_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "Eth-Consensus-Version {fork_name} is not supported for execution payload envelopes"
+        )));
+    }
+    Ok(())
+}
+
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.
 pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
@@ -1522,6 +1531,7 @@ fn publish_proposer_preferences<T: BeaconChainTypes>(
 /// POST validator/inclusion_list (JSON)
 pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
+    not_while_syncing_filter: NotWhileSyncingFilter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
@@ -1532,16 +1542,20 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
             |signed_inclusion_list: SignedInclusionList,
-             _fork_name: ForkName,
+             fork_name: ForkName,
+             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+                    ensure_heze_consensus_version(fork_name)?;
                     publish_inclusion_list(&chain, &network_tx, signed_inclusion_list)?;
                     Ok(warp::reply())
                 })
@@ -1553,6 +1567,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
 /// POST validator/proposer_preferences (SSZ)
 pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
+    not_while_syncing_filter: NotWhileSyncingFilter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
@@ -1563,16 +1578,20 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::bytes())
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
             |body_bytes: Bytes,
-             _fork_name: ForkName,
+             fork_name: ForkName,
+             not_while_syncing_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_while_syncing_filter?;
+                    ensure_heze_consensus_version(fork_name)?;
                     let signed_inclusion_list = SignedInclusionList::from_ssz_bytes(&body_bytes)
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
@@ -1590,14 +1609,15 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
     _network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     signed_inclusion_list: SignedInclusionList,
 ) -> Result<(), warp::Rejection> {
-    if !chain.spec.is_heze_scheduled() {
+    let slot = signed_inclusion_list.message.slot;
+    let validator_index = signed_inclusion_list.message.validator_index;
+    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+    if !fork_name.heze_enabled() {
         return Err(warp_utils::reject::custom_bad_request(
             "Inclusion lists publishing is not supported before the Heze fork".into(),
         ));
     }
-
-    let slot = signed_inclusion_list.message.slot;
-    let validator_index = signed_inclusion_list.message.validator_index;
 
     match chain.verify_inclusion_list_for_gossip(Arc::new(signed_inclusion_list)) {
         Ok(_verified_inclusion_list) => {
