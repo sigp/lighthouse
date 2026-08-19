@@ -570,10 +570,15 @@ impl<E: EthSpec> PeerManager<E> {
             RPCError::ErrorResponse(code, _) => match code {
                 RpcErrorResponse::Unknown => PeerAction::HighToleranceError,
                 RpcErrorResponse::ResourceUnavailable => {
-                    // Don't ban on this because we want to retry with a block by root request.
+                    // Don't ban on this. For the by-root protocols we retry with a block-by-root
+                    // request; for `DataColumnsByRange` this response is a legitimate "peer has not
+                    // custody-backfilled that range yet" signal (e.g. on a young network or right
+                    // after Fulu activation), not misbehaviour, so it must not be a fatal offense.
                     if matches!(
                         protocol,
-                        Protocol::BlobsByRoot | Protocol::DataColumnsByRoot
+                        Protocol::BlobsByRoot
+                            | Protocol::DataColumnsByRoot
+                            | Protocol::DataColumnsByRange
                     ) {
                         return;
                     }
