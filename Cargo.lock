@@ -9985,6 +9985,7 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_ssz",
+ "futures",
  "initialized_validators",
  "lighthouse_validator_store",
  "mockito",
