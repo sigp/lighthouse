@@ -106,13 +106,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
-        let sync_message_slot_component = spec.get_sync_message_due();
-
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    sleep(duration_to_next_slot + sync_message_slot_component).await;
+                if let Some(now_duration) = self.slot_clock.now_duration() {
+                    let (_, Some(duration_to_sync_message_deadline)) = sync_message_deadline::<S::E>(
+                        &self.slot_clock,
+                        &self.duties_service.spec,
+                        now_duration,
+                    ) else {
+                        error!("Failed to determine sync message deadline");
+                        sleep(slot_duration).await;
+                        continue;
+                    };
+
+                    // Wait for the fork-appropriate sync message due time.
+                    sleep(duration_to_sync_message_deadline).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
@@ -150,11 +158,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .duration_to_next_slot()
             .ok_or("Unable to determine duration to next slot")?;
 
-        // If a validator needs to publish a sync aggregate, they must do so at 2/3
-        // through the slot. This delay triggers at this time
+        // If a validator needs to publish a sync aggregate, trigger it at the
+        // fork-appropriate contribution due time.
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_add(spec.get_contribution_message_due())
+                .checked_add(spec.get_contribution_message_due::<S::E>(slot))
                 .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
@@ -548,6 +556,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 }
 
+fn sync_message_deadline<E: EthSpec>(
+    slot_clock: &impl SlotClock,
+    chain_spec: &ChainSpec,
+    now: Duration,
+) -> (Slot, Option<Duration>) {
+    let sync_message_slot = slot_clock
+        .slot_of(now)
+        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
+    let duration_to_sync_message_deadline = slot_clock
+        .start_of(sync_message_slot)
+        .and_then(|slot_start| {
+            slot_start.checked_add(chain_spec.get_sync_message_due::<E>(sync_message_slot))
+        })
+        .and_then(|deadline| deadline.checked_sub(now));
+    (sync_message_slot, duration_to_sync_message_deadline)
+}
+
 fn sync_period_of_slot<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, String> {
     slot.epoch(E::slots_per_epoch())
         .sync_committee_period(spec)
@@ -567,4 +592,55 @@ fn subscriptions_from_sync_duties(
             sync_committee_indices: duty.validator_sync_committee_indices,
             until_epoch,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slot_clock::ManualSlotClock;
+    use types::{Epoch, MainnetEthSpec};
+
+    #[test]
+    fn duration_to_sync_message_deadline_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let mut spec = E::default_spec();
+        let gloas_fork_epoch = Epoch::new(1);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let last_pre_gloas_slot = first_gloas_slot - 1;
+
+        let test_cases = [
+            (
+                "pre-genesis",
+                genesis_time - Duration::from_secs(1),
+                slot_clock.genesis_slot(),
+                Duration::from_millis(4999),
+            ),
+            (
+                "pre-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                last_pre_gloas_slot,
+                Duration::from_millis(15999),
+            ),
+            (
+                "post-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                first_gloas_slot,
+                Duration::from_millis(15000),
+            ),
+        ];
+
+        for (case, now, expected_slot, expected_duration) in test_cases {
+            assert_eq!(
+                sync_message_deadline::<E>(&slot_clock, &spec, now),
+                (expected_slot, Some(expected_duration)),
+                "{case}"
+            );
+        }
+    }
 }
