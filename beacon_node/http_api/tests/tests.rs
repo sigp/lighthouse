@@ -9382,8 +9382,8 @@ impl ApiTester {
             .unwrap()
             .unwrap_or(self.chain.head_beacon_block_root());
         // TODO: use get_inclusion_list_committee from the beacon state when available
-        let beacon_committee = head_state.get_beacon_committees_at_slot(slot).unwrap();
-        let validator_index = beacon_committee[0].committee[0] as u64;
+        let beacon_committees = head_state.get_beacon_committees_at_slot(slot).unwrap();
+        let validator_index = beacon_committees[0].committee[0] as u64;
         let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
         let inclusion_list = InclusionList {
             slot,
@@ -9395,7 +9395,6 @@ impl ApiTester {
         self.sign_inclusion_list(
             inclusion_list,
             sk,
-            epoch,
             &head_state.fork(),
             genesis_validators_root,
         )
@@ -9405,10 +9404,10 @@ impl ApiTester {
         &self,
         inclusion_list: InclusionList,
         sk: &SecretKey,
-        epoch: Epoch,
         fork: &Fork,
         genesis_validators_root: Hash256,
     ) -> SignedInclusionList {
+        let epoch = inclusion_list.slot.epoch(E::slots_per_epoch());
         let domain = self.chain.spec.get_domain(
             epoch,
             Domain::InclusionListCommittee,
@@ -9590,7 +9589,12 @@ impl ApiTester {
             .await
             .expect("publishing valid inclusion list (json) should be successful");
 
-        assert!(self.network_rx.network_recv.recv().now_or_never().is_some());
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid inclusion list should be sent to network"
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -9611,7 +9615,12 @@ impl ApiTester {
             .await
             .expect("publishing valid inclusion list (ssz) should be successful");
 
-        assert!(self.network_rx.network_recv.recv().now_or_never().is_some());
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid inclusion list (SSZ) should be sent to network"
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
     }
@@ -11510,6 +11519,7 @@ async fn inclusion_list_publish_pre_heze() {
         .await;
 }
 
+// TODO(heze): once IL gossip verification lands, cover the endpoint's error mapping
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inclusion_list_api() {
     if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
