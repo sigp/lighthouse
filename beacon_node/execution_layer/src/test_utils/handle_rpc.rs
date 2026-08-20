@@ -64,41 +64,6 @@ pub async fn handle_rpc<E: EthSpec>(
                 )),
             }
         }
-        ETH_GET_BLOCK_BY_HASH => {
-            let hash = params
-                .get(0)
-                .and_then(JsonValue::as_str)
-                .ok_or_else(|| "missing/invalid params[0] value".to_string())
-                .and_then(|s| {
-                    s.parse()
-                        .map_err(|e| format!("unable to parse hash: {:?}", e))
-                })
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-
-            // If we have a static response set, just return that.
-            if let Some(response) = *ctx.static_get_block_by_hash_response.lock() {
-                return Ok(serde_json::to_value(response).unwrap());
-            }
-
-            let full_tx = params
-                .get(1)
-                .and_then(JsonValue::as_bool)
-                .ok_or_else(|| "missing/invalid params[1] value".to_string())
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-            if full_tx {
-                Err((
-                    "full_tx support has been removed".to_string(),
-                    BAD_PARAMS_ERROR_CODE,
-                ))
-            } else {
-                Ok(serde_json::to_value(
-                    ctx.execution_block_generator
-                        .read()
-                        .execution_block_by_hash(hash),
-                )
-                .unwrap())
-            }
-        }
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
