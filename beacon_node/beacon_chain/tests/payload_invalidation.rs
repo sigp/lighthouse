@@ -589,7 +589,7 @@ async fn latest_valid_hash_will_not_validate() {
         if slot > LATEST_VALID_SLOT {
             assert!(execution_status.is_invalid())
         } else if slot == 0 {
-            assert!(execution_status.is_irrelevant())
+            assert!(execution_status.is_pre_merge())
         } else if slot == 1 {
             assert!(execution_status.is_valid_and_post_bellatrix())
         } else {
@@ -730,7 +730,7 @@ async fn invalidates_all_descendants() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(execution_status.is_irrelevant());
+            assert!(execution_status.is_pre_merge());
         } else if slot == 1 {
             // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());
@@ -830,7 +830,7 @@ async fn switches_heads() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(execution_status.is_irrelevant());
+            assert!(execution_status.is_pre_merge());
         } else if slot == 1 {
             // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());

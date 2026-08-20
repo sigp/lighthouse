@@ -174,6 +174,14 @@ pub enum BeaconChainError {
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
     HeadBlockMissingFromForkChoice(Hash256),
+    BlockMissingFromForkChoice(Hash256),
+    /// At a Capella-enabled slot, fork choice still has at least one pre-merge block
+    /// (head, justified, or finalized). Post-merge state should have crossed long before
+    /// Capella, so this indicates a corrupted fork choice.
+    PreMergeBlockAtCapella {
+        head: Hash256,
+        slot: Slot,
+    },
     InvalidFinalizedPayload {
         finalized_root: Hash256,
         execution_block_hash: ExecutionBlockHash,

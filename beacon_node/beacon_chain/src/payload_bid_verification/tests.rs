@@ -268,7 +268,7 @@ impl TestContext {
                         epoch: Epoch::new(0),
                         root: self.genesis_block_root,
                     },
-                    execution_status: ExecutionStatus::irrelevant(),
+                    execution_status: ExecutionStatus::pre_merge(),
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
                     execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),

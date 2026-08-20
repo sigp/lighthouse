@@ -97,9 +97,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let head_payload_status = fork_choice::PayloadStatus::Pending;
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,
-            head_hash: Some(parent_hash),
-            justified_hash: None,
-            finalized_hash: None,
+            head_hash: FcuHash::Hash(parent_hash),
+            justified_hash: FcuHash::PreMerge,
+            finalized_hash: FcuHash::PreMerge,
         };
         let payload_attributes = PayloadAttributes::new(
             timestamp,

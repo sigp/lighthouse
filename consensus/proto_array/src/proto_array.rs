@@ -857,7 +857,7 @@ impl ProtoArray {
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    ExecutionStatus::PreMerge(_) => return Ok(()),
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(payload_block_hash) => {
@@ -877,6 +877,9 @@ impl ProtoArray {
                             ancestor_payload_block_hash,
                         });
                     }
+                    // PostGloas is only synthesized for V29 nodes; it should never appear on a
+                    // V17 node. Treat as a no-op rather than panic.
+                    ExecutionStatus::PostGloas(_) => return Ok(()),
                 },
                 // Gloas nodes should not be marked valid by this function, which exists only
                 // for pre-Gloas fork choice.
@@ -942,7 +945,8 @@ impl ProtoArray {
             match node_execution_status {
                 Ok(ExecutionStatus::Valid(hash))
                 | Ok(ExecutionStatus::Invalid(hash))
-                | Ok(ExecutionStatus::Optimistic(hash)) => {
+                | Ok(ExecutionStatus::Optimistic(hash))
+                | Ok(ExecutionStatus::PostGloas(hash)) => {
                     // If we're no longer processing the `head_block_root` and the last valid
                     // ancestor is unknown, exit this loop and proceed to invalidate and
                     // descendants of `head_block_root`/`latest_valid_ancestor_root`.
@@ -958,7 +962,7 @@ impl ProtoArray {
                         break;
                     }
                 }
-                Ok(ExecutionStatus::Irrelevant(_)) => break,
+                Ok(ExecutionStatus::PreMerge(_)) => break,
                 Err(_) => break,
             }
 
@@ -990,7 +994,10 @@ impl ProtoArray {
                     Ok(ExecutionStatus::Invalid(_)) => (),
                     // This block is pre-merge, therefore it has no execution status. Nor do its
                     // ancestors.
-                    Ok(ExecutionStatus::Irrelevant(_)) => break,
+                    Ok(ExecutionStatus::PreMerge(_)) => break,
+                    // Post-Gloas verification is decoupled from beacon-block fork choice; this
+                    // pre-Gloas invalidation path doesn't apply.
+                    Ok(ExecutionStatus::PostGloas(_)) => break,
                     Err(_) => break,
                 }
             }
@@ -1044,11 +1051,14 @@ impl ProtoArray {
                             node.execution_status = ExecutionStatus::Invalid(hash)
                         }
                     }
-                    Ok(ExecutionStatus::Irrelevant(_)) => {
+                    Ok(ExecutionStatus::PreMerge(_)) => {
                         return Err(Error::IrrelevantDescendant {
                             block_root: node.root(),
                         });
                     }
+                    // Post-Gloas: payload model is decoupled; pre-Gloas descendant-invalidation
+                    // doesn't apply.
+                    Ok(ExecutionStatus::PostGloas(_)) => (),
                     Err(_) => (),
                 }
 

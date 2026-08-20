@@ -46,8 +46,8 @@ use timer::spawn_timer;
 use tracing::{debug, info, instrument, warn};
 use types::data::compute_ordered_custody_column_indices;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
+    BeaconState, BlobSidecarList, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -741,10 +741,7 @@ where
                     let cached_head = beacon_chain.canonical_head.cached_head();
                     let head_payload_status = cached_head.head_payload_status();
                     let params = cached_head.forkchoice_update_parameters();
-                    if params
-                        .head_hash
-                        .is_some_and(|hash| hash != ExecutionBlockHash::zero())
-                    {
+                    if !params.head_hash.is_pre_merge() {
                         // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
                         runtime_context.executor.spawn(

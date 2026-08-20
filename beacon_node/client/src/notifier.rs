@@ -368,7 +368,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Ok(ExecutionStatus::PreMerge(_)) => "n/a".to_string(),
                     Ok(ExecutionStatus::Valid(hash)) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
                         format!("{} (verified)", hash)
@@ -390,6 +390,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             "Head execution payload is invalid"
                         );
                         format!("{} (invalid)", hash)
+                    }
+                    Ok(ExecutionStatus::PostGloas(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                        format!("{} (post-gloas)", hash)
                     }
                     Err(_) => "unknown".to_string(),
                 };

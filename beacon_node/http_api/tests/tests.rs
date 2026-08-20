@@ -3828,16 +3828,10 @@ impl ApiTester {
             .nodes
             .iter()
             .map(|node| {
-                let execution_status = if node
+                let execution_status = node
                     .execution_status()
-                    .is_ok_and(|status| status.is_execution_enabled())
-                {
-                    node.execution_status()
-                        .ok()
-                        .map(|status| status.to_string())
-                } else {
-                    None
-                };
+                    .ok()
+                    .map(|status| status.to_string());
                 ForkChoiceNode {
                     slot: node.slot(),
                     block_root: node.root(),
@@ -3852,8 +3846,13 @@ impl ApiTester {
                     execution_block_hash: node
                         .execution_status()
                         .ok()
-                        .and_then(|status| status.block_hash())
-                        .map(|block_hash| block_hash.into_root()),
+                        .and_then(|s| s.block_hash())
+                        .map(|h| h.into_root())
+                        .or_else(|| {
+                            node.execution_payload_block_hash()
+                                .ok()
+                                .map(|h| h.into_root())
+                        }),
                     extra_data: ForkChoiceExtraData {
                         target_root: node.target_root(),
                         justified_root: node.justified_checkpoint().root,
@@ -3872,9 +3871,7 @@ impl ApiTester {
                             .map(|checkpoint| checkpoint.epoch),
                         execution_status: node
                             .execution_status()
-                            .ok()
-                            .map(|status| status.to_string())
-                            .unwrap_or_else(|| "irrelevant".to_string()),
+                            .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string()),
                         best_child: node
                             .best_child()
                             .ok()
