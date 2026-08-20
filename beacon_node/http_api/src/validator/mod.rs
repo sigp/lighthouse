@@ -1538,7 +1538,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |signed_inclusion_list: SignedInclusionList,
+            |request_body: GenericResponse<SignedInclusionList>,
              fork_name: ForkName,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1547,7 +1547,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
                     ensure_heze_consensus_version(fork_name)?;
-                    publish_inclusion_list(&chain, &network_tx, signed_inclusion_list)?;
+                    publish_inclusion_list(&chain, &network_tx, request_body.data)?;
                     Ok(warp::reply())
                 })
             },
