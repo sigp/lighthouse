@@ -166,14 +166,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 	    let max_participants = sync_aggregate.sync_committee_bits.len();
 	    let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
 	    let new_has_supermajority = new_participants * 3 >= max_participants * 2;
-	    eprintln!("DEBUG slot={} participants={}/{} supermajority={}", block_slot, new_participants, max_participants, new_has_supermajority);
 	    let finalized_slot = cached_parts.finalized_checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
 	    latest_finality_update.is_latest(finalized_slot, new_has_supermajority,new_participants , signature_slot)	
 	    }
             None => true,
         };
-	eprintln!("DEBUG recompute: sig_slot={} attested_slot={} participants={} supermajority={}", 
-	    signature_slot, attested_slot, new_participants, new_has_supermajority);
 	if is_latest_finality {
 	    let update = if cached_parts.finalized_block_root.is_zero() {
 	        // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
