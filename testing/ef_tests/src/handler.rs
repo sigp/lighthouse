@@ -1081,6 +1081,10 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
         let fork_name_str = fork_name.to_string();
         self.supported_forks.contains(&fork_name) && self.handler_path(&fork_name_str).exists()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
