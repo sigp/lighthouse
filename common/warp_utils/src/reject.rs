@@ -66,6 +66,15 @@ pub fn custom_bad_request(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct CustomForbidden(pub String);
+
+impl Reject for CustomForbidden {}
+
+pub fn custom_forbidden(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(CustomForbidden(msg))
+}
+
+#[derive(Debug)]
 pub struct CustomDeserializeError(pub String);
 
 impl Reject for CustomDeserializeError {}
@@ -194,6 +203,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::CustomBadRequest>() {
         code = StatusCode::BAD_REQUEST;
         message = format!("BAD_REQUEST: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::CustomForbidden>() {
+        code = StatusCode::FORBIDDEN;
+        message = format!("FORBIDDEN: {}", e.0);
     } else if let Some(e) = err.find::<crate::reject::CustomServerError>() {
         code = StatusCode::INTERNAL_SERVER_ERROR;
         message = format!("INTERNAL_SERVER_ERROR: {}", e.0);

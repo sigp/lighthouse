@@ -375,7 +375,7 @@ impl Config {
         config.validator_store.builder_proposals = validator_client_config.builder_proposals;
         config.validator_store.prefer_builder_proposals =
             validator_client_config.prefer_builder_proposals;
-        config.validator_store.gas_limit = Some(validator_client_config.gas_limit);
+        config.validator_store.gas_limit = validator_client_config.gas_limit;
 
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;

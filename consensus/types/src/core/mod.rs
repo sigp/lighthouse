@@ -20,7 +20,10 @@ mod slot_epoch;
 mod sqlite;
 
 pub use application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
-pub use chain_spec::{BlobParameters, BlobSchedule, ChainSpec, Config, Domain};
+pub use chain_spec::{
+    BlobParameters, BlobSchedule, ChainSpec, Config, Domain, GasLimitSchedule,
+    GasLimitScheduleEntry,
+};
 pub use config_and_preset::{
     ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,
     ConfigAndPresetGloas, ConfigAndPresetHeze, get_extra_fields,
