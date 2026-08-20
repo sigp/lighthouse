@@ -5238,6 +5238,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
+        let parent_has_payload_bid = parent_bid_block_hash
+            .is_some_and(|block_hash| block_hash != ExecutionBlockHash::default());
         let parent_payload_status = if let Some(block_hash) = parent_bid_block_hash
             && block_hash != ExecutionBlockHash::default()
             && forkchoice_update_params.head_hash == Some(block_hash)
@@ -5264,6 +5266,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposal_slot,
             &self.spec,
         )?;
+
+        if parent_has_payload_bid && parent_payload_status == fork_choice::PayloadStatus::Empty {
+            // The state has already deducted these withdrawals, but they remain pending for the
+            // execution layer after an empty parent.
+            return advanced_state
+                .payload_expected_withdrawals()?
+                .to_vec()
+                .try_into()
+                .map_err(Error::SszTypesError);
+        }
 
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
