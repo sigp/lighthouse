@@ -108,7 +108,7 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    let enable_partial_columns = parse_flag(cli_args, "enable-partial-columns");
+    let enable_partial_columns = parse_required::<bool>(cli_args, "enable-partial-columns")?;
 
     if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
