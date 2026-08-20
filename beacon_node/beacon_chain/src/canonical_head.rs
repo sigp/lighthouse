@@ -42,13 +42,12 @@ use crate::{
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
     beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
     block_times_cache::BlockTimesCache,
-    events::ServerSentEventHandler,
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2, SseLateHead,
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2,
 };
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
@@ -1523,18 +1522,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        observe_head_block_delays(
+        observe_head_block_delays::<T::EthSpec, _>(
             &mut self.block_times_cache.write(),
             &new_head_proto_block,
             new_snapshot.beacon_block.message().proposer_index(),
-            new_snapshot
-                .beacon_block
-                .message()
-                .body()
-                .graffiti()
-                .as_utf8_lossy(),
             &self.slot_clock,
-            self.event_handler.as_ref(),
             &self.spec,
         );
 
@@ -2002,9 +1994,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     block_times_cache: &mut BlockTimesCache,
     head_block: &ProtoBlock,
     head_block_proposer_index: u64,
-    head_block_graffiti: String,
     slot_clock: &S,
-    event_handler: Option<&ServerSentEventHandler<E>>,
     spec: &ChainSpec,
 ) {
     let Some(block_time_set_as_head) = slot_clock.now_duration() else {
@@ -2013,7 +2003,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     };
     let head_block_root = head_block.root;
     let head_block_slot = head_block.slot;
-    let head_block_is_optimistic = head_block.execution_status.is_optimistic_or_invalid();
 
     // Calculate the total delay between the start of the slot and when it was set as head.
     let block_delay_total = get_slot_delay_ms(block_time_set_as_head, head_block_slot, slot_clock);
@@ -2135,7 +2124,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
         // Determine whether the block has been set as head too late for proper attestation
         // production.
-        let late_head = attestable_delay >= spec.get_unaggregated_attestation_due();
+        let late_head = attestable_delay >= spec.get_attestation_due::<E>(head_block_slot);
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
@@ -2159,24 +2148,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 set_as_head_time_ms = format_delay(&block_delays.set_as_head),
                 "Delayed head block"
             );
-            if let Some(event_handler) = event_handler
-                && event_handler.has_late_head_subscribers()
-            {
-                let peer_info = block_times_cache.get_peer_info(head_block_root);
-                event_handler.register(EventKind::LateHead(SseLateHead {
-                    slot: head_block_slot,
-                    block: head_block_root,
-                    peer_id: peer_info.id,
-                    peer_client: peer_info.client,
-                    proposer_index: head_block_proposer_index,
-                    proposer_graffiti: head_block_graffiti,
-                    block_delay: block_delay_total,
-                    observed_delay: block_delays.observed,
-                    imported_delay: block_delays.imported,
-                    set_as_head_delay: block_delays.set_as_head,
-                    execution_optimistic: head_block_is_optimistic,
-                }));
-            }
         } else {
             debug!(
                 block_root = ?head_block_root,
