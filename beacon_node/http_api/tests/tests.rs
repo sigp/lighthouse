@@ -9381,7 +9381,7 @@ impl ApiTester {
             )
             .unwrap()
             .unwrap_or(self.chain.head_beacon_block_root());
-        // TODO: use get_inclusion_list_committee from the beacon state when available
+        // TODO(heze): use get_inclusion_list_committee from the beacon state when available
         let beacon_committees = head_state.get_beacon_committees_at_slot(slot).unwrap();
         let validator_index = beacon_committees[0].committee[0] as u64;
         let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
