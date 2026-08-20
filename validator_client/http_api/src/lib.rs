@@ -57,7 +57,7 @@ use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use validator_services::block_service::BlockService;
 use validator_store::ValidatorStore;
-use warp::{Filter, sse::Event};
+use warp::{Filter, reply::Response, sse::Event};
 use warp_utils::reject::convert_rejection;
 use warp_utils::task::blocking_json_task;
 
@@ -857,13 +857,27 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             move |request: UpdateCandidatesRequest,
                   block_service: BlockService<LighthouseValidatorStore<T, E>, T>| async move {
-                fn parse_urls(urls: &[String]) -> Result<Vec<SensitiveUrl>, String> {
-                    urls.iter()
+                // The error is the fully built HTTP response, which is large; box it to keep
+                // the `Result` small (`clippy::result_large_err`).
+                async fn parse_urls(urls: &[String]) -> Result<Vec<SensitiveUrl>, Box<Response>> {
+                    match urls
+                        .iter()
                         .map(|url| SensitiveUrl::parse(url).map_err(|e| e.to_string()))
                         .collect()
+                    {
+                        Ok(sensitive_urls) => Ok(sensitive_urls),
+                        Err(_) => Err(Box::new(
+                            convert_rejection::<Infallible>(Err(
+                                warp_utils::reject::custom_bad_request(
+                                    "one or more urls could not be parsed".to_string(),
+                                ),
+                            ))
+                            .await,
+                        )),
+                    }
                 }
 
-                let beacons: Vec<SensitiveUrl> = match parse_urls(&request.beacon_nodes) {
+                let beacons: Vec<SensitiveUrl> = match parse_urls(&request.beacon_nodes).await {
                     Ok(new_beacons) => {
                         match block_service
                             .beacon_nodes
@@ -879,14 +893,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             }
                         }
                     }
-                    Err(_) => {
-                        return convert_rejection::<Infallible>(Err(
-                            warp_utils::reject::custom_bad_request(
-                                "one or more urls could not be parsed".to_string(),
-                            ),
-                        ))
-                        .await;
-                    }
+                    Err(e) => return *e,
                 };
 
                 let response: UpdateCandidatesResponse = UpdateCandidatesResponse {
