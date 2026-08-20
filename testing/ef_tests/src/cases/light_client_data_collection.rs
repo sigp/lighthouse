@@ -184,36 +184,68 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         )
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
                         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-                }
+                	if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
+			    let _ = harness.chain.light_client_server_cache
+			        .recompute_and_cache_updates(
+			            harness.chain.store.clone(),
+			            block.slot(),
+			            &block.parent_root(),
+			            sync_aggregate,
+			            &spec,
+			        );
+			}
+		}
                 Step::NewHead { block_id, checks } => {
-		if let Some(cached) = harness.chain.light_client_server_cache.get_latest_finality_update() {
-		    let attested_root = cached.get_attested_header_root();
-		    let attested_slot = cached.get_attested_header_slot();
-		    let head_root = harness.chain.canonical_head.cached_head().head_block_root();		   
-		    let is_canonical = harness.chain.canonical_head
-		            .fork_choice_read_lock()
-			    .is_descendant(attested_root, head_root);
-		        eprintln!("DEBUG canonical check: attested_root={} is_canonical={}", attested_root, is_canonical);	
-		        if !is_canonical {
-		            harness.chain.light_client_server_cache.reset_cache();
-		        }
-  		    }
-		
+
+		    harness.chain.light_client_server_cache.reset_cache();
+		    let _ = harness.chain.store.delete_light_client_update(0);
     		    let head_root = Hash256::from_slice(
-    		        &hex::decode(block_id.trim_start_matches("0x"))
-    		            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
-    		    );
-    		    if let Ok(Some(head_block)) = harness.chain.store.get_blinded_block(&head_root) {
-    		        if let Ok(sync_aggregate) = head_block.message().body().sync_aggregate() {
-    		            let _ = harness.chain.light_client_server_cache
-    		                .recompute_and_cache_updates(
-    		                    harness.chain.store.clone(),
+			&hex::decode(block_id.trim_start_matches("0x"))
+		        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
+
+		    );
+		    let mut chain = vec![];
+		    let mut current = head_root;
+		    loop {
+			if let Ok(Some(block)) = harness.chain.store.get_blinded_block(&current) {
+			    let parent = block.parent_root();
+			    chain.push(block);
+			    if current == harness.chain.genesis_block_root {
+			        break;
+			    }
+			    current = parent;
+			} else {
+			    break;
+			}
+		    }
+		    chain.reverse(); // oldest first
+		    for block in &chain {
+	   	        if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
+        	    	    let _ = harness.chain.light_client_server_cache
+        		        .recompute_and_cache_updates(
+			            harness.chain.store.clone(),
+			            block.slot(),
+			            &block.parent_root(),
+		                    sync_aggregate,
+		                    &spec,
+		                );
+		        }
+		    }			
+
+
+
+
+  		    if let Ok(Some(head_block)) = harness.chain.store.get_blinded_block(&head_root) {
+  		        if let Ok(sync_aggregate) = head_block.message().body().sync_aggregate() {
+  	       	            let _ = harness.chain.light_client_server_cache
+  			        .recompute_and_cache_updates(
+   			            harness.chain.store.clone(),
     		                    head_block.slot(),
     		                    &head_block.parent_root(),
     		                    sync_aggregate,
-    		                    &spec,
+  		                    &spec,
     		                );
-    		        }
+    			}
     		    }
 
 
@@ -223,8 +255,6 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                             "ef_tests_block_on",
                         )
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
-
-
 
                     if let Some(expected_path) = &checks.latest_finality_update {
                         let expected = ssz_decode_file_with(
@@ -282,10 +312,16 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                     }
 
                     for (period, expected_path) in &checks.best_updates {
+			eprintln!("DEBUG best_update checking period={} expected={}", period, expected_path);
                         let updates = harness.chain
                             .get_light_client_updates(*period, 1)
                             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+			eprintln!("DEBUG best_update actual_count={}", updates.len());
                         let actual = updates.into_iter().next();
+			if let Some(ref a) = actual {
+			    use ssz::Encode;
+			    eprintln!("DEBUG best_update actual sig_slot bytes: {}", hex::encode(&a.as_ssz_bytes()[a.as_ssz_bytes().len()-8..]));
+			}
                         let expected = ssz_decode_file_with(
                             &self.path.join(expected_path),
                             |bytes| LightClientUpdate::from_ssz_bytes(bytes, &fork_name),

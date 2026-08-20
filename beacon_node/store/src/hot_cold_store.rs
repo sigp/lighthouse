@@ -935,6 +935,17 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
         Ok(())
     }
+    pub fn delete_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<(), Error> {
+        self.hot_db.key_delete(
+            DBColumn::LightClientUpdate,
+            &sync_committee_period.to_be_bytes(),
+        )?;
+        Ok(())
+    }
+
 
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {

@@ -57,6 +57,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     pub fn reset_cache(&self) {
         *self.latest_finality_update.write() = None;
         *self.latest_optimistic_update.write() = None;
+	*self.latest_light_client_update.write() = None;
     }
 
 
