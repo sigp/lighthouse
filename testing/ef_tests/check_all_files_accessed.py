@@ -47,6 +47,8 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # TODO(gloas): Add production-backed handlers for the new Gloas gossip test suites.
+    "tests/.*/gloas/networking/gossip_.*",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
     # Ignore MatrixEntry SSZ tests for now.
