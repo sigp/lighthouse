@@ -184,24 +184,47 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         )
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
                         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-                    if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
-                        let _ = harness.chain.light_client_server_cache
-                            .recompute_and_cache_updates(
-                                harness.chain.store.clone(),
-                                block.slot(),
-                                &block.parent_root(),
-                                sync_aggregate,
-                                &spec,
-                            );
-                    }
                 }
-                Step::NewHead { block_id: _, checks } => {
+                Step::NewHead { block_id, checks } => {
+		if let Some(cached) = harness.chain.light_client_server_cache.get_latest_finality_update() {
+		    let attested_root = cached.get_attested_header_root();
+		    let attested_slot = cached.get_attested_header_slot();
+		    let head_root = harness.chain.canonical_head.cached_head().head_block_root();		   
+		    let is_canonical = harness.chain.canonical_head
+		            .fork_choice_read_lock()
+			    .is_descendant(attested_root, head_root);
+		        eprintln!("DEBUG canonical check: attested_root={} is_canonical={}", attested_root, is_canonical);	
+		        if !is_canonical {
+		            harness.chain.light_client_server_cache.reset_cache();
+		        }
+  		    }
+		
+    		    let head_root = Hash256::from_slice(
+    		        &hex::decode(block_id.trim_start_matches("0x"))
+    		            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
+    		    );
+    		    if let Ok(Some(head_block)) = harness.chain.store.get_blinded_block(&head_root) {
+    		        if let Ok(sync_aggregate) = head_block.message().body().sync_aggregate() {
+    		            let _ = harness.chain.light_client_server_cache
+    		                .recompute_and_cache_updates(
+    		                    harness.chain.store.clone(),
+    		                    head_block.slot(),
+    		                    &head_block.parent_root(),
+    		                    sync_aggregate,
+    		                    &spec,
+    		                );
+    		        }
+    		    }
+
+
                     harness.chain.task_executor.clone()
                         .block_on_dangerous(
                             harness.chain.recompute_head_at_current_slot(),
                             "ef_tests_block_on",
                         )
                         .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?;
+
+
 
                     if let Some(expected_path) = &checks.latest_finality_update {
                         let expected = ssz_decode_file_with(
@@ -210,9 +233,10 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                         )?;
                         let actual = harness.chain.light_client_server_cache.get_latest_finality_update();
                         let expected_clone = expected.clone();
-			if actual != Some(expected.clone()) {
+			if actual != Some(expected_clone) {
 			    eprintln!("DEBUG actual sig_slot bytes: {}", hex::encode(&actual.as_ref().map(|a| a.as_ssz_bytes()).unwrap_or_default()[516..524]));
 			    eprintln!("DEBUG expected sig_slot bytes: {}", hex::encode(&expected.as_ssz_bytes()[516..524]));
+			    eprintln!("DEBUG actual_is_some={} expected_path={}", actual.is_some(), expected_path);
 			
                             return Err(Error::NotEqual("latest_finality_update mismatch".into()));
                         }
@@ -224,7 +248,14 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                             |bytes| LightClientOptimisticUpdate::from_ssz_bytes(bytes, fork_name),
                         )?;
                         let actual = harness.chain.light_client_server_cache.get_latest_optimistic_update();
-                        if actual != Some(expected) {
+			let expected_clone = expected.clone();
+                        if actual != Some(expected_clone) {
+			    eprintln!("DEBUG opt actual_is_some={}", actual.is_some());
+			    if let Some(ref a) = actual {
+			        eprintln!("DEBUG opt actual_sig_slot: {}", hex::encode(&a.as_ssz_bytes()[a.as_ssz_bytes().len()-8..]));
+			    }
+			    eprintln!("DEBUG opt expected_sig_slot: {}", hex::encode(&expected.as_ssz_bytes()[expected.as_ssz_bytes().len()-8..]));
+
                             return Err(Error::NotEqual("latest_optimistic_update mismatch".into()));
                         }
                     }

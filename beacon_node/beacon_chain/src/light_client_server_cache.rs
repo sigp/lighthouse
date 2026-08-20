@@ -54,6 +54,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         }
     }
 
+    pub fn reset_cache(&self) {
+        *self.latest_finality_update.write() = None;
+        *self.latest_optimistic_update.write() = None;
+    }
+
+
+
     /// Compute and cache state proofs for latter production of light-client messages. Does not
     /// trigger block replay.
     pub(crate) fn cache_state_data(
@@ -132,9 +139,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+	let max_participants = sync_aggregate.sync_committee_bits.len();
+	let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+	let new_has_supermajority = new_participants * 3 >= max_participants * 2;
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
             Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest(attested_slot, signature_slot)
+                latest_optimistic_update.is_latest(attested_slot, new_has_supermajority, new_participants, signature_slot)
             }
             None => true,
         };
@@ -149,14 +159,20 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
-        // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+        // finalized_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
             Some(latest_finality_update) => {
-                latest_finality_update.is_latest(attested_slot, signature_slot)
-            }
+	    let max_participants = sync_aggregate.sync_committee_bits.len();
+	    let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+	    let new_has_supermajority = new_participants * 3 >= max_participants * 2;
+	    eprintln!("DEBUG slot={} participants={}/{} supermajority={}", block_slot, new_participants, max_participants, new_has_supermajority);
+	    let finalized_slot = cached_parts.finalized_checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+	    latest_finality_update.is_latest(finalized_slot, new_has_supermajority,new_participants , signature_slot)	
+	    }
             None => true,
         };
-
+	eprintln!("DEBUG recompute: sig_slot={} attested_slot={} participants={} supermajority={}", 
+	    signature_slot, attested_slot, new_participants, new_has_supermajority);
 	if is_latest_finality {
 	    let update = if cached_parts.finalized_block_root.is_zero() {
 	        // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
