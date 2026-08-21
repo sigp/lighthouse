@@ -1694,16 +1694,21 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "eth2",
  "ethereum_ssz",
+ "futures",
  "lighthouse_version",
  "mockito",
+ "parking_lot",
+ "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "types",
 ]
 
