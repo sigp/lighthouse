@@ -25,10 +25,10 @@ use proto_array::ReOrgThreshold;
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
-use state_processing::VerifySignatures;
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::state_advance::complete_state_advance;
+use state_processing::{VerifySignatures, per_slot_processing};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -699,12 +699,37 @@ impl<E: EthSpec> Tester<E> {
         let slot = self.tick_to_slot(tick).unwrap();
         assert_eq!(slot, self.harness.chain.slot().unwrap());
 
+        self.prime_advanced_head_state(slot);
+
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
             .update_time(slot)
             .unwrap();
+    }
+
+    /// Prime the state cache so that FCR tests can run
+    fn prime_advanced_head_state(&self, current_slot: Slot) {
+        let chain = &self.harness.chain;
+        let snapshot = chain.head_snapshot();
+        let head_root = snapshot.beacon_block_root;
+        let head_state_root = snapshot.beacon_state_root();
+
+        let Ok(Some((mut state_root, mut state))) =
+            chain
+                .store
+                .get_advanced_hot_state(head_root, current_slot, head_state_root)
+        else {
+            return;
+        };
+
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        while state.current_epoch() < current_epoch {
+            per_slot_processing(&mut state, Some(state_root), &self.spec).unwrap();
+            state_root = state.update_tree_hash_cache().unwrap();
+            chain.store.put_state(&state_root, &state).unwrap();
+        }
     }
 
     pub fn process_block_and_columns(

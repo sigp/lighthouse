@@ -940,31 +940,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // FCR is a read-only observer and errors must never affect consensus.
         //
         // `head_state_and_assignments` is `None` when the head state isn't already cached in the
-        // current epoch, which skips FCR.
-        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation
-            && let Some(rebuild_result) = head_state_and_assignments
-        {
+        // current epoch. FCR then only updates its tracking variables, skipping confirmation.
+        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation {
             let mut fcr = fcr_mutex.lock();
-            match rebuild_result
-                .map_err(|e| FastConfirmationError::UnableToObtainHeadState(format!("{e:?}")))
-                .and_then(|(head_state, slot_assignments)| {
-                    Self::run_fcr(
-                        &mut fcr,
-                        &fork_choice_read_lock,
-                        &self.store,
-                        current_slot,
-                        new_view.head_block_root,
-                        &head_state,
-                        &slot_assignments,
-                    )
-                }) {
-                Ok(FcrOutcome {
+            let state_and_assignments = match head_state_and_assignments {
+                Some(Ok(state_and_assignments)) => Some(state_and_assignments),
+                Some(Err(e)) => {
+                    let e = FastConfirmationError::UnableToObtainHeadState(format!("{e:?}"));
+                    let label: &'static str = (&e).into();
+                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                    error!("Error running FCR: {e:?}");
+                    None
+                }
+                None => None,
+            };
+            match Self::run_fcr(
+                &mut fcr,
+                &fork_choice_read_lock,
+                &self.store,
+                current_slot,
+                new_view.head_block_root,
+                state_and_assignments.as_ref(),
+            ) {
+                Ok(None) => {}
+                Ok(Some(FcrOutcome {
                     confirmed_root,
                     confirmed_slot,
                     confirmed_block_hash,
                     new_confirmed_root,
                     new_update_slot,
-                }) => {
+                })) => {
                     // FC update params are only updated after successful FCR runs. This is
                     // conservative and will revert the `safe` tag to justified instead of using a
                     // previously confirmed root that may be stale by now if FCR can't reconfirm it.
@@ -1293,15 +1298,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(head_state))
     }
 
+    /// Without a head state, only the tracking variables update runs and `Ok(None)` is
+    /// returned, leaving `confirmed_root` unchanged.
     fn run_fcr(
         fcr: &mut FastConfirmationRule,
         fork_choice: &BeaconForkChoice<T>,
         store: &BeaconStore<T>,
         current_slot: Slot,
         head_root: Hash256,
-        head_state: &BeaconState<T::EthSpec>,
-        slot_assignments: &SlotAssignments,
-    ) -> Result<FcrOutcome, FastConfirmationError> {
+        head_state_and_assignments: Option<&(BeaconState<T::EthSpec>, SlotAssignments)>,
+    ) -> Result<Option<FcrOutcome>, FastConfirmationError> {
         let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
         let old_confirmed_root = fcr.confirmed_root;
 
@@ -1316,6 +1322,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .checkpoint_state_needed::<T::EthSpec>(current_slot)
             .map(|checkpoint| Self::load_fcr_checkpoint_state(store, checkpoint))
             .transpose()?;
+
+        let Some((head_state, slot_assignments)) = head_state_and_assignments else {
+            fcr.update_tracking_variables::<T::EthSpec>(
+                head_root,
+                &unrealized_justified_cp,
+                current_slot,
+                checkpoint_state.as_ref(),
+            )?;
+            debug!(
+                %current_slot,
+                ?head_root,
+                "FCR confirmation skipped: head state not cached in current epoch"
+            );
+            return Ok(None);
+        };
 
         let old_update_slot = fcr.last_update_slot();
         fcr.on_fast_confirmation::<T::EthSpec>(
@@ -1345,13 +1366,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 fcr.confirmed_root,
             ))?;
 
-        Ok(FcrOutcome {
+        Ok(Some(FcrOutcome {
             confirmed_root: fcr.confirmed_root,
             confirmed_slot: confirmed_node.slot,
             confirmed_block_hash,
             new_confirmed_root: fcr.confirmed_root != old_confirmed_root,
             new_update_slot: fcr.last_update_slot() != old_update_slot,
-        })
+        }))
     }
 
     /// Build a `FastConfirmationRule` seeded from `finalized_checkpoint`, sourcing its balance
