@@ -203,7 +203,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn is_latest(&self, attested_slot: Slot, new_has_supermajority:bool, new_participants:usize, signature_slot: Slot) -> bool {
 	let max_participants = self.sync_aggregate().sync_committee_bits.len();
     	let prev_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
-    	let prev_has_supermajority = prev_participants * 3 >= max_participants * 2;
+    	let prev_has_supermajority = prev_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
     	if new_has_supermajority != prev_has_supermajority {
     	    return new_has_supermajority;
     	}
