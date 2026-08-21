@@ -319,7 +319,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
 
        	let max_participants = self.sync_aggregate().sync_committee_bits.len();
         let prev_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
-        let prev_has_supermajority = prev_participants * 3 >= max_participants * 2;
+        let prev_has_supermajority = prev_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
         if new_has_supermajority != prev_has_supermajority {
             return new_has_supermajority;
         }
