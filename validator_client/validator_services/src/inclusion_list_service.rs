@@ -392,7 +392,6 @@ mod tests {
                     pubkey: *pubkey,
                     validator_index: i as u64,
                     slot,
-                    inclusion_list_committee_root: Hash256::ZERO,
                 })
                 .collect();
             self.service
@@ -812,7 +811,6 @@ mod tests {
             pubkey: generate_deterministic_keypair(99).pk.into(),
             validator_index: 99,
             slot,
-            inclusion_list_committee_root: Hash256::ZERO,
         };
         harness.service.duties_service.il_duties.write().insert(
             slot.epoch(E::slots_per_epoch()),
