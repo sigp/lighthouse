@@ -1,6 +1,5 @@
 use crate::inclusion_list_verification::InclusionListVerificationError;
 use crate::{BeaconChain, BeaconChainTypes};
-use std::sync::Arc;
 use tracing::debug;
 use types::{ChainSpec, SignedInclusionList};
 
@@ -11,17 +10,19 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 }
 
 pub struct GossipVerifiedInclusionList {
-    pub signed_inclusion_list: Arc<SignedInclusionList>,
+    pub signed_inclusion_list: SignedInclusionList,
+    pub is_timely: bool,
 }
 
 impl GossipVerifiedInclusionList {
     pub fn new<T: BeaconChainTypes>(
-        signed_inclusion_list: Arc<SignedInclusionList>,
+        signed_inclusion_list: SignedInclusionList,
         _ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, InclusionListVerificationError> {
         // TODO(heze): implement gossip verification for inclusion lists
         Ok(Self {
             signed_inclusion_list,
+            is_timely: true,
         })
     }
 }
@@ -36,7 +37,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_inclusion_list_for_gossip(
         &self,
-        signed_inclusion_list: Arc<SignedInclusionList>,
+        signed_inclusion_list: SignedInclusionList,
     ) -> Result<GossipVerifiedInclusionList, InclusionListVerificationError> {
         let slot = signed_inclusion_list.message.slot;
         let validator_index = signed_inclusion_list.message.validator_index;

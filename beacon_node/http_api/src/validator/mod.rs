@@ -1619,12 +1619,12 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
         ));
     }
 
-    match chain.verify_inclusion_list_for_gossip(Arc::new(signed_inclusion_list)) {
+    match chain.verify_inclusion_list_for_gossip(signed_inclusion_list) {
         Ok(verified_inclusion_list) => {
             crate::utils::publish_pubsub_message(
                 network_tx,
                 PubsubMessage::InclusionList(Box::new(
-                    (*verified_inclusion_list.signed_inclusion_list).clone(),
+                    verified_inclusion_list.signed_inclusion_list,
                 )),
             )?;
             Ok(())
