@@ -867,7 +867,6 @@ pub struct InclusionListDuty {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub slot: Slot,
-    pub inclusion_list_committee_root: Hash256,
 }
 
 #[derive(Clone, Deserialize)]
