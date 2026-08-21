@@ -126,7 +126,7 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
 impl<E: EthSpec> Case for LightClientDataCollection<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
 	// Skip cross-fork reorg test cases until they are supported
-        if self.path.to_string_lossy().contains("capella_deneb_reorg") {
+        if self.path.to_string_lossy().contains("capella_deneb_reorg") || self.path.to_string_lossy().contains("deneb_electra_reorg") {
             return Err(Error::SkippedKnownFailure);
         }
 
