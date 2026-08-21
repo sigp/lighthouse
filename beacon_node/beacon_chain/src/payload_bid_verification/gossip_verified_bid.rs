@@ -17,9 +17,79 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
+    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
+
+/// Find the beacon block carrying the known execution payload referenced by a bid.
+pub(crate) fn find_execution_payload_block_root<T: BeaconChainTypes>(
+    fork_choice_read: &ForkChoiceReadGuard<'_, T>,
+    parent_block_root: Hash256,
+    parent_block_hash: ExecutionBlockHash,
+) -> Result<Hash256, PayloadBidError> {
+    let mut block_root = Some(parent_block_root);
+    while let Some(root) = block_root {
+        let Some(block) = fork_choice_read.get_block(&root) else {
+            break;
+        };
+
+        if let Some(block_hash) = block.execution_payload_block_hash {
+            if fork_choice_read.is_payload_received(&root) && block_hash == parent_block_hash {
+                return Ok(root);
+            }
+        } else if !block.execution_status.is_invalid()
+            && block.execution_status.block_hash() == Some(parent_block_hash)
+        {
+            return Ok(root);
+        }
+
+        block_root = block.parent_root;
+    }
+    Err(PayloadBidError::ParentExecutionPayloadUnknown { parent_block_hash })
+}
+
+/// Return the gas limit committed by the block carrying an execution payload.
+pub(crate) fn get_parent_gas_limit<T: BeaconChainTypes>(
+    store: &BeaconStore<T>,
+    execution_payload_block_root: Hash256,
+    parent_block_hash: ExecutionBlockHash,
+) -> Result<u64, PayloadBidError> {
+    let block = store
+        .get_blinded_block(&execution_payload_block_root)
+        .map_err(|e| {
+            PayloadBidError::InternalError(format!(
+                "failed to load execution payload block {execution_payload_block_root:?}: {e:?}"
+            ))
+        })?
+        .ok_or_else(|| {
+            PayloadBidError::InternalError(format!(
+                "execution payload block {execution_payload_block_root:?} unavailable"
+            ))
+        })?;
+
+    if block.fork_name_unchecked().gloas_enabled() {
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()?
+            .message;
+        if bid.block_hash != parent_block_hash {
+            return Err(PayloadBidError::InternalError(format!(
+                "execution payload hash mismatch for block {execution_payload_block_root:?}"
+            )));
+        }
+        Ok(bid.gas_limit)
+    } else {
+        let payload = block.message().execution_payload()?;
+        if payload.block_hash() != parent_block_hash {
+            return Err(PayloadBidError::InternalError(format!(
+                "execution payload hash mismatch for block {execution_payload_block_root:?}"
+            )));
+        }
+        Ok(payload.gas_limit())
+    }
+}
 
 /// Verify that an execution payload bid is consistent with the current chain state
 /// and proposer preferences.
@@ -302,25 +372,25 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        // TODO(gloas): [IGNORE] bid.parent_block_hash is the block hash of a known execution
-        // payload in fork choice.
+        let execution_payload_block_root = find_execution_payload_block_root(
+            &fork_choice,
+            signed_bid.message.parent_block_root,
+            signed_bid.message.parent_block_hash,
+        )?;
+        drop(fork_choice);
 
-        // TODO(gloas): This uses head state's bid gas_limit as parent_gas_limit, which is only
-        // correct when the bid's parent is the head. If the parent is an ancestor further back
-        // this check may be inaccurate. Fixing this requires storing
-        // gas_limit in fork choice or looking it up from the store by parent_block_hash. Taking the above
-        // TODO into consideration maybe should persist parent block hash and gas limit in fork choice?
-        if let Ok(parent_bid) = head_state.latest_execution_payload_bid()
-            && !is_gas_limit_target_compatible(
-                parent_bid.gas_limit,
-                signed_bid.message.gas_limit,
-                proposer_preferences.message.target_gas_limit,
-            )?
-        {
+        let parent_gas_limit = get_parent_gas_limit::<T>(
+            ctx.store,
+            execution_payload_block_root,
+            signed_bid.message.parent_block_hash,
+        )?;
+        if !is_gas_limit_target_compatible(
+            parent_gas_limit,
+            signed_bid.message.gas_limit,
+            proposer_preferences.message.target_gas_limit,
+        )? {
             return Err(PayloadBidError::InvalidGasLimit);
         }
-
-        drop(fork_choice);
 
         verify_bid_consistency(
             &signed_bid.message,

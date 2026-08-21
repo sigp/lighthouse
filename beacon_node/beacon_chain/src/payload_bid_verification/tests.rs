@@ -28,7 +28,10 @@ use crate::{
     chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
+        gossip_verified_bid::{
+            GossipVerificationContext, GossipVerifiedPayloadBid, find_execution_payload_block_root,
+            get_parent_gas_limit, is_gas_limit_target_compatible,
+        },
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
@@ -147,6 +150,13 @@ impl TestContext {
         let mut fork_choice =
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
+
+        store
+            .put_block(&block_root, signed_block.clone())
+            .expect("should store genesis block");
+        fork_choice
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should mark genesis payload as received");
 
         let (_, head_payload_status) = fork_choice
             .get_head(Slot::new(0), &spec)
@@ -507,6 +517,58 @@ fn gas_limit_mismatch() {
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
+}
+
+#[test]
+fn gas_limit_uses_known_execution_parent_after_unreceived_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let rejected_payload_root = ctx.insert_non_canonical_block();
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+
+    let actual_parent_block_root = find_execution_payload_block_root(
+        &fork_choice,
+        rejected_payload_root,
+        ExecutionBlockHash::zero(),
+    )
+    .expect("should resolve the last received execution payload");
+    drop(fork_choice);
+    let actual_parent_gas_limit = get_parent_gas_limit::<T>(
+        &ctx.store,
+        actual_parent_block_root,
+        ExecutionBlockHash::zero(),
+    )
+    .expect("should load the last received execution payload gas limit");
+
+    let rejected_payload_gas_limit = 30_029_295;
+    let next_gas_limit = 30_029_295;
+    let target_gas_limit = 60_000_000;
+    assert_eq!(actual_parent_gas_limit, 30_000_000);
+    assert!(
+        is_gas_limit_target_compatible(actual_parent_gas_limit, next_gas_limit, target_gas_limit,)
+            .expect("gas limit calculation should succeed")
+    );
+    assert!(
+        !is_gas_limit_target_compatible(
+            rejected_payload_gas_limit,
+            next_gas_limit,
+            target_gas_limit,
+        )
+        .expect("gas limit calculation should succeed")
+    );
+
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+    let result = find_execution_payload_block_root(
+        &fork_choice,
+        rejected_payload_root,
+        ExecutionBlockHash::repeat_byte(0xab),
+    );
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::ParentExecutionPayloadUnknown { .. })
+    ));
 }
 
 #[test]
