@@ -197,16 +197,23 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     }
 
     // Implements spec prioritization rules:
-    // > Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
-    //
-    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_optimistic_update
-    pub fn is_latest(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
-        let prev_slot = self.get_slot();
-        if attested_slot > prev_slot {
-            true
-        } else {
-            attested_slot == prev_slot && signature_slot > self.signature_slot()
+    // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest finalized_header.beacon.slot
+    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
+    pub fn is_latest(&self, new_finalized_slot: Slot, new_has_supermajority: bool, new_participants: usize, signature_slot: Slot) -> bool {
+        let prev_finalized_slot = self.get_slot();
+        if new_finalized_slot != prev_finalized_slot {
+            return new_finalized_slot > prev_finalized_slot;
         }
+        let max_participants = self.sync_aggregate().sync_committee_bits.len();
+        let prev_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
+        let prev_has_supermajority = prev_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
+        if new_has_supermajority != prev_has_supermajority {
+            return new_has_supermajority;
+        }
+        if !new_has_supermajority && new_participants != prev_participants {
+            return new_participants > prev_participants;
+        }
+        signature_slot > self.signature_slot()
     }
 }
 

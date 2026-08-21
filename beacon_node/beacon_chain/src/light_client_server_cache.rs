@@ -132,9 +132,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+	let max_participants = sync_aggregate.sync_committee_bits.len();
+	let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+	let new_has_supermajority = new_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
             Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest(attested_slot, signature_slot)
+                latest_optimistic_update.is_latest(attested_slot, new_has_supermajority, new_participants, signature_slot)
             }
             None => true,
         };
@@ -152,7 +155,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
             Some(latest_finality_update) => {
-                latest_finality_update.is_latest(attested_slot, signature_slot)
+	        let finalized_slot = cached_parts.finalized_checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+                latest_finality_update.is_latest(finalized_slot, new_has_supermajority, new_participants, signature_slot)
             }
             None => true,
         };
