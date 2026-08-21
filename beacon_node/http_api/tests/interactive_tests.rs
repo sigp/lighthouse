@@ -21,7 +21,6 @@ use state_processing::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tree_hash::TreeHash;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
     MinimalEthSpec, ProposerPreparationData, Slot,
@@ -1473,11 +1472,11 @@ async fn inclusion_list_duties_across_fork_boundary() {
         .build_committee_cache(types::RelativeEpoch::Current, &harness.chain.spec)
         .unwrap();
 
-    let slot_committees: Vec<(Slot, Hash256, Vec<u64>)> = heze_fork_epoch
+    let slot_committees: Vec<(Slot, Vec<u64>)> = heze_fork_epoch
         .slot_iter(E::slots_per_epoch())
         .map(|slot| {
             let committee = state.get_inclusion_list_committee(slot).unwrap();
-            (slot, committee.tree_hash_root(), committee.to_vec())
+            (slot, committee.to_vec())
         })
         .collect();
 
@@ -1485,14 +1484,13 @@ async fn inclusion_list_duties_across_fork_boundary() {
         .iter()
         .filter_map(|&validator_index| {
             let validator = state.validators().get(validator_index as usize)?;
-            let (slot, inclusion_list_committee_root, _) = slot_committees
+            let (slot, _) = slot_committees
                 .iter()
-                .find(|(_, _, committee)| committee.contains(&validator_index))?;
+                .find(|(_, committee)| committee.contains(&validator_index))?;
             Some(InclusionListDuty {
                 pubkey: validator.pubkey,
                 validator_index,
                 slot: *slot,
-                inclusion_list_committee_root: *inclusion_list_committee_root,
             })
         })
         .collect();

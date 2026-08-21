@@ -4489,11 +4489,11 @@ impl ApiTester {
                     .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
                     .unwrap();
 
-                let slot_committees: Vec<(Slot, Hash256, Vec<u64>)> = epoch
+                let slot_committees: Vec<(Slot, Vec<u64>)> = epoch
                     .slot_iter(E::slots_per_epoch())
                     .map(|slot| {
                         let committee = state.get_inclusion_list_committee(slot).unwrap();
-                        (slot, committee.tree_hash_root(), committee.to_vec())
+                        (slot, committee.to_vec())
                     })
                     .collect();
 
@@ -4501,14 +4501,13 @@ impl ApiTester {
                     .iter()
                     .filter_map(|&validator_index| {
                         let validator = state.validators().get(validator_index as usize)?;
-                        let (slot, inclusion_list_committee_root, _) = slot_committees
+                        let (slot, _) = slot_committees
                             .iter()
-                            .find(|(_, _, committee)| committee.contains(&validator_index))?;
+                            .find(|(_, committee)| committee.contains(&validator_index))?;
                         Some(InclusionListDuty {
                             pubkey: validator.pubkey,
                             validator_index,
                             slot: *slot,
-                            inclusion_list_committee_root: *inclusion_list_committee_root,
                         })
                     })
                     .collect();
@@ -4516,6 +4515,18 @@ impl ApiTester {
                 assert_eq!(
                     result_duties, expected_duties,
                     "inclusion list duties should exactly match state-derived committees"
+                );
+
+                // With 32 validators there are fewer unique members per slot than
+                // INCLUSION_LIST_COMMITTEE_SIZE, so every committee here cycles
+                //
+                // ensure that the endpoint returns at most one duty per validator even in that case
+                let mut seen_validators = std::collections::HashSet::new();
+                assert!(
+                    result_duties
+                        .iter()
+                        .all(|duty| seen_validators.insert(duty.validator_index)),
+                    "each validator should appear at most once in the duties response"
                 );
             }
         }

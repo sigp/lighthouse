@@ -1804,14 +1804,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let dependent_root =
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
 
-        let mut assignments: HashMap<u64, (Slot, Hash256)> = HashMap::new();
+        let mut assignments: HashMap<u64, Slot> = HashMap::new();
         for slot in epoch.slot_iter(T::EthSpec::slots_per_epoch()) {
             let committee = state.get_inclusion_list_committee(slot)?;
-            let committee_root = committee.tree_hash_root();
             for validator_index in &committee {
-                assignments
-                    .entry(*validator_index)
-                    .or_insert((slot, committee_root));
+                assignments.entry(*validator_index).or_insert(slot);
             }
         }
 
@@ -1825,11 +1822,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 assignments
                     .get(&validator_index)
-                    .map(|&(slot, inclusion_list_committee_root)| InclusionListDuty {
+                    .map(|&slot| InclusionListDuty {
                         pubkey,
                         validator_index,
                         slot,
-                        inclusion_list_committee_root,
                     })
             })
             .collect::<Vec<_>>();
