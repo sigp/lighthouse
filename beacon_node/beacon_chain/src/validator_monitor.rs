@@ -728,10 +728,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 let data = unaggregated_attestation.data();
 
+                let parent_slot = state
+                    .latest_execution_payload_bid()
+                    .ok()
+                    .map(|bid| bid.slot);
+
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
                     unaggregated_attestation.data(),
+                    parent_slot,
                     inclusion_delay,
                     spec,
                 ) {
@@ -1308,7 +1314,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            spec.get_aggregate_attestation_due(),
+            spec.get_aggregate_attestation_due::<E>(data.slot),
             slot_clock,
         );
 
@@ -1536,7 +1542,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             let delay = get_message_delay_ms(
                 seen_timestamp,
                 sync_committee_message.slot,
-                spec.get_sync_message_due(),
+                spec.get_sync_message_due::<E>(sync_committee_message.slot),
                 slot_clock,
             );
 
@@ -1624,7 +1630,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             slot,
-            spec.get_contribution_message_due(),
+            spec.get_contribution_message_due::<E>(slot),
             slot_clock,
         );
 
