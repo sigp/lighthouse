@@ -794,8 +794,7 @@ impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once we have Gloas fast confirmation tests
-        vec![ForkName::Gloas]
+        vec![]
     }
 }
 
