@@ -154,7 +154,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 let sync_message_due = self
                     .duties_service
                     .spec
-                    .get_sync_message_due_at_slot::<S::E>(next_slot);
+                    .get_sync_message_due::<S::E>(next_slot);
                 let head_event = head_event_or_deadline(
                     &mut head_monitor_rx,
                     &self.slot_clock,
@@ -206,7 +206,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             let Some(duration_to_deadline) = delay_until_slot_offset(
                 &self.slot_clock,
                 slot,
-                spec.get_sync_message_due_at_slot::<S::E>(slot),
+                spec.get_sync_message_due::<S::E>(slot),
             ) else {
                 debug!(%slot, "Skipping sync committee tasks for expired slot");
                 return;
@@ -233,11 +233,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             return;
         }
 
-        // If a validator needs to publish a sync aggregate, they must do so at 2/3
-        // through the slot. This delay triggers at this time
-        let Some(contribution_delay) =
-            delay_until_slot_offset(&self.slot_clock, slot, spec.get_contribution_message_due())
-        else {
+        // If a validator needs to publish a sync aggregate, trigger it at the
+        // fork-appropriate contribution due time.
+        let Some(contribution_delay) = delay_until_slot_offset(
+            &self.slot_clock,
+            slot,
+            spec.get_contribution_message_due::<S::E>(slot),
+        ) else {
             debug!(%slot, "Skipping sync committee tasks for expired slot");
             return;
         };
@@ -806,7 +808,7 @@ mod tests {
         let spec = E::default_spec();
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
-        let contribution_due = spec.get_contribution_message_due();
+        let contribution_due = spec.get_contribution_message_due::<E>(Slot::new(0));
 
         slot_clock.set_current_time(Duration::from_secs(5));
         assert_eq!(
