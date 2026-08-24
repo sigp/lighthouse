@@ -238,6 +238,7 @@ pub enum BeaconStateError {
     InvalidIndicesCount,
     InvalidBuilderPendingPaymentsIndex(usize),
     InvalidExecutionPayloadAvailabilityIndex(usize),
+    MissingParentSlot,
     /// Merkle proofs against the `BeaconState` and `BeaconBlockBody` use progressive-container
     /// generalized indices from Gloas (EIP-7688) onwards, which are not implemented yet.
     ProgressiveMerkleProofNotSupported,

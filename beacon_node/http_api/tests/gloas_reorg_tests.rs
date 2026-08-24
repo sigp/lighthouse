@@ -833,11 +833,7 @@ pub async fn proposer_boost_re_org_test(
     } else {
         state_b.clone()
     };
-    let expected_withdrawals = if matches!(
-        expected_first_update_lookahead,
-        ExpectedFirstUpdateLookahead::BlockProduction
-    ) && expected_parent_payload_status == PayloadStatus::Empty
-    {
+    let expected_withdrawals = if expected_parent_payload_status == PayloadStatus::Empty {
         parent_state_advanced
             .payload_expected_withdrawals()
             .unwrap()

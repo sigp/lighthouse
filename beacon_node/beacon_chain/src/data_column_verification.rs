@@ -1893,8 +1893,8 @@ mod test {
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
         ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
         PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot,
-        test_utils::test_unstructured,
+        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+        Slot, test_utils::test_unstructured,
     };
 
     type E = MainnetEthSpec;
@@ -2405,12 +2405,12 @@ mod test {
         block_root: Hash256,
         slot: Slot,
     ) {
-        let mut bid = SignedExecutionPayloadBid::<E>::empty();
-        bid.slot() = slot;
+        let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
+        bid.message.slot = slot;
         harness
             .chain
             .pending_payload_cache
-            .insert_bid(block_root, Arc::new(bid));
+            .insert_bid(block_root, Arc::new(SignedExecutionPayloadBid::Gloas(bid)));
     }
 
     async fn gloas_partial_slot_mismatch_returns_error(

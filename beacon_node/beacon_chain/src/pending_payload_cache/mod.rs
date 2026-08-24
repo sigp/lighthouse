@@ -942,7 +942,12 @@ mod data_availability_checker_tests {
     #[tokio::test]
     async fn merge_partial_columns_completes_column_across_arrivals() {
         let s = setup_with(NodeCustodyType::Fullnode, NumBlobs::Number(2));
-        let slot = s.cache.get_bid(&s.block_root).expect("bid").message.slot;
+        let slot = s
+            .cache
+            .get_bid(&s.block_root)
+            .expect("bid")
+            .message()
+            .slot();
 
         // First arrival: column 0 carries only blob 0's cell — incomplete (1 of 2 expected).
         let first = gloas_partial(s.block_root, slot, 0, 2, &[0]);

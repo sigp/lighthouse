@@ -17,6 +17,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
+    parent_slot: Option<Slot>,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -40,7 +41,14 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
+    process_attestations(
+        state,
+        block_body,
+        verify_signatures,
+        parent_slot,
+        ctxt,
+        spec,
+    )?;
     process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
     process_exits(
         state,
@@ -247,7 +255,7 @@ pub mod altair_deneb {
         let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+            get_attestation_participation_flag_indices(state, data, None, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
@@ -304,6 +312,7 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         attestations: I,
         verify_signatures: VerifySignatures,
+        parent_slot: Option<Slot>,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError>
@@ -311,7 +320,15 @@ pub mod gloas {
         I: Iterator<Item = AttestationRef<'a, E>>,
     {
         attestations.enumerate().try_for_each(|(i, attestation)| {
-            process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+            process_attestation(
+                state,
+                attestation,
+                i,
+                verify_signatures,
+                parent_slot,
+                ctxt,
+                spec,
+            )
         })
     }
 
@@ -319,8 +336,9 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         attestation: AttestationRef<E>,
         att_index: usize,
-        ctxt: &mut ConsensusContext<E>,
         verify_signatures: VerifySignatures,
+        parent_slot: Option<Slot>,
+        ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
@@ -339,8 +357,13 @@ pub mod gloas {
         // Matching roots, participation flag indices
         let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
-        let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+        let participation_flag_indices = get_attestation_participation_flag_indices(
+            state,
+            data,
+            parent_slot,
+            inclusion_delay,
+            spec,
+        )?;
 
         // [New in EIP-7732]
         let current_epoch_target = data.target.epoch == state.current_epoch();
@@ -373,8 +396,14 @@ pub mod gloas {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             // [New in Gloas:EIP7732]
-            // For same-slot attestations, check if we're setting any new flags
-            // If we are, this validator hasn't contributed to this slot's quorum yet
+            let had_no_participation = state
+                .get_epoch_participation_mut(data.target.epoch, previous_epoch, current_epoch)?
+                .get(index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?
+                .into_u8()
+                == 0;
+
+            // [New in Gloas:EIP7732]
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
@@ -407,9 +436,8 @@ pub mod gloas {
             }
 
             // [New in Gloas:EIP7732]
-            // Add weight for same-slot attestations when any new flag is set.
-            // This ensures each validator contributes exactly once per slot.
             if will_set_new_flag
+                && had_no_participation
                 && state.is_attestation_same_slot(data)?
                 && payment_withdrawal_amount > 0
             {
@@ -540,6 +568,7 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
+    parent_slot: Option<Slot>,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -548,6 +577,7 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             state,
             block_body.attestations(),
             verify_signatures,
+            parent_slot,
             ctxt,
             spec,
         )?;
