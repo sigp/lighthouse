@@ -13,9 +13,10 @@ use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, MinimalEthSpec, ProposerPreferences,
-    SignedBeaconBlock, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadHeader, Hash256, MinimalEthSpec,
+    ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -78,9 +79,20 @@ impl TestContext {
 
         let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
 
-        let mut state =
-            interop_genesis_state::<E>(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
-                .expect("should build genesis state");
+        let mut execution_payload_header = ExecutionPayloadHeader::Fulu(Default::default());
+        let ExecutionPayloadHeader::Fulu(header) = &mut execution_payload_header else {
+            unreachable!("constructed a Fulu execution payload header")
+        };
+        header.block_hash = ExecutionBlockHash::repeat_byte(0x42);
+        header.gas_limit = 30_000_000;
+        let mut state = interop_genesis_state::<E>(
+            &keypairs,
+            0,
+            Hash256::repeat_byte(0x42),
+            Some(execution_payload_header),
+            &spec,
+        )
+        .expect("should build genesis state");
 
         // Register builders in the builder registry.
         for keypair in keypairs.iter().take(NUM_BUILDERS) {
@@ -103,17 +115,6 @@ impl TestContext {
             epoch: Epoch::new(1),
             root: Hash256::ZERO,
         };
-
-        // Set a non-zero gas_limit on latest_execution_payload_bid so the gas limit
-        // compatibility check doesn't reject all bids at genesis.
-        if let Ok(bid) = state.latest_execution_payload_bid_mut() {
-            bid.gas_limit = 30_000_000;
-        }
-        // Update body_root to reflect the modified bid (genesis block embeds it).
-        let genesis_body_root = genesis_block(&state, &spec)
-            .expect("should build genesis block")
-            .body_root();
-        state.latest_block_header_mut().body_root = genesis_body_root;
 
         let inactive_keypair = &keypairs[NUM_BUILDERS];
         let inactive_creds = builder_withdrawal_credentials(&inactive_keypair.pk, &spec);
@@ -151,18 +152,6 @@ impl TestContext {
         store
             .put_block(&block_root, signed_block.clone())
             .expect("should store genesis block");
-        store
-            .put_payload_envelope(
-                &block_root,
-                &SignedExecutionPayloadEnvelope {
-                    message: ExecutionPayloadEnvelope::empty(),
-                    signature: Signature::empty(),
-                },
-            )
-            .expect("should store genesis payload envelope");
-        fork_choice
-            .on_valid_payload_envelope_received(block_root)
-            .expect("should mark genesis payload as received");
 
         let (_, head_payload_status) = fork_choice
             .get_head(Slot::new(0), &spec)
@@ -200,24 +189,78 @@ impl TestContext {
     fn with_unreceived_finalized_head(mut self, gas_limit: u64) -> (Self, Hash256) {
         let cached_head = self.canonical_head.cached_head();
         let mut state = cached_head.snapshot.beacon_state.clone();
+        let execution_genesis_hash = *state
+            .latest_block_hash()
+            .expect("should have a Gloas execution block hash");
+        let carrier_block_hash = ExecutionBlockHash::repeat_byte(0xaa);
+        let carrier_slot = Slot::new(1);
+
+        *state.slot_mut() = carrier_slot;
+        let carrier_bid = state
+            .latest_execution_payload_bid_mut()
+            .expect("should have a Gloas payload bid");
+        carrier_bid.slot = carrier_slot;
+        carrier_bid.parent_block_root = self.genesis_block_root;
+        carrier_bid.parent_block_hash = execution_genesis_hash;
+        carrier_bid.block_hash = carrier_block_hash;
+        carrier_bid.gas_limit = 30_000_000;
+        let carrier_builder_index = carrier_bid.builder_index;
+
+        let mut carrier_block =
+            genesis_block(&state, &self.spec).expect("should build payload carrier block");
+        *carrier_block.slot_mut() = carrier_slot;
+        *carrier_block.parent_root_mut() = self.genesis_block_root;
+        state.latest_block_header_mut().slot = carrier_slot;
+        state.latest_block_header_mut().parent_root = self.genesis_block_root;
+        state.latest_block_header_mut().body_root = carrier_block.body_root();
+        *carrier_block.state_root_mut() = state
+            .update_tree_hash_cache()
+            .expect("should hash payload carrier state");
+        let signed_carrier_block = SignedBeaconBlock::from_block(carrier_block, Signature::empty());
+        let carrier_block_root = signed_carrier_block.canonical_root();
+
+        self.store
+            .put_block(&carrier_block_root, signed_carrier_block)
+            .expect("should store payload carrier block");
+        let mut carrier_envelope = ExecutionPayloadEnvelope::empty();
+        carrier_envelope.payload.parent_hash = execution_genesis_hash;
+        carrier_envelope.payload.block_hash = carrier_block_hash;
+        carrier_envelope.payload.gas_limit = 30_000_000;
+        carrier_envelope.payload.slot_number = carrier_slot;
+        carrier_envelope.builder_index = carrier_builder_index;
+        carrier_envelope.beacon_block_root = carrier_block_root;
+        carrier_envelope.parent_beacon_block_root = self.genesis_block_root;
+        self.store
+            .put_payload_envelope(
+                &carrier_block_root,
+                &SignedExecutionPayloadEnvelope {
+                    message: carrier_envelope,
+                    signature: Signature::empty(),
+                },
+            )
+            .expect("should store payload carrier envelope");
+
         let head_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
         let current_slot = head_slot + 1;
         *state.slot_mut() = head_slot;
+        *state
+            .latest_block_hash_mut()
+            .expect("should have a Gloas execution block hash") = carrier_block_hash;
 
         let head_bid = state
             .latest_execution_payload_bid_mut()
             .expect("should have a Gloas payload bid");
         head_bid.slot = head_slot;
-        head_bid.parent_block_root = self.genesis_block_root;
-        head_bid.parent_block_hash = ExecutionBlockHash::zero();
+        head_bid.parent_block_root = carrier_block_root;
+        head_bid.parent_block_hash = carrier_block_hash;
         head_bid.block_hash = ExecutionBlockHash::repeat_byte(0xab);
         head_bid.gas_limit = gas_limit;
 
         let mut head_block = genesis_block(&state, &self.spec).expect("should build head block");
         *head_block.slot_mut() = head_slot;
-        *head_block.parent_root_mut() = self.genesis_block_root;
+        *head_block.parent_root_mut() = carrier_block_root;
         state.latest_block_header_mut().slot = head_slot;
-        state.latest_block_header_mut().parent_root = self.genesis_block_root;
+        state.latest_block_header_mut().parent_root = carrier_block_root;
         state.latest_block_header_mut().body_root = head_block.body_root();
         *head_block.state_root_mut() = state
             .update_tree_hash_cache()
@@ -303,6 +346,15 @@ impl TestContext {
             .expect("should read current epoch randao mix")
     }
 
+    fn execution_parent_hash(&self) -> ExecutionBlockHash {
+        let head = self.canonical_head.cached_head();
+        *head
+            .snapshot
+            .beacon_state
+            .latest_block_hash()
+            .expect("should have a Gloas execution block hash")
+    }
+
     fn make_signed_bid(
         &self,
         slot: Slot,
@@ -320,6 +372,7 @@ impl TestContext {
                 gas_limit,
                 value,
                 parent_block_root,
+                parent_block_hash: self.execution_parent_hash(),
                 prev_randao: self.expected_prev_randao(),
                 ..ExecutionPayloadBid::default()
             },
@@ -479,6 +532,7 @@ fn same_builder_new_parent_tuple_not_blocked() {
         gas_limit: 30_000_000,
         value: 0,
         parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
@@ -589,11 +643,17 @@ fn gas_limit_mismatch() {
         gas_limit: 50_000_000,
         value: 100,
         parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
+    let bid_parent = BidParent::from_bid(&bid.message);
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
+    assert_eq!(
+        ctx.bid_cache.get_parent_gas_limit(slot, bid_parent),
+        Some(30_000_000)
+    );
 }
 
 #[test]
@@ -615,7 +675,7 @@ fn gas_limit_uses_known_execution_parent_after_unreceived_payload() {
         fee_recipient: Address::ZERO,
         gas_limit: next_gas_limit,
         parent_block_root: head_block_root,
-        parent_block_hash: ExecutionBlockHash::zero(),
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
@@ -640,6 +700,7 @@ fn execution_payment_nonzero() {
             gas_limit: 30_000_000,
             execution_payment: 42,
             parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
             prev_randao: ctx.expected_prev_randao(),
             ..ExecutionPayloadBid::default()
         },
@@ -831,6 +892,7 @@ fn invalid_blob_kzg_commitments() {
             gas_limit: 30_000_000,
             value: 0,
             parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
             prev_randao: ctx.expected_prev_randao(),
             blob_kzg_commitments: ProgressiveVariableList::new(commitments),
             ..ExecutionPayloadBid::default()
@@ -893,6 +955,7 @@ fn valid_bid() {
         gas_limit: 30_000_000,
         value: 0,
         parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
@@ -921,6 +984,7 @@ fn two_builders_coexist_in_cache() {
         gas_limit: 30_000_000,
         value: 0,
         parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
@@ -939,6 +1003,7 @@ fn two_builders_coexist_in_cache() {
         gas_limit: 30_000_000,
         value: 1,
         parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
@@ -951,7 +1016,7 @@ fn two_builders_coexist_in_cache() {
 
     // Both builders should be seen.
     let bid_parent = BidParent {
-        parent_block_hash: ExecutionBlockHash::zero(),
+        parent_block_hash: ctx.execution_parent_hash(),
         parent_block_root: ctx.genesis_block_root,
     };
     assert!(

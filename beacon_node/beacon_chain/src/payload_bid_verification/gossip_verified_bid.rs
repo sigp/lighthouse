@@ -18,7 +18,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    SignedBlindedBeaconBlock, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -34,10 +34,14 @@ fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
     parent_block_hash: ExecutionBlockHash,
 ) -> ExecutionPayloadBlockRootLookup {
     let mut block_root = parent_block_root;
-    loop {
-        let Some(block) = fork_choice_read.get_block(&block_root) else {
-            break;
-        };
+    while let Some(block) = fork_choice_read.get_block(&block_root) {
+        // Gloas genesis has no payload envelope. Its bid retains the EL genesis hash in
+        // `parent_block_hash`, while `block_hash` is zero to represent an empty payload.
+        if block.slot == Slot::new(0)
+            && block.execution_payload_parent_hash == Some(parent_block_hash)
+        {
+            return ExecutionPayloadBlockRootLookup::Found(block_root);
+        }
 
         if let Some(block_hash) = block.execution_payload_block_hash {
             if fork_choice_read.is_payload_received(&block_root) && block_hash == parent_block_hash
@@ -57,6 +61,28 @@ fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
     }
 
     ExecutionPayloadBlockRootLookup::ContinueInStore(block_root)
+}
+
+/// Return the latest available execution payload hash and gas limit represented by a beacon block.
+fn execution_payload_hash_and_gas_limit<E: EthSpec>(
+    block: &SignedBlindedBeaconBlock<E>,
+) -> Result<(ExecutionBlockHash, u64), PayloadBidError> {
+    if block.fork_name_unchecked().gloas_enabled() {
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()?
+            .message;
+        let block_hash = if block.slot() == Slot::new(0) {
+            bid.parent_block_hash
+        } else {
+            bid.block_hash
+        };
+        Ok((block_hash, bid.gas_limit))
+    } else {
+        let payload = block.message().execution_payload()?;
+        Ok((payload.block_hash(), payload.gas_limit()))
+    }
 }
 
 /// Continue the parent gas limit lookup through canonical blocks hidden behind finalization.
@@ -79,24 +105,21 @@ fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
                 ))
             })?;
 
-        if block.fork_name_unchecked().gloas_enabled() {
-            let bid = &block
-                .message()
-                .body()
-                .signed_execution_payload_bid()?
-                .message;
-            let payload_received = store.payload_envelope_exists(&block_root).map_err(|e| {
-                PayloadBidError::InternalError(format!(
-                    "failed to check payload envelope for block {block_root:?}: {e:?}"
-                ))
-            })?;
-            if payload_received && bid.block_hash == parent_block_hash {
-                return Ok(bid.gas_limit);
-            }
-        } else {
-            let payload = block.message().execution_payload()?;
-            if payload.block_hash() == parent_block_hash {
-                return Ok(payload.gas_limit());
+        let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
+        if block_hash == parent_block_hash {
+            // Non-genesis Gloas blocks only carry an execution payload after its envelope arrives.
+            // Compare the hash first so unrelated ancestors do not require another database read.
+            if block.fork_name_unchecked().gloas_enabled() && block.slot() != Slot::new(0) {
+                let payload_received = store.payload_envelope_exists(&block_root).map_err(|e| {
+                    PayloadBidError::InternalError(format!(
+                        "failed to check payload envelope for block {block_root:?}: {e:?}"
+                    ))
+                })?;
+                if payload_received {
+                    return Ok(gas_limit);
+                }
+            } else {
+                return Ok(gas_limit);
             }
         }
 
@@ -129,27 +152,13 @@ fn get_parent_gas_limit<T: BeaconChainTypes>(
             ))
         })?;
 
-    if block.fork_name_unchecked().gloas_enabled() {
-        let bid = &block
-            .message()
-            .body()
-            .signed_execution_payload_bid()?
-            .message;
-        if bid.block_hash != parent_block_hash {
-            return Err(PayloadBidError::InternalError(format!(
-                "execution payload hash mismatch for block {execution_payload_block_root:?}"
-            )));
-        }
-        Ok(bid.gas_limit)
-    } else {
-        let payload = block.message().execution_payload()?;
-        if payload.block_hash() != parent_block_hash {
-            return Err(PayloadBidError::InternalError(format!(
-                "execution payload hash mismatch for block {execution_payload_block_root:?}"
-            )));
-        }
-        Ok(payload.gas_limit())
+    let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
+    if block_hash != parent_block_hash {
+        return Err(PayloadBidError::InternalError(format!(
+            "execution payload hash mismatch for block {execution_payload_block_root:?}"
+        )));
     }
+    Ok(gas_limit)
 }
 
 /// Verify that an execution payload bid is consistent with the current chain state
@@ -433,11 +442,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        let execution_payload_block_root_lookup = find_execution_payload_block_root_in_fork_choice(
-            &fork_choice,
-            signed_bid.message.parent_block_root,
-            signed_bid.message.parent_block_hash,
-        );
         drop(fork_choice);
 
         verify_bid_consistency(
@@ -461,19 +465,40 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         .then_some(())
         .ok_or(PayloadBidError::BadSignature)?;
 
-        let parent_gas_limit = match execution_payload_block_root_lookup {
-            ExecutionPayloadBlockRootLookup::Found(block_root) => get_parent_gas_limit::<T>(
-                ctx.store,
-                block_root,
-                signed_bid.message.parent_block_hash,
-            )?,
-            ExecutionPayloadBlockRootLookup::ContinueInStore(block_root) => {
-                find_parent_gas_limit_in_store::<T>(
+        let parent_gas_limit = if let Some(gas_limit) = ctx
+            .gossip_verified_payload_bid_cache
+            .get_parent_gas_limit(bid_slot, bid_parent)
+        {
+            gas_limit
+        } else {
+            // Ancestor lookup can walk fork choice and the database, so only perform it for a bid
+            // whose builder and signature have already been verified.
+            let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+            let execution_payload_block_root_lookup =
+                find_execution_payload_block_root_in_fork_choice(
+                    &fork_choice,
+                    signed_bid.message.parent_block_root,
+                    signed_bid.message.parent_block_hash,
+                );
+            drop(fork_choice);
+
+            let gas_limit = match execution_payload_block_root_lookup {
+                ExecutionPayloadBlockRootLookup::Found(block_root) => get_parent_gas_limit::<T>(
                     ctx.store,
                     block_root,
                     signed_bid.message.parent_block_hash,
-                )?
-            }
+                )?,
+                ExecutionPayloadBlockRootLookup::ContinueInStore(block_root) => {
+                    find_parent_gas_limit_in_store::<T>(
+                        ctx.store,
+                        block_root,
+                        signed_bid.message.parent_block_hash,
+                    )?
+                }
+            };
+            ctx.gossip_verified_payload_bid_cache
+                .insert_parent_gas_limit(bid_slot, bid_parent, gas_limit);
+            gas_limit
         };
 
         if !is_gas_limit_target_compatible(

@@ -26,10 +26,12 @@ impl BidParent {
 }
 
 type HighestBidMap<E> = BTreeMap<Slot, HashMap<BidParent, GossipVerifiedPayloadBid<E>>>;
+type ParentGasLimitMap = BTreeMap<Slot, HashMap<BidParent, u64>>;
 
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
     highest_bid: RwLock<HighestBidMap<E>>,
     seen_builder_bids: RwLock<BTreeMap<Slot, HashSet<(BidParent, BuilderIndex)>>>,
+    parent_gas_limits: RwLock<ParentGasLimitMap>,
 }
 
 impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
@@ -37,6 +39,7 @@ impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
         Self {
             highest_bid: RwLock::new(BTreeMap::new()),
             seen_builder_bids: RwLock::new(BTreeMap::new()),
+            parent_gas_limits: RwLock::new(BTreeMap::new()),
         }
     }
 }
@@ -94,6 +97,28 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             ));
     }
 
+    /// Get the gas limit of the execution payload identified by `bid_parent`.
+    pub(crate) fn get_parent_gas_limit(&self, slot: Slot, bid_parent: BidParent) -> Option<u64> {
+        self.parent_gas_limits
+            .read()
+            .get(&slot)
+            .and_then(|gas_limits| gas_limits.get(&bid_parent).copied())
+    }
+
+    /// Cache the gas limit of the execution payload identified by `bid_parent`.
+    pub(crate) fn insert_parent_gas_limit(
+        &self,
+        slot: Slot,
+        bid_parent: BidParent,
+        gas_limit: u64,
+    ) {
+        self.parent_gas_limits
+            .write()
+            .entry(slot)
+            .or_default()
+            .insert(bid_parent, gas_limit);
+    }
+
     /// Prune anything before `current_slot`
     pub fn prune(&self, current_slot: Slot) {
         self.highest_bid
@@ -101,6 +126,10 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             .retain(|&slot, _| slot >= current_slot);
 
         self.seen_builder_bids
+            .write()
+            .retain(|&slot, _| slot >= current_slot);
+
+        self.parent_gas_limits
             .write()
             .retain(|&slot, _| slot >= current_slot);
     }
@@ -219,6 +248,26 @@ mod tests {
         let highest_b = cache.get_highest_bid(slot, parent_b).unwrap();
         assert_eq!(highest_b.message.value, 70);
         assert_eq!(highest_b.message.builder_index, 3);
+    }
+
+    #[test]
+    fn parent_gas_limit_is_cached_and_pruned() {
+        let cache = GossipVerifiedPayloadBidCache::<E>::default();
+        let slot = Slot::new(1);
+        let bid_parent = BidParent {
+            parent_block_hash: ExecutionBlockHash::repeat_byte(0x01),
+            parent_block_root: Hash256::repeat_byte(0x02),
+        };
+
+        assert_eq!(cache.get_parent_gas_limit(slot, bid_parent), None);
+        cache.insert_parent_gas_limit(slot, bid_parent, 30_000_000);
+        assert_eq!(
+            cache.get_parent_gas_limit(slot, bid_parent),
+            Some(30_000_000)
+        );
+
+        cache.prune(Slot::new(2));
+        assert_eq!(cache.get_parent_gas_limit(slot, bid_parent), None);
     }
 
     #[test]
