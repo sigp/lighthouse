@@ -261,7 +261,7 @@ async fn prepare_payload_generic(
         get_expected_withdrawals(&advanced_empty_state, &spec)
             .unwrap()
             .into();
-    let carried_withdrawals = advanced_empty_state
+    let carried_withdrawals = unadvanced_empty_state
         .payload_expected_withdrawals()
         .unwrap()
         .to_vec();
