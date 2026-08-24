@@ -261,6 +261,10 @@ async fn prepare_payload_generic(
         get_expected_withdrawals(&advanced_empty_state, &spec)
             .unwrap()
             .into();
+    let carried_withdrawals = unadvanced_empty_state
+        .payload_expected_withdrawals()
+        .unwrap()
+        .to_vec();
     let withdrawals_unadvanced_full: Withdrawals<E> =
         get_expected_withdrawals(&unadvanced_full_state, &spec)
             .unwrap()
@@ -274,6 +278,15 @@ async fn prepare_payload_generic(
         withdrawals_advanced_empty, withdrawals_advanced_full,
         "Applying execution requests should change the expected withdrawals"
     );
+
+    if parent_payload_status == PayloadStatus::Empty {
+        assert!(!carried_withdrawals.is_empty());
+        assert_ne!(
+            carried_withdrawals,
+            withdrawals_advanced_empty.to_vec(),
+            "Carried withdrawals should differ from a freshly computed batch"
+        );
+    }
 
     let expect_state_advance_to_change_withdrawals =
         prepare_slot.epoch(E::slots_per_epoch()) > parent_block_slot.epoch(E::slots_per_epoch());
@@ -334,13 +347,12 @@ async fn prepare_payload_generic(
     let expected_withdrawals: Vec<Withdrawal> = if parent_payload_status == PayloadStatus::Full {
         withdrawals_advanced_full.to_vec()
     } else {
-        withdrawals_advanced_empty.to_vec()
+        carried_withdrawals
     };
 
     assert_eq!(
         actual_withdrawals, &expected_withdrawals,
-        "prepare_beacon_proposer should use withdrawals computed from the \
-         {parent_payload_status:?} state"
+        "prepare_beacon_proposer should use withdrawals for the {parent_payload_status:?} parent"
     );
 }
 
