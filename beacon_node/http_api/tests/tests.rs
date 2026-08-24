@@ -1987,7 +1987,7 @@ impl ApiTester {
         let next_block = &self.next_block;
 
         self.client
-            .post_beacon_blocks_v2_ssz(next_block, None)
+            .post_beacon_blocks_v2_ssz(next_block, None, None)
             .await
             .unwrap();
 
@@ -2085,7 +2085,7 @@ impl ApiTester {
                 .await
                 .unwrap(),
             self.client
-                .post_beacon_blocks_v2_ssz(&block_contents, None)
+                .post_beacon_blocks_v2_ssz(&block_contents, None, None)
                 .await
                 .unwrap(),
             self.client
@@ -4544,7 +4544,7 @@ impl ApiTester {
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
+                .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
                 .await
                 .unwrap();
 
@@ -4666,7 +4666,7 @@ impl ApiTester {
                         block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                     self.client
-                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
+                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
                         .await
                         .unwrap();
 
@@ -4976,13 +4976,12 @@ impl ApiTester {
 
         let mut url = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 None,
                 SkipRandaoVerification::No,
                 false,
-                None,
                 None,
             )
             .await
@@ -5272,7 +5271,7 @@ impl ApiTester {
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             self.client
-                .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                .post_beacon_blocks_v2_ssz(&signed_block_request, None, None)
                 .await
                 .unwrap();
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
@@ -5347,7 +5346,7 @@ impl ApiTester {
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             if ssz {
                 self.client
-                    .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                    .post_beacon_blocks_v2_ssz(&signed_block_request, None, None)
                     .await
                     .unwrap();
             } else {
@@ -9217,23 +9216,21 @@ impl ApiTester {
         self
     }
 
-    async fn get_validator_blocks_v4_path_graffiti_policy(self) -> Self {
+    async fn post_validator_blocks_v4_path_graffiti_policy(self) -> Self {
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
-        let builder_boost_factor = None;
 
         // When GraffitiPolicy is None
         let no_graffiti_policy_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 None,
             )
             .await
@@ -9242,13 +9239,12 @@ impl ApiTester {
         // Default case where GraffitiPolicy is AppendClientVersions
         let default_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
             .await
@@ -9267,13 +9263,12 @@ impl ApiTester {
 
         let preserve_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 Some(GraffitiPolicy::PreserveUserGraffiti),
             )
             .await
@@ -10884,7 +10879,7 @@ async fn get_validator_blocks_http_api_path() {
         .await
         .get_validator_blocks_v3_path_graffiti_policy()
         .await
-        .get_validator_blocks_v4_path_graffiti_policy()
+        .post_validator_blocks_v4_path_graffiti_policy()
         .await;
 }
 

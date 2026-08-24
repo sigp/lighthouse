@@ -47,6 +47,8 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # TODO(gloas): Add production-backed handlers for the new Gloas gossip test suites.
+    "tests/.*/gloas/networking/gossip_.*",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
     # Ignore MatrixEntry SSZ tests for now.
@@ -62,6 +64,9 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # TODO(gloas): the FCR handler disables Gloas until Gloas fast confirmation is supported.
     "tests/.*/gloas/fast_confirmation/.*",
+    # TODO(gloas): new in v1.7.0-alpha.13. Needs a handler and support for the
+    # `viable_for_head_roots_and_weights` check, which requires proto array internals.
+    "tests/.*/gloas/fork_choice/should_apply_proposer_boost/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
