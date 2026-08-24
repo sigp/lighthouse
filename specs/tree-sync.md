@@ -54,7 +54,7 @@ Merge(Y, Z) = c           guard Z.state = Anchored(Y.roots[0]) ∧ Y.peers = Z.p
 **`Search(r, P)`** — from peer `STATUS.head_root`, gossip unknown `parent_root`, or attested root.
 - `r ∈ FC` ∨ `slot(r) ≤ slot(finalized)` → skip
 - `loc(r)` undefined → new `Backfill{roots:[], peers:P, errors:0}`; `loc(r) :=` it; `SendHeaders(c, r)`
-- `loc(r) = c`, `r = c.roots[0]` → `c.peers ∪= P`
+- `loc(r) = c`, `r = c.roots[0] ∨ c.state = Discovering(r)` → `c.peers ∪= P`
 - `loc(r) = c` → `(Y,Z) := Split(c,r)`; `Y.peers ∪= P`; `loc[Z.roots] := Z`
 
 then ascend: add `P` to every chain holding an ancestor of `r`, following `parent` links to `FC`.
@@ -66,16 +66,24 @@ then ascend: add `P` to every chain holding an ancestor of `r`, following `paren
 - `Ok(headers)`, for `header ∈ headers`:
   - `header.slot ≤ slot(finalized) ∧ header.root ≠ root(finalized)` → `report_peer(c.peers)`; `Drop(c)`
   - push `(header.root, header.slot)`; `p := header.parent_root`
-  - `p ∈ FC` ∨ `loc(p)` defined → `state := Anchored(p)`; halt
-  - else → `loc(p) := c`; `SendHeaders(c, p)`; continue
+  - `p ∈ FC` → `state := Anchored(p)`; halt
+  - `loc(p)` defined → `state := Anchored(p)`; ascend from `p` with `c.peers`; halt
+  - else → `loc(p) := c`; continue
+- unresolved after the walk → `SendHeaders(c, p)` for the last `p`, once
+
+One request per response, issued after the whole contiguous walk is consumed. Sending one per intermediate parent would re-request headers already in hand and leave several responses racing for a single `Discovering(next)`.
+
+The ascent on attaching matters because `Search`'s cannot reach ancestors that did not exist yet. A peer that claimed this chain's tip holds them too, and without this the parent chain can be left holding only failing peers.
 
 **`Promote`** — runs after every transition.
 - every `Ready(blocks)` with `c.parent ∈ FC` → `SendProcess(c)`
 - while `syncing_blocks < N`; `syncing_blocks = Σ |c.roots|` over `ForwardSync` chains:
 - pick `c` = `Backfill{state: Anchored(parent)}` and `parent ∈ FC ∨ loc(parent) is ForwardSync`
-- `(Y,Z) := Split(c, `the `B`th-oldest root`)`
+- `|c.roots| > B` → `(Y,Z) := Split(c, `the `B`th-oldest root`)`; `Z` → `Backfill{state: Anchored(Y.roots[0])}`
+- else `Y := c`, whole
 - `Y` → `ForwardSync{roots:Y.roots, peers:Y.peers, parent:c.parent, errors:0}`; `SendDownload(Y)`
-- `Z` → `Backfill{state: Anchored(Y.roots[0])}`
+
+At `|c.roots| = B` the `B`th-oldest root is the tip, which `Split` rejects; below that it does not exist. A near-head chain of 1–`B` roots promotes whole.
 
 **`SendDownload(c)`** — `c.state := Downloading`, served from `c.peers`. Guarantees `OnDownload(R, result)` with `R = c.roots`, where `Ok(blocks)` has `roots(blocks) = R`, each verified by root.
 
@@ -103,7 +111,7 @@ then ascend: add `P` to every chain holding an ancestor of `r`, following `paren
 2. `c.roots` contiguous by `parent_root`, tip first.
 3. `p ∈ c.peers` ⟹ `p` claimed **every** root in `c.roots` ≡ `p` claimed `c.roots[0]`, since holding `r` implies holding its ancestors. A false or stale claim surfaces as `Err`.
 4. `slot` strictly decreases along `c.roots`.
-5. `Ready(blocks) ∨ Processing(blocks)` ⟹ `roots(blocks) = c.roots` ∧ `∀i>0. parent(blocks[i]) = blocks[i−1]`; `Processing` also ⟹ `parent(blocks[0]) ∈ FC`.
+5. `Ready(blocks) ∨ Processing(blocks)` ⟹ `blocks` is `c.roots` reversed — oldest first, one block per root — with `∀i>0. parent(blocks[i]) = blocks[i−1]`; `Processing` also ⟹ `parent(blocks[0]) ∈ FC`. `roots` is tip first and `blocks` is import order, so the reversal is where they meet.
 6. `state = Anchored(p)` ⟹ `p ∈ FC ∨ p ∈ dom(loc)`.
 
 ## Liveness
