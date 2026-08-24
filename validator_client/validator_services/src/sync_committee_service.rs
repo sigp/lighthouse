@@ -40,15 +40,6 @@ fn delay_until_slot_offset<T: SlotClock>(
     Some(due_at.saturating_sub(now))
 }
 
-/// The next slot and the duration until it starts, derived from a single clock read so the
-/// two values always describe the same slot.
-fn next_slot_with_duration<T: SlotClock>(slot_clock: &T) -> Option<(Slot, Duration)> {
-    let now = slot_clock.now_duration()?;
-    let next_slot = slot_clock.slot_of(now)? + 1;
-    let duration_to_next_slot = slot_clock.start_of(next_slot)?.saturating_sub(now);
-    Some((next_slot, duration_to_next_slot))
-}
-
 pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static> {
     inner: Arc<Inner<S, T>>,
 }
@@ -141,24 +132,25 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             let mut head_monitor_rx = self.head_monitor_rx.lock().await.take();
             let mut last_processed_slot: Option<Slot> = None;
             loop {
-                let Some((next_slot, duration_to_next_slot)) =
-                    next_slot_with_duration(&self.slot_clock)
-                else {
+                let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
+                    sleep(slot_duration).await;
+                    continue;
+                };
+                let (next_slot, Some(duration_to_sync_message_deadline)) =
+                    sync_message_deadline::<S::E>(&self.slot_clock, &self.duties_service.spec, now)
+                else {
+                    error!("Failed to determine sync message deadline");
                     sleep(slot_duration).await;
                     continue;
                 };
 
                 // Wait for the sync message due point of the next slot, or a head event for the
                 // current slot, whichever comes first.
-                let sync_message_due = self
-                    .duties_service
-                    .spec
-                    .get_sync_message_due::<S::E>(next_slot);
                 let head_event = head_event_or_deadline(
                     &mut head_monitor_rx,
                     &self.slot_clock,
-                    duration_to_next_slot + sync_message_due,
+                    duration_to_sync_message_deadline,
                 )
                 .await;
 
@@ -639,6 +631,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 }
 
+fn sync_message_deadline<E: EthSpec>(
+    slot_clock: &impl SlotClock,
+    chain_spec: &ChainSpec,
+    now: Duration,
+) -> (Slot, Option<Duration>) {
+    let sync_message_slot = slot_clock
+        .slot_of(now)
+        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
+    let duration_to_sync_message_deadline = slot_clock
+        .start_of(sync_message_slot)
+        .and_then(|slot_start| {
+            slot_start.checked_add(chain_spec.get_sync_message_due::<E>(sync_message_slot))
+        })
+        .and_then(|deadline| deadline.checked_sub(now));
+    (sync_message_slot, duration_to_sync_message_deadline)
+}
+
 fn sync_period_of_slot<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, String> {
     slot.epoch(E::slots_per_epoch())
         .sync_committee_period(spec)
@@ -800,6 +809,48 @@ mod tests {
             beacon_node_index: 0,
             slot: Slot::new(slot),
             beacon_block_root: Hash256::from_low_u64_be(block_root),
+        }
+    }
+
+    #[test]
+    fn duration_to_sync_message_deadline_is_fork_aware() {
+        let mut spec = E::default_spec();
+        let gloas_fork_epoch = Epoch::new(1);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let last_pre_gloas_slot = first_gloas_slot - 1;
+
+        let test_cases = [
+            (
+                "pre-genesis",
+                genesis_time - Duration::from_secs(1),
+                slot_clock.genesis_slot(),
+                Duration::from_millis(4999),
+            ),
+            (
+                "pre-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                last_pre_gloas_slot,
+                Duration::from_millis(15999),
+            ),
+            (
+                "post-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                first_gloas_slot,
+                Duration::from_millis(15000),
+            ),
+        ];
+
+        for (case, now, expected_slot, expected_duration) in test_cases {
+            assert_eq!(
+                sync_message_deadline::<E>(&slot_clock, &spec, now),
+                (expected_slot, Some(expected_duration)),
+                "{case}"
+            );
         }
     }
 
