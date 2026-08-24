@@ -73,7 +73,7 @@ then ascend: add `P` to every chain holding an ancestor of `r`, following `paren
 
 One request per response, issued after the whole contiguous walk is consumed. Sending one per intermediate parent would re-request headers already in hand and leave several responses racing for a single `Discovering(next)`.
 
-The ascent on attaching matters because `Search`'s cannot reach ancestors that did not exist yet. A peer that claimed this chain's tip holds them too, and without this the parent chain can be left holding only failing peers.
+The ascent on attaching matters because `Search`'s ascent cannot reach ancestors that did not exist yet. A peer that claimed this chain's tip holds them too, and without this the parent chain can be left holding only failing peers.
 
 **`Promote`** — runs after every transition.
 - every `Ready(blocks)` with `c.parent ∈ FC` → `SendProcess(c)`
@@ -85,10 +85,10 @@ The ascent on attaching matters because `Search`'s cannot reach ancestors that d
 
 At `|c.roots| = B` the `B`th-oldest root is the tip, which `Split` rejects; below that it does not exist. A near-head chain of 1–`B` roots promotes whole.
 
-**`SendDownload(c)`** — `c.state := Downloading`, served from `c.peers`. Guarantees `OnDownload(R, result)` with `R = c.roots`, where `Ok(blocks)` has `roots(blocks) = R`, each verified by root.
+**`SendDownload(c)`** — `c.state := Downloading`, served from `c.peers`. Guarantees `OnDownload(R, result)` with `R = c.roots`, where `Ok(blocks)` covers exactly the roots of `R` as a set, each verified by root.
 
 **`OnDownload(R, result)`** — for each `c ∈ owners(R)`:
-- `Ok(blocks)` → `Ready(blocks↾c)`, ordered oldest first
+- `Ok(blocks)` → `Ready(blocks↾c)` in `c.roots` reversed order (Inv 5)
 - `Err` → `errors += 1`; `errors > RETRY_MAX` → `Drop(c)`, else `SendDownload(c)`
 
 **`SendProcess(c)`** — guard `state = Ready(blocks)` ∧ `c.parent ∈ FC`; `c.state := Processing(blocks)`. Guarantees `OnProcess(R, result)` with `R = c.roots`, where `Ok` means all `blocks` are part of `FC` on return.
