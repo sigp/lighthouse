@@ -1694,16 +1694,42 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "eth2",
  "ethereum_ssz",
+ "futures",
  "lighthouse_version",
  "mockito",
+ "parking_lot",
+ "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "types",
+]
+
+[[package]]
+name = "builder_types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bls",
+ "builder_types",
+ "context_deserialize",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
+ "typenum",
  "types",
 ]
 
@@ -3217,6 +3243,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "educe",
  "eip_3076",
@@ -9985,6 +10012,7 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_ssz",
+ "futures",
  "initialized_validators",
  "lighthouse_validator_store",
  "mockito",
