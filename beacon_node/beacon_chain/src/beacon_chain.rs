@@ -5523,7 +5523,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         block_delays
             .observed
-            .is_some_and(|delay| delay >= self.spec.get_unaggregated_attestation_due())
+            .is_some_and(|delay| delay >= self.spec.get_attestation_due::<T::EthSpec>(slot))
     }
 
     /// Produce a block for some `slot` upon the given `state`.
