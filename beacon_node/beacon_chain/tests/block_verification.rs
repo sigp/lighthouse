@@ -25,6 +25,8 @@ use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    VerifySignatures,
+    all_caches::AllCaches,
     common::{attesting_indices_base, attesting_indices_electra, attesting_indices_gloas},
     per_block_processing, per_slot_processing,
 };
@@ -1632,14 +1634,14 @@ async fn verify_and_process_gossip_data_sidecars(
 async fn verify_block_for_gossip_slashing_detection() {
     create_test_tracing_subscriber();
     let slasher_dir = tempdir().unwrap();
-    let spec = Arc::new(test_spec::<E>());
+    let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
     let slasher = Arc::new(
         Slasher::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .default_spec()
+        .spec(spec.clone())
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
         .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
@@ -1675,6 +1677,45 @@ async fn verify_block_for_gossip_slashing_detection() {
     slasher.process_queued(Epoch::new(0)).unwrap();
     let proposer_slashings = slasher.get_proposer_slashings();
     assert_eq!(proposer_slashings.len(), 1);
+
+    let proposer_slashing = proposer_slashings.into_iter().next().unwrap();
+    let mut state = harness.get_current_state();
+    state.build_all_caches(&spec).unwrap();
+    let payment_index =
+        E::slots_per_epoch() as usize + proposer_slashing.signed_header_1.message.slot.as_usize();
+    let pending_payment = BuilderPendingPayment {
+        weight: 0,
+        withdrawal: BuilderPendingWithdrawal {
+            fee_recipient: Address::repeat_byte(42),
+            amount: 1,
+            builder_index: 0,
+        },
+        proposer_index: proposer_slashing.proposer_index(),
+    };
+    *state
+        .builder_pending_payments_mut()
+        .unwrap()
+        .get_mut(payment_index)
+        .unwrap() = pending_payment;
+
+    let mut ctxt = ConsensusContext::new(state.slot());
+    per_block_processing::process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &mut ctxt,
+        &spec,
+    )
+    .unwrap();
+    assert_eq!(
+        state
+            .builder_pending_payments()
+            .unwrap()
+            .get(payment_index)
+            .unwrap(),
+        &BuilderPendingPayment::default()
+    );
+
     // windows won't delete the temporary directory if you don't do this..
     drop(harness);
     drop(slasher);
