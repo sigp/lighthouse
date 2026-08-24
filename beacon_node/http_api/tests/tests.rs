@@ -50,10 +50,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadBidGloas, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
-    SelectionProof, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256,
+    MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SingleAttestation, Slot,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
