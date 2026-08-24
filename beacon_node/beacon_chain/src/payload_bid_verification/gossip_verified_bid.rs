@@ -22,35 +22,96 @@ use types::{
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-/// Find the beacon block carrying the known execution payload referenced by a bid.
-pub(crate) fn find_execution_payload_block_root<T: BeaconChainTypes>(
+enum ExecutionPayloadBlockRootLookup {
+    Found(Hash256),
+    ContinueInStore(Hash256),
+}
+
+/// Find the beacon block carrying the known execution payload within fork choice.
+fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
     fork_choice_read: &ForkChoiceReadGuard<'_, T>,
     parent_block_root: Hash256,
     parent_block_hash: ExecutionBlockHash,
-) -> Result<Hash256, PayloadBidError> {
-    let mut block_root = Some(parent_block_root);
-    while let Some(root) = block_root {
-        let Some(block) = fork_choice_read.get_block(&root) else {
+) -> ExecutionPayloadBlockRootLookup {
+    let mut block_root = parent_block_root;
+    loop {
+        let Some(block) = fork_choice_read.get_block(&block_root) else {
             break;
         };
 
         if let Some(block_hash) = block.execution_payload_block_hash {
-            if fork_choice_read.is_payload_received(&root) && block_hash == parent_block_hash {
-                return Ok(root);
+            if fork_choice_read.is_payload_received(&block_root) && block_hash == parent_block_hash
+            {
+                return ExecutionPayloadBlockRootLookup::Found(block_root);
             }
         } else if !block.execution_status.is_invalid()
             && block.execution_status.block_hash() == Some(parent_block_hash)
         {
-            return Ok(root);
+            return ExecutionPayloadBlockRootLookup::Found(block_root);
         }
 
-        block_root = block.parent_root;
+        let Some(parent_root) = block.parent_root else {
+            break;
+        };
+        block_root = parent_root;
     }
+
+    ExecutionPayloadBlockRootLookup::ContinueInStore(block_root)
+}
+
+/// Continue the parent gas limit lookup through canonical blocks hidden behind finalization.
+fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
+    store: &BeaconStore<T>,
+    mut block_root: Hash256,
+    parent_block_hash: ExecutionBlockHash,
+) -> Result<u64, PayloadBidError> {
+    loop {
+        let block = store
+            .get_blinded_block(&block_root)
+            .map_err(|e| {
+                PayloadBidError::InternalError(format!(
+                    "failed to load beacon block {block_root:?} while finding execution payload: {e:?}"
+                ))
+            })?
+            .ok_or_else(|| {
+                PayloadBidError::InternalError(format!(
+                    "beacon block {block_root:?} unavailable while finding execution payload"
+                ))
+            })?;
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            let bid = &block
+                .message()
+                .body()
+                .signed_execution_payload_bid()?
+                .message;
+            let payload_received = store.payload_envelope_exists(&block_root).map_err(|e| {
+                PayloadBidError::InternalError(format!(
+                    "failed to check payload envelope for block {block_root:?}: {e:?}"
+                ))
+            })?;
+            if payload_received && bid.block_hash == parent_block_hash {
+                return Ok(bid.gas_limit);
+            }
+        } else {
+            let payload = block.message().execution_payload()?;
+            if payload.block_hash() == parent_block_hash {
+                return Ok(payload.gas_limit());
+            }
+        }
+
+        let parent_root = block.message().parent_root();
+        if parent_root.is_zero() {
+            break;
+        }
+        block_root = parent_root;
+    }
+
     Err(PayloadBidError::ParentExecutionPayloadUnknown { parent_block_hash })
 }
 
 /// Return the gas limit committed by the block carrying an execution payload.
-pub(crate) fn get_parent_gas_limit<T: BeaconChainTypes>(
+fn get_parent_gas_limit<T: BeaconChainTypes>(
     store: &BeaconStore<T>,
     execution_payload_block_root: Hash256,
     parent_block_hash: ExecutionBlockHash,
@@ -372,25 +433,12 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        let execution_payload_block_root = find_execution_payload_block_root(
+        let execution_payload_block_root_lookup = find_execution_payload_block_root_in_fork_choice(
             &fork_choice,
             signed_bid.message.parent_block_root,
             signed_bid.message.parent_block_hash,
-        )?;
+        );
         drop(fork_choice);
-
-        let parent_gas_limit = get_parent_gas_limit::<T>(
-            ctx.store,
-            execution_payload_block_root,
-            signed_bid.message.parent_block_hash,
-        )?;
-        if !is_gas_limit_target_compatible(
-            parent_gas_limit,
-            signed_bid.message.gas_limit,
-            proposer_preferences.message.target_gas_limit,
-        )? {
-            return Err(PayloadBidError::InvalidGasLimit);
-        }
 
         verify_bid_consistency(
             &signed_bid.message,
@@ -400,7 +448,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             ctx.spec,
         )?;
 
-        // Verify signature
+        // Verify the signature before falling back to a historical database scan.
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
@@ -412,6 +460,29 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         .verify()
         .then_some(())
         .ok_or(PayloadBidError::BadSignature)?;
+
+        let parent_gas_limit = match execution_payload_block_root_lookup {
+            ExecutionPayloadBlockRootLookup::Found(block_root) => get_parent_gas_limit::<T>(
+                ctx.store,
+                block_root,
+                signed_bid.message.parent_block_hash,
+            )?,
+            ExecutionPayloadBlockRootLookup::ContinueInStore(block_root) => {
+                find_parent_gas_limit_in_store::<T>(
+                    ctx.store,
+                    block_root,
+                    signed_bid.message.parent_block_hash,
+                )?
+            }
+        };
+
+        if !is_gas_limit_target_compatible(
+            parent_gas_limit,
+            signed_bid.message.gas_limit,
+            proposer_preferences.message.target_gas_limit,
+        )? {
+            return Err(PayloadBidError::InvalidGasLimit);
+        }
 
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 

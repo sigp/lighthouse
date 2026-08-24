@@ -13,9 +13,9 @@ use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
-    SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
-    consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, MinimalEthSpec, ProposerPreferences,
+    SignedBeaconBlock, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -28,10 +28,7 @@ use crate::{
     chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{
-            GossipVerificationContext, GossipVerifiedPayloadBid, find_execution_payload_block_root,
-            get_parent_gas_limit, is_gas_limit_target_compatible,
-        },
+        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
@@ -154,6 +151,15 @@ impl TestContext {
         store
             .put_block(&block_root, signed_block.clone())
             .expect("should store genesis block");
+        store
+            .put_payload_envelope(
+                &block_root,
+                &SignedExecutionPayloadEnvelope {
+                    message: ExecutionPayloadEnvelope::empty(),
+                    signature: Signature::empty(),
+                },
+            )
+            .expect("should store genesis payload envelope");
         fork_choice
             .on_valid_payload_envelope_received(block_root)
             .expect("should mark genesis payload as received");
@@ -189,6 +195,74 @@ impl TestContext {
             inactive_builder_index,
             store,
         }
+    }
+
+    fn with_unreceived_finalized_head(mut self, gas_limit: u64) -> (Self, Hash256) {
+        let cached_head = self.canonical_head.cached_head();
+        let mut state = cached_head.snapshot.beacon_state.clone();
+        let head_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
+        let current_slot = head_slot + 1;
+        *state.slot_mut() = head_slot;
+
+        let head_bid = state
+            .latest_execution_payload_bid_mut()
+            .expect("should have a Gloas payload bid");
+        head_bid.slot = head_slot;
+        head_bid.parent_block_root = self.genesis_block_root;
+        head_bid.parent_block_hash = ExecutionBlockHash::zero();
+        head_bid.block_hash = ExecutionBlockHash::repeat_byte(0xab);
+        head_bid.gas_limit = gas_limit;
+
+        let mut head_block = genesis_block(&state, &self.spec).expect("should build head block");
+        *head_block.slot_mut() = head_slot;
+        *head_block.parent_root_mut() = self.genesis_block_root;
+        state.latest_block_header_mut().slot = head_slot;
+        state.latest_block_header_mut().parent_root = self.genesis_block_root;
+        state.latest_block_header_mut().body_root = head_block.body_root();
+        *head_block.state_root_mut() = state
+            .update_tree_hash_cache()
+            .expect("should hash head state");
+        let signed_head_block = SignedBeaconBlock::from_block(head_block, Signature::empty());
+        let head_block_root = signed_head_block.canonical_root();
+
+        self.store
+            .put_block(&head_block_root, signed_head_block.clone())
+            .expect("should store head block");
+
+        let snapshot = BeaconSnapshot::new(
+            Arc::new(signed_head_block.clone()),
+            None,
+            head_block_root,
+            state.clone(),
+        );
+        let fc_store =
+            BeaconForkChoiceStore::get_forkchoice_store(self.store.clone(), snapshot.clone())
+                .expect("should create fork choice store");
+        let mut fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            head_block_root,
+            &signed_head_block,
+            &state,
+            None,
+            &self.spec,
+        )
+        .expect("should create fork choice at the finalized head");
+        let (_, head_payload_status) = fork_choice
+            .get_head(current_slot, &self.spec)
+            .expect("should run get_head");
+
+        self.canonical_head = CanonicalHead::new(
+            fork_choice,
+            Arc::new(snapshot),
+            head_payload_status,
+            FastConfirmationMode::Disabled,
+            &self.store,
+            &self.spec,
+        )
+        .expect("should create canonical head");
+        self.slot_clock.set_slot(current_slot.as_u64());
+
+        (self, head_block_root)
     }
 
     fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
@@ -259,8 +333,9 @@ impl TestContext {
             shuffling_decision_block: self.genesis_block_root,
         };
         let fork_block_root = Hash256::repeat_byte(0xab);
-        let mut fc = self.canonical_head.fork_choice_write_lock();
-        fc.proto_array_mut()
+        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+        fork_choice
+            .proto_array_mut()
             .process_block::<E>(
                 ProtoBlock {
                     slot: Slot::new(1),
@@ -507,14 +582,16 @@ fn gas_limit_mismatch() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.make_signed_bid(
+    let bid = ctx.sign_bid(ExecutionPayloadBid {
         slot,
-        0,
-        Address::ZERO,
-        50_000_000,
-        100,
-        ctx.genesis_block_root,
-    );
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 50_000_000,
+        value: 100,
+        parent_block_root: ctx.genesis_block_root,
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBid::default()
+    });
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
 }
@@ -524,51 +601,27 @@ fn gas_limit_uses_known_execution_parent_after_unreceived_payload() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    let ctx = TestContext::new();
-    let rejected_payload_root = ctx.insert_non_canonical_block();
-    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-
-    let actual_parent_block_root = find_execution_payload_block_root(
-        &fork_choice,
-        rejected_payload_root,
-        ExecutionBlockHash::zero(),
-    )
-    .expect("should resolve the last received execution payload");
-    drop(fork_choice);
-    let actual_parent_gas_limit = get_parent_gas_limit::<T>(
-        &ctx.store,
-        actual_parent_block_root,
-        ExecutionBlockHash::zero(),
-    )
-    .expect("should load the last received execution payload gas limit");
-
     let rejected_payload_gas_limit = 30_029_295;
     let next_gas_limit = 30_029_295;
     let target_gas_limit = 60_000_000;
-    assert_eq!(actual_parent_gas_limit, 30_000_000);
-    assert!(
-        is_gas_limit_target_compatible(actual_parent_gas_limit, next_gas_limit, target_gas_limit,)
-            .expect("gas limit calculation should succeed")
-    );
-    assert!(
-        !is_gas_limit_target_compatible(
-            rejected_payload_gas_limit,
-            next_gas_limit,
-            target_gas_limit,
-        )
-        .expect("gas limit calculation should succeed")
-    );
+    let (ctx, head_block_root) =
+        TestContext::new().with_unreceived_finalized_head(rejected_payload_gas_limit);
+    let slot = ctx.slot_clock.now().expect("should read slot clock");
+    seed_preferences(&ctx, slot, Address::ZERO, target_gas_limit);
 
-    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-    let result = find_execution_payload_block_root(
-        &fork_choice,
-        rejected_payload_root,
-        ExecutionBlockHash::repeat_byte(0xab),
-    );
-    assert!(matches!(
-        result,
-        Err(PayloadBidError::ParentExecutionPayloadUnknown { .. })
-    ));
+    let bid = ctx.sign_bid(ExecutionPayloadBid {
+        slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: next_gas_limit,
+        parent_block_root: head_block_root,
+        parent_block_hash: ExecutionBlockHash::zero(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBid::default()
+    });
+
+    GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx())
+        .expect("bid should use the received execution payload before finalization");
 }
 
 #[test]
