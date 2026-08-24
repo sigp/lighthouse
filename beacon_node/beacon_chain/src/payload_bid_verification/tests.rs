@@ -29,7 +29,10 @@ use crate::{
     chain_config::FastConfirmationMode,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
+        gossip_verified_bid::{
+            ExecutionPayloadBlockRootLookup, GossipVerificationContext, GossipVerifiedPayloadBid,
+            find_execution_payload_block_root_in_fork_choice,
+        },
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
@@ -381,20 +384,40 @@ impl TestContext {
     }
 
     fn insert_non_canonical_block(&self) -> Hash256 {
+        let fork_block_root = Hash256::repeat_byte(0xab);
+        self.insert_execution_block_in_fork_choice(
+            fork_block_root,
+            ExecutionStatus::irrelevant(),
+            Some(ExecutionBlockHash::zero()),
+            Some(ExecutionBlockHash::repeat_byte(0xab)),
+            false,
+        );
+        fork_block_root
+    }
+
+    fn insert_execution_block_in_fork_choice(
+        &self,
+        block_root: Hash256,
+        execution_status: ExecutionStatus,
+        execution_payload_parent_hash: Option<ExecutionBlockHash>,
+        execution_payload_block_hash: Option<ExecutionBlockHash>,
+        payload_received: bool,
+    ) {
         let shuffling_id = AttestationShufflingId {
             shuffling_epoch: Epoch::new(0),
             shuffling_decision_block: self.genesis_block_root,
         };
-        let fork_block_root = Hash256::repeat_byte(0xab);
+        let mut spec = self.spec.clone();
+        spec.gloas_fork_epoch = execution_payload_block_hash.map(|_| Epoch::new(0));
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
         fork_choice
             .proto_array_mut()
             .process_block::<E>(
                 ProtoBlock {
                     slot: Slot::new(1),
-                    root: fork_block_root,
+                    root: block_root,
                     parent_root: Some(self.genesis_block_root),
-                    target_root: fork_block_root,
+                    target_root: block_root,
                     current_epoch_shuffling_id: shuffling_id.clone(),
                     next_epoch_shuffling_id: shuffling_id,
                     state_root: Hash256::ZERO,
@@ -406,20 +429,25 @@ impl TestContext {
                         epoch: Epoch::new(0),
                         root: self.genesis_block_root,
                     },
-                    execution_status: ExecutionStatus::irrelevant(),
+                    execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
-                    execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
-                    execution_payload_block_hash: Some(ExecutionBlockHash::repeat_byte(0xab)),
+                    execution_payload_parent_hash,
+                    execution_payload_block_hash,
                     proposer_index: Some(0),
                     payload_received: false,
                 },
                 Slot::new(1),
-                &self.spec,
+                &spec,
                 Duration::from_secs(0),
             )
-            .expect("should insert fork block");
-        fork_block_root
+            .expect("should insert execution block");
+
+        if payload_received {
+            fork_choice
+                .on_valid_payload_envelope_received(block_root)
+                .expect("should mark payload received");
+        }
     }
 }
 
@@ -651,7 +679,8 @@ fn gas_limit_mismatch() {
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
     assert_eq!(
-        ctx.bid_cache.get_parent_gas_limit(slot, bid_parent),
+        ctx.bid_cache
+            .get_parent_gas_limit(slot, bid_parent.parent_block_hash),
         Some(30_000_000)
     );
 }
@@ -925,17 +954,60 @@ fn bad_signature() {
         0,
         ctx.genesis_block_root,
     );
+    let bid_parent = BidParent::from_bid(&bid.message);
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
-    let bid_parent = BidParent {
-        parent_block_hash: ExecutionBlockHash::zero(),
-        parent_block_root: ctx.genesis_block_root,
-    };
     assert!(
         !ctx.bid_cache
             .seen_builder_bid_for_parent(&slot, bid_parent, 0)
     );
     assert!(ctx.bid_cache.get_highest_bid(slot, bid_parent).is_none());
+}
+
+#[test]
+fn parent_execution_payload_found_in_received_gloas_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let block_root = Hash256::repeat_byte(0x81);
+    let block_hash = ExecutionBlockHash::repeat_byte(0x82);
+    ctx.insert_execution_block_in_fork_choice(
+        block_root,
+        ExecutionStatus::irrelevant(),
+        Some(ctx.execution_parent_hash()),
+        Some(block_hash),
+        true,
+    );
+
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+    assert!(matches!(
+        find_execution_payload_block_root_in_fork_choice(&fork_choice, block_root, block_hash),
+        ExecutionPayloadBlockRootLookup::Found(root) if root == block_root
+    ));
+}
+
+#[test]
+fn parent_execution_payload_found_in_pre_gloas_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let block_root = Hash256::repeat_byte(0x91);
+    let block_hash = ExecutionBlockHash::repeat_byte(0x92);
+    ctx.insert_execution_block_in_fork_choice(
+        block_root,
+        ExecutionStatus::Valid(block_hash),
+        None,
+        None,
+        false,
+    );
+
+    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+    assert!(matches!(
+        find_execution_payload_block_root_in_fork_choice(&fork_choice, block_root, block_hash),
+        ExecutionPayloadBlockRootLookup::Found(root) if root == block_root
+    ));
 }
 
 #[test]

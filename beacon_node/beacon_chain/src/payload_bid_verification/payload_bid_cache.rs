@@ -26,7 +26,14 @@ impl BidParent {
 }
 
 type HighestBidMap<E> = BTreeMap<Slot, HashMap<BidParent, GossipVerifiedPayloadBid<E>>>;
-type ParentGasLimitMap = BTreeMap<Slot, HashMap<BidParent, u64>>;
+
+#[derive(Clone, Copy)]
+struct CachedParentGasLimit {
+    gas_limit: u64,
+    last_used_slot: Slot,
+}
+
+type ParentGasLimitMap = HashMap<ExecutionBlockHash, CachedParentGasLimit>;
 
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
     highest_bid: RwLock<HighestBidMap<E>>,
@@ -39,7 +46,7 @@ impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
         Self {
             highest_bid: RwLock::new(BTreeMap::new()),
             seen_builder_bids: RwLock::new(BTreeMap::new()),
-            parent_gas_limits: RwLock::new(BTreeMap::new()),
+            parent_gas_limits: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -97,26 +104,39 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             ));
     }
 
-    /// Get the gas limit of the execution payload identified by `bid_parent`.
-    pub(crate) fn get_parent_gas_limit(&self, slot: Slot, bid_parent: BidParent) -> Option<u64> {
+    /// Get the gas limit of an execution payload and record its latest use.
+    pub(crate) fn get_parent_gas_limit(
+        &self,
+        slot: Slot,
+        parent_block_hash: ExecutionBlockHash,
+    ) -> Option<u64> {
         self.parent_gas_limits
-            .read()
-            .get(&slot)
-            .and_then(|gas_limits| gas_limits.get(&bid_parent).copied())
+            .write()
+            .get_mut(&parent_block_hash)
+            .map(|cached| {
+                cached.last_used_slot = cached.last_used_slot.max(slot);
+                cached.gas_limit
+            })
     }
 
-    /// Cache the gas limit of the execution payload identified by `bid_parent`.
+    /// Cache the gas limit of the execution payload identified by `parent_block_hash`.
     pub(crate) fn insert_parent_gas_limit(
         &self,
         slot: Slot,
-        bid_parent: BidParent,
+        parent_block_hash: ExecutionBlockHash,
         gas_limit: u64,
     ) {
         self.parent_gas_limits
             .write()
-            .entry(slot)
-            .or_default()
-            .insert(bid_parent, gas_limit);
+            .entry(parent_block_hash)
+            .and_modify(|cached| {
+                cached.gas_limit = gas_limit;
+                cached.last_used_slot = cached.last_used_slot.max(slot);
+            })
+            .or_insert(CachedParentGasLimit {
+                gas_limit,
+                last_used_slot: slot,
+            });
     }
 
     /// Prune anything before `current_slot`
@@ -131,7 +151,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
 
         self.parent_gas_limits
             .write()
-            .retain(|&slot, _| slot >= current_slot);
+            .retain(|_, cached| cached.last_used_slot.saturating_add(1u64) >= current_slot);
     }
 }
 
@@ -251,23 +271,29 @@ mod tests {
     }
 
     #[test]
-    fn parent_gas_limit_is_cached_and_pruned() {
+    fn parent_gas_limit_is_reused_across_slots_and_pruned_by_last_use() {
         let cache = GossipVerifiedPayloadBidCache::<E>::default();
-        let slot = Slot::new(1);
-        let bid_parent = BidParent {
-            parent_block_hash: ExecutionBlockHash::repeat_byte(0x01),
-            parent_block_root: Hash256::repeat_byte(0x02),
-        };
+        let parent_block_hash = ExecutionBlockHash::repeat_byte(0x01);
 
-        assert_eq!(cache.get_parent_gas_limit(slot, bid_parent), None);
-        cache.insert_parent_gas_limit(slot, bid_parent, 30_000_000);
         assert_eq!(
-            cache.get_parent_gas_limit(slot, bid_parent),
+            cache.get_parent_gas_limit(Slot::new(1), parent_block_hash),
+            None
+        );
+        cache.insert_parent_gas_limit(Slot::new(1), parent_block_hash, 30_000_000);
+
+        // Slot pruning runs before bids arrive for the new slot, so an entry used in the
+        // preceding slot must survive long enough to be reused and refreshed.
+        cache.prune(Slot::new(2));
+        assert_eq!(
+            cache.get_parent_gas_limit(Slot::new(2), parent_block_hash),
             Some(30_000_000)
         );
 
-        cache.prune(Slot::new(2));
-        assert_eq!(cache.get_parent_gas_limit(slot, bid_parent), None);
+        cache.prune(Slot::new(4));
+        assert_eq!(
+            cache.get_parent_gas_limit(Slot::new(4), parent_block_hash),
+            None
+        );
     }
 
     #[test]

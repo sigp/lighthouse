@@ -15,6 +15,7 @@ use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
 };
+use store::iter::ParentRootBlockIterator;
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
@@ -22,13 +23,13 @@ use types::{
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-enum ExecutionPayloadBlockRootLookup {
+pub(super) enum ExecutionPayloadBlockRootLookup {
     Found(Hash256),
     ContinueInStore(Hash256),
 }
 
 /// Find the beacon block carrying the known execution payload within fork choice.
-fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
+pub(super) fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
     fork_choice_read: &ForkChoiceReadGuard<'_, T>,
     parent_block_root: Hash256,
     parent_block_hash: ExecutionBlockHash,
@@ -44,6 +45,7 @@ fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
         }
 
         if let Some(block_hash) = block.execution_payload_block_hash {
+            // Payload receipt is only recorded after the Gloas envelope has been validated.
             if fork_choice_read.is_payload_received(&block_root) && block_hash == parent_block_hash
             {
                 return ExecutionPayloadBlockRootLookup::Found(block_root);
@@ -88,22 +90,15 @@ fn execution_payload_hash_and_gas_limit<E: EthSpec>(
 /// Continue the parent gas limit lookup through canonical blocks hidden behind finalization.
 fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
     store: &BeaconStore<T>,
-    mut block_root: Hash256,
+    block_root: Hash256,
     parent_block_hash: ExecutionBlockHash,
 ) -> Result<u64, PayloadBidError> {
-    loop {
-        let block = store
-            .get_blinded_block(&block_root)
-            .map_err(|e| {
-                PayloadBidError::InternalError(format!(
-                    "failed to load beacon block {block_root:?} while finding execution payload: {e:?}"
-                ))
-            })?
-            .ok_or_else(|| {
-                PayloadBidError::InternalError(format!(
-                    "beacon block {block_root:?} unavailable while finding execution payload"
-                ))
-            })?;
+    for block_result in ParentRootBlockIterator::new(store.as_ref(), block_root) {
+        let (block_root, block) = block_result.map_err(|e| {
+            PayloadBidError::InternalError(format!(
+                "failed to load beacon block while finding execution payload: {e:?}"
+            ))
+        })?;
 
         let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
         if block_hash == parent_block_hash {
@@ -122,12 +117,6 @@ fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
                 return Ok(gas_limit);
             }
         }
-
-        let parent_root = block.message().parent_root();
-        if parent_root.is_zero() {
-            break;
-        }
-        block_root = parent_root;
     }
 
     Err(PayloadBidError::ParentExecutionPayloadUnknown { parent_block_hash })
@@ -452,6 +441,25 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             ctx.spec,
         )?;
 
+        let check_parent_gas_limit = |parent_gas_limit| {
+            if is_gas_limit_target_compatible(
+                parent_gas_limit,
+                signed_bid.message.gas_limit,
+                proposer_preferences.message.target_gas_limit,
+            )? {
+                Ok(())
+            } else {
+                Err(PayloadBidError::InvalidGasLimit)
+            }
+        };
+
+        let cached_parent_gas_limit = ctx
+            .gossip_verified_payload_bid_cache
+            .get_parent_gas_limit(bid_slot, signed_bid.message.parent_block_hash);
+        if let Some(parent_gas_limit) = cached_parent_gas_limit {
+            check_parent_gas_limit(parent_gas_limit)?;
+        }
+
         // Verify the signature before falling back to a historical database scan.
         execution_payload_bid_signature_set(
             head_state,
@@ -465,12 +473,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         .then_some(())
         .ok_or(PayloadBidError::BadSignature)?;
 
-        let parent_gas_limit = if let Some(gas_limit) = ctx
-            .gossip_verified_payload_bid_cache
-            .get_parent_gas_limit(bid_slot, bid_parent)
-        {
-            gas_limit
-        } else {
+        if cached_parent_gas_limit.is_none() {
             // Ancestor lookup can walk fork choice and the database, so only perform it for a bid
             // whose builder and signature have already been verified.
             let fork_choice = ctx.canonical_head.fork_choice_read_lock();
@@ -497,16 +500,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
                 }
             };
             ctx.gossip_verified_payload_bid_cache
-                .insert_parent_gas_limit(bid_slot, bid_parent, gas_limit);
-            gas_limit
-        };
-
-        if !is_gas_limit_target_compatible(
-            parent_gas_limit,
-            signed_bid.message.gas_limit,
-            proposer_preferences.message.target_gas_limit,
-        )? {
-            return Err(PayloadBidError::InvalidGasLimit);
+                .insert_parent_gas_limit(bid_slot, signed_bid.message.parent_block_hash, gas_limit);
+            check_parent_gas_limit(gas_limit)?;
         }
 
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
