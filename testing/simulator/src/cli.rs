@@ -44,7 +44,7 @@ pub fn cli_app() -> Command {
                         .short('s')
                         .long("speed-up-factor")
                         .action(ArgAction::Set)
-                        .default_value("3")
+                        .default_value("2")
                         .help("Speed up factor. Please use a divisor of 6."),
                 )
                 .arg(

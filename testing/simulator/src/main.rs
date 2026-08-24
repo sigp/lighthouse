@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 //! This crate provides various simulations that create both beacon nodes and validator clients,
 //! each with `v` validators.
 //!
