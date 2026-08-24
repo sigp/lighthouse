@@ -1,11 +1,13 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
+pub use builder_types::*;
 pub use types::*;
 
 use crate::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
+    BUILDER_URL_HEADER, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_INCLUDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::{ContextDeserialize, context_deserialize};
@@ -1967,6 +1969,11 @@ pub struct ProduceBlockV4Metadata {
     #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
+    /// The URL of the winning builder when the payload bid came through the builder-API channel
+    /// (the `Eth-Builder-Url` response header). `None` for a self-built block or a p2p bid. Carried
+    /// only in the header, never the JSON body, so it's skipped by serde.
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub builder_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Encode)]
@@ -2252,12 +2259,19 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 s.parse::<bool>()
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_INCLUDED_HEADER}: {e:?}"))
             })?;
+        // Optional; an empty or absent value means the block was self-built or a p2p bid won.
+        let builder_url = headers
+            .get(BUILDER_URL_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .filter(|s| !s.is_empty());
 
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
             execution_payload_value,
             execution_payload_included,
+            builder_url,
         })
     }
 }
