@@ -568,20 +568,6 @@ fn gloas_parent_payload_status(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zero_hash_gloas_bid_is_an_empty_parent() {
-        assert_eq!(
-            gloas_parent_payload_status(Some(ExecutionBlockHash::default()), None),
-            Some(fork_choice::PayloadStatus::Empty)
-        );
-        assert_eq!(gloas_parent_payload_status(None, None), None);
-    }
-}
-
 /// The components produced when the local beacon node creates a new block to extend the chain
 pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     /// The newly produced beacon block
@@ -7828,5 +7814,19 @@ impl ChainSegmentResult {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_hash_gloas_bid_is_an_empty_parent() {
+        assert_eq!(
+            gloas_parent_payload_status(Some(ExecutionBlockHash::default()), None),
+            Some(fork_choice::PayloadStatus::Empty)
+        );
+        assert_eq!(gloas_parent_payload_status(None, None), None);
     }
 }
