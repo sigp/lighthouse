@@ -66,7 +66,6 @@ pub enum Error {
     DeserializeWithdrawals(ssz_types::Error),
     DeserializeDepositRequests(ssz_types::Error),
     DeserializeWithdrawalRequests(ssz_types::Error),
-    BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
@@ -96,12 +95,6 @@ impl From<serde_json::Error> for Error {
 impl From<auth::Error> for Error {
     fn from(e: auth::Error) -> Self {
         Error::Auth(e)
-    }
-}
-
-impl From<builder_client::Error> for Error {
-    fn from(e: builder_client::Error) -> Self {
-        Error::BuilderApi(e)
     }
 }
 

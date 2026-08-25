@@ -295,11 +295,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.blocks.get(&hash).cloned()
     }
 
-    pub fn execution_block_by_hash(&self, hash: ExecutionBlockHash) -> Option<ExecutionBlock> {
-        self.block_by_hash(hash)
-            .map(|block| block.as_execution_block(self.terminal_total_difficulty))
-    }
-
     pub fn execution_payload_by_hash(
         &self,
         hash: ExecutionBlockHash,
