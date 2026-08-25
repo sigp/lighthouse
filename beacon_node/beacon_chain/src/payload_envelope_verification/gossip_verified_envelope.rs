@@ -144,7 +144,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
         let beacon_block_root = envelope.beacon_block_root;
-        let block_slot = envelope.slot();
         let builder_index = envelope.builder_index;
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
@@ -166,6 +165,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         drop(fork_choice_read_lock);
 
+        let block_slot = proto_block.slot;
         if ctx.source == EnvelopeSource::Gossip
             && ctx.observed_payload_envelopes.envelope_has_been_observed(
                 block_slot,
