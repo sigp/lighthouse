@@ -1594,23 +1594,14 @@ fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result
 mod jwt_perm_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::tempdir;
 
     #[test]
     fn persist_execution_jwt_secret_is_0600() {
-        let dir = std::env::temp_dir().join(format!(
-            "lh-bn-jwt-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        let path = dir.join("jwt.hex");
-        persist_execution_jwt_secret(&path, b"00").expect("write jwt");
-        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("jwt.hex");
+        persist_execution_jwt_secret(&path, b"00").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 }

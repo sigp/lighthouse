@@ -46,3 +46,4 @@ types = { workspace = true }
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
+tempfile = { workspace = true }

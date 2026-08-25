@@ -2197,20 +2197,12 @@ mod test {
     #[test]
     fn write_jwt_secret_file_is_0600() {
         use std::os::unix::fs::PermissionsExt;
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use tempfile::tempdir;
 
-        let mut path = std::env::temp_dir();
-        path.push(format!(
-            "lh-el-jwt-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        write_jwt_secret_file(&path, b"00").expect("write jwt");
-        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
-        let _ = std::fs::remove_file(&path);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("jwt.hex");
+        write_jwt_secret_file(&path, b"00").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 }

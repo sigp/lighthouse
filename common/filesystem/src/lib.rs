@@ -147,22 +147,14 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::tempdir;
 
     #[test]
     fn create_with_600_perms_sets_owner_rw_only() {
-        let mut path = std::env::temp_dir();
-        path.push(format!(
-            "lh-fs-perm-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        create_with_600_perms(&path, b"secret").expect("write secret");
-        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
-        let _ = std::fs::remove_file(&path);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("secret");
+        create_with_600_perms(&path, b"secret").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 }

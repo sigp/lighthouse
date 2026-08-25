@@ -1395,6 +1395,7 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
+ "tempfile",
  "tracing",
  "types",
 ]
@@ -3642,6 +3643,7 @@ dependencies = [
 name = "filesystem"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "winapi",
  "windows-acl",
 ]
