@@ -155,7 +155,7 @@ impl Default for ChainConfig {
             paranoid_block_proposal: false,
             checkpoint_sync_url_timeout: 60,
             checkpoint_sync_url_block_root: None,
-	    prepare_payload_lookahead: Duration::from_secs(4),
+	        prepare_payload_lookahead: Duration::from_secs(4),
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
