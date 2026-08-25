@@ -1277,17 +1277,17 @@ pub fn cli_app() -> Command {
                 .default_value("180")
                 .display_order(0)
         )
-	.arg(
-	    Arg::new("checkpoint-sync-url-block-root")
-	        .long("checkpoint-sync-url-block-root")
-	        .help("Specify a trusted block root (0x-prefixed hex) to verify the checkpoint \
-	               state downloaded from --checkpoint-sync-url. The downloaded state's tree \
-	               hash root must match this value before the node will initialize from it.")
-	        .value_name("BLOCK_ROOT")
-	        .action(ArgAction::Set)
-	        .requires("checkpoint-sync-url")
-	        .display_order(0)
-	)
+	    .arg(
+	        Arg::new("checkpoint-sync-url-block-root")
+	            .long("checkpoint-sync-url-block-root")
+	            .help("Specify a trusted block root (0x-prefixed hex) to verify the checkpoint \
+    	               state downloaded from --checkpoint-sync-url. The downloaded state's tree \
+    	               hash root must match this value before the node will initialize from it.")
+    	        .value_name("BLOCK_ROOT")
+    	        .action(ArgAction::Set)
+    	        .requires("checkpoint-sync-url")
+    	        .display_order(0)
+    	)
         .arg(
             Arg::new("allow-insecure-genesis-sync")
                 .long("allow-insecure-genesis-sync")
