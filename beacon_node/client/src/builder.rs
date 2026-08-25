@@ -428,6 +428,21 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
                 let block_root = block.canonical_root();
+		// If a trusted block root was provided, verify the downloaded block matches it
+		if let Some(trusted_block_root) = config.chain.checkpoint_sync_url_block_root {
+		    if block_root != trusted_block_root {
+		        return Err(format!(
+		            "Checkpoint sync block root mismatch. Trusted: {:?}, Downloaded: {:?}. \
+		             The checkpoint provider may be serving a different chain.",
+		            trusted_block_root, block_root
+		        ));
+		    }
+		    info!(
+		        block_root = ?block_root,
+		        "Verified checkpoint block root matches trusted root"
+		    );
+		}		
+
 
                 debug!("Downloaded finalized block");
 
