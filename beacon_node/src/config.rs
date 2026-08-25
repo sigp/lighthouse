@@ -524,6 +524,18 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
             .map(Duration::from_secs)?;
 
+    if let Some(block_root_str) = clap_utils::parse_optional::<String>(cli_args, "checkpoint-sync-url-block-root")? {
+        if !block_root_str.starts_with("0x") {
+            return Err("--checkpoint-sync-url-block-root must have 0x prefix".to_string());
+        }
+        let block_root = Hash256::from_slice(
+            &hex::decode(&block_root_str[2..])
+                .map_err(|e| format!("Unable to parse --checkpoint-sync-url-block-root: {:?}", e))?
+        );
+    	client_config.chain.checkpoint_sync_url_block_root = Some(block_root);
+    }
+
+
     let genesis_state_url_opt =
         clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
     let checkpoint_sync_url_opt =
