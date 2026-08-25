@@ -300,7 +300,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         }
 
-        if let Some(event_handler) = ctx.event_handler.as_ref()
+        // Emit SSE event once per envelope, on first observation from any source
+        if !envelope_already_seen
+            && let Some(event_handler) = ctx.event_handler.as_ref()
             && event_handler.has_execution_payload_gossip_subscribers()
         {
             event_handler.register(EventKind::ExecutionPayloadGossip(
