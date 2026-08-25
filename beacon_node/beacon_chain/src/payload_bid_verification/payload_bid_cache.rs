@@ -30,15 +30,13 @@ type HighestBidMap<E> = BTreeMap<Slot, HashMap<BidParent, GossipVerifiedPayloadB
 #[derive(Clone, Copy)]
 struct CachedParentGasLimit {
     gas_limit: u64,
-    last_used_slot: Slot,
+    last_referenced_bid_slot: Slot,
 }
-
-type ParentGasLimitMap = HashMap<ExecutionBlockHash, CachedParentGasLimit>;
 
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
     highest_bid: RwLock<HighestBidMap<E>>,
     seen_builder_bids: RwLock<BTreeMap<Slot, HashSet<(BidParent, BuilderIndex)>>>,
-    parent_gas_limits: RwLock<ParentGasLimitMap>,
+    parent_gas_limits: RwLock<HashMap<ExecutionBlockHash, CachedParentGasLimit>>,
 }
 
 impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
@@ -104,38 +102,39 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             ));
     }
 
-    /// Get the gas limit of an execution payload and record its latest use.
+    /// Get the gas limit of a parent execution payload and record the latest bid slot that
+    /// referenced it.
     pub(crate) fn get_parent_gas_limit(
         &self,
-        slot: Slot,
-        parent_block_hash: ExecutionBlockHash,
+        bid_slot: Slot,
+        parent_execution_block_hash: ExecutionBlockHash,
     ) -> Option<u64> {
         self.parent_gas_limits
             .write()
-            .get_mut(&parent_block_hash)
+            .get_mut(&parent_execution_block_hash)
             .map(|cached| {
-                cached.last_used_slot = cached.last_used_slot.max(slot);
+                cached.last_referenced_bid_slot = cached.last_referenced_bid_slot.max(bid_slot);
                 cached.gas_limit
             })
     }
 
-    /// Cache the gas limit of the execution payload identified by `parent_block_hash`.
+    /// Cache the gas limit of the parent execution payload identified by its execution block hash.
     pub(crate) fn insert_parent_gas_limit(
         &self,
-        slot: Slot,
-        parent_block_hash: ExecutionBlockHash,
+        bid_slot: Slot,
+        parent_execution_block_hash: ExecutionBlockHash,
         gas_limit: u64,
     ) {
         self.parent_gas_limits
             .write()
-            .entry(parent_block_hash)
+            .entry(parent_execution_block_hash)
             .and_modify(|cached| {
                 cached.gas_limit = gas_limit;
-                cached.last_used_slot = cached.last_used_slot.max(slot);
+                cached.last_referenced_bid_slot = cached.last_referenced_bid_slot.max(bid_slot);
             })
             .or_insert(CachedParentGasLimit {
                 gas_limit,
-                last_used_slot: slot,
+                last_referenced_bid_slot: bid_slot,
             });
     }
 
@@ -151,7 +150,11 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
 
         self.parent_gas_limits
             .write()
-            .retain(|_, cached| cached.last_used_slot.saturating_add(1u64) >= current_slot);
+            // Pruning runs before bids arrive for `current_slot`. Keep parents referenced in the
+            // preceding slot so a continuing empty-payload chain can refresh the entry.
+            .retain(|_, cached| {
+                cached.last_referenced_bid_slot.saturating_add(1u64) >= current_slot
+            });
     }
 }
 
@@ -271,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn parent_gas_limit_is_reused_across_slots_and_pruned_by_last_use() {
+    fn parent_gas_limit_is_reused_across_slots_and_pruned_by_latest_reference() {
         let cache = GossipVerifiedPayloadBidCache::<E>::default();
         let parent_block_hash = ExecutionBlockHash::repeat_byte(0x01);
 

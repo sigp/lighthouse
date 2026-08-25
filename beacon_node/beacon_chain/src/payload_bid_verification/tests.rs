@@ -12,11 +12,11 @@ use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadHeader, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, Slot,
-    consts::gloas::PAYLOAD_BUILDER_VERSION,
+    Address, BeaconState, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadHeader,
+    ExecutionPayloadHeaderFulu, ForkName, Hash256, MinimalEthSpec, ProposerPreferences,
+    SignedBeaconBlock, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -30,8 +30,8 @@ use crate::{
     payload_bid_verification::{
         PayloadBidError,
         gossip_verified_bid::{
-            ExecutionPayloadBlockRootLookup, GossipVerificationContext, GossipVerifiedPayloadBid,
-            find_execution_payload_block_root_in_fork_choice,
+            GossipVerificationContext, GossipVerifiedPayloadBid, ParentExecutionPayloadLocation,
+            locate_parent_execution_payload_in_fork_choice,
         },
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
@@ -82,12 +82,13 @@ impl TestContext {
 
         let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
 
-        let mut execution_payload_header = ExecutionPayloadHeader::Fulu(Default::default());
-        let ExecutionPayloadHeader::Fulu(header) = &mut execution_payload_header else {
-            unreachable!("constructed a Fulu execution payload header")
-        };
-        header.block_hash = ExecutionBlockHash::repeat_byte(0x42);
-        header.gas_limit = 30_000_000;
+        // Gloas replaces the execution payload header with a bid, so seed genesis with the last
+        // pre-Gloas header and let the genesis upgrades convert it.
+        let execution_payload_header = ExecutionPayloadHeader::Fulu(ExecutionPayloadHeaderFulu {
+            block_hash: ExecutionBlockHash::repeat_byte(0x42),
+            gas_limit: 30_000_000,
+            ..Default::default()
+        });
         let mut state = interop_genesis_state::<E>(
             &keypairs,
             0,
@@ -189,96 +190,121 @@ impl TestContext {
         }
     }
 
-    fn with_unreceived_finalized_head(mut self, gas_limit: u64) -> (Self, Hash256) {
+    /// Create a finalized empty head whose latest received execution payload is only in the store.
+    ///
+    /// The head commits to a payload that was not received. Its parent execution payload was
+    /// received before the fork-choice anchor, forcing bid verification to continue the lookup in
+    /// the database.
+    fn with_finalized_empty_head_requiring_store_lookup(
+        mut self,
+        unreceived_head_bid_gas_limit: u64,
+    ) -> (Self, Hash256) {
         let cached_head = self.canonical_head.cached_head();
         let mut state = cached_head.snapshot.beacon_state.clone();
-        let execution_genesis_hash = *state
-            .latest_block_hash()
-            .expect("should have a Gloas execution block hash");
-        let carrier_block_hash = ExecutionBlockHash::repeat_byte(0xaa);
-        let carrier_slot = Slot::new(1);
+        let execution_genesis_hash = self.execution_parent_hash();
+        let received_payload_block_hash = ExecutionBlockHash::repeat_byte(0xaa);
+        let received_payload_slot = Slot::new(1);
 
-        *state.slot_mut() = carrier_slot;
-        let carrier_bid = state
-            .latest_execution_payload_bid_mut()
-            .expect("should have a Gloas payload bid");
-        carrier_bid.slot = carrier_slot;
-        carrier_bid.parent_block_root = self.genesis_block_root;
-        carrier_bid.parent_block_hash = execution_genesis_hash;
-        carrier_bid.block_hash = carrier_block_hash;
-        carrier_bid.gas_limit = 30_000_000;
-        let carrier_builder_index = carrier_bid.builder_index;
-
-        let mut carrier_block =
-            genesis_block(&state, &self.spec).expect("should build payload carrier block");
-        *carrier_block.slot_mut() = carrier_slot;
-        *carrier_block.parent_root_mut() = self.genesis_block_root;
-        state.latest_block_header_mut().slot = carrier_slot;
-        state.latest_block_header_mut().parent_root = self.genesis_block_root;
-        state.latest_block_header_mut().body_root = carrier_block.body_root();
-        *carrier_block.state_root_mut() = state
-            .update_tree_hash_cache()
-            .expect("should hash payload carrier state");
-        let signed_carrier_block = SignedBeaconBlock::from_block(carrier_block, Signature::empty());
-        let carrier_block_root = signed_carrier_block.canonical_root();
-
-        self.store
-            .put_block(&carrier_block_root, signed_carrier_block)
-            .expect("should store payload carrier block");
-        let mut carrier_envelope = ExecutionPayloadEnvelope::empty();
-        carrier_envelope.payload.parent_hash = execution_genesis_hash;
-        carrier_envelope.payload.block_hash = carrier_block_hash;
-        carrier_envelope.payload.gas_limit = 30_000_000;
-        carrier_envelope.payload.slot_number = carrier_slot;
-        carrier_envelope.builder_index = carrier_builder_index;
-        carrier_envelope.beacon_block_root = carrier_block_root;
-        carrier_envelope.parent_beacon_block_root = self.genesis_block_root;
-        self.store
-            .put_payload_envelope(
-                &carrier_block_root,
-                &SignedExecutionPayloadEnvelope {
-                    message: carrier_envelope,
-                    signature: Signature::empty(),
-                },
-            )
-            .expect("should store payload carrier envelope");
+        let received_payload_bid = {
+            let bid = state
+                .latest_execution_payload_bid_mut()
+                .expect("should have a Gloas payload bid");
+            bid.slot = received_payload_slot;
+            bid.parent_block_root = self.genesis_block_root;
+            bid.parent_block_hash = execution_genesis_hash;
+            bid.block_hash = received_payload_block_hash;
+            bid.gas_limit = 30_000_000;
+            bid.clone()
+        };
+        let (_, received_payload_beacon_block_root) =
+            self.store_block_from_state(&mut state, received_payload_slot, self.genesis_block_root);
+        self.store_payload_envelope_for_bid(
+            received_payload_beacon_block_root,
+            &received_payload_bid,
+        );
 
         let head_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
         let current_slot = head_slot + 1;
-        *state.slot_mut() = head_slot;
         *state
             .latest_block_hash_mut()
-            .expect("should have a Gloas execution block hash") = carrier_block_hash;
+            .expect("should have a Gloas execution block hash") = received_payload_block_hash;
 
         let head_bid = state
             .latest_execution_payload_bid_mut()
             .expect("should have a Gloas payload bid");
         head_bid.slot = head_slot;
-        head_bid.parent_block_root = carrier_block_root;
-        head_bid.parent_block_hash = carrier_block_hash;
+        head_bid.parent_block_root = received_payload_beacon_block_root;
+        head_bid.parent_block_hash = received_payload_block_hash;
         head_bid.block_hash = ExecutionBlockHash::repeat_byte(0xab);
-        head_bid.gas_limit = gas_limit;
+        head_bid.gas_limit = unreceived_head_bid_gas_limit;
 
-        let mut head_block = genesis_block(&state, &self.spec).expect("should build head block");
-        *head_block.slot_mut() = head_slot;
-        *head_block.parent_root_mut() = carrier_block_root;
-        state.latest_block_header_mut().slot = head_slot;
-        state.latest_block_header_mut().parent_root = carrier_block_root;
-        state.latest_block_header_mut().body_root = head_block.body_root();
-        *head_block.state_root_mut() = state
+        let (signed_head_block, head_block_root) =
+            self.store_block_from_state(&mut state, head_slot, received_payload_beacon_block_root);
+        self.set_finalized_head(state, signed_head_block, head_block_root, current_slot);
+
+        (self, head_block_root)
+    }
+
+    fn store_block_from_state(
+        &self,
+        state: &mut BeaconState<E>,
+        slot: Slot,
+        parent_root: Hash256,
+    ) -> (SignedBeaconBlock<E>, Hash256) {
+        *state.slot_mut() = slot;
+        let mut block = genesis_block(state, &self.spec).expect("should build block");
+        *block.slot_mut() = slot;
+        *block.parent_root_mut() = parent_root;
+        state.latest_block_header_mut().slot = slot;
+        state.latest_block_header_mut().parent_root = parent_root;
+        state.latest_block_header_mut().body_root = block.body_root();
+        *block.state_root_mut() = state
             .update_tree_hash_cache()
-            .expect("should hash head state");
-        let signed_head_block = SignedBeaconBlock::from_block(head_block, Signature::empty());
-        let head_block_root = signed_head_block.canonical_root();
+            .expect("should hash block state");
 
+        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
+        let block_root = signed_block.canonical_root();
         self.store
-            .put_block(&head_block_root, signed_head_block.clone())
-            .expect("should store head block");
+            .put_block(&block_root, signed_block.clone())
+            .expect("should store block");
+        (signed_block, block_root)
+    }
 
+    fn store_payload_envelope_for_bid(
+        &self,
+        beacon_block_root: Hash256,
+        bid: &ExecutionPayloadBid<E>,
+    ) {
+        let mut envelope = ExecutionPayloadEnvelope::empty();
+        envelope.payload.parent_hash = bid.parent_block_hash;
+        envelope.payload.block_hash = bid.block_hash;
+        envelope.payload.gas_limit = bid.gas_limit;
+        envelope.payload.slot_number = bid.slot;
+        envelope.builder_index = bid.builder_index;
+        envelope.beacon_block_root = beacon_block_root;
+        envelope.parent_beacon_block_root = bid.parent_block_root;
+        self.store
+            .put_payload_envelope(
+                &beacon_block_root,
+                &SignedExecutionPayloadEnvelope {
+                    message: envelope,
+                    signature: Signature::empty(),
+                },
+            )
+            .expect("should store payload envelope");
+    }
+
+    fn set_finalized_head(
+        &mut self,
+        state: BeaconState<E>,
+        signed_block: SignedBeaconBlock<E>,
+        block_root: Hash256,
+        current_slot: Slot,
+    ) {
         let snapshot = BeaconSnapshot::new(
-            Arc::new(signed_head_block.clone()),
+            Arc::new(signed_block.clone()),
             None,
-            head_block_root,
+            block_root,
             state.clone(),
         );
         let fc_store =
@@ -286,13 +312,13 @@ impl TestContext {
                 .expect("should create fork choice store");
         let mut fork_choice = ForkChoice::from_anchor(
             fc_store,
-            head_block_root,
-            &signed_head_block,
+            block_root,
+            &signed_block,
             &state,
             None,
             &self.spec,
         )
-        .expect("should create fork choice at the finalized head");
+        .expect("should create fork choice at finalized head");
         let (_, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .expect("should run get_head");
@@ -307,8 +333,6 @@ impl TestContext {
         )
         .expect("should create canonical head");
         self.slot_clock.set_slot(current_slot.as_u64());
-
-        (self, head_block_root)
     }
 
     fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
@@ -385,7 +409,9 @@ impl TestContext {
 
     fn insert_non_canonical_block(&self) -> Hash256 {
         let fork_block_root = Hash256::repeat_byte(0xab);
-        self.insert_execution_block_in_fork_choice(
+        let current_fork = self.spec.fork_name_at_slot::<E>(Slot::new(1));
+        self.insert_fork_choice_block(
+            current_fork,
             fork_block_root,
             ExecutionStatus::irrelevant(),
             Some(ExecutionBlockHash::zero()),
@@ -395,8 +421,11 @@ impl TestContext {
         fork_block_root
     }
 
-    fn insert_execution_block_in_fork_choice(
+    /// Insert a synthetic block under explicit fork rules, then apply payload receipt through the
+    /// same fork-choice transition used in production.
+    fn insert_fork_choice_block(
         &self,
+        fork_name: ForkName,
         block_root: Hash256,
         execution_status: ExecutionStatus,
         execution_payload_parent_hash: Option<ExecutionBlockHash>,
@@ -407,8 +436,7 @@ impl TestContext {
             shuffling_epoch: Epoch::new(0),
             shuffling_decision_block: self.genesis_block_root,
         };
-        let mut spec = self.spec.clone();
-        spec.gloas_fork_epoch = execution_payload_block_hash.map(|_| Epoch::new(0));
+        let spec = fork_name.make_genesis_spec(self.spec.clone());
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
         fork_choice
             .proto_array_mut()
@@ -686,15 +714,15 @@ fn gas_limit_mismatch() {
 }
 
 #[test]
-fn gas_limit_uses_known_execution_parent_after_unreceived_payload() {
+fn gas_limit_uses_stored_parent_after_finalized_empty_head() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let rejected_payload_gas_limit = 30_029_295;
     let next_gas_limit = 30_029_295;
     let target_gas_limit = 60_000_000;
-    let (ctx, head_block_root) =
-        TestContext::new().with_unreceived_finalized_head(rejected_payload_gas_limit);
+    let (ctx, head_block_root) = TestContext::new()
+        .with_finalized_empty_head_requiring_store_lookup(rejected_payload_gas_limit);
     let slot = ctx.slot_clock.now().expect("should read slot clock");
     seed_preferences(&ctx, slot, Address::ZERO, target_gas_limit);
 
@@ -965,14 +993,16 @@ fn bad_signature() {
 }
 
 #[test]
-fn parent_execution_payload_found_in_received_gloas_block() {
+fn fork_choice_locator_recognizes_received_gloas_block() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let block_root = Hash256::repeat_byte(0x81);
     let block_hash = ExecutionBlockHash::repeat_byte(0x82);
-    ctx.insert_execution_block_in_fork_choice(
+    let current_fork = ctx.spec.fork_name_at_slot::<E>(Slot::new(1));
+    ctx.insert_fork_choice_block(
+        current_fork,
         block_root,
         ExecutionStatus::irrelevant(),
         Some(ctx.execution_parent_hash()),
@@ -982,20 +1012,21 @@ fn parent_execution_payload_found_in_received_gloas_block() {
 
     let fork_choice = ctx.canonical_head.fork_choice_read_lock();
     assert!(matches!(
-        find_execution_payload_block_root_in_fork_choice(&fork_choice, block_root, block_hash),
-        ExecutionPayloadBlockRootLookup::Found(root) if root == block_root
+        locate_parent_execution_payload_in_fork_choice(&fork_choice, block_root, block_hash),
+        ParentExecutionPayloadLocation::BeaconBlock(root) if root == block_root
     ));
 }
 
 #[test]
-fn parent_execution_payload_found_in_pre_gloas_block() {
+fn fork_choice_locator_recognizes_pre_gloas_execution_status() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let block_root = Hash256::repeat_byte(0x91);
     let block_hash = ExecutionBlockHash::repeat_byte(0x92);
-    ctx.insert_execution_block_in_fork_choice(
+    ctx.insert_fork_choice_block(
+        ForkName::Fulu,
         block_root,
         ExecutionStatus::Valid(block_hash),
         None,
@@ -1005,8 +1036,8 @@ fn parent_execution_payload_found_in_pre_gloas_block() {
 
     let fork_choice = ctx.canonical_head.fork_choice_read_lock();
     assert!(matches!(
-        find_execution_payload_block_root_in_fork_choice(&fork_choice, block_root, block_hash),
-        ExecutionPayloadBlockRootLookup::Found(root) if root == block_root
+        locate_parent_execution_payload_in_fork_choice(&fork_choice, block_root, block_hash),
+        ParentExecutionPayloadLocation::BeaconBlock(root) if root == block_root
     ));
 }
 

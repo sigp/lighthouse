@@ -23,37 +23,40 @@ use types::{
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-pub(super) enum ExecutionPayloadBlockRootLookup {
-    Found(Hash256),
-    ContinueInStore(Hash256),
+pub(super) enum ParentExecutionPayloadLocation {
+    /// The beacon block identifying the parent execution payload is available in fork choice.
+    BeaconBlock(Hash256),
+    /// Continue the canonical ancestry search in the database from this beacon block root.
+    SearchStoreFrom(Hash256),
 }
 
-/// Find the beacon block carrying the known execution payload within fork choice.
-pub(super) fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTypes>(
+/// Locate the beacon block that identifies the bid's parent execution payload in fork choice.
+pub(super) fn locate_parent_execution_payload_in_fork_choice<T: BeaconChainTypes>(
     fork_choice_read: &ForkChoiceReadGuard<'_, T>,
-    parent_block_root: Hash256,
-    parent_block_hash: ExecutionBlockHash,
-) -> ExecutionPayloadBlockRootLookup {
-    let mut block_root = parent_block_root;
+    bid_parent_beacon_block_root: Hash256,
+    parent_execution_block_hash: ExecutionBlockHash,
+) -> ParentExecutionPayloadLocation {
+    let mut block_root = bid_parent_beacon_block_root;
     while let Some(block) = fork_choice_read.get_block(&block_root) {
         // Gloas genesis has no payload envelope. Its bid retains the EL genesis hash in
         // `parent_block_hash`, while `block_hash` is zero to represent an empty payload.
         if block.slot == Slot::new(0)
-            && block.execution_payload_parent_hash == Some(parent_block_hash)
+            && block.execution_payload_parent_hash == Some(parent_execution_block_hash)
         {
-            return ExecutionPayloadBlockRootLookup::Found(block_root);
+            return ParentExecutionPayloadLocation::BeaconBlock(block_root);
         }
 
         if let Some(block_hash) = block.execution_payload_block_hash {
             // Payload receipt is only recorded after the Gloas envelope has been validated.
-            if fork_choice_read.is_payload_received(&block_root) && block_hash == parent_block_hash
+            if fork_choice_read.is_payload_received(&block_root)
+                && block_hash == parent_execution_block_hash
             {
-                return ExecutionPayloadBlockRootLookup::Found(block_root);
+                return ParentExecutionPayloadLocation::BeaconBlock(block_root);
             }
         } else if !block.execution_status.is_invalid()
-            && block.execution_status.block_hash() == Some(parent_block_hash)
+            && block.execution_status.block_hash() == Some(parent_execution_block_hash)
         {
-            return ExecutionPayloadBlockRootLookup::Found(block_root);
+            return ParentExecutionPayloadLocation::BeaconBlock(block_root);
         }
 
         let Some(parent_root) = block.parent_root else {
@@ -62,10 +65,13 @@ pub(super) fn find_execution_payload_block_root_in_fork_choice<T: BeaconChainTyp
         block_root = parent_root;
     }
 
-    ExecutionPayloadBlockRootLookup::ContinueInStore(block_root)
+    ParentExecutionPayloadLocation::SearchStoreFrom(block_root)
 }
 
-/// Return the latest available execution payload hash and gas limit represented by a beacon block.
+/// Return the execution block hash and gas limit represented by a beacon block.
+///
+/// Gloas genesis represents the EL genesis block with `parent_block_hash` because it has no payload
+/// envelope of its own.
 fn execution_payload_hash_and_gas_limit<E: EthSpec>(
     block: &SignedBlindedBeaconBlock<E>,
 ) -> Result<(ExecutionBlockHash, u64), PayloadBidError> {
@@ -87,13 +93,15 @@ fn execution_payload_hash_and_gas_limit<E: EthSpec>(
     }
 }
 
-/// Continue the parent gas limit lookup through canonical blocks hidden behind finalization.
-fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
+/// Continue searching canonical ancestry in the database after fork choice reaches its finalized
+/// boundary.
+fn find_parent_execution_payload_gas_limit_in_store<T: BeaconChainTypes>(
     store: &BeaconStore<T>,
-    block_root: Hash256,
-    parent_block_hash: ExecutionBlockHash,
+    search_start_beacon_block_root: Hash256,
+    parent_execution_block_hash: ExecutionBlockHash,
 ) -> Result<u64, PayloadBidError> {
-    for block_result in ParentRootBlockIterator::new(store.as_ref(), block_root) {
+    for block_result in ParentRootBlockIterator::new(store.as_ref(), search_start_beacon_block_root)
+    {
         let (block_root, block) = block_result.map_err(|e| {
             PayloadBidError::InternalError(format!(
                 "failed to load beacon block while finding execution payload: {e:?}"
@@ -101,7 +109,7 @@ fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
         })?;
 
         let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
-        if block_hash == parent_block_hash {
+        if block_hash == parent_execution_block_hash {
             // Non-genesis Gloas blocks only carry an execution payload after its envelope arrives.
             // Compare the hash first so unrelated ancestors do not require another database read.
             if block.fork_name_unchecked().gloas_enabled() && block.slot() != Slot::new(0) {
@@ -119,32 +127,35 @@ fn find_parent_gas_limit_in_store<T: BeaconChainTypes>(
         }
     }
 
-    Err(PayloadBidError::ParentExecutionPayloadUnknown { parent_block_hash })
+    Err(PayloadBidError::ParentExecutionPayloadUnknown {
+        parent_block_hash: parent_execution_block_hash,
+    })
 }
 
-/// Return the gas limit committed by the block carrying an execution payload.
-fn get_parent_gas_limit<T: BeaconChainTypes>(
+/// Load the gas limit for `parent_execution_block_hash` from the beacon block previously identified
+/// as representing that execution payload.
+fn get_parent_execution_payload_gas_limit_from_beacon_block<T: BeaconChainTypes>(
     store: &BeaconStore<T>,
-    execution_payload_block_root: Hash256,
-    parent_block_hash: ExecutionBlockHash,
+    parent_execution_payload_beacon_block_root: Hash256,
+    parent_execution_block_hash: ExecutionBlockHash,
 ) -> Result<u64, PayloadBidError> {
     let block = store
-        .get_blinded_block(&execution_payload_block_root)
+        .get_blinded_block(&parent_execution_payload_beacon_block_root)
         .map_err(|e| {
             PayloadBidError::InternalError(format!(
-                "failed to load execution payload block {execution_payload_block_root:?}: {e:?}"
+                "failed to load execution payload block {parent_execution_payload_beacon_block_root:?}: {e:?}"
             ))
         })?
         .ok_or_else(|| {
             PayloadBidError::InternalError(format!(
-                "execution payload block {execution_payload_block_root:?} unavailable"
+                "execution payload block {parent_execution_payload_beacon_block_root:?} unavailable"
             ))
         })?;
 
     let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
-    if block_hash != parent_block_hash {
+    if block_hash != parent_execution_block_hash {
         return Err(PayloadBidError::InternalError(format!(
-            "execution payload hash mismatch for block {execution_payload_block_root:?}"
+            "execution payload hash mismatch for block {parent_execution_payload_beacon_block_root:?}"
         )));
     }
     Ok(gas_limit)
@@ -477,24 +488,25 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             // Ancestor lookup can walk fork choice and the database, so only perform it for a bid
             // whose builder and signature have already been verified.
             let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-            let execution_payload_block_root_lookup =
-                find_execution_payload_block_root_in_fork_choice(
-                    &fork_choice,
-                    signed_bid.message.parent_block_root,
-                    signed_bid.message.parent_block_hash,
-                );
+            let location = locate_parent_execution_payload_in_fork_choice(
+                &fork_choice,
+                signed_bid.message.parent_block_root,
+                signed_bid.message.parent_block_hash,
+            );
             drop(fork_choice);
 
-            let gas_limit = match execution_payload_block_root_lookup {
-                ExecutionPayloadBlockRootLookup::Found(block_root) => get_parent_gas_limit::<T>(
-                    ctx.store,
-                    block_root,
-                    signed_bid.message.parent_block_hash,
-                )?,
-                ExecutionPayloadBlockRootLookup::ContinueInStore(block_root) => {
-                    find_parent_gas_limit_in_store::<T>(
+            let gas_limit = match location {
+                ParentExecutionPayloadLocation::BeaconBlock(beacon_block_root) => {
+                    get_parent_execution_payload_gas_limit_from_beacon_block::<T>(
                         ctx.store,
-                        block_root,
+                        beacon_block_root,
+                        signed_bid.message.parent_block_hash,
+                    )?
+                }
+                ParentExecutionPayloadLocation::SearchStoreFrom(beacon_block_root) => {
+                    find_parent_execution_payload_gas_limit_in_store::<T>(
+                        ctx.store,
+                        beacon_block_root,
                         signed_bid.message.parent_block_hash,
                     )?
                 }
