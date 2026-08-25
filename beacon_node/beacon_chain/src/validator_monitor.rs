@@ -728,13 +728,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 let data = unaggregated_attestation.data();
 
-                // The simulated attestation is included in the block right after `data.slot`,
-                // whose parent is the attested block. So the payload availability check uses the
-                // attested block's slot.
+                // Score the attestation as if it were included in the next block. That block
+                // would build on the canonical block at `data.slot`, which may have been proposed
+                // in an earlier slot if `data.slot` was skipped.
                 let parent_slot = state
                     .fork_name_unchecked()
                     .gloas_enabled()
-                    .then(|| attested_block_slot(state, data));
+                    .then(|| canonical_block_slot(state, data.slot));
 
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
@@ -2056,14 +2056,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 }
 
-/// Returns the slot of the block that `data` votes for, by walking back over the skipped slots
-/// after it. Returns `data.slot` if that block is not in `state`'s block roots.
-fn attested_block_slot<E: EthSpec>(state: &BeaconState<E>, data: &AttestationData) -> Slot {
-    let mut slot = data.slot;
+/// Returns the slot of the canonical block at `slot`, accounting for skipped slots.
+fn canonical_block_slot<E: EthSpec>(state: &BeaconState<E>, mut slot: Slot) -> Slot {
+    let Ok(block_root) = state.get_block_root(slot) else {
+        return slot;
+    };
+
     while slot > 0
         && state
             .get_block_root(slot - 1)
-            .is_ok_and(|root| *root == data.beacon_block_root)
+            .is_ok_and(|root| root == block_root)
     {
         slot -= 1;
     }
