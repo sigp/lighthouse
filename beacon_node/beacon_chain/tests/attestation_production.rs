@@ -167,6 +167,90 @@ async fn gloas_attestation_simulator_head_hit_on_skipped_slot() {
     });
 }
 
+/// Checks that the attestation simulator reports a head hit for a gloas attestation made on a
+/// skipped slot when the previous block's payload is unavailable (`data.index == 0`).
+#[tokio::test]
+async fn gloas_attestation_simulator_head_hit_on_skipped_slot_without_payload() {
+    let spec = ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec());
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+
+    // Build slots 1 and 2 normally, importing their payload envelopes.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Import the block at slot 3 without its payload envelope.
+    harness.advance_slot();
+    let payload_unavailable_slot = Slot::new(3);
+    let (block_contents, _envelope, _new_state) = harness
+        .make_block_with_envelope(harness.get_current_state(), payload_unavailable_slot)
+        .await;
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(payload_unavailable_slot, block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+    assert!(
+        !chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .expect("block should be in fork choice")
+            .payload_received,
+        "the head block's payload should be unavailable"
+    );
+
+    // Skip slot 4 and simulate an attestation to the payload-unavailable head block.
+    harness.advance_slot();
+    let skipped_slot = Slot::new(4);
+    produce_unaggregated_attestation(chain.clone(), skipped_slot);
+    let validator_monitor = chain.validator_monitor.read();
+    let attestation = validator_monitor
+        .get_unaggregated_attestation(skipped_slot)
+        .expect("should get unaggregated attestation");
+    assert_eq!(
+        attestation.data().index,
+        0,
+        "the attestation on the skipped slot should vote that the previous block's payload is unavailable"
+    );
+    drop(validator_monitor);
+
+    // Advance far enough for the simulated attestation to be scored.
+    for _ in 0..=UNAGGREGATED_ATTESTATION_LAG_SLOTS {
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+    }
+
+    metrics::gather().iter().for_each(|mf| {
+        if mf.get_name() == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL
+        {
+            assert_eq!(mf.get_metric()[0].get_counter().get_value() as u64, 1);
+        }
+        if mf.get_name()
+            == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL
+        {
+            assert_eq!(mf.get_metric()[0].get_counter().get_value() as u64, 0);
+        }
+    });
+}
+
 /// This test builds a chain that is just long enough to finalize an epoch then it produces an
 /// attestation at each slot from genesis through to three epochs past the head.
 ///
