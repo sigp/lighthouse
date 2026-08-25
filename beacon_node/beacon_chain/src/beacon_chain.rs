@@ -555,6 +555,19 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
     }
 }
 
+fn gloas_parent_payload_status(
+    parent_bid_block_hash: Option<ExecutionBlockHash>,
+    head_hash: Option<ExecutionBlockHash>,
+) -> Option<fork_choice::PayloadStatus> {
+    parent_bid_block_hash.map(|block_hash| {
+        if block_hash != ExecutionBlockHash::default() && head_hash == Some(block_hash) {
+            fork_choice::PayloadStatus::Full
+        } else {
+            fork_choice::PayloadStatus::Empty
+        }
+    })
+}
+
 /// The components produced when the local beacon node creates a new block to extend the chain
 pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     /// The newly produced beacon block
@@ -5204,7 +5217,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }))
     }
 
-    pub fn get_expected_withdrawals(
+    pub fn compute_withdrawals_for_payload_attributes(
         &self,
         forkchoice_update_params: &ForkchoiceUpdateParameters,
         proposal_slot: Slot,
@@ -5238,14 +5251,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
-        let parent_payload_status = if let Some(block_hash) = parent_bid_block_hash
-            && block_hash != ExecutionBlockHash::default()
-            && forkchoice_update_params.head_hash == Some(block_hash)
-        {
-            fork_choice::PayloadStatus::Full
-        } else {
-            fork_choice::PayloadStatus::Empty
-        };
+        let parent_payload_status =
+            gloas_parent_payload_status(parent_bid_block_hash, forkchoice_update_params.head_hash);
+
+        if parent_payload_status == Some(fork_choice::PayloadStatus::Empty) {
+            // The state has already deducted these withdrawals, but they remain pending for the
+            // execution layer after an empty parent.
+            return unadvanced_state
+                .payload_expected_withdrawals()?
+                .to_vec()
+                .try_into()
+                .map_err(Error::SszTypesError);
+        }
 
         // Advance the state using the partial method.
         // TODO(gloas): we might want to optimise this further by using:
@@ -5267,7 +5284,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
-        if parent_payload_status == fork_choice::PayloadStatus::Full {
+        if parent_payload_status == Some(fork_choice::PayloadStatus::Full) {
             let envelope = if parent_block_root == head_block_root {
                 cached_head.snapshot.execution_envelope.clone()
             } else {
@@ -6622,7 +6639,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
-                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    move || {
+                        chain.compute_withdrawals_for_payload_attributes(
+                            &forkchoice_update_params,
+                            prepare_slot,
+                        )
+                    },
                     "prepare_beacon_proposer_withdrawals",
                 )
                 .await?
@@ -7792,5 +7814,19 @@ impl ChainSegmentResult {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_hash_gloas_bid_is_an_empty_parent() {
+        assert_eq!(
+            gloas_parent_payload_status(Some(ExecutionBlockHash::default()), None),
+            Some(fork_choice::PayloadStatus::Empty)
+        );
+        assert_eq!(gloas_parent_payload_status(None, None), None);
     }
 }

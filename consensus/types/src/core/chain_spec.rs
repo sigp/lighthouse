@@ -615,6 +615,19 @@ impl ChainSpec {
         )
     }
 
+    /// The signing domain for a Gloas builder-API `SignedRequestAuth`.
+    ///
+    /// Per builder-specs #165 this is `compute_domain(DOMAIN_REQUEST_AUTH)`: the genesis fork version
+    /// and a zero genesis-validators-root, matching `get_builder_application_domain`'s out-of-protocol
+    /// computation but with the `DOMAIN_REQUEST_AUTH` (0x0B000001) domain type.
+    pub fn get_request_auth_domain(&self) -> Hash256 {
+        self.compute_domain(
+            Domain::ApplicationMask(ApplicationDomain::RequestAuth),
+            self.genesis_fork_version,
+            Hash256::zero(),
+        )
+    }
+
     /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
     ///
     /// This is used primarily in signature domains to avoid collisions across forks/chains.
@@ -3266,6 +3279,19 @@ mod tests {
             spec.domain_bls_to_execution_change,
             &spec,
         );
+    }
+
+    #[test]
+    fn test_request_auth_domain() {
+        let spec = ChainSpec::mainnet();
+        let domain = spec.get_request_auth_domain();
+        // DOMAIN_REQUEST_AUTH = 0x0B000001 (builder-specs #165), little-endian in the first 4 bytes.
+        assert_eq!(&domain.as_slice()[0..4], &[0x0B, 0x00, 0x00, 0x01]);
+        // Same out-of-protocol computation as the builder application domain (genesis fork version,
+        // zero root), so only the domain-type prefix differs.
+        let builder = spec.get_builder_application_domain();
+        assert_eq!(&domain.as_slice()[4..], &builder.as_slice()[4..]);
+        assert_ne!(&domain.as_slice()[0..4], &builder.as_slice()[0..4]);
     }
 
     fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
