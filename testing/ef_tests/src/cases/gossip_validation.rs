@@ -70,6 +70,10 @@ struct CaseConfig {
 #[serde(deny_unknown_fields)]
 struct SetupBlock {
     block: String,
+    #[serde(default, rename = "payload")]
+    _payload: Option<String>,
+    #[serde(default, rename = "pending")]
+    _pending: bool,
     #[serde(default)]
     failed: bool,
     #[serde(default)]
@@ -104,6 +108,10 @@ struct MessageMeta {
     offset_ms: Option<u64>,
     #[serde(default)]
     current_time_ms: Option<u64>,
+    #[serde(default, rename = "group_id")]
+    _group_id: Option<String>,
+    #[serde(default, rename = "column_index")]
+    _column_index: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -118,6 +126,12 @@ enum Topic {
     BlsToExecutionChange,
     SyncCommittee,
     SyncCommitteeContributionAndProof,
+    DataColumnSidecar,
+    ExecutionPayloadBid,
+    ExecutionPayload,
+    PartialDataColumnSidecar,
+    PayloadAttestationMessage,
+    ProposerPreferences,
 }
 
 #[derive(Debug)]
@@ -383,6 +397,16 @@ impl<E: EthSpec> GossipTester<E> {
                     message_id.clone(),
                     peer_id,
                 )?,
+            Topic::DataColumnSidecar
+            | Topic::ExecutionPayloadBid
+            | Topic::ExecutionPayload
+            | Topic::PartialDataColumnSidecar
+            | Topic::PayloadAttestationMessage
+            | Topic::ProposerPreferences => {
+                return Err(Error::InternalError(format!(
+                    "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
+                )));
+            }
         }
 
         self.validation_result(&message_id, &peer_id)
