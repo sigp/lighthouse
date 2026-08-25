@@ -215,16 +215,17 @@ async fn gloas_attestation_simulator_head_hit_on_skipped_slot_without_payload() 
     harness.advance_slot();
     let skipped_slot = Slot::new(4);
     produce_unaggregated_attestation(chain.clone(), skipped_slot);
-    let validator_monitor = chain.validator_monitor.read();
-    let attestation = validator_monitor
-        .get_unaggregated_attestation(skipped_slot)
-        .expect("should get unaggregated attestation");
-    assert_eq!(
-        attestation.data().index,
-        0,
-        "the attestation on the skipped slot should vote that the previous block's payload is unavailable"
-    );
-    drop(validator_monitor);
+    {
+        let validator_monitor = chain.validator_monitor.read();
+        let attestation = validator_monitor
+            .get_unaggregated_attestation(skipped_slot)
+            .expect("should get unaggregated attestation");
+        assert_eq!(
+            attestation.data().index,
+            0,
+            "the attestation on the skipped slot should vote that the previous block's payload is unavailable"
+        );
+    }
 
     // Advance far enough for the simulated attestation to be scored.
     for _ in 0..=UNAGGREGATED_ATTESTATION_LAG_SLOTS {
