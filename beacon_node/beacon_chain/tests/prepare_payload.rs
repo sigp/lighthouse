@@ -7,11 +7,15 @@ use beacon_chain::test_utils::{
 use beacon_chain::{ChainConfig, custody_context::NodeCustodyType};
 use bls::Keypair;
 use eth2::types::ProposerPreparationData;
+use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use ssz_types::ProgressiveVariableList;
 use state_processing::{
-    per_block_processing::{apply_parent_execution_payload, withdrawals::get_expected_withdrawals},
+    per_block_processing::{
+        apply_parent_execution_payload, compute_timestamp_at_slot,
+        withdrawals::get_expected_withdrawals,
+    },
     state_advance::complete_state_advance,
 };
 use std::marker::PhantomData;
@@ -304,9 +308,8 @@ async fn prepare_payload_generic(
         }
     }
 
-    // Call `prepare_beacon_proposer` for the next slot and ensure that it primes the execution
-    // layer payload attributes cache with the correct withdrawals (the ones taking into account
-    // the applied execution_requests).
+    // Call `prepare_beacon_proposer` for the next slot and check the cached Gloas payload
+    // attributes.
     let current_slot = prepare_slot - 1;
     let proposer_index = advanced_empty_state
         .get_beacon_proposer_index(prepare_slot, &spec)
@@ -314,14 +317,16 @@ async fn prepare_payload_generic(
 
     // Register the proposer so prepare_beacon_proposer doesn't skip it.
     let el = harness.chain.execution_layer.as_ref().unwrap();
+    let suggested_fee_recipient = Address::repeat_byte(42);
+    let target_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
     el.update_proposer_preparation(
         prepare_slot.epoch(E::slots_per_epoch()),
         [(
             &ProposerPreparationData {
                 validator_index: proposer_index as u64,
-                fee_recipient: Address::repeat_byte(42),
+                fee_recipient: suggested_fee_recipient,
             },
-            &None,
+            &Some(target_gas_limit),
         )],
     )
     .await;
@@ -335,7 +340,7 @@ async fn prepare_payload_generic(
         .await
         .expect("prepare_beacon_proposer should succeed");
 
-    // Read the payload attributes from the EL cache and verify the withdrawals.
+    // Read the payload attributes from the execution layer cache.
     let el = harness.chain.execution_layer.as_ref().unwrap();
     let head_root = harness.head_block_root();
     let attributes = el
@@ -343,7 +348,6 @@ async fn prepare_payload_generic(
         .await
         .expect("should have cached payload attributes for prepare_slot");
 
-    let actual_withdrawals = attributes.withdrawals().unwrap();
     let expected_withdrawals: Vec<Withdrawal> = if parent_payload_status == PayloadStatus::Full {
         withdrawals_advanced_full.to_vec()
     } else {
@@ -351,8 +355,21 @@ async fn prepare_payload_generic(
     };
 
     assert_eq!(
-        actual_withdrawals, &expected_withdrawals,
-        "prepare_beacon_proposer should use withdrawals for the {parent_payload_status:?} parent"
+        attributes,
+        PayloadAttributes::V4(PayloadAttributesV4 {
+            timestamp: compute_timestamp_at_slot(&advanced_empty_state, prepare_slot, &spec)
+                .unwrap(),
+            prev_randao: *advanced_empty_state
+                .get_randao_mix(advanced_empty_state.current_epoch())
+                .unwrap(),
+            suggested_fee_recipient,
+            withdrawals: expected_withdrawals,
+            parent_beacon_block_root: advanced_empty_state.latest_block_header().canonical_root(),
+            slot_number: prepare_slot.as_u64(),
+            target_gas_limit,
+        }),
+        "prepare_beacon_proposer should cache the expected V4 payload attributes for the \
+         {parent_payload_status:?} parent"
     );
 }
 
