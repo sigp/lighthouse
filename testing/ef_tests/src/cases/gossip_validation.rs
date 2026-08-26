@@ -172,9 +172,22 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
             return Err(Error::SkippedKnownFailure);
         }
 
-        if let Some(bls_setting) = self.meta.bls_setting {
-            bls_setting.check()?;
-        }
+        let bls_setting = self.meta.bls_setting.unwrap_or_else(|| {
+            if self.meta.messages.iter().any(|message| {
+                message.expected == ExpectedOutcome::Reject
+                    && message.reason.as_ref().is_some_and(|reason| {
+                        let reason = reason.to_ascii_lowercase();
+                        reason.contains("invalid") && reason.contains("signature")
+                    })
+            }) {
+                // Some Gloas gossip vectors omit `bls_setting: required` even though their
+                // expected rejection depends on real signature verification.
+                BlsSetting::Required
+            } else {
+                BlsSetting::Flexible
+            }
+        });
+        bls_setting.check()?;
 
         let spec = Self::testing_spec(&self.path, fork_name)?;
         let tester = GossipTester::new(self, spec)?;
