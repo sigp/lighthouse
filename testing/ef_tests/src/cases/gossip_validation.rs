@@ -20,12 +20,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
-    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, PayloadAttestationMessage,
-    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofElectra,
-    SignedAggregateAndProofGloas, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Checkpoint, DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ForkName, Hash256,
+    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -427,7 +427,14 @@ impl<E: EthSpec> GossipTester<E> {
                     message_id.clone(),
                     peer_id,
                 )?,
-            Topic::DataColumnSidecar | Topic::PartialDataColumnSidecar => {
+            Topic::DataColumnSidecar => self.process_data_column_sidecar(
+                path,
+                message_meta,
+                fork_name,
+                message_id.clone(),
+                peer_id,
+            )?,
+            Topic::PartialDataColumnSidecar => {
                 return Err(Error::InternalError(format!(
                     "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
                 )));
@@ -543,6 +550,38 @@ impl<E: EthSpec> GossipTester<E> {
                     peer_id,
                     Arc::new(envelope),
                     seen_duration,
+                ),
+        )?;
+        Ok(())
+    }
+
+    fn process_data_column_sidecar(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        fork_name: ForkName,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let column_sidecar = ssz_decode_file_with(
+            &path.join(format!("{}.ssz_snappy", message_meta.message)),
+            |bytes| DataColumnSidecar::<E>::from_ssz_bytes_for_fork(bytes, fork_name),
+        )?;
+        let subnet_id = DataColumnSubnetId::new(message_meta.subnet_id.ok_or_else(|| {
+            Error::FailedToParseTest("missing data_column_sidecar subnet_id".into())
+        })?);
+        let seen_duration = self.set_message_time(message_meta)?;
+
+        self.block_on_dangerous(
+            self.network_beacon_processor
+                .clone()
+                .process_gossip_data_column_sidecar(
+                    message_id,
+                    peer_id,
+                    subnet_id,
+                    Arc::new(column_sidecar),
+                    seen_duration,
+                    false,
                 ),
         )?;
         Ok(())
@@ -1112,6 +1151,11 @@ impl<E: EthSpec> GossipValidation<E> {
             // from an unseen block, so both cases are ignored as an unknown head block.
             "gossip_payload_attestation_message__reject_block_failed_validation",
         ];
+        const IGNORED_DATA_COLUMN_CASES: &[&str] = &[
+            // Lighthouse does not retain a status that distinguishes a consensus-invalid block
+            // from an unseen block, so both cases are ignored as an unknown block root.
+            "gossip_data_column_sidecar__reject_block_failed_validation",
+        ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
@@ -1141,6 +1185,7 @@ impl<E: EthSpec> GossipValidation<E> {
             Topic::PayloadAttestationMessage => {
                 IGNORED_PAYLOAD_ATTESTATION_CASES.contains(&case_name)
             }
+            Topic::DataColumnSidecar => IGNORED_DATA_COLUMN_CASES.contains(&case_name),
             _ => false,
         }
     }
