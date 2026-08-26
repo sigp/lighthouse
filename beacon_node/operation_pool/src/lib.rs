@@ -2451,12 +2451,6 @@ mod release_tests {
         assert!(distinct_members.len() < MinimalEthSpec::ptc_size());
 
         let fork = state.fork();
-        let domain = spec.get_domain(
-            target_slot.epoch(MinimalEthSpec::slots_per_epoch()),
-            Domain::PTCAttester,
-            &fork,
-            state.genesis_validators_root(),
-        );
 
         let op_pool = OperationPool::<MinimalEthSpec>::new();
         for &validator_index in &distinct_members {
@@ -2466,15 +2460,7 @@ mod release_tests {
                 payload_present: true,
                 blob_data_available: true,
             };
-            let signing_root = data.signing_root(domain);
-            let signature = harness.validator_keypairs[validator_index]
-                .sk
-                .sign(signing_root);
-            let msg = PayloadAttestationMessage {
-                validator_index: validator_index as u64,
-                data,
-                signature,
-            };
+            let msg = harness.make_payload_attestation_message(validator_index, data, &fork);
             op_pool.insert_payload_attestation_message(msg).unwrap();
         }
 
