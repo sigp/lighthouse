@@ -104,7 +104,7 @@ fn bench_find_head(c: &mut Criterion) {
                             &balances,
                             Hash256::zero(),
                             &equivocating_indices,
-                            &equivocating_committee_weights,
+                            Some(&equivocating_committee_weights),
                             Slot::new(num_blocks),
                             &spec,
                         )

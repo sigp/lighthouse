@@ -1483,8 +1483,8 @@ where
             .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }
 
-    /// Replaces the per-slot equivocating committee weights.
-    pub fn set_equivocating_committee_weights(&mut self, weights: BTreeMap<Slot, u64>) {
+    /// Replaces the per-slot equivocating committee weights. `None` marks them unknown.
+    pub fn set_equivocating_committee_weights(&mut self, weights: Option<BTreeMap<Slot, u64>>) {
         self.fc_store.set_equivocating_committee_weights(weights);
     }
 

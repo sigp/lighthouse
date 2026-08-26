@@ -718,7 +718,7 @@ impl ProtoArray {
         &self,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<bool, Error> {
         if proposer_boost_root.is_zero() {
@@ -752,6 +752,10 @@ impl ProtoArray {
             calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
                 .unwrap_or(0);
 
+        // With unknown weights we can't tell whether the head is weak, so keep the boost.
+        let Some(equivocating_committee_weights) = equivocating_committee_weights else {
+            return Ok(true);
+        };
         let equivocating_committee_weight = equivocating_committee_weights
             .get(&parent.slot())
             .copied()
@@ -1066,7 +1070,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), Error> {
         let justified_index = self
@@ -1233,7 +1237,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<IndexedForkChoiceNode, Error> {
         let mut head = IndexedForkChoiceNode {
@@ -1307,7 +1311,7 @@ impl ProtoArray {
         current_slot: Slot,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;

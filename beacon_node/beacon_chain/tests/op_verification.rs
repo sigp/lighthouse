@@ -725,7 +725,7 @@ async fn attester_slashing_updates_equivocating_committee_weights() {
         )
         .await;
 
-    // No equivocations: the map is empty.
+    // No equivocations: the weights are known and the map is empty.
     assert!(
         harness
             .chain
@@ -733,7 +733,7 @@ async fn attester_slashing_updates_equivocating_committee_weights() {
             .fork_choice_read_lock()
             .fc_store()
             .equivocating_committee_weights()
-            .is_empty()
+            .is_some_and(|weights| weights.is_empty())
     );
 
     // Slash a validator and import the slashing into fork choice.
@@ -768,8 +768,7 @@ async fn attester_slashing_updates_equivocating_committee_weights() {
     assert_eq!(
         fc_store
             .equivocating_committee_weights()
-            .get(&duty.slot)
-            .copied(),
+            .and_then(|weights| weights.get(&duty.slot).copied()),
         Some(expected_balance)
     );
 }
@@ -875,8 +874,7 @@ async fn equivocating_committee_weights_use_raw_justified_balances() {
     assert_eq!(
         fc_store
             .equivocating_committee_weights()
-            .get(&duty.slot)
-            .copied(),
+            .and_then(|weights| weights.get(&duty.slot).copied()),
         Some(raw_balance)
     );
 }

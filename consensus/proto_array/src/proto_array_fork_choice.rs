@@ -415,6 +415,7 @@ pub enum DoNotReOrg {
     HeadNotLate,
     NotProposing,
     ReOrgsDisabled,
+    EquivocatingWeightsUnknown,
 }
 
 impl std::fmt::Display for DoNotReOrg {
@@ -459,6 +460,9 @@ impl std::fmt::Display for DoNotReOrg {
             }
             Self::ReOrgsDisabled => {
                 write!(f, "re-orgs disabled in config")
+            }
+            Self::EquivocatingWeightsUnknown => {
+                write!(f, "equivocating committee weights unknown")
             }
         }
     }
@@ -655,7 +659,7 @@ impl ProtoArrayForkChoice {
         justified_state_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), String> {
@@ -709,7 +713,7 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -727,6 +731,10 @@ impl ProtoArrayForkChoice {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
+        // With unknown weights we can't tell whether the head is weak, so don't re-org.
+        let Some(equivocating_committee_weights) = equivocating_committee_weights else {
+            return Err(DoNotReOrg::EquivocatingWeightsUnknown.into());
+        };
         let equivocating_committee_weight = equivocating_committee_weights
             .get(&info.head_node.slot())
             .copied()
@@ -1091,7 +1099,7 @@ impl ProtoArrayForkChoice {
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
-        equivocating_committee_weights: &BTreeMap<Slot, u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         self.proto_array.get_canonical_payload_status::<E>(
@@ -2396,7 +2404,7 @@ mod test_compute_deltas {
                 &justified_balances,
                 Hash256::zero(),
                 &equivocating_indices,
-                &no_equivocating_weights,
+                Some(&no_equivocating_weights),
                 Slot::new(3),
                 &spec,
             )
@@ -2416,7 +2424,7 @@ mod test_compute_deltas {
                 &justified_balances,
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                &no_equivocating_weights,
+                Some(&no_equivocating_weights),
                 max_epochs_since_finalization,
             )
             .expect("head should be weak without equivocating committee weight");
@@ -2431,7 +2439,7 @@ mod test_compute_deltas {
             &justified_balances,
             re_org_head_threshold,
             re_org_parent_threshold,
-            &equivocating_committee_weights,
+            Some(&equivocating_committee_weights),
             max_epochs_since_finalization,
         ) {
             Err(ProposerHeadError::DoNotReOrg(DoNotReOrg::HeadNotWeak { head_weight, .. })) => {
@@ -2534,7 +2542,7 @@ mod test_compute_deltas {
                 &justified_balances,
                 boosted_root,
                 &equivocating_indices,
-                &no_equivocating_weights,
+                Some(&no_equivocating_weights),
                 Slot::new(2),
                 &spec,
             )
@@ -2551,7 +2559,7 @@ mod test_compute_deltas {
                 &justified_balances,
                 boosted_root,
                 &equivocating_indices,
-                &equivocating_committee_weights,
+                Some(&equivocating_committee_weights),
                 Slot::new(2),
                 &spec,
             )

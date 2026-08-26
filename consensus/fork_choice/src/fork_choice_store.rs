@@ -90,9 +90,9 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     /// Adds to the set of equivocating indices.
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
 
-    /// Gets the per-slot committee weight of equivocating validators.
-    fn equivocating_committee_weights(&self) -> &BTreeMap<Slot, u64>;
+    /// Gets the per-slot committee weight of equivocating validators, or `None` if unknown.
+    fn equivocating_committee_weights(&self) -> Option<&BTreeMap<Slot, u64>>;
 
-    /// Replaces the per-slot equivocating committee weights.
-    fn set_equivocating_committee_weights(&mut self, weights: BTreeMap<Slot, u64>);
+    /// Replaces the per-slot equivocating committee weights. `None` marks them unknown.
+    fn set_equivocating_committee_weights(&mut self, weights: Option<BTreeMap<Slot, u64>>);
 }

@@ -120,7 +120,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
-    equivocating_committee_weights: BTreeMap<Slot, u64>,
+    equivocating_committee_weights: Option<BTreeMap<Slot, u64>>,
     _phantom: PhantomData<E>,
 }
 
@@ -188,7 +188,7 @@ where
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
-            equivocating_committee_weights: BTreeMap::new(),
+            equivocating_committee_weights: None,
             _phantom: PhantomData,
         })
     }
@@ -237,7 +237,7 @@ where
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
-            equivocating_committee_weights: BTreeMap::new(),
+            equivocating_committee_weights: None,
             _phantom: PhantomData,
         })
     }
@@ -386,11 +386,11 @@ where
         self.equivocating_indices.extend(indices);
     }
 
-    fn equivocating_committee_weights(&self) -> &BTreeMap<Slot, u64> {
-        &self.equivocating_committee_weights
+    fn equivocating_committee_weights(&self) -> Option<&BTreeMap<Slot, u64>> {
+        self.equivocating_committee_weights.as_ref()
     }
 
-    fn set_equivocating_committee_weights(&mut self, weights: BTreeMap<Slot, u64>) {
+    fn set_equivocating_committee_weights(&mut self, weights: Option<BTreeMap<Slot, u64>>) {
         self.equivocating_committee_weights = weights;
     }
 }

@@ -235,7 +235,7 @@ fn build_chain_inner(
         &balances,
         Hash256::zero(), // no proposer boost
         &BTreeSet::new(),
-        &BTreeMap::new(),
+        Some(&BTreeMap::new()),
         Slot::new(CHAIN_TIP_SLOT),
         &spec,
     )

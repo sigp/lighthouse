@@ -884,10 +884,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // of the equivocating indices and justified balances.
         match self.compute_equivocating_committee_weights(&fork_choice_write_lock, current_slot) {
             Ok(weights) => fork_choice_write_lock.set_equivocating_committee_weights(weights),
-            Err(e) => error!(
-                error = ?e,
-                "Failed to update equivocating committee weights"
-            ),
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    "Failed to update equivocating committee weights"
+                );
+                fork_choice_write_lock.set_equivocating_committee_weights(None);
+            }
         }
 
         // Recompute the current head via the fork choice algorithm.
@@ -1722,13 +1725,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Compute the justified effective balances of equivocating validators, summed
     /// per attestation duty slot. Used by the post-Gloas `is_head_weak` check.
     ///
-    /// Duties come from the head's `slot_assignments` cache, which covers the three epochs up
-    /// to the last head update. Every slot that `is_head_weak` evaluates is within that window.
+    /// Duties come from the head's `slot_assignments` cache. Returns `Ok(None)` if the
+    /// cache does not match the current head and epoch.
     fn compute_equivocating_committee_weights(
         &self,
         fork_choice: &BeaconForkChoice<T>,
         current_slot: Slot,
-    ) -> Result<BTreeMap<Slot, u64>, Error> {
+    ) -> Result<Option<BTreeMap<Slot, u64>>, Error> {
         // Don't keep track of pre-gloas equivocating committee weight. This ensures
         // that pre-gloas `is_head_weak` is correctly calculated.
         if !self
@@ -1736,17 +1739,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(current_slot)
             .gloas_enabled()
         {
-            return Ok(BTreeMap::new());
+            return Ok(Some(BTreeMap::new()));
         }
 
         let fc_store = fork_choice.fc_store();
         let equivocating_indices = fc_store.equivocating_indices();
         if equivocating_indices.is_empty() {
-            return Ok(BTreeMap::new());
+            return Ok(Some(BTreeMap::new()));
         }
         let justified_balances = fc_store.justified_balances();
 
         let slot_assignments = self.canonical_head.slot_assignments.lock();
+
+        let head_block_root = self.canonical_head.cached_head().head_block_root();
+        let Some(head_block) = fork_choice.get_block(&head_block_root) else {
+            return Ok(None);
+        };
+        let head_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let expected_key = if current_epoch == head_epoch {
+            head_block.current_epoch_shuffling_id
+        } else if current_epoch == head_epoch.saturating_add(1u64) {
+            head_block.next_epoch_shuffling_id
+        } else {
+            // No blocks after the head, so the head is the decision block for the current epoch.
+            AttestationShufflingId::from_components(current_epoch, head_block_root)
+        };
+        if *slot_assignments.key() != expected_key {
+            debug!(
+                %current_slot,
+                ?head_block_root,
+                "Slot assignments cache is stale; equivocating committee weights unknown"
+            );
+            return Ok(None);
+        }
+
         let mut equivocating_committee_weights = BTreeMap::new();
         for &index in equivocating_indices {
             // Validators activated after the justified epoch count as zero weight (spec reads their raw balance).
@@ -1766,7 +1793,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        Ok(equivocating_committee_weights)
+        Ok(Some(equivocating_committee_weights))
     }
 }
 
