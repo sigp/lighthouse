@@ -645,6 +645,7 @@ fn parent_block_root_not_canonical() {
     // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
     // block slot` rule and exercise the  bid descendant from parent check specifically.
     let slot = Slot::new(2);
+    ctx.slot_clock.set_slot(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let fork_root = ctx.insert_non_canonical_block();
