@@ -54,3 +54,10 @@ typenum = { workspace = true }
 types = { workspace = true }
 warp = { workspace = true }
 zeroize = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "engine_codec"
+harness = false

@@ -2,7 +2,7 @@ use bytes::Bytes;
 use serde_json::json;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_types::VariableList;
-use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, Hash256, Uint256};
+use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, Hash256};
 use warp::http::Response;
 
 use crate::engine_api::rest::header_to_fork;
@@ -13,9 +13,7 @@ use crate::ssz_structures::*;
 
 use super::handle_rpc::UNKNOWN_PAYLOAD_ERROR_CODE;
 use super::mock_engine_core::CorePayload;
-use super::{
-    Context, DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI, STUB_CAPABILITIES_JSON,
-};
+use super::{Context, DEFAULT_CLIENT_VERSION, STUB_CAPABILITIES_JSON};
 
 pub(crate) fn handle_rest<E: EthSpec>(
     method: &str,
@@ -291,64 +289,11 @@ fn decode_forkchoice_updated<E: EthSpec>(
 }
 
 fn encode_get_payload<E: EthSpec>(core: CorePayload<E>) -> Result<Vec<u8>, String> {
-    let CorePayload {
-        payload,
-        blobs,
-        requests,
-        fork: _,
-    } = core;
-    let block_value = Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI);
-
-    let ssz_requests = match requests {
-        Some(requests) => execution_requests_to_ssz(requests).map_err(|e| format!("{e:?}"))?,
-        None => Default::default(),
-    };
-
-    let bytes = match payload {
-        ExecutionPayload::Bellatrix(execution_payload) => SszGetPayloadResponseBellatrix {
-            execution_payload,
-            block_value,
-        }
-        .as_ssz_bytes(),
-        ExecutionPayload::Capella(execution_payload) => SszGetPayloadResponseCapella {
-            execution_payload,
-            block_value,
-        }
-        .as_ssz_bytes(),
-        ExecutionPayload::Deneb(execution_payload) => SszGetPayloadResponseDeneb {
-            execution_payload,
-            block_value,
-            blobs_bundle: blobs.unwrap_or_default(),
-            should_override_builder: false,
-        }
-        .as_ssz_bytes(),
-        ExecutionPayload::Electra(execution_payload) => SszGetPayloadResponseElectra {
-            execution_payload,
-            block_value,
-            blobs_bundle: blobs.unwrap_or_default(),
-            requests: ssz_requests,
-            should_override_builder: false,
-        }
-        .as_ssz_bytes(),
-        ExecutionPayload::Fulu(execution_payload) => SszGetPayloadResponseFulu {
-            execution_payload,
-            block_value,
-            blobs_bundle: blobs.unwrap_or_default(),
-            requests: ssz_requests,
-            should_override_builder: false,
-        }
-        .as_ssz_bytes(),
-        ExecutionPayload::Gloas(execution_payload) => SszGetPayloadResponseGloas {
-            execution_payload,
-            block_value,
-            blobs_bundle: blobs.unwrap_or_default(),
-            requests: ssz_requests,
-            should_override_builder: false,
-        }
-        .as_ssz_bytes(),
-    };
-
-    Ok(bytes)
+    Ok(
+        SszGetPayloadResponse::try_from(core.into_get_payload_response())
+            .map_err(|e| format!("{e:?}"))?
+            .as_ssz_bytes(),
+    )
 }
 
 fn decode_blobs_request<E: EthSpec>(body: &[u8]) -> Result<Vec<Hash256>, DecodeError> {

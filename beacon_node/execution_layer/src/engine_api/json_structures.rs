@@ -775,7 +775,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(bound = "E: EthSpec", untagged)]
 pub struct JsonGetPayloadResponse<E: EthSpec> {
     #[superstruct(
         only(Bellatrix),
@@ -800,6 +800,62 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub should_override_builder: bool,
     #[superstruct(only(Electra, Fulu, Gloas))]
     pub execution_requests: JsonExecutionRequests,
+}
+
+impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for JsonGetPayloadResponse<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Self::Error> {
+        match response {
+            GetPayloadResponse::Bellatrix(inner) => Ok(JsonGetPayloadResponse::Bellatrix(
+                JsonGetPayloadResponseBellatrix {
+                    execution_payload: inner.execution_payload.into(),
+                    block_value: inner.block_value,
+                },
+            )),
+            GetPayloadResponse::Capella(inner) => Ok(JsonGetPayloadResponse::Capella(
+                JsonGetPayloadResponseCapella {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                },
+            )),
+            GetPayloadResponse::Deneb(inner) => {
+                Ok(JsonGetPayloadResponse::Deneb(JsonGetPayloadResponseDeneb {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                }))
+            }
+            GetPayloadResponse::Electra(inner) => Ok(JsonGetPayloadResponse::Electra(
+                JsonGetPayloadResponseElectra {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Electra(inner.requests).into(),
+                },
+            )),
+            GetPayloadResponse::Fulu(inner) => {
+                Ok(JsonGetPayloadResponse::Fulu(JsonGetPayloadResponseFulu {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Electra(inner.requests).into(),
+                }))
+            }
+            GetPayloadResponse::Gloas(inner) => {
+                Ok(JsonGetPayloadResponse::Gloas(JsonGetPayloadResponseGloas {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Gloas(inner.requests).into(),
+                }))
+            }
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {

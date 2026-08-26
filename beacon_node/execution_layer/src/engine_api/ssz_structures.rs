@@ -542,6 +542,68 @@ impl<E: EthSpec> TryFrom<SszGetPayloadResponse<E>> for GetPayloadResponse<E> {
     }
 }
 
+impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for SszGetPayloadResponse<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: GetPayloadResponse<E>) -> Result<Self, Self::Error> {
+        match value {
+            GetPayloadResponse::Bellatrix(response) => Ok(SszGetPayloadResponse::Bellatrix(
+                SszGetPayloadResponseBellatrix {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                },
+            )),
+            GetPayloadResponse::Capella(response) => Ok(SszGetPayloadResponse::Capella(
+                SszGetPayloadResponseCapella {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                },
+            )),
+            GetPayloadResponse::Deneb(response) => {
+                Ok(SszGetPayloadResponse::Deneb(SszGetPayloadResponseDeneb {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    should_override_builder: response.should_override_builder,
+                }))
+            }
+            GetPayloadResponse::Electra(response) => Ok(SszGetPayloadResponse::Electra(
+                SszGetPayloadResponseElectra {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    requests: execution_requests_to_ssz(ExecutionRequests::Electra(
+                        response.requests,
+                    ))?,
+                    should_override_builder: response.should_override_builder,
+                },
+            )),
+            GetPayloadResponse::Fulu(response) => {
+                Ok(SszGetPayloadResponse::Fulu(SszGetPayloadResponseFulu {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    requests: execution_requests_to_ssz(ExecutionRequests::Electra(
+                        response.requests,
+                    ))?,
+                    should_override_builder: response.should_override_builder,
+                }))
+            }
+            GetPayloadResponse::Gloas(response) => {
+                Ok(SszGetPayloadResponse::Gloas(SszGetPayloadResponseGloas {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    requests: execution_requests_to_ssz(ExecutionRequests::Gloas(
+                        response.requests,
+                    ))?,
+                    should_override_builder: response.should_override_builder,
+                }))
+            }
+        }
+    }
+}
+
 /// Pre-Amsterdam SSZ `engine_forkchoiceUpdated` request body. Per-fork so the SSZ list element is
 /// the concrete `PayloadAttributesV{N}` rather than the mixed-size transparent `PayloadAttributes`.
 #[superstruct(

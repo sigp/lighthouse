@@ -1,17 +1,103 @@
-use crate::engine_api::{PayloadAttributes, PayloadId, PayloadStatusV1Status};
+use crate::engine_api::{
+    GetPayloadResponse, GetPayloadResponseBellatrix, GetPayloadResponseCapella,
+    GetPayloadResponseDeneb, GetPayloadResponseElectra, GetPayloadResponseFulu,
+    GetPayloadResponseGloas, PayloadAttributes, PayloadId, PayloadStatusV1Status,
+};
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1};
 use crate::test_utils::handle_rpc::{GENERIC_ERROR_CODE, UNKNOWN_PAYLOAD_ERROR_CODE};
 use crate::{BlobsBundle, PayloadStatusV1};
-use types::{EthSpec, ExecutionPayload, ExecutionRequests, ForkName};
+use types::{
+    EthSpec, ExecutionPayload, ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas,
+    ForkName, Uint256,
+};
 
-use super::Context;
+use super::{Context, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
 
 pub(crate) struct CorePayload<E: EthSpec> {
     pub payload: ExecutionPayload<E>,
     pub blobs: Option<BlobsBundle<E>>,
     pub requests: Option<ExecutionRequests<E>>,
     pub fork: ForkName,
+}
+
+impl<E: EthSpec> CorePayload<E> {
+    pub(crate) fn into_get_payload_response(self) -> GetPayloadResponse<E> {
+        let CorePayload {
+            payload,
+            blobs,
+            requests,
+            fork: _,
+        } = self;
+        let block_value = Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI);
+        let blobs_bundle = blobs.unwrap_or_default();
+
+        match payload {
+            ExecutionPayload::Bellatrix(execution_payload) => {
+                GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
+                    execution_payload,
+                    block_value,
+                })
+            }
+            ExecutionPayload::Capella(execution_payload) => {
+                GetPayloadResponse::Capella(GetPayloadResponseCapella {
+                    execution_payload,
+                    block_value,
+                })
+            }
+            ExecutionPayload::Deneb(execution_payload) => {
+                GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
+                    execution_payload,
+                    block_value,
+                    blobs_bundle,
+                    should_override_builder: false,
+                })
+            }
+            ExecutionPayload::Electra(execution_payload) => {
+                GetPayloadResponse::Electra(GetPayloadResponseElectra {
+                    execution_payload,
+                    block_value,
+                    blobs_bundle,
+                    should_override_builder: false,
+                    requests: electra_requests(requests),
+                })
+            }
+            ExecutionPayload::Fulu(execution_payload) => {
+                GetPayloadResponse::Fulu(GetPayloadResponseFulu {
+                    execution_payload,
+                    block_value,
+                    blobs_bundle,
+                    should_override_builder: false,
+                    requests: electra_requests(requests),
+                })
+            }
+            ExecutionPayload::Gloas(execution_payload) => {
+                GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload,
+                    block_value,
+                    blobs_bundle,
+                    should_override_builder: false,
+                    requests: gloas_requests(requests),
+                })
+            }
+        }
+    }
+}
+
+fn electra_requests<E: EthSpec>(
+    requests: Option<ExecutionRequests<E>>,
+) -> ExecutionRequestsElectra<E> {
+    match requests {
+        Some(ExecutionRequests::Electra(inner)) => inner,
+        _ => ExecutionRequestsElectra::default(),
+    }
+}
+
+fn gloas_requests<E: EthSpec>(requests: Option<ExecutionRequests<E>>) -> ExecutionRequestsGloas<E> {
+    match requests {
+        Some(ExecutionRequests::Gloas(inner)) => inner,
+        _ => ExecutionRequestsGloas::default(),
+    }
 }
 
 impl<E: EthSpec> Context<E> {

@@ -3478,6 +3478,7 @@ dependencies = [
  "bls",
  "builder_client",
  "bytes",
+ "criterion",
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
