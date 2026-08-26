@@ -4,9 +4,66 @@ use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use std::sync::Arc;
-use types::{Address, MinimalEthSpec, Slot, WithdrawalRequest};
+use types::{Address, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
 
 type E = MinimalEthSpec;
+
+#[tokio::test]
+async fn pre_gloas_block_import_records_payload_gas_limit() {
+    if fork_name_from_env() != Some(ForkName::Fulu) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let head = harness.chain.head_beacon_block();
+    let payload = head
+        .message()
+        .execution_payload()
+        .expect("Fulu block should contain an execution payload");
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(payload.block_hash()),
+        Some(payload.gas_limit())
+    );
+}
+
+#[tokio::test]
+async fn startup_seeds_gloas_genesis_parent_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let head = harness.chain.canonical_head.cached_head();
+    let genesis_bid = head
+        .snapshot
+        .beacon_state
+        .latest_execution_payload_bid()
+        .expect("Gloas genesis should contain an execution payload bid");
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(genesis_bid.parent_block_hash),
+        Some(genesis_bid.gas_limit)
+    );
+}
 
 /// An envelope whose `execution_requests` don't hash to the bid's committed
 /// `execution_requests_root` must be rejected by the full gossip verification path.
@@ -38,6 +95,7 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
         .expect("block should be processed");
 
     let mut signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let block_hash = signed_envelope.message.payload.block_hash;
     signed_envelope
         .message
         .execution_requests
@@ -56,6 +114,66 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
         result,
         Err(EnvelopeError::ExecutionRequestsRootMismatch { .. })
     ));
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(block_hash),
+        None
+    );
+}
+
+#[tokio::test]
+async fn gossip_verified_envelope_records_payload_gas_limit() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _new_state) =
+        harness.make_block_with_envelope(state, target_slot).await;
+
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let block_hash = signed_envelope.message.payload.block_hash;
+    let gas_limit = signed_envelope.message.payload.gas_limit;
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(block_hash),
+        None
+    );
+
+    harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .await
+        .expect("envelope should pass gossip verification");
+
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(block_hash),
+        Some(gas_limit)
+    );
 }
 
 #[tokio::test]

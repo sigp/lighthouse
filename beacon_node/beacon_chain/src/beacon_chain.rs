@@ -58,6 +58,7 @@ use crate::observed_attesters::{
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::observed_execution_payloads::ObservedExecutionPayloads;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
@@ -440,6 +441,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of execution proofs seen over the gossip network.
     pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
+    /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
+    pub observed_execution_payloads: ObservedExecutionPayloads,
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
@@ -4637,6 +4640,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+
+        // Keep pre-Gloas payloads available across a live transition to Gloas.
+        if !block.fork_name_unchecked().gloas_enabled()
+            && let Ok(payload) = block.body().execution_payload()
+            && payload.block_hash() != ExecutionBlockHash::zero()
+        {
+            self.observed_execution_payloads
+                .insert(payload.block_hash(), payload.gas_limit());
+        }
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.

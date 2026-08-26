@@ -12,10 +12,9 @@ use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, BeaconState, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadHeader,
-    ExecutionPayloadHeaderFulu, ForkName, Hash256, MinimalEthSpec, ProposerPreferences,
-    SignedBeaconBlock, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBid, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, Hash256,
+    MinimalEthSpec, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -27,12 +26,10 @@ use crate::{
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
     chain_config::FastConfirmationMode,
+    observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{
-            GossipVerificationContext, GossipVerifiedPayloadBid, ParentExecutionPayloadLocation,
-            locate_parent_execution_payload_in_fork_choice,
-        },
+        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
@@ -54,6 +51,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
+    observed_execution_payloads: ObservedExecutionPayloads,
     bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
@@ -171,6 +169,12 @@ impl TestContext {
         )
         .unwrap();
 
+        let observed_execution_payloads = ObservedExecutionPayloads::default();
+        let genesis_bid = state
+            .latest_execution_payload_bid()
+            .expect("should have a Gloas payload bid");
+        observed_execution_payloads.insert(genesis_bid.parent_block_hash, genesis_bid.gas_limit);
+
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
@@ -179,6 +183,7 @@ impl TestContext {
 
         Self {
             canonical_head,
+            observed_execution_payloads,
             bid_cache: GossipVerifiedPayloadBidCache::default(),
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
@@ -188,151 +193,6 @@ impl TestContext {
             inactive_builder_index,
             store,
         }
-    }
-
-    /// Create a finalized empty head whose latest received execution payload is only in the store.
-    ///
-    /// The head commits to a payload that was not received. Its parent execution payload was
-    /// received before the fork-choice anchor, forcing bid verification to continue the lookup in
-    /// the database.
-    fn with_finalized_empty_head_requiring_store_lookup(
-        mut self,
-        unreceived_head_bid_gas_limit: u64,
-    ) -> (Self, Hash256) {
-        let cached_head = self.canonical_head.cached_head();
-        let mut state = cached_head.snapshot.beacon_state.clone();
-        let execution_genesis_hash = self.execution_parent_hash();
-        let received_payload_block_hash = ExecutionBlockHash::repeat_byte(0xaa);
-        let received_payload_slot = Slot::new(1);
-
-        let received_payload_bid = {
-            let bid = state
-                .latest_execution_payload_bid_mut()
-                .expect("should have a Gloas payload bid");
-            bid.slot = received_payload_slot;
-            bid.parent_block_root = self.genesis_block_root;
-            bid.parent_block_hash = execution_genesis_hash;
-            bid.block_hash = received_payload_block_hash;
-            bid.gas_limit = 30_000_000;
-            bid.clone()
-        };
-        let (_, received_payload_beacon_block_root) =
-            self.store_block_from_state(&mut state, received_payload_slot, self.genesis_block_root);
-        self.store_payload_envelope_for_bid(
-            received_payload_beacon_block_root,
-            &received_payload_bid,
-        );
-
-        let head_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
-        let current_slot = head_slot + 1;
-        *state
-            .latest_block_hash_mut()
-            .expect("should have a Gloas execution block hash") = received_payload_block_hash;
-
-        let head_bid = state
-            .latest_execution_payload_bid_mut()
-            .expect("should have a Gloas payload bid");
-        head_bid.slot = head_slot;
-        head_bid.parent_block_root = received_payload_beacon_block_root;
-        head_bid.parent_block_hash = received_payload_block_hash;
-        head_bid.block_hash = ExecutionBlockHash::repeat_byte(0xab);
-        head_bid.gas_limit = unreceived_head_bid_gas_limit;
-
-        let (signed_head_block, head_block_root) =
-            self.store_block_from_state(&mut state, head_slot, received_payload_beacon_block_root);
-        self.set_finalized_head(state, signed_head_block, head_block_root, current_slot);
-
-        (self, head_block_root)
-    }
-
-    fn store_block_from_state(
-        &self,
-        state: &mut BeaconState<E>,
-        slot: Slot,
-        parent_root: Hash256,
-    ) -> (SignedBeaconBlock<E>, Hash256) {
-        *state.slot_mut() = slot;
-        let mut block = genesis_block(state, &self.spec).expect("should build block");
-        *block.slot_mut() = slot;
-        *block.parent_root_mut() = parent_root;
-        state.latest_block_header_mut().slot = slot;
-        state.latest_block_header_mut().parent_root = parent_root;
-        state.latest_block_header_mut().body_root = block.body_root();
-        *block.state_root_mut() = state
-            .update_tree_hash_cache()
-            .expect("should hash block state");
-
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-        let block_root = signed_block.canonical_root();
-        self.store
-            .put_block(&block_root, signed_block.clone())
-            .expect("should store block");
-        (signed_block, block_root)
-    }
-
-    fn store_payload_envelope_for_bid(
-        &self,
-        beacon_block_root: Hash256,
-        bid: &ExecutionPayloadBid<E>,
-    ) {
-        let mut envelope = ExecutionPayloadEnvelope::empty();
-        envelope.payload.parent_hash = bid.parent_block_hash;
-        envelope.payload.block_hash = bid.block_hash;
-        envelope.payload.gas_limit = bid.gas_limit;
-        envelope.payload.slot_number = bid.slot;
-        envelope.builder_index = bid.builder_index;
-        envelope.beacon_block_root = beacon_block_root;
-        envelope.parent_beacon_block_root = bid.parent_block_root;
-        self.store
-            .put_payload_envelope(
-                &beacon_block_root,
-                &SignedExecutionPayloadEnvelope {
-                    message: envelope,
-                    signature: Signature::empty(),
-                },
-            )
-            .expect("should store payload envelope");
-    }
-
-    fn set_finalized_head(
-        &mut self,
-        state: BeaconState<E>,
-        signed_block: SignedBeaconBlock<E>,
-        block_root: Hash256,
-        current_slot: Slot,
-    ) {
-        let snapshot = BeaconSnapshot::new(
-            Arc::new(signed_block.clone()),
-            None,
-            block_root,
-            state.clone(),
-        );
-        let fc_store =
-            BeaconForkChoiceStore::get_forkchoice_store(self.store.clone(), snapshot.clone())
-                .expect("should create fork choice store");
-        let mut fork_choice = ForkChoice::from_anchor(
-            fc_store,
-            block_root,
-            &signed_block,
-            &state,
-            None,
-            &self.spec,
-        )
-        .expect("should create fork choice at finalized head");
-        let (_, head_payload_status) = fork_choice
-            .get_head(current_slot, &self.spec)
-            .expect("should run get_head");
-
-        self.canonical_head = CanonicalHead::new(
-            fork_choice,
-            Arc::new(snapshot),
-            head_payload_status,
-            FastConfirmationMode::Disabled,
-            &self.store,
-            &self.spec,
-        )
-        .expect("should create canonical head");
-        self.slot_clock.set_slot(current_slot.as_u64());
     }
 
     fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
@@ -355,6 +215,7 @@ impl TestContext {
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
+            observed_execution_payloads: &self.observed_execution_payloads,
             gossip_verified_payload_bid_cache: &self.bid_cache,
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
@@ -408,44 +269,20 @@ impl TestContext {
     }
 
     fn insert_non_canonical_block(&self) -> Hash256 {
-        let fork_block_root = Hash256::repeat_byte(0xab);
-        let current_fork = self.spec.fork_name_at_slot::<E>(Slot::new(1));
-        self.insert_fork_choice_block(
-            current_fork,
-            fork_block_root,
-            ExecutionStatus::irrelevant(),
-            Some(ExecutionBlockHash::zero()),
-            Some(ExecutionBlockHash::repeat_byte(0xab)),
-            false,
-        );
-        fork_block_root
-    }
-
-    /// Insert a synthetic block under explicit fork rules, then apply payload receipt through the
-    /// same fork-choice transition used in production.
-    fn insert_fork_choice_block(
-        &self,
-        fork_name: ForkName,
-        block_root: Hash256,
-        execution_status: ExecutionStatus,
-        execution_payload_parent_hash: Option<ExecutionBlockHash>,
-        execution_payload_block_hash: Option<ExecutionBlockHash>,
-        payload_received: bool,
-    ) {
         let shuffling_id = AttestationShufflingId {
             shuffling_epoch: Epoch::new(0),
             shuffling_decision_block: self.genesis_block_root,
         };
-        let spec = fork_name.make_genesis_spec(self.spec.clone());
+        let fork_block_root = Hash256::repeat_byte(0xab);
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
         fork_choice
             .proto_array_mut()
             .process_block::<E>(
                 ProtoBlock {
                     slot: Slot::new(1),
-                    root: block_root,
+                    root: fork_block_root,
                     parent_root: Some(self.genesis_block_root),
-                    target_root: block_root,
+                    target_root: fork_block_root,
                     current_epoch_shuffling_id: shuffling_id.clone(),
                     next_epoch_shuffling_id: shuffling_id,
                     state_root: Hash256::ZERO,
@@ -457,25 +294,20 @@ impl TestContext {
                         epoch: Epoch::new(0),
                         root: self.genesis_block_root,
                     },
-                    execution_status,
+                    execution_status: ExecutionStatus::irrelevant(),
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
-                    execution_payload_parent_hash,
-                    execution_payload_block_hash,
+                    execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
+                    execution_payload_block_hash: Some(ExecutionBlockHash::repeat_byte(0xab)),
                     proposer_index: Some(0),
                     payload_received: false,
                 },
                 Slot::new(1),
-                &spec,
+                &self.spec,
                 Duration::from_secs(0),
             )
-            .expect("should insert execution block");
-
-        if payload_received {
-            fork_choice
-                .on_valid_payload_envelope_received(block_root)
-                .expect("should mark payload received");
-        }
+            .expect("should insert fork block");
+        fork_block_root
     }
 }
 
@@ -530,12 +362,12 @@ fn no_proposer_preferences_for_slot() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let bid = ctx.make_signed_bid(
-        Slot::new(0),
+        Slot::new(1),
         0,
         Address::ZERO,
         30_000_000,
         100,
-        Hash256::ZERO,
+        ctx.genesis_block_root,
     );
 
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
@@ -555,7 +387,7 @@ fn builder_already_seen_for_slot() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.make_signed_bid(slot, 42, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
+    let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
     let verified = GossipVerifiedPayloadBid {
         signed_bid: bid.clone(),
     };
@@ -565,7 +397,7 @@ fn builder_already_seen_for_slot() {
     assert!(matches!(
         result,
         Err(PayloadBidError::BuilderAlreadySeen {
-            builder_index: 42,
+            builder_index: 0,
             ..
         })
     ));
@@ -703,42 +535,40 @@ fn gas_limit_mismatch() {
         prev_randao: ctx.expected_prev_randao(),
         ..ExecutionPayloadBid::default()
     });
-    let bid_parent = BidParent::from_bid(&bid.message);
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
     assert_eq!(
-        ctx.bid_cache
-            .get_parent_gas_limit(slot, bid_parent.parent_block_hash),
+        ctx.observed_execution_payloads
+            .get_gas_limit(ctx.execution_parent_hash()),
         Some(30_000_000)
     );
 }
 
 #[test]
-fn gas_limit_uses_stored_parent_after_finalized_empty_head() {
+fn unknown_parent_execution_payload_is_ignored_before_signature() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    let rejected_payload_gas_limit = 30_029_295;
-    let next_gas_limit = 30_029_295;
-    let target_gas_limit = 60_000_000;
-    let (ctx, head_block_root) = TestContext::new()
-        .with_finalized_empty_head_requiring_store_lookup(rejected_payload_gas_limit);
-    let slot = ctx.slot_clock.now().expect("should read slot clock");
-    seed_preferences(&ctx, slot, Address::ZERO, target_gas_limit);
+    let mut ctx = TestContext::new();
+    ctx.observed_execution_payloads = ObservedExecutionPayloads::default();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBid {
+    // The signature is also invalid, but an unknown parent payload is an IGNORE condition and
+    // must be returned before signature verification.
+    let bid = ctx.make_signed_bid(
         slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: next_gas_limit,
-        parent_block_root: head_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
-    });
-
-    GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx())
-        .expect("bid should use the received execution payload before finalization");
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::ParentExecutionPayloadUnknown { .. })
+    ));
 }
 
 #[test]
@@ -880,6 +710,7 @@ fn parent_block_root_not_canonical() {
     let gossip = ctx.gossip_ctx();
     // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
     // block slot` rule and exercise the  bid descendant from parent check specifically.
+    ctx.slot_clock.set_slot(1);
     let slot = Slot::new(2);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
@@ -993,56 +824,7 @@ fn bad_signature() {
 }
 
 #[test]
-fn fork_choice_locator_recognizes_received_gloas_block() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    let ctx = TestContext::new();
-    let block_root = Hash256::repeat_byte(0x81);
-    let block_hash = ExecutionBlockHash::repeat_byte(0x82);
-    let current_fork = ctx.spec.fork_name_at_slot::<E>(Slot::new(1));
-    ctx.insert_fork_choice_block(
-        current_fork,
-        block_root,
-        ExecutionStatus::irrelevant(),
-        Some(ctx.execution_parent_hash()),
-        Some(block_hash),
-        true,
-    );
-
-    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-    assert!(matches!(
-        locate_parent_execution_payload_in_fork_choice(&fork_choice, block_root, block_hash),
-        ParentExecutionPayloadLocation::BeaconBlock(root) if root == block_root
-    ));
-}
-
-#[test]
-fn fork_choice_locator_recognizes_pre_gloas_execution_status() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    let ctx = TestContext::new();
-    let block_root = Hash256::repeat_byte(0x91);
-    let block_hash = ExecutionBlockHash::repeat_byte(0x92);
-    ctx.insert_fork_choice_block(
-        ForkName::Fulu,
-        block_root,
-        ExecutionStatus::Valid(block_hash),
-        None,
-        None,
-        false,
-    );
-
-    let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-    assert!(matches!(
-        locate_parent_execution_payload_in_fork_choice(&fork_choice, block_root, block_hash),
-        ParentExecutionPayloadLocation::BeaconBlock(root) if root == block_root
-    ));
-}
-
-#[test]
-fn valid_bid() {
+fn valid_bid_after_empty_genesis_uses_parent_payload_gas_limit() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }

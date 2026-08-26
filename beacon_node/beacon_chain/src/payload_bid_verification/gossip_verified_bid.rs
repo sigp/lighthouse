@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
+    observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
@@ -15,166 +16,25 @@ use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
 };
-use store::iter::ParentRootBlockIterator;
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
-    SignedBlindedBeaconBlock, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-pub(super) enum ParentExecutionPayloadLocation {
-    /// The beacon block identifying the parent execution payload is available in fork choice.
-    BeaconBlock(Hash256),
-    /// Continue the canonical ancestry search in the database from this beacon block root.
-    SearchStoreFrom(Hash256),
-}
-
-/// Locate the beacon block that identifies the bid's parent execution payload in fork choice.
-pub(super) fn locate_parent_execution_payload_in_fork_choice<T: BeaconChainTypes>(
-    fork_choice_read: &ForkChoiceReadGuard<'_, T>,
-    bid_parent_beacon_block_root: Hash256,
-    parent_execution_block_hash: ExecutionBlockHash,
-) -> ParentExecutionPayloadLocation {
-    let mut block_root = bid_parent_beacon_block_root;
-    while let Some(block) = fork_choice_read.get_block(&block_root) {
-        // Gloas genesis has no payload envelope. Its bid retains the EL genesis hash in
-        // `parent_block_hash`, while `block_hash` is zero to represent an empty payload.
-        if block.slot == Slot::new(0)
-            && block.execution_payload_parent_hash == Some(parent_execution_block_hash)
-        {
-            return ParentExecutionPayloadLocation::BeaconBlock(block_root);
-        }
-
-        if let Some(block_hash) = block.execution_payload_block_hash {
-            // Payload receipt is only recorded after the Gloas envelope has been validated.
-            if fork_choice_read.is_payload_received(&block_root)
-                && block_hash == parent_execution_block_hash
-            {
-                return ParentExecutionPayloadLocation::BeaconBlock(block_root);
-            }
-        } else if !block.execution_status.is_invalid()
-            && block.execution_status.block_hash() == Some(parent_execution_block_hash)
-        {
-            return ParentExecutionPayloadLocation::BeaconBlock(block_root);
-        }
-
-        let Some(parent_root) = block.parent_root else {
-            break;
-        };
-        block_root = parent_root;
-    }
-
-    ParentExecutionPayloadLocation::SearchStoreFrom(block_root)
-}
-
-/// Return the execution block hash and gas limit represented by a beacon block.
-///
-/// Gloas genesis represents the EL genesis block with `parent_block_hash` because it has no payload
-/// envelope of its own.
-fn execution_payload_hash_and_gas_limit<E: EthSpec>(
-    block: &SignedBlindedBeaconBlock<E>,
-) -> Result<(ExecutionBlockHash, u64), PayloadBidError> {
-    if block.fork_name_unchecked().gloas_enabled() {
-        let bid = &block
-            .message()
-            .body()
-            .signed_execution_payload_bid()?
-            .message;
-        let block_hash = if block.slot() == Slot::new(0) {
-            bid.parent_block_hash
-        } else {
-            bid.block_hash
-        };
-        Ok((block_hash, bid.gas_limit))
+pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), PayloadBidError> {
+    if bid_slot == current_slot || bid_slot == current_slot.saturating_add(1u64) {
+        Ok(())
     } else {
-        let payload = block.message().execution_payload()?;
-        Ok((payload.block_hash(), payload.gas_limit()))
+        Err(PayloadBidError::InvalidBidSlot { bid_slot })
     }
 }
 
-/// Continue searching canonical ancestry in the database after fork choice reaches its finalized
-/// boundary.
-fn find_parent_execution_payload_gas_limit_in_store<T: BeaconChainTypes>(
-    store: &BeaconStore<T>,
-    search_start_beacon_block_root: Hash256,
-    parent_execution_block_hash: ExecutionBlockHash,
-) -> Result<u64, PayloadBidError> {
-    for block_result in ParentRootBlockIterator::new(store.as_ref(), search_start_beacon_block_root)
-    {
-        let (block_root, block) = block_result.map_err(|e| {
-            PayloadBidError::InternalError(format!(
-                "failed to load beacon block while finding execution payload: {e:?}"
-            ))
-        })?;
-
-        let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
-        if block_hash == parent_execution_block_hash {
-            // Non-genesis Gloas blocks only carry an execution payload after its envelope arrives.
-            // Compare the hash first so unrelated ancestors do not require another database read.
-            if block.fork_name_unchecked().gloas_enabled() && block.slot() != Slot::new(0) {
-                let payload_received = store.payload_envelope_exists(&block_root).map_err(|e| {
-                    PayloadBidError::InternalError(format!(
-                        "failed to check payload envelope for block {block_root:?}: {e:?}"
-                    ))
-                })?;
-                if payload_received {
-                    return Ok(gas_limit);
-                }
-            } else {
-                return Ok(gas_limit);
-            }
-        }
-    }
-
-    Err(PayloadBidError::ParentExecutionPayloadUnknown {
-        parent_block_hash: parent_execution_block_hash,
-    })
-}
-
-/// Load the gas limit for `parent_execution_block_hash` from the beacon block previously identified
-/// as representing that execution payload.
-fn get_parent_execution_payload_gas_limit_from_beacon_block<T: BeaconChainTypes>(
-    store: &BeaconStore<T>,
-    parent_execution_payload_beacon_block_root: Hash256,
-    parent_execution_block_hash: ExecutionBlockHash,
-) -> Result<u64, PayloadBidError> {
-    let block = store
-        .get_blinded_block(&parent_execution_payload_beacon_block_root)
-        .map_err(|e| {
-            PayloadBidError::InternalError(format!(
-                "failed to load execution payload block {parent_execution_payload_beacon_block_root:?}: {e:?}"
-            ))
-        })?
-        .ok_or_else(|| {
-            PayloadBidError::InternalError(format!(
-                "execution payload block {parent_execution_payload_beacon_block_root:?} unavailable"
-            ))
-        })?;
-
-    let (block_hash, gas_limit) = execution_payload_hash_and_gas_limit(&block)?;
-    if block_hash != parent_execution_block_hash {
-        return Err(PayloadBidError::InternalError(format!(
-            "execution payload hash mismatch for block {parent_execution_payload_beacon_block_root:?}"
-        )));
-    }
-    Ok(gas_limit)
-}
-
-/// Verify that an execution payload bid is consistent with the current chain state
-/// and proposer preferences.
-pub(crate) fn verify_bid_consistency<E: EthSpec>(
+fn verify_bid_payment_and_blobs<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
-    current_slot: Slot,
-    proposer_preferences: &SignedProposerPreferences,
-    head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let bid_slot = bid.slot;
-
-    if bid_slot != current_slot && bid_slot != current_slot.saturating_add(1u64) {
-        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
-    }
 
     // Execution payments are used by off protocol builders. In protocol bids
     // should always have this value set to zero.
@@ -182,10 +42,6 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         return Err(PayloadBidError::ExecutionPaymentNonZero {
             execution_payment: bid.execution_payment,
         });
-    }
-
-    if bid.fee_recipient != proposer_preferences.message.fee_recipient {
-        return Err(PayloadBidError::InvalidFeeRecipient);
     }
 
     let max_blobs_per_block =
@@ -198,28 +54,38 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         });
     }
 
+    Ok(())
+}
+
+fn verify_builder<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+    head_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     let builder_index = bid.builder_index;
-
-    let is_active_builder = head_state
-        .is_active_builder(builder_index, spec)
-        .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
-
-    if !is_active_builder {
-        return Err(PayloadBidError::InvalidBuilder { builder_index });
-    }
-
-    let builder_version = head_state.get_builder(builder_index)?.version;
-    if builder_version != PAYLOAD_BUILDER_VERSION {
-        return Err(PayloadBidError::InvalidBuilderVersion {
-            builder_index,
-            version: builder_version,
-        });
-    }
+    let builder_version = head_state
+        .get_builder(builder_index)
+        .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?
+        .version;
 
     if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
             builder_bid: bid.value,
+        });
+    }
+
+    let is_active_builder = head_state
+        .is_active_builder(builder_index, spec)
+        .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
+    if !is_active_builder {
+        return Err(PayloadBidError::InvalidBuilder { builder_index });
+    }
+
+    if builder_version != PAYLOAD_BUILDER_VERSION {
+        return Err(PayloadBidError::InvalidBuilderVersion {
+            builder_index,
+            version: builder_version,
         });
     }
 
@@ -299,6 +165,7 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
+    pub observed_execution_payloads: &'a ObservedExecutionPayloads,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
@@ -326,6 +193,11 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_parent = BidParent::from_bid(&signed_bid.message);
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
+        let current_slot = ctx
+            .slot_clock
+            .now()
+            .ok_or(PayloadBidError::UnableToReadSlot)?;
+        verify_bid_slot(bid_slot, current_slot)?;
 
         if ctx
             .gossip_verified_payload_bid_cache
@@ -338,7 +210,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         }
 
         // TODO(gloas): Extract into `bid_value_over_threshold` on the bid cache and potentially
-        // make this more sophisticate than just a <= check.
+        // make this more sophisticated than just a <= check.
         if let Some(cached_bid) = ctx
             .gossip_verified_payload_bid_cache
             .get_highest_bid(bid_slot, bid_parent)
@@ -351,10 +223,27 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         }
 
         let cached_head = ctx.canonical_head.cached_head();
-        let current_slot = ctx
-            .slot_clock
-            .now()
-            .ok_or(PayloadBidError::UnableToReadSlot)?;
+
+        // Check the descendant rule before the bid fields that follow it in the gossip spec. Delay
+        // reporting an unknown parent until after those fields have been checked.
+        let fork_choice = ctx.canonical_head.fork_choice_read_lock();
+        let parent_block = fork_choice.get_block(&bid_parent_block_root);
+        if let Some(parent_block) = parent_block.as_ref()
+            && bid_slot <= parent_block.slot
+        {
+            return Err(PayloadBidError::BidNotDescendantOfParent {
+                bid_slot,
+                parent_slot: parent_block.slot,
+            });
+        }
+
+        verify_bid_payment_and_blobs(&signed_bid.message, ctx.spec)?;
+
+        parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
+            parent_block_root: bid_parent_block_root,
+        })?;
+        drop(fork_choice);
+
         let snapshot_state = &cached_head.snapshot.beacon_state;
 
         // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
@@ -409,30 +298,25 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
         };
 
+        if signed_bid.message.fee_recipient != proposer_preferences.message.fee_recipient {
+            return Err(PayloadBidError::InvalidFeeRecipient);
+        }
+
+        let parent_gas_limit = ctx
+            .observed_execution_payloads
+            .get_gas_limit(signed_bid.message.parent_block_hash)
+            .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
+                parent_block_hash: signed_bid.message.parent_block_hash,
+            })?;
+        if !is_gas_limit_target_compatible(
+            parent_gas_limit,
+            signed_bid.message.gas_limit,
+            proposer_preferences.message.target_gas_limit,
+        )? {
+            return Err(PayloadBidError::InvalidGasLimit);
+        }
+
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-
-        // TODO(gloas) reprocess bids whose parent_block_root becomes known & canonical after a reorg?
-        let parent_block = fork_choice.get_block(&bid_parent_block_root).ok_or(
-            PayloadBidError::ParentBlockRootUnknown {
-                parent_block_root: bid_parent_block_root,
-            },
-        )?;
-
-        // [REJECT] The bid is for a higher slot than its parent block.
-        if bid_slot <= parent_block.slot {
-            return Err(PayloadBidError::BidNotDescendantOfParent {
-                bid_slot,
-                parent_slot: parent_block.slot,
-            });
-        }
-
-        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
-        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
-        if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
-        {
-            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
-        }
 
         // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
         if !is_bid_compatible_with_head(&cached_head, &fork_choice, &signed_bid.message, ctx.spec)?
@@ -444,34 +328,16 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         drop(fork_choice);
 
-        verify_bid_consistency(
-            &signed_bid.message,
-            current_slot,
-            &proposer_preferences,
-            head_state,
-            ctx.spec,
-        )?;
-
-        let check_parent_gas_limit = |parent_gas_limit| {
-            if is_gas_limit_target_compatible(
-                parent_gas_limit,
-                signed_bid.message.gas_limit,
-                proposer_preferences.message.target_gas_limit,
-            )? {
-                Ok(())
-            } else {
-                Err(PayloadBidError::InvalidGasLimit)
-            }
-        };
-
-        let cached_parent_gas_limit = ctx
-            .gossip_verified_payload_bid_cache
-            .get_parent_gas_limit(bid_slot, signed_bid.message.parent_block_hash);
-        if let Some(parent_gas_limit) = cached_parent_gas_limit {
-            check_parent_gas_limit(parent_gas_limit)?;
+        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
+        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        if signed_bid.message.prev_randao
+            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+        {
+            return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        // Verify the signature before falling back to a historical database scan.
+        verify_builder(&signed_bid.message, head_state, ctx.spec)?;
+
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
@@ -483,38 +349,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         .verify()
         .then_some(())
         .ok_or(PayloadBidError::BadSignature)?;
-
-        if cached_parent_gas_limit.is_none() {
-            // Ancestor lookup can walk fork choice and the database, so only perform it for a bid
-            // whose builder and signature have already been verified.
-            let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-            let location = locate_parent_execution_payload_in_fork_choice(
-                &fork_choice,
-                signed_bid.message.parent_block_root,
-                signed_bid.message.parent_block_hash,
-            );
-            drop(fork_choice);
-
-            let gas_limit = match location {
-                ParentExecutionPayloadLocation::BeaconBlock(beacon_block_root) => {
-                    get_parent_execution_payload_gas_limit_from_beacon_block::<T>(
-                        ctx.store,
-                        beacon_block_root,
-                        signed_bid.message.parent_block_hash,
-                    )?
-                }
-                ParentExecutionPayloadLocation::SearchStoreFrom(beacon_block_root) => {
-                    find_parent_execution_payload_gas_limit_in_store::<T>(
-                        ctx.store,
-                        beacon_block_root,
-                        signed_bid.message.parent_block_hash,
-                    )?
-                }
-            };
-            ctx.gossip_verified_payload_bid_cache
-                .insert_parent_gas_limit(bid_slot, signed_bid.message.parent_block_hash, gas_limit);
-            check_parent_gas_limit(gas_limit)?;
-        }
 
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
@@ -533,6 +367,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn payload_bid_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
+            observed_execution_payloads: &self.observed_execution_payloads,
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
@@ -623,58 +458,16 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::is_gas_limit_target_compatible;
-    use bls::Signature;
-    use kzg::KzgCommitment;
-    use ssz_types::ProgressiveVariableList;
-    use types::{
-        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
-        ProposerPreferences, SignedProposerPreferences, Slot,
-    };
+    use super::{is_gas_limit_target_compatible, verify_bid_slot};
+    use types::Slot;
 
-    use super::verify_bid_consistency;
     use crate::payload_bid_verification::PayloadBidError;
-
-    type E = MinimalEthSpec;
-
-    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBid<E> {
-        ExecutionPayloadBid {
-            slot,
-            fee_recipient,
-            gas_limit,
-            value: 100,
-            ..ExecutionPayloadBid::default()
-        }
-    }
-
-    fn make_preferences(
-        fee_recipient: Address,
-        target_gas_limit: u64,
-    ) -> SignedProposerPreferences {
-        SignedProposerPreferences {
-            message: ProposerPreferences {
-                fee_recipient,
-                target_gas_limit,
-                ..ProposerPreferences::default()
-            },
-            signature: Signature::empty(),
-        }
-    }
-
-    fn state_and_spec() -> (BeaconState<E>, ChainSpec) {
-        let spec = E::default_spec();
-        let state = BeaconState::new(0, <_>::default(), &spec);
-        (state, spec)
-    }
 
     #[test]
     fn test_invalid_bid_slot_too_old() {
-        let (state, spec) = state_and_spec();
         let current_slot = Slot::new(10);
-        let bid = make_bid(Slot::new(5), Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_slot(Slot::new(5), current_slot);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBidSlot { .. })
@@ -683,63 +476,12 @@ mod tests {
 
     #[test]
     fn test_invalid_bid_slot_too_far_ahead() {
-        let (state, spec) = state_and_spec();
         let current_slot = Slot::new(10);
-        let bid = make_bid(Slot::new(12), Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_slot(Slot::new(12), current_slot);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBidSlot { .. })
-        ));
-    }
-
-    #[test]
-    fn test_execution_payment_nonzero() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        bid.execution_payment = 42;
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(
-            result,
-            Err(PayloadBidError::ExecutionPaymentNonZero {
-                execution_payment: 42
-            })
-        ));
-    }
-
-    #[test]
-    fn test_fee_recipient_mismatch() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::repeat_byte(0xaa), 30_000_000);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(result, Err(PayloadBidError::InvalidFeeRecipient)));
-    }
-
-    #[test]
-    fn test_invalid_blob_kzg_commitments() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        let max_blobs = spec.max_blobs_per_block(current_slot.epoch(E::slots_per_epoch())) as usize;
-        let commitments: Vec<KzgCommitment> = (0..=max_blobs)
-            .map(|_| KzgCommitment::empty_for_testing())
-            .collect();
-        bid.blob_kzg_commitments = ProgressiveVariableList::new(commitments);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(
-            result,
-            Err(PayloadBidError::InvalidBlobKzgCommitments { .. })
         ));
     }
 

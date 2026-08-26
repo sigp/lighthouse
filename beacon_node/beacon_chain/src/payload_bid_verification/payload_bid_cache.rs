@@ -27,16 +27,9 @@ impl BidParent {
 
 type HighestBidMap<E> = BTreeMap<Slot, HashMap<BidParent, GossipVerifiedPayloadBid<E>>>;
 
-#[derive(Clone, Copy)]
-struct CachedParentGasLimit {
-    gas_limit: u64,
-    last_referenced_bid_slot: Slot,
-}
-
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
     highest_bid: RwLock<HighestBidMap<E>>,
     seen_builder_bids: RwLock<BTreeMap<Slot, HashSet<(BidParent, BuilderIndex)>>>,
-    parent_gas_limits: RwLock<HashMap<ExecutionBlockHash, CachedParentGasLimit>>,
 }
 
 impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
@@ -44,7 +37,6 @@ impl<E: EthSpec> Default for GossipVerifiedPayloadBidCache<E> {
         Self {
             highest_bid: RwLock::new(BTreeMap::new()),
             seen_builder_bids: RwLock::new(BTreeMap::new()),
-            parent_gas_limits: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -102,42 +94,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             ));
     }
 
-    /// Get the gas limit of a parent execution payload and record the latest bid slot that
-    /// referenced it.
-    pub(crate) fn get_parent_gas_limit(
-        &self,
-        bid_slot: Slot,
-        parent_execution_block_hash: ExecutionBlockHash,
-    ) -> Option<u64> {
-        self.parent_gas_limits
-            .write()
-            .get_mut(&parent_execution_block_hash)
-            .map(|cached| {
-                cached.last_referenced_bid_slot = cached.last_referenced_bid_slot.max(bid_slot);
-                cached.gas_limit
-            })
-    }
-
-    /// Cache the gas limit of the parent execution payload identified by its execution block hash.
-    pub(crate) fn insert_parent_gas_limit(
-        &self,
-        bid_slot: Slot,
-        parent_execution_block_hash: ExecutionBlockHash,
-        gas_limit: u64,
-    ) {
-        self.parent_gas_limits
-            .write()
-            .entry(parent_execution_block_hash)
-            .and_modify(|cached| {
-                cached.gas_limit = gas_limit;
-                cached.last_referenced_bid_slot = cached.last_referenced_bid_slot.max(bid_slot);
-            })
-            .or_insert(CachedParentGasLimit {
-                gas_limit,
-                last_referenced_bid_slot: bid_slot,
-            });
-    }
-
     /// Prune anything before `current_slot`
     pub fn prune(&self, current_slot: Slot) {
         self.highest_bid
@@ -147,14 +103,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         self.seen_builder_bids
             .write()
             .retain(|&slot, _| slot >= current_slot);
-
-        self.parent_gas_limits
-            .write()
-            // Pruning runs before bids arrive for `current_slot`. Keep parents referenced in the
-            // preceding slot so a continuing empty-payload chain can refresh the entry.
-            .retain(|_, cached| {
-                cached.last_referenced_bid_slot.saturating_add(1u64) >= current_slot
-            });
     }
 }
 
@@ -271,32 +219,6 @@ mod tests {
         let highest_b = cache.get_highest_bid(slot, parent_b).unwrap();
         assert_eq!(highest_b.message.value, 70);
         assert_eq!(highest_b.message.builder_index, 3);
-    }
-
-    #[test]
-    fn parent_gas_limit_is_reused_across_slots_and_pruned_by_latest_reference() {
-        let cache = GossipVerifiedPayloadBidCache::<E>::default();
-        let parent_block_hash = ExecutionBlockHash::repeat_byte(0x01);
-
-        assert_eq!(
-            cache.get_parent_gas_limit(Slot::new(1), parent_block_hash),
-            None
-        );
-        cache.insert_parent_gas_limit(Slot::new(1), parent_block_hash, 30_000_000);
-
-        // Slot pruning runs before bids arrive for the new slot, so an entry used in the
-        // preceding slot must survive long enough to be reused and refreshed.
-        cache.prune(Slot::new(2));
-        assert_eq!(
-            cache.get_parent_gas_limit(Slot::new(2), parent_block_hash),
-            Some(30_000_000)
-        );
-
-        cache.prune(Slot::new(4));
-        assert_eq!(
-            cache.get_parent_gas_limit(Slot::new(4), parent_block_hash),
-            None
-        );
     }
 
     #[test]
