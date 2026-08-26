@@ -233,9 +233,17 @@ impl<E: EthSpec> GossipTester<E> {
 
         tester.set_time_ms(current_time_ms)?;
         tester.import_setup_blocks(case, &blocks, initial_block_index)?;
-        tester.set_finalized_checkpoint(case.finalized_checkpoint(&blocks)?);
+        let finalized_checkpoint = case.finalized_checkpoint(&blocks)?;
+        tester.set_finalized_checkpoint(finalized_checkpoint);
         if case.meta.topic == Topic::ExecutionPayloadBid {
             tester.block_on_dangerous(tester.harness.chain.recompute_head_at_current_slot())?;
+            if let Some(checkpoint) = finalized_checkpoint {
+                tester
+                    .harness
+                    .chain
+                    .canonical_head
+                    .testing_set_cached_head_state_finalized_checkpoint(checkpoint);
+            }
         }
 
         Ok(tester)
