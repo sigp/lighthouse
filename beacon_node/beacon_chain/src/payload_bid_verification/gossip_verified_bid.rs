@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
+    BeaconChain, BeaconChainTypes, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
     payload_bid_verification::{
         PayloadBidError,
@@ -12,8 +12,9 @@ use crate::{
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use slot_clock::SlotClock;
-use state_processing::signature_sets::{
-    execution_payload_bid_signature_set, get_builder_pubkey_from_state,
+use state_processing::{
+    signature_sets::{execution_payload_bid_signature_set, get_builder_pubkey_from_state},
+    state_advance::complete_state_advance,
 };
 use tracing::debug;
 use types::{
@@ -163,7 +164,6 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
-    pub store: &'a BeaconStore<T>,
 }
 
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
@@ -215,48 +215,12 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             .slot_clock
             .now()
             .ok_or(PayloadBidError::UnableToReadSlot)?;
-        let snapshot_state = &cached_head.snapshot.beacon_state;
-
-        // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
-        // use the advanced state instead.
-        // TODO(post-gloas) this can be removed after the gloas fork
-        let advanced_state;
-        let head_state = if ctx
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(bid_slot)
-            .gloas_enabled()
-            && !snapshot_state.fork_name_unchecked().gloas_enabled()
-        {
-            let (_, state) = ctx
-                .store
-                .get_advanced_hot_state(
-                    cached_head.head_block_root(),
-                    bid_slot,
-                    cached_head.head_state_root(),
-                )
-                .map_err(|e| {
-                    PayloadBidError::InternalError(format!(
-                        "failed to load advanced head state: {e:?}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    PayloadBidError::InternalError("advanced head state unavailable".to_string())
-                })?;
-            if !state.fork_name_unchecked().gloas_enabled() {
-                return Err(PayloadBidError::InternalError(
-                    "head state not yet advanced to Gloas".to_string(),
-                ));
-            }
-            advanced_state = state;
-            &advanced_state
-        } else {
-            snapshot_state
-        };
+        let parent_state = &cached_head.snapshot.beacon_state;
 
         // Look up the preferences keyed by the dependent root that is canonical from our head's
         // perspective, so we don't pick up preferences cached for a competing branch's proposer.
         let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
-        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+        let dependent_root = parent_state.proposer_shuffling_decision_root_at_epoch(
             proposal_epoch,
             cached_head.head_block_root(),
             ctx.spec,
@@ -289,7 +253,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
         if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+            != *parent_state.get_randao_mix(parent_state.current_epoch())?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
@@ -310,7 +274,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         // this check may be inaccurate. Fixing this requires storing
         // gas_limit in fork choice or looking it up from the store by parent_block_hash. Taking the above
         // TODO into consideration maybe should persist parent block hash and gas limit in fork choice?
-        if let Ok(parent_bid) = head_state.latest_execution_payload_bid()
+        if let Ok(parent_bid) = parent_state.latest_execution_payload_bid()
             && !is_gas_limit_target_compatible(
                 parent_bid.gas_limit,
                 signed_bid.message.gas_limit,
@@ -322,18 +286,36 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         drop(fork_choice);
 
+        // Builder validity and balance are evaluated at the bid's slot, after applying any skipped
+        // slot and epoch processing to the parent block post-state.
+        let mut bid_state = parent_state.clone();
+        complete_state_advance(
+            &mut bid_state,
+            Some(cached_head.head_state_root()),
+            bid_slot,
+            ctx.spec,
+        )
+        .map_err(|e| {
+            PayloadBidError::InternalError(format!("failed to advance state to bid slot: {e:?}"))
+        })?;
+        if !bid_state.fork_name_unchecked().gloas_enabled() {
+            return Err(PayloadBidError::InternalError(
+                "bid state not yet advanced to Gloas".to_string(),
+            ));
+        }
+
         verify_bid_consistency(
             &signed_bid.message,
             current_slot,
             &proposer_preferences,
-            head_state,
+            &bid_state,
             ctx.spec,
         )?;
 
         // Verify signature
         execution_payload_bid_signature_set(
-            head_state,
-            |i| get_builder_pubkey_from_state(head_state, i),
+            &bid_state,
+            |i| get_builder_pubkey_from_state(&bid_state, i),
             &signed_bid,
             ctx.spec,
         )
@@ -365,7 +347,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .gossip_verified_proposer_preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
-            store: &self.store,
         }
     }
 

@@ -104,6 +104,14 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_pre_finalized/.*",
+    # Bid gas-limit validation currently uses the committed bid rather than the parent payload.
+    # Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_parent_under_step/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_target_equals_parent/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_within_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",

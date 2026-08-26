@@ -4,6 +4,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::type_name::TypeName;
 use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{BlockError, NotifyExecutionLayer};
@@ -21,9 +22,9 @@ use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -233,6 +234,9 @@ impl<E: EthSpec> GossipTester<E> {
         tester.set_time_ms(current_time_ms)?;
         tester.import_setup_blocks(case, &blocks, initial_block_index)?;
         tester.set_finalized_checkpoint(case.finalized_checkpoint(&blocks)?);
+        if case.meta.topic == Topic::ExecutionPayloadBid {
+            tester.block_on_dangerous(tester.harness.chain.recompute_head_at_current_slot())?;
+        }
 
         Ok(tester)
     }
@@ -334,7 +338,14 @@ impl<E: EthSpec> GossipTester<E> {
                 self.import_setup_block(block.clone(), setup_block.payload_status)?;
             }
             if let Some(payload) = setup_block.payload.as_deref() {
-                self.import_setup_payload(&case.path, block, payload)?;
+                let payload_path = case.path.join(format!("{payload}.ssz_snappy"));
+                if payload_path.exists() {
+                    if case.meta.topic == Topic::ExecutionPayloadBid {
+                        self.import_setup_payload_for_bid(&case.path, block, payload)?;
+                    } else {
+                        self.import_setup_payload(&case.path, block, payload)?;
+                    }
+                }
             }
         }
 
@@ -408,7 +419,6 @@ impl<E: EthSpec> GossipTester<E> {
                     peer_id,
                 )?,
             Topic::DataColumnSidecar
-            | Topic::ExecutionPayloadBid
             | Topic::PartialDataColumnSidecar
             | Topic::PayloadAttestationMessage => {
                 return Err(Error::InternalError(format!(
@@ -421,6 +431,16 @@ impl<E: EthSpec> GossipTester<E> {
                 message_id.clone(),
                 peer_id,
             )?,
+            Topic::ExecutionPayloadBid => {
+                if let Some(acceptance) = self.process_execution_payload_bid_message(
+                    path,
+                    message_meta,
+                    message_id.clone(),
+                    peer_id,
+                )? {
+                    return Ok(acceptance);
+                }
+            }
             Topic::ProposerPreferences => {
                 self.process_proposer_preferences(path, message_meta, message_id.clone(), peer_id)?
             }
@@ -513,6 +533,54 @@ impl<E: EthSpec> GossipTester<E> {
                 ),
         )?;
         Ok(())
+    }
+
+    fn process_execution_payload_bid_message(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<Option<MessageAcceptance>, Error> {
+        if message_meta.message.starts_with("proposer_preferences_") {
+            let preferences: SignedProposerPreferences =
+                ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+            self.set_message_time(message_meta)?;
+            let verified_preferences = GossipVerifiedProposerPreferences {
+                signed_preferences: Arc::new(preferences),
+            };
+            self.harness
+                .chain
+                .gossip_verified_proposer_preferences_cache
+                .insert_seen_validator(&verified_preferences);
+            self.harness
+                .chain
+                .gossip_verified_proposer_preferences_cache
+                .insert_preferences(verified_preferences);
+            return Ok(Some(MessageAcceptance::Accept));
+        }
+        if message_meta
+            .message
+            .starts_with("execution_payload_envelope_")
+        {
+            let _: SignedExecutionPayloadEnvelope<E> =
+                ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+            self.set_message_time(message_meta)?;
+            return Ok(Some(MessageAcceptance::Accept));
+        }
+        if !message_meta.message.starts_with("execution_payload_bid_") {
+            return Err(Error::FailedToParseTest(format!(
+                "unsupported execution payload bid fixture message {}",
+                message_meta.message
+            )));
+        }
+
+        let bid: SignedExecutionPayloadBid<E> =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        self.set_message_time(message_meta)?;
+        self.network_beacon_processor
+            .process_gossip_execution_payload_bid(message_id, peer_id, Arc::new(bid));
+        Ok(None)
     }
 
     fn process_voluntary_exit(
@@ -756,6 +824,44 @@ impl<E: EthSpec> GossipTester<E> {
         }
     }
 
+    fn import_setup_payload_for_bid(
+        &self,
+        path: &Path,
+        block: &SignedBeaconBlock<E>,
+        payload: &str,
+    ) -> Result<(), Error> {
+        let envelope: SignedExecutionPayloadEnvelope<E> =
+            ssz_decode_file(&path.join(format!("{payload}.ssz_snappy")))?;
+        let block_root = envelope.beacon_block_root();
+        if block.canonical_root() != block_root {
+            return Err(Error::FailedToParseTest(format!(
+                "setup payload references block {block_root:?}, expected {:?}",
+                block.canonical_root()
+            )));
+        }
+
+        self.harness
+            .chain
+            .store
+            .put_payload_envelope(&block_root, &envelope)
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to store setup payload for block {block_root:?}: {e:?}"
+                ))
+            })?;
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to mark setup payload for block {block_root:?} as received: {e:?}"
+                ))
+            })?;
+        Ok(())
+    }
+
     fn import_setup_payload(
         &self,
         path: &Path,
@@ -956,6 +1062,16 @@ impl<E: EthSpec> GossipValidation<E> {
             // reads the finalized checkpoint from the canonical head.
             "gossip_execution_payload_envelope__ignore_pre_finalized",
         ];
+        const IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES: &[&str] = &[
+            // Known limitation: bid gossip validation uses the head state's committed bid gas
+            // limit instead of the parent executed payload's gas limit.
+            "gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit",
+            "gossip_execution_payload_bid__valid_gas_limit_parent_under_step",
+            "gossip_execution_payload_bid__valid_gas_limit_target_equals_parent",
+            "gossip_execution_payload_bid__valid_gas_limit_increase_within_limit",
+            "gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit",
+            "gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit",
+        ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
@@ -978,6 +1094,9 @@ impl<E: EthSpec> GossipValidation<E> {
             }
             Topic::ExecutionPayload => {
                 IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.contains(&case_name)
+            }
+            Topic::ExecutionPayloadBid => {
+                IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.contains(&case_name)
             }
             _ => false,
         }
