@@ -26,16 +26,11 @@ use types::{
 /// and proposer preferences.
 pub(crate) fn verify_bid_consistency<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
-    current_slot: Slot,
     proposer_preferences: &SignedProposerPreferences,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let bid_slot = bid.slot;
-
-    if bid_slot != current_slot && bid_slot != current_slot.saturating_add(1u64) {
-        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
-    }
 
     // Execution payments are used by off protocol builders. In protocol bids
     // should always have this value set to zero.
@@ -82,6 +77,31 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
             builder_index,
             builder_bid: bid.value,
         });
+    }
+
+    Ok(())
+}
+
+fn verify_bid_slot_range<S: SlotClock>(
+    slot_clock: &S,
+    bid_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
+    let current_time = slot_clock
+        .now_duration()
+        .ok_or(PayloadBidError::UnableToReadSlot)?;
+    let disparity = spec.maximum_gossip_clock_disparity();
+    let earliest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_sub(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_sub(disparity);
+    let latest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_add(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_add(disparity);
+
+    if current_time < earliest_permissible_time || current_time > latest_permissible_time {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
     Ok(())
@@ -187,6 +207,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
 
+        verify_bid_slot_range(ctx.slot_clock, bid_slot, ctx.spec)?;
+
         if ctx
             .gossip_verified_payload_bid_cache
             .seen_builder_bid_for_parent(&bid_slot, bid_parent, signed_bid.message.builder_index)
@@ -211,10 +233,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         }
 
         let cached_head = ctx.canonical_head.cached_head();
-        let current_slot = ctx
-            .slot_clock
-            .now()
-            .ok_or(PayloadBidError::UnableToReadSlot)?;
         let parent_state = &cached_head.snapshot.beacon_state;
 
         // Look up the preferences keyed by the dependent root that is canonical from our head's
@@ -306,7 +324,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         verify_bid_consistency(
             &signed_bid.message,
-            current_slot,
             &proposer_preferences,
             &bid_state,
             ctx.spec,
@@ -476,34 +493,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_bid_slot_too_old() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(Slot::new(5), Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(
-            result,
-            Err(PayloadBidError::InvalidBidSlot { .. })
-        ));
-    }
-
-    #[test]
-    fn test_invalid_bid_slot_too_far_ahead() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(Slot::new(12), Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(
-            result,
-            Err(PayloadBidError::InvalidBidSlot { .. })
-        ));
-    }
-
-    #[test]
     fn test_execution_payment_nonzero() {
         let (state, spec) = state_and_spec();
         let current_slot = Slot::new(10);
@@ -511,7 +500,7 @@ mod tests {
         bid.execution_payment = 42;
         let prefs = make_preferences(Address::ZERO, 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency::<E>(&bid, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::ExecutionPaymentNonZero {
@@ -527,7 +516,7 @@ mod tests {
         let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
         let prefs = make_preferences(Address::repeat_byte(0xaa), 30_000_000);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency::<E>(&bid, &prefs, &state, &spec);
         assert!(matches!(result, Err(PayloadBidError::InvalidFeeRecipient)));
     }
 
@@ -544,7 +533,7 @@ mod tests {
             .collect();
         bid.blob_kzg_commitments = ProgressiveVariableList::new(commitments);
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        let result = verify_bid_consistency::<E>(&bid, &prefs, &state, &spec);
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBlobKzgCommitments { .. })
