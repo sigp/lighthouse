@@ -7773,6 +7773,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
+        if self.canonical_head.fork_choice_poisoned() {
+            warn!("Skipping persistence on drop: fork choice is poisoned");
+            return;
+        }
+
         let drop = || -> Result<(), Error> {
             self.persist_op_pool()?;
             self.persist_custody_context()?;

@@ -790,6 +790,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
+        if self.canonical_head.fork_choice_poisoned() {
+            debug!("Skipping head recomputation: fork choice is poisoned");
+            return Ok(None);
+        }
+
         let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
         // Take a clone of the current ("old") head.
