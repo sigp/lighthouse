@@ -86,36 +86,38 @@ excluded_paths = [
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
-    # Lighthouse does not support optimistic Gloas payload imports. Keep these synchronized with
-    # IGNORED_GLOAS_PAYLOAD_STATUS_CASES in gossip_validation.rs.
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_payload_pending_el_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_payload_failed_el_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation/.*",
-    # Gloas attestation cases with production-harness limitations.
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__reject_block_failed_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    # Gloas aggregate cases with production-harness limitations. Lighthouse also does not support
+    # optimistic Gloas payload imports. Keep these synchronized with
+    # GossipValidation::has_known_harness_limitation.
     "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
-    # Gloas execution payload envelope cases with production-harness limitations.
-    # Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
-    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation/.*",
+    # Gloas attestation cases with the same production-harness limitations.
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__accepts_.*/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_payload_pending_el_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_payload_failed_el_validation/.*",
+    # Gloas bid gas-limit validation currently uses the committed bid rather than the parent
+    # payload. Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.
+    # TODO(gloas): should be enabled after https://github.com/sigp/lighthouse/pull/9905
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_within_limit/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_parent_under_step/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_target_equals_parent/.*",
+    # Gloas execution payload envelope cases with production-harness limitations. Keep these
+    # synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_pre_finalized/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
     # Lighthouse cannot distinguish a consensus-invalid block from an unseen block when
     # validating payload attestations. Keep this synchronized with
     # IGNORED_PAYLOAD_ATTESTATION_CASES.
     "tests/.*/gloas/networking/gossip_payload_attestation_message/.*/gossip_payload_attestation_message__reject_block_failed_validation/.*",
-    # Bid gas-limit validation currently uses the committed bid rather than the parent payload.
-    # Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_parent_under_step/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_target_equals_parent/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_within_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
