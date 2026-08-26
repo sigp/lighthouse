@@ -322,14 +322,14 @@ impl<E: EthSpec> GossipTester<E> {
             if setup_block.failed {
                 continue;
             }
+            let block = blocks.get(&setup_block.block).ok_or_else(|| {
+                Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
+            })?;
             if initial_block_index != Some(index) {
-                let block = blocks.get(&setup_block.block).ok_or_else(|| {
-                    Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
-                })?;
                 self.import_setup_block(block.clone(), setup_block.payload_status)?;
             }
             if let Some(payload) = setup_block.payload.as_deref() {
-                self.import_setup_payload(&case.path, payload)?;
+                self.import_setup_payload(&case.path, block, payload)?;
             }
         }
 
@@ -691,10 +691,36 @@ impl<E: EthSpec> GossipTester<E> {
         }
     }
 
-    fn import_setup_payload(&self, path: &Path, payload: &str) -> Result<(), Error> {
+    fn import_setup_payload(
+        &self,
+        path: &Path,
+        block: &SignedBeaconBlock<E>,
+        payload: &str,
+    ) -> Result<(), Error> {
         let envelope: SignedExecutionPayloadEnvelope<E> =
             ssz_decode_file(&path.join(format!("{payload}.ssz_snappy")))?;
         let block_root = envelope.beacon_block_root();
+        if block.canonical_root() != block_root {
+            return Err(Error::FailedToParseTest(format!(
+                "setup payload references block {block_root:?}, expected {:?}",
+                block.canonical_root()
+            )));
+        }
+
+        let bid = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "setup payload block {block_root:?} is missing its bid: {e:?}"
+                ))
+            })?;
+        self.harness
+            .chain
+            .pending_payload_cache
+            .insert_bid(block_root, Arc::new(bid.clone()));
+
         let verified_envelope = self
             .block_on_dangerous(
                 self.harness
