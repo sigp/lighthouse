@@ -104,6 +104,10 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_pre_finalized/.*",
+    # Lighthouse cannot distinguish a consensus-invalid block from an unseen block when
+    # validating payload attestations. Keep this synchronized with
+    # IGNORED_PAYLOAD_ATTESTATION_CASES.
+    "tests/.*/gloas/networking/gossip_payload_attestation_message/.*/gossip_payload_attestation_message__reject_block_failed_validation/.*",
     # Bid gas-limit validation currently uses the committed bid rather than the parent payload.
     # Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.
     "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit/.*",
