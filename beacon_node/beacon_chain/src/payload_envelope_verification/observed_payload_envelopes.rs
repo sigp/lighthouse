@@ -1,4 +1,5 @@
 use crate::BeaconChainTypes;
+use crate::block_verification_types::AsBlock;
 use crate::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
@@ -29,7 +30,7 @@ impl ObservedPayloadEnvelopes {
         let message = &envelope.signed_envelope.message;
         self.seen_envelopes
             .write()
-            .entry(message.slot())
+            .entry(envelope.block.slot())
             .or_default()
             .insert((message.beacon_block_root, message.builder_index))
     }
