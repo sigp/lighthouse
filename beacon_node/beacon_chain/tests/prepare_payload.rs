@@ -4,9 +4,12 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
 };
-use beacon_chain::{ChainConfig, custody_context::NodeCustodyType};
+use beacon_chain::{
+    ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
+    graffiti_calculator::GraffitiSettings,
+};
 use bls::Keypair;
-use eth2::types::ProposerPreparationData;
+use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
@@ -237,6 +240,16 @@ async fn prepare_payload_generic(
     // `apply_parent_execution_payload`.
     let cached_head = harness.chain.canonical_head.cached_head();
     let unadvanced_empty_state = &cached_head.snapshot.beacon_state;
+    let parent_bid_block_hash = cached_head
+        .snapshot
+        .beacon_block
+        .payload_bid_block_hash()
+        .unwrap();
+    let parent_bid_parent_block_hash = cached_head
+        .snapshot
+        .beacon_block
+        .payload_bid_parent_block_hash()
+        .unwrap();
 
     let mut advanced_empty_state = unadvanced_empty_state.clone();
     complete_state_advance(&mut advanced_empty_state, None, prepare_slot, &spec).unwrap();
@@ -348,6 +361,7 @@ async fn prepare_payload_generic(
         .await
         .expect("should have cached payload attributes for prepare_slot");
 
+    let payload_attributes_withdrawals = attributes.withdrawals().unwrap().clone();
     let expected_withdrawals: Vec<Withdrawal> = if parent_payload_status == PayloadStatus::Full {
         withdrawals_advanced_full.to_vec()
     } else {
@@ -369,6 +383,68 @@ async fn prepare_payload_generic(
             target_gas_limit,
         }),
         "prepare_beacon_proposer should cache the expected V4 payload attributes for the \
+         {parent_payload_status:?} parent"
+    );
+
+    // Produce a local block using the production entry point so it independently loads the
+    // canonical state, parent payload status and parent envelope. Its envelope should use exactly
+    // the same withdrawals as the proactive payload attributes.
+    let randao_reveal =
+        harness.sign_randao_reveal(&advanced_empty_state, proposer_index, prepare_slot);
+    let graffiti_settings = GraffitiSettings::new(None, None);
+    let (
+        produced_block,
+        _post_block_state,
+        _consensus_block_value,
+        _execution_payload_value,
+        payload_contents,
+    ) = harness
+        .chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            prepare_slot,
+            graffiti_settings,
+            ProduceBlockVerification::VerifyRandao,
+            None,
+        )
+        .await
+        .unwrap();
+    let (local_envelope, _kzg_proofs, _blobs) = payload_contents.unwrap();
+
+    assert_eq!(produced_block.slot(), prepare_slot);
+    assert_eq!(produced_block.parent_root(), head_root);
+
+    let expected_execution_parent_hash = if parent_payload_status == PayloadStatus::Full {
+        parent_bid_block_hash
+    } else {
+        parent_bid_parent_block_hash
+    };
+    let produced_execution_parent_hash = produced_block
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+        .message
+        .parent_block_hash;
+    assert_eq!(
+        produced_execution_parent_hash, expected_execution_parent_hash,
+        "block production should independently select the {parent_payload_status:?} parent"
+    );
+
+    assert_eq!(local_envelope.parent_beacon_block_root, head_root);
+    assert_eq!(
+        local_envelope.beacon_block_root,
+        produced_block.canonical_root()
+    );
+    assert_eq!(
+        local_envelope.payload.parent_hash,
+        expected_execution_parent_hash
+    );
+    assert_eq!(local_envelope.payload.slot_number, prepare_slot);
+
+    let block_production_withdrawals = local_envelope.payload.withdrawals.to_vec();
+    assert_eq!(
+        block_production_withdrawals, payload_attributes_withdrawals,
+        "block production and payload attributes should use identical withdrawals for the \
          {parent_payload_status:?} parent"
     );
 }
@@ -604,10 +680,6 @@ async fn prepare_payload_on_fork_boundary(
 
 #[tokio::test]
 async fn gloas_block_production_caches_blobs_for_column_publishing() {
-    use beacon_chain::ProduceBlockVerification;
-    use beacon_chain::graffiti_calculator::GraffitiSettings;
-    use eth2::types::GraffitiPolicy;
-
     let spec = Arc::new(test_spec::<E>());
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
