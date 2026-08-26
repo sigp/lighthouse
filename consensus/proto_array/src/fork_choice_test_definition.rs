@@ -200,7 +200,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             Hash256::zero(),
                             &equivocating_indices,
-                            &equivocating_committee_weights,
+                            Some(&equivocating_committee_weights),
                             current_slot,
                             &spec,
                         )
@@ -225,7 +225,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         current_slot,
                         Hash256::zero(),
-                        &equivocating_committee_weights,
+                        Some(&equivocating_committee_weights),
                         &spec,
                         payload_status,
                         op_index,
@@ -250,7 +250,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             proposer_boost_root,
                             &equivocating_indices,
-                            &equivocating_committee_weights,
+                            Some(&equivocating_committee_weights),
                             Slot::new(0),
                             &spec,
                         )
@@ -268,7 +268,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         Slot::new(0),
                         proposer_boost_root,
-                        &equivocating_committee_weights,
+                        Some(&equivocating_committee_weights),
                         &spec,
                         payload_status,
                         op_index,
@@ -289,7 +289,7 @@ impl ForkChoiceTestDefinition {
                         &justified_balances,
                         Hash256::zero(),
                         &equivocating_indices,
-                        &equivocating_committee_weights,
+                        Some(&equivocating_committee_weights),
                         Slot::new(0),
                         &spec,
                     );
@@ -613,7 +613,7 @@ impl ForkChoiceTestDefinition {
                             &block_root,
                             current_slot.unwrap_or(last_current_slot),
                             proposer_boost_root.unwrap_or_else(Hash256::zero),
-                            &equivocating_committee_weights,
+                            Some(&equivocating_committee_weights),
                             &spec,
                         )
                         .unwrap();
@@ -679,7 +679,7 @@ fn assert_canonical_payload_status_matches_find_head(
     head: &Hash256,
     current_slot: Slot,
     proposer_boost_root: Hash256,
-    equivocating_committee_weights: &BTreeMap<Slot, u64>,
+    equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
     spec: &ChainSpec,
     expected: PayloadStatus,
     op_index: usize,
