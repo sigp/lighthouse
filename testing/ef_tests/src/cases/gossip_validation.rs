@@ -20,9 +20,9 @@ use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -369,6 +369,7 @@ impl<E: EthSpec> GossipTester<E> {
             Topic::BeaconAggregateAndProof => self.process_beacon_aggregate_and_proof(
                 path,
                 message_meta,
+                fork_name,
                 message_id.clone(),
                 peer_id,
             )?,
@@ -527,13 +528,18 @@ impl<E: EthSpec> GossipTester<E> {
         &self,
         path: &Path,
         message_meta: &MessageMeta,
+        fork_name: ForkName,
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let aggregate = ssz_decode_file::<SignedAggregateAndProofElectra<E>>(
-            &path.join(format!("{}.ssz_snappy", message_meta.message)),
-        )
-        .map(SignedAggregateAndProof::Electra)?;
+        let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
+        let aggregate = if fork_name.gloas_enabled() {
+            ssz_decode_file::<SignedAggregateAndProofGloas<E>>(&ssz_path)
+                .map(SignedAggregateAndProof::Gloas)?
+        } else {
+            ssz_decode_file::<SignedAggregateAndProofElectra<E>>(&ssz_path)
+                .map(SignedAggregateAndProof::Electra)?
+        };
         let seen_timestamp = self.set_message_time(message_meta)?;
 
         self.network_beacon_processor
@@ -869,6 +875,17 @@ impl<E: EthSpec> GossipValidation<E> {
             "accepts_last_slot_when_epoch_window_closes",
             "accepts_one_millisecond_before_slot_start",
         ];
+        const IGNORED_GLOAS_PAYLOAD_STATUS_CASES: &[&str] = &[
+            // Lighthouse does not support optimistic Gloas payload imports, so these fixtures
+            // cannot construct the optimistic payload status required by the gossip condition.
+            "gossip_beacon_attestation__ignore_payload_pending_el_validation",
+            "gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation",
+            // Lighthouse does not support optimistic Gloas payload imports, so it cannot construct
+            // the fixture's precondition: a payload that was accepted and subsequently invalidated
+            // by the execution layer. This status only changes gossip peer scoring.
+            "gossip_beacon_attestation__reject_payload_failed_el_validation",
+            "gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation",
+        ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
@@ -879,7 +896,8 @@ impl<E: EthSpec> GossipValidation<E> {
                 // These vectors require fixture history that the production-backed harness cannot
                 // construct: a retained consensus-invalid block, an unknown finalized root, or a
                 // known but unfinalized slot-zero block.
-                self.meta.blocks.iter().any(|block| block.failed)
+                IGNORED_GLOAS_PAYLOAD_STATUS_CASES.contains(&case_name)
+                    || self.meta.blocks.iter().any(|block| block.failed)
                     || matches!(
                         self.meta.finalized_checkpoint,
                         Some(FinalizedCheckpoint::Root { .. })

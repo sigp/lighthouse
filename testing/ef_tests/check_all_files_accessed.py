@@ -75,8 +75,8 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
     # Gossip validation tests target the latest stable fork.
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_attestation/.*",
-    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_beacon_attestation/.*",
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_beacon_aggregate_and_proof/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_voluntary_exit/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_bls_to_execution_change/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra|gloas)/networking/gossip_sync_committee_message/.*",
@@ -86,6 +86,19 @@ excluded_paths = [
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    # Lighthouse does not support optimistic Gloas payload imports. Keep these synchronized with
+    # IGNORED_GLOAS_PAYLOAD_STATUS_CASES in gossip_validation.rs.
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_payload_pending_el_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_payload_failed_el_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation/.*",
+    # Gloas attestation cases with production-harness limitations.
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__accepts_.*/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__accepts_.*/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
