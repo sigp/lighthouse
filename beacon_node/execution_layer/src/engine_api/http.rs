@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use crate::metrics;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
@@ -650,26 +651,51 @@ impl HttpJsonRpc {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<D, Error> {
-        let body = JsonRequestBody {
+        let request_body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
             method,
             params,
             id: json!(STATIC_ID),
         };
+        let raw_request = serde_json::to_vec(&request_body)?;
+        let request_len = raw_request.len();
 
         let mut request = self
             .client
             .post(self.url.expose_full().clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body);
+            .body(raw_request);
 
         // Generate and add a jwt token to the header if auth is defined.
         if let Some(auth) = &self.auth {
             request = request.bearer_auth(auth.generate_token()?);
         };
 
-        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
+        let response_bytes = request.send().await?.error_for_status()?.bytes().await?;
+
+        if let Some(label) = metrics::engine_method_label(method) {
+            metrics::observe_vec(
+                &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                &[
+                    label,
+                    metrics::TRANSPORT_JSON_RPC,
+                    metrics::DIRECTION_REQUEST,
+                ],
+                request_len as f64,
+            );
+            metrics::observe_vec(
+                &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                &[
+                    label,
+                    metrics::TRANSPORT_JSON_RPC,
+                    metrics::DIRECTION_RESPONSE,
+                ],
+                response_bytes.len() as f64,
+            );
+        }
+
+        let body: JsonResponseBody = serde_json::from_slice(&response_bytes)?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),

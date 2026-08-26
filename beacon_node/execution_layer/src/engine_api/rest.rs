@@ -9,6 +9,7 @@ use crate::engine_api::{
 use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3, JsonClientVersionV1};
+use crate::metrics;
 use crate::ssz_structures::{
     JsonCapabilities, SszBlobsRequest, SszBlobsResponse, SszBodiesByHashRequest, SszBodiesResponse,
     SszCapabilities, SszExecutionPayloadEnvelopeBellatrix, SszExecutionPayloadEnvelopeCapella,
@@ -163,7 +164,15 @@ impl HttpRestSsz {
         fork: Option<ForkName>,
         body: Option<Vec<u8>>,
         accept: &str,
+        method_label: Option<&'static str>,
     ) -> Result<Option<Bytes>, Error> {
+        if let (Some(label), Some(body)) = (method_label, &body) {
+            metrics::observe_vec(
+                &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                &[label, metrics::TRANSPORT_REST, metrics::DIRECTION_REQUEST],
+                body.len() as f64,
+            );
+        }
         let client = self.selected_client();
         let url = self
             .url
@@ -204,7 +213,17 @@ impl HttpRestSsz {
         }
 
         match response.status() {
-            StatusCode::OK => Ok(Some(response.bytes().await?)),
+            StatusCode::OK => {
+                let bytes = response.bytes().await?;
+                if let Some(label) = method_label {
+                    metrics::observe_vec(
+                        &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                        &[label, metrics::TRANSPORT_REST, metrics::DIRECTION_RESPONSE],
+                        bytes.len() as f64,
+                    );
+                }
+                Ok(Some(bytes))
+            }
             StatusCode::NO_CONTENT => Ok(None),
             status => {
                 let (problem, detail) = match response.json::<JsonProblem>().await {
@@ -256,7 +275,14 @@ impl HttpRestSsz {
 
     async fn fetch_ssz_capabilities(&self) -> Result<SszCapabilities, Error> {
         let body = self
-            .rest_request(Method::GET, "capabilities", None, None, APPLICATION_JSON)
+            .rest_request(
+                Method::GET,
+                "capabilities",
+                None,
+                None,
+                APPLICATION_JSON,
+                None,
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /capabilities".to_string()))?;
         let capabilities: JsonCapabilities = serde_json::from_slice(&body)?;
@@ -265,7 +291,7 @@ impl HttpRestSsz {
 
     pub async fn get_client_version_v1(&self) -> Result<Vec<ClientVersionV1>, Error> {
         let body = self
-            .rest_request(Method::GET, "identity", None, None, APPLICATION_JSON)
+            .rest_request(Method::GET, "identity", None, None, APPLICATION_JSON, None)
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /identity".to_string()))?;
         let versions: Vec<JsonClientVersionV1> = serde_json::from_slice(&body)?;
@@ -339,6 +365,7 @@ impl HttpRestSsz {
                 Some(fork),
                 Some(body),
                 OCTET_STREAM,
+                Some(metrics::NEW_PAYLOAD),
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads".to_string()))?;
@@ -368,6 +395,7 @@ impl HttpRestSsz {
                 Some(fork),
                 Some(body),
                 OCTET_STREAM,
+                Some(metrics::FORKCHOICE_UPDATED),
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /forkchoice".to_string()))?;
@@ -398,7 +426,14 @@ impl HttpRestSsz {
     ) -> Result<GetPayloadResponse<E>, Error> {
         let path = format!("payloads/0x{}", hex::encode(payload_id));
         let response = self
-            .rest_request(Method::GET, &path, Some(fork), None, OCTET_STREAM)
+            .rest_request(
+                Method::GET,
+                &path,
+                Some(fork),
+                None,
+                OCTET_STREAM,
+                Some(metrics::GET_PAYLOAD),
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads/{id}".to_string()))?;
 
@@ -414,7 +449,14 @@ impl HttpRestSsz {
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let body = SszBlobsRequest::<E>::new_blobs_request_v1(versioned_hashes)?.as_ssz_bytes();
         let Some(response) = self
-            .rest_request(Method::POST, "blobs/v2", None, Some(body), OCTET_STREAM)
+            .rest_request(
+                Method::POST,
+                "blobs/v2",
+                None,
+                Some(body),
+                OCTET_STREAM,
+                Some(metrics::GET_BLOBS_V2),
+            )
             .await?
         else {
             return Ok(None);
@@ -430,7 +472,14 @@ impl HttpRestSsz {
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
         let body = SszBlobsRequest::<E>::new_blobs_request_v1(versioned_hashes)?.as_ssz_bytes();
         let Some(response) = self
-            .rest_request(Method::POST, "blobs/v3", None, Some(body), OCTET_STREAM)
+            .rest_request(
+                Method::POST,
+                "blobs/v3",
+                None,
+                Some(body),
+                OCTET_STREAM,
+                Some(metrics::GET_BLOBS_V3),
+            )
             .await?
         else {
             return Ok(None);
@@ -457,6 +506,7 @@ impl HttpRestSsz {
                 Some(fork),
                 Some(body),
                 OCTET_STREAM,
+                Some(metrics::GET_PAYLOAD_BODIES_BY_HASH),
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies/hash".to_string()))?;
@@ -475,7 +525,14 @@ impl HttpRestSsz {
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let path = format!("bodies?from={start}&count={count}");
         let response = self
-            .rest_request(Method::GET, &path, Some(fork), None, OCTET_STREAM)
+            .rest_request(
+                Method::GET,
+                &path,
+                Some(fork),
+                None,
+                OCTET_STREAM,
+                Some(metrics::GET_PAYLOAD_BODIES_BY_RANGE),
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies".to_string()))?;
 

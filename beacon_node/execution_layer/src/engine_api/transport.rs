@@ -7,10 +7,11 @@ use crate::engine_api::{
 };
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use crate::metrics;
 use crate::rest::HttpRestSsz;
 use crate::{ClientVersionV1, HttpJsonRpc};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::warn;
 use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
@@ -58,10 +59,23 @@ impl EngineApi {
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => rest.new_payload(new_payload_request).await,
-            None => self.json_rpc.new_payload(new_payload_request).await,
-        }
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.new_payload(new_payload_request).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc.new_payload(new_payload_request).await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::NEW_PAYLOAD, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_payload<E: EthSpec>(
@@ -69,10 +83,23 @@ impl EngineApi {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => rest.get_payload(fork_name, payload_id).await,
-            None => self.json_rpc.get_payload(fork_name, payload_id).await,
-        }
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_payload(fork_name, payload_id).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc.get_payload(fork_name, payload_id).await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_PAYLOAD, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn forkchoice_updated<E: EthSpec>(
@@ -81,19 +108,30 @@ impl EngineApi {
         payload_attributes: Option<PayloadAttributes>,
         fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
-        match self.active_rest() {
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
             Some(rest) => {
                 // At most one POST /forkchoice in flight based on REST-SSZ spec.
                 let _fcu_guard = self.fcu_lock.lock().await;
-                rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes)
-                    .await
+                (
+                    metrics::TRANSPORT_REST,
+                    rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes)
+                        .await,
+                )
             }
-            None => {
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
                 self.json_rpc
                     .forkchoice_updated(forkchoice_state, payload_attributes)
-                    .await
-            }
-        }
+                    .await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::FORKCHOICE_UPDATED, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_payload_bodies_by_hash<E: EthSpec>(
@@ -101,17 +139,26 @@ impl EngineApi {
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => {
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
                 rest.get_payload_bodies_by_hash::<E>(fork, block_hashes)
-                    .await
-            }
-            None => {
+                    .await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
                 self.json_rpc
                     .get_payload_bodies_by_hash_v1(block_hashes)
-                    .await
-            }
-        }
+                    .await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_PAYLOAD_BODIES_BY_HASH, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_payload_bodies_by_range<E: EthSpec>(
@@ -120,37 +167,72 @@ impl EngineApi {
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => {
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
                 rest.get_payload_bodies_by_range::<E>(fork, start, count)
-                    .await
-            }
-            None => {
+                    .await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
                 self.json_rpc
                     .get_payload_bodies_by_range_v1(start, count)
-                    .await
-            }
-        }
+                    .await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_PAYLOAD_BODIES_BY_RANGE, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_blobs_v2<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => rest.get_blobs_v2(versioned_hashes).await,
-            None => self.json_rpc.get_blobs_v2(versioned_hashes).await,
-        }
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_blobs_v2(versioned_hashes).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc.get_blobs_v2(versioned_hashes).await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_BLOBS_V2, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_blobs_v3<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, EngineApiError> {
-        match self.active_rest() {
-            Some(rest) => rest.get_blobs_v3(versioned_hashes).await,
-            None => self.json_rpc.get_blobs_v3(versioned_hashes).await,
-        }
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_blobs_v3(versioned_hashes).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc.get_blobs_v3(versioned_hashes).await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_BLOBS_V3, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_engine_capabilities(
