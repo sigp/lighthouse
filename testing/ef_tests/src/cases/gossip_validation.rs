@@ -20,11 +20,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
-    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofElectra,
+    SignedAggregateAndProofGloas, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -426,13 +427,17 @@ impl<E: EthSpec> GossipTester<E> {
                     message_id.clone(),
                     peer_id,
                 )?,
-            Topic::DataColumnSidecar
-            | Topic::PartialDataColumnSidecar
-            | Topic::PayloadAttestationMessage => {
+            Topic::DataColumnSidecar | Topic::PartialDataColumnSidecar => {
                 return Err(Error::InternalError(format!(
                     "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
                 )));
             }
+            Topic::PayloadAttestationMessage => self.process_payload_attestation_message(
+                path,
+                message_meta,
+                message_id.clone(),
+                peer_id,
+            )?,
             Topic::ExecutionPayload => self.process_execution_payload_envelope(
                 path,
                 message_meta,
@@ -727,6 +732,28 @@ impl<E: EthSpec> GossipTester<E> {
                 message_id,
                 peer_id,
                 Arc::new(proposer_preferences),
+            );
+        Ok(())
+    }
+
+    fn process_payload_attestation_message(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let payload_attestation_message: PayloadAttestationMessage =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        self.set_message_time(message_meta)?;
+
+        self.network_beacon_processor
+            .clone()
+            .process_gossip_payload_attestation(
+                message_id,
+                peer_id,
+                Box::new(payload_attestation_message),
+                ReprocessAllowance::None,
             );
         Ok(())
     }
@@ -1080,6 +1107,11 @@ impl<E: EthSpec> GossipValidation<E> {
             "gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit",
             "gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit",
         ];
+        const IGNORED_PAYLOAD_ATTESTATION_CASES: &[&str] = &[
+            // Lighthouse does not retain a status that distinguishes a consensus-invalid block
+            // from an unseen block, so both cases are ignored as an unknown head block.
+            "gossip_payload_attestation_message__reject_block_failed_validation",
+        ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
@@ -1105,6 +1137,9 @@ impl<E: EthSpec> GossipValidation<E> {
             }
             Topic::ExecutionPayloadBid => {
                 IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.contains(&case_name)
+            }
+            Topic::PayloadAttestationMessage => {
+                IGNORED_PAYLOAD_ATTESTATION_CASES.contains(&case_name)
             }
             _ => false,
         }

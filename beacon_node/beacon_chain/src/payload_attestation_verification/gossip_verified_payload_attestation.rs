@@ -222,20 +222,33 @@ fn verify_propagation_slot_range<S: SlotClock>(
     message_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
+    let current_time = slot_clock
+        .now_duration()
         .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if message_slot > latest_permissible_slot {
+    let disparity = spec.maximum_gossip_clock_disparity();
+    let earliest_permissible_time = slot_clock
+        .start_of(message_slot)
+        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .saturating_sub(disparity);
+    let latest_permissible_time = slot_clock
+        .start_of(message_slot.saturating_add(1u64))
+        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .saturating_add(disparity);
+
+    if current_time < earliest_permissible_time {
+        let latest_permissible_slot = slot_clock
+            .now_with_future_tolerance(disparity)
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
         return Err(Error::FutureSlot {
             message_slot,
             latest_permissible_slot,
         });
     }
 
-    let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
-        .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if message_slot < earliest_permissible_slot {
+    if current_time > latest_permissible_time {
+        let earliest_permissible_slot = slot_clock
+            .now_with_past_tolerance(disparity)
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
         return Err(Error::PastSlot {
             message_slot,
             earliest_permissible_slot,
