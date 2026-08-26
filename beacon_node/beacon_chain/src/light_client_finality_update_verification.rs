@@ -2,7 +2,7 @@ use crate::{BeaconChain, BeaconChainTypes};
 use educe::Educe;
 use slot_clock::SlotClock;
 use std::time::Duration;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use types::{Hash256, LightClientFinalityUpdate, Slot};
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
@@ -12,7 +12,7 @@ use types::{Hash256, LightClientFinalityUpdate, Slot};
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum Error {
     /// The light client finality message was received is prior to one-third of slot duration passage. (with
     /// respect to the gossip clock disparity and slot clock duration).

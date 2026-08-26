@@ -30,6 +30,7 @@ use state_processing::{
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
 };
+use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
 use types::*;
@@ -44,7 +45,7 @@ macro_rules! easy_from_to {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum BeaconChainError {
     InsufficientValidators,
     UnableToReadSlot,

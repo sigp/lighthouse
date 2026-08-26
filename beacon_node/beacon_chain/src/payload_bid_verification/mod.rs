@@ -10,6 +10,7 @@
 //!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache
 //! ```
 
+use strum::IntoStaticStr;
 use types::{BeaconStateError, Hash256, Slot};
 
 pub mod gossip_verified_bid;
@@ -18,7 +19,7 @@ pub mod payload_bid_cache;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum PayloadBidError {
     /// The bid's parent block root is unknown.
     ParentBlockRootUnknown { parent_block_root: Hash256 },

@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use strum::IntoStaticStr;
 use types::{BeaconStateError, Epoch, Hash256, Slot};
 
 use crate::BeaconChainError;
@@ -22,7 +23,7 @@ pub mod proposer_preference_cache;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum ProposerPreferencesError {
     /// The proposal slot is not within the proposer lookahead.
     InvalidProposalEpoch { proposal_epoch: Epoch },

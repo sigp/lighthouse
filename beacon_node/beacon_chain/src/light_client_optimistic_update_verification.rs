@@ -3,7 +3,7 @@ use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use types::{LightClientOptimisticUpdate, Slot};
 
 /// Returned when a light client optimistic update was not successfully verified. It might not have been verified for
@@ -13,7 +13,7 @@ use types::{LightClientOptimisticUpdate, Slot};
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum Error {
     /// The light client optimistic message was received is prior to one-third of slot duration passage. (with
     /// respect to the gossip clock disparity and slot clock duration).
