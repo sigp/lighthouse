@@ -1,5 +1,4 @@
 use crate::BeaconChainTypes;
-use crate::block_verification_types::AsBlock;
 use crate::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
