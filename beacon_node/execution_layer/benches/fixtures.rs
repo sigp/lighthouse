@@ -1,6 +1,5 @@
 //! Deterministic fixtures for the engine-codec benchmarks, assembled from the
 //! reused mock-EL generators in `execution_layer::test_utils`.
-#![allow(dead_code)]
 
 use execution_layer::json_structures::*;
 use execution_layer::ssz_structures::*;
@@ -181,9 +180,10 @@ pub fn fulu_get_payload(
     });
 
     let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
-    let json = match JsonGetPayloadResponse::try_from(response).expect("json get_payload") {
-        JsonGetPayloadResponse::Fulu(inner) => inner,
-        _ => unreachable!("fulu response yields fulu json"),
+    let JsonGetPayloadResponse::Fulu(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("fulu response yields fulu json")
     };
 
     GetPayloadFixture { ssz, json }
@@ -198,9 +198,10 @@ pub fn bellatrix_get_payload(
     });
 
     let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
-    let json = match JsonGetPayloadResponse::try_from(response).expect("json get_payload") {
-        JsonGetPayloadResponse::Bellatrix(inner) => inner,
-        _ => unreachable!("bellatrix response yields bellatrix json"),
+    let JsonGetPayloadResponse::Bellatrix(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("bellatrix response yields bellatrix json")
     };
 
     GetPayloadFixture { ssz, json }
@@ -213,9 +214,10 @@ pub fn capella_get_payload(n_txs: usize) -> GetPayloadFixture<JsonGetPayloadResp
     });
 
     let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
-    let json = match JsonGetPayloadResponse::try_from(response).expect("json get_payload") {
-        JsonGetPayloadResponse::Capella(inner) => inner,
-        _ => unreachable!("capella response yields capella json"),
+    let JsonGetPayloadResponse::Capella(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("capella response yields capella json")
     };
 
     GetPayloadFixture { ssz, json }
@@ -235,9 +237,10 @@ pub fn deneb_get_payload(
     });
 
     let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
-    let json = match JsonGetPayloadResponse::try_from(response).expect("json get_payload") {
-        JsonGetPayloadResponse::Deneb(inner) => inner,
-        _ => unreachable!("deneb response yields deneb json"),
+    let JsonGetPayloadResponse::Deneb(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("deneb response yields deneb json")
     };
 
     GetPayloadFixture { ssz, json }
@@ -258,9 +261,10 @@ pub fn electra_get_payload(
     });
 
     let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
-    let json = match JsonGetPayloadResponse::try_from(response).expect("json get_payload") {
-        JsonGetPayloadResponse::Electra(inner) => inner,
-        _ => unreachable!("electra response yields electra json"),
+    let JsonGetPayloadResponse::Electra(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("electra response yields electra json")
     };
 
     GetPayloadFixture { ssz, json }
