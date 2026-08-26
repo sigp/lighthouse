@@ -4,6 +4,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::type_name::TypeName;
 use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
@@ -984,7 +985,7 @@ impl<E: EthSpec> GossipTester<E> {
                 self.harness
                     .chain
                     .clone()
-                    .verify_envelope_for_gossip(Arc::new(envelope)),
+                    .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Gossip),
             )?
             .map_err(|e| {
                 Error::InternalError(format!(
