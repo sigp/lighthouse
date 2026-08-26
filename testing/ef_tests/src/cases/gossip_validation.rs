@@ -409,13 +409,18 @@ impl<E: EthSpec> GossipTester<E> {
                 )?,
             Topic::DataColumnSidecar
             | Topic::ExecutionPayloadBid
-            | Topic::ExecutionPayload
             | Topic::PartialDataColumnSidecar
             | Topic::PayloadAttestationMessage => {
                 return Err(Error::InternalError(format!(
                     "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
                 )));
             }
+            Topic::ExecutionPayload => self.process_execution_payload_envelope(
+                path,
+                message_meta,
+                message_id.clone(),
+                peer_id,
+            )?,
             Topic::ProposerPreferences => {
                 self.process_proposer_preferences(path, message_meta, message_id.clone(), peer_id)?
             }
@@ -483,6 +488,30 @@ impl<E: EthSpec> GossipTester<E> {
         ));
 
         self.block_on_dangerous(process_fn)?;
+        Ok(())
+    }
+
+    fn process_execution_payload_envelope(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let envelope: SignedExecutionPayloadEnvelope<E> =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        let seen_duration = self.set_message_time(message_meta)?;
+
+        self.block_on_dangerous(
+            self.network_beacon_processor
+                .clone()
+                .process_gossip_execution_payload_envelope(
+                    message_id,
+                    peer_id,
+                    Arc::new(envelope),
+                    seen_duration,
+                ),
+        )?;
         Ok(())
     }
 
@@ -916,6 +945,17 @@ impl<E: EthSpec> GossipValidation<E> {
             "gossip_beacon_attestation__reject_payload_failed_el_validation",
             "gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation",
         ];
+        const IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES: &[&str] = &[
+            // Lighthouse does not retain consensus-invalid blocks, so the harness cannot construct
+            // the known-invalid block status required by this vector.
+            "gossip_execution_payload_envelope__reject_block_failed_validation",
+            // Lighthouse does not yet track gossip-valid envelopes independently of payload
+            // execution and availability.
+            "gossip_execution_payload_envelope__ignore_duplicate",
+            // The fixture overrides fork choice finalization, while production envelope validation
+            // reads the finalized checkpoint from the canonical head.
+            "gossip_execution_payload_envelope__ignore_pre_finalized",
+        ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
@@ -935,6 +975,9 @@ impl<E: EthSpec> GossipValidation<E> {
                     || UNSUPPORTED_TIMING_BOUNDARY_CASES
                         .iter()
                         .any(|suffix| case_name.ends_with(suffix))
+            }
+            Topic::ExecutionPayload => {
+                IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.contains(&case_name)
             }
             _ => false,
         }

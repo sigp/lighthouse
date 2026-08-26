@@ -99,6 +99,11 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__accepts_.*/.*",
     "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
+    # Gloas execution payload envelope cases with production-harness limitations.
+    # Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
+    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
+    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_pre_finalized/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
