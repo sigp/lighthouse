@@ -21,8 +21,8 @@ use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -70,8 +70,8 @@ struct CaseConfig {
 #[serde(deny_unknown_fields)]
 struct SetupBlock {
     block: String,
-    #[serde(default, rename = "payload")]
-    _payload: Option<String>,
+    #[serde(default)]
+    payload: Option<String>,
     #[serde(default, rename = "pending")]
     _pending: bool,
     #[serde(default)]
@@ -322,13 +322,15 @@ impl<E: EthSpec> GossipTester<E> {
             if setup_block.failed {
                 continue;
             }
-            if initial_block_index == Some(index) {
-                continue;
+            if initial_block_index != Some(index) {
+                let block = blocks.get(&setup_block.block).ok_or_else(|| {
+                    Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
+                })?;
+                self.import_setup_block(block.clone(), setup_block.payload_status)?;
             }
-            let block = blocks.get(&setup_block.block).ok_or_else(|| {
-                Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
-            })?;
-            self.import_setup_block(block.clone(), setup_block.payload_status)?;
+            if let Some(payload) = setup_block.payload.as_deref() {
+                self.import_setup_payload(&case.path, payload)?;
+            }
         }
 
         Ok(())
@@ -687,6 +689,39 @@ impl<E: EthSpec> GossipTester<E> {
                 "setup block {block_root:?} import failed: {e:?}"
             ))),
         }
+    }
+
+    fn import_setup_payload(&self, path: &Path, payload: &str) -> Result<(), Error> {
+        let envelope: SignedExecutionPayloadEnvelope<E> =
+            ssz_decode_file(&path.join(format!("{payload}.ssz_snappy")))?;
+        let block_root = envelope.beacon_block_root();
+        let verified_envelope = self
+            .block_on_dangerous(
+                self.harness
+                    .chain
+                    .clone()
+                    .verify_envelope_for_gossip(Arc::new(envelope)),
+            )?
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "setup payload for block {block_root:?} failed gossip verification: {e:?}"
+                ))
+            })?;
+
+        self.block_on_dangerous(self.harness.chain.process_execution_payload_envelope(
+            block_root,
+            verified_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        ))?
+        .map_err(|e| {
+            Error::InternalError(format!(
+                "setup payload for block {block_root:?} failed import: {e:?}"
+            ))
+        })?;
+
+        Ok(())
     }
 
     fn configure_payload_status(

@@ -332,6 +332,15 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The bid does not build on the parent's execution head when the parent is empty.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalized.
+    BidParentBlockHashMismatch {
+        bid_parent_block_hash: ExecutionBlockHash,
+        parent_execution_head: ExecutionBlockHash,
+    },
     EnvelopeError(Box<EnvelopeError>),
 }
 
@@ -957,6 +966,23 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 bid_parent_root: bid.message.parent_block_root,
                 block_parent_root: block.message().parent_root(),
             });
+        }
+
+        // [New in Gloas]: If the child does not build on the parent's full payload, its bid must
+        // build on the execution head that the parent itself used.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            let parent_is_full =
+                parent_block.execution_payload_block_hash == Some(bid.message.parent_block_hash);
+            let parent_execution_head = parent_block
+                .execution_payload_parent_hash
+                .or_else(|| parent_block.execution_status.block_hash())
+                .unwrap_or_default();
+            if !parent_is_full && bid.message.parent_block_hash != parent_execution_head {
+                return Err(BlockError::BidParentBlockHashMismatch {
+                    bid_parent_block_hash: bid.message.parent_block_hash,
+                    parent_execution_head,
+                });
+            }
         }
 
         drop(fork_choice_read_lock);
