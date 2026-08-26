@@ -90,7 +90,8 @@ mod tests {
             },
             signature: Signature::empty(),
         };
-        let block = BeaconBlock::empty(&E::default_spec());
+        let mut block = BeaconBlock::empty(&E::default_spec());
+        *block.slot_mut() = slot;
 
         GossipVerifiedEnvelope {
             signed_envelope: Arc::new(signed_envelope),
