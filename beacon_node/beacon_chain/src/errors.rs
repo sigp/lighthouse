@@ -16,6 +16,7 @@ use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
+use ssz::BitfieldError;
 use ssz_types::Error as SszTypesError;
 use state_processing::envelope_processing::EnvelopeProcessingError;
 use state_processing::{
@@ -81,6 +82,7 @@ pub enum BeaconChainError {
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
     MissingFinalizedStateRoot(Slot),
     SszTypesError(SszTypesError),
+    BitfieldError(BitfieldError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
@@ -269,6 +271,7 @@ easy_from_to!(ProposerSlashingValidationError, BeaconChainError);
 easy_from_to!(AttesterSlashingValidationError, BeaconChainError);
 easy_from_to!(BlsExecutionChangeValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
+easy_from_to!(BitfieldError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
@@ -298,6 +301,7 @@ pub enum BlockProductionError {
     EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     BeaconStateError(BeaconStateError),
+    BitfieldError(BitfieldError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
     StateSlotTooHigh {
@@ -337,6 +341,7 @@ pub enum BlockProductionError {
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
+easy_from_to!(BitfieldError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
