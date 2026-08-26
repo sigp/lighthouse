@@ -1,4 +1,4 @@
-use crate::metrics::{self, EnvelopeSource, register_process_result_metrics};
+use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
@@ -13,6 +13,7 @@ use beacon_chain::data_availability_checker::{
 };
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer,
@@ -327,7 +328,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = match self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
             .await
         {
             Ok(verified) => {
