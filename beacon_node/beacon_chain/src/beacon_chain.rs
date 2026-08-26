@@ -4622,14 +4622,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg = "Restoring fork choice from disk",
                 error = ?e,
                 "Database write failed!"
             );
-            return Err(self
-                .handle_import_block_db_write_error(fork_choice, block_root)
-                .err()
-                .unwrap_or(e.into()));
+            self.handle_import_block_db_write_error(fork_choice, block_root);
+            return Err(e.into());
         }
 
         drop(db_span);
@@ -4678,8 +4675,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Handle a database write failure during block import, which causes fork choice
     /// to contain a block that the store does not.
     ///
-    /// First, try to restore fork choice from the last version persisted to the store.
-    /// If the restore also fails, poison fork choice so that it isn't persisted and shutdown the node.
+    /// Poison fork choice so the diverged version is never persisted, and shut down the
+    /// node. On restart, the normal startup procedure loads the last consistent fork
+    /// choice from disk.
     fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
@@ -4687,44 +4685,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // defensive programming.
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
         block_root: Hash256,
-    ) -> Result<(), BlockError> {
+    ) {
+        drop(fork_choice_write_lock);
+
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        // Since the write failed, try to revert the canonical head back to what was stored
-        // in the database. This attempts to prevent inconsistency between the database and
-        // fork choice. `restore_from_store` drops the fork choice write lock.
-        match self.canonical_head.restore_from_store(
-            fork_choice_write_lock,
-            ResetPayloadStatuses::always_reset_conditionally(
-                self.config.always_reset_payload_statuses,
-            ),
-            &self.store,
-            &self.spec,
-        ) {
-            Ok(()) => {
-                warn!(
-                    ?block_root,
-                    "Restored fork choice from disk after database write failure"
-                );
-                Ok(())
-            }
-            Err(e) => {
-                self.canonical_head.poison_fork_choice();
-                crit!(
-                    ?block_root,
-                    error = ?e,
-                    advice = "restart the node to recover the last consistent fork choice from disk",
-                    "Shutting down due to database write failure"
-                );
-                if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
-                    "Database write failure during block import",
-                )) {
-                    crit!(error = ?e, "Failed to send shutdown signal");
-                }
-                Err(BlockError::BeaconChainError(Box::new(e)))
-            }
+        self.canonical_head.poison_fork_choice();
+        crit!(
+            ?block_root,
+            advice = "restart the node to recover the last consistent fork choice from disk",
+            "Shutting down due to database write failure"
+        );
+        if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
+            "Database write failure during block import",
+        )) {
+            crit!(error = ?e, "Failed to send shutdown signal");
         }
     }
 
