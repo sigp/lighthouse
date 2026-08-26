@@ -170,8 +170,8 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
         other => panic!("expected MissingBeaconBlock for the child block, got: {other:?}"),
     }
 
-    // Head recomputation cannot load the fork choice head from the store, so the head
-    // never advances to the phantom block.
+    // Head recomputation is a no-op while fork choice is poisoned, so the head never
+    // advances to the phantom block.
     harness.chain.recompute_head_at_current_slot().await;
     assert_ne!(
         harness.chain.canonical_head.cached_head().head_block_root(),
