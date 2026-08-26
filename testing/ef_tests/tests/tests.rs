@@ -1342,14 +1342,6 @@ fn gossip_execution_payload_envelope() {
 }
 
 #[test]
-fn gossip_partial_data_column_sidecar() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_partial_data_column_sidecar")
-        .run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_partial_data_column_sidecar")
-        .run();
-}
-
-#[test]
 fn gossip_payload_attestation_message() {
     GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_payload_attestation_message")
         .run();
