@@ -22,7 +22,8 @@ use types::{
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedAggregateAndProofGloas, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -73,7 +74,7 @@ struct SetupBlock {
     #[serde(default)]
     payload: Option<String>,
     #[serde(default, rename = "pending")]
-    _pending: bool,
+    pending: bool,
     #[serde(default)]
     failed: bool,
     #[serde(default)]
@@ -319,19 +320,25 @@ impl<E: EthSpec> GossipTester<E> {
         initial_block_index: Option<usize>,
     ) -> Result<(), Error> {
         for (index, setup_block) in case.meta.blocks.iter().enumerate() {
-            if setup_block.failed {
+            if setup_block.failed || setup_block.pending {
                 continue;
             }
             let block = blocks.get(&setup_block.block).ok_or_else(|| {
                 Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
             })?;
             if initial_block_index != Some(index) {
+                let block_time_ms = slot_time_ms(block.slot(), &self.spec)?;
+                if block_time_ms > self.current_time_ms {
+                    self.set_time_ms(block_time_ms)?;
+                }
                 self.import_setup_block(block.clone(), setup_block.payload_status)?;
             }
             if let Some(payload) = setup_block.payload.as_deref() {
                 self.import_setup_payload(&case.path, block, payload)?;
             }
         }
+
+        self.set_time_ms(self.current_time_ms)?;
 
         Ok(())
     }
@@ -404,11 +411,13 @@ impl<E: EthSpec> GossipTester<E> {
             | Topic::ExecutionPayloadBid
             | Topic::ExecutionPayload
             | Topic::PartialDataColumnSidecar
-            | Topic::PayloadAttestationMessage
-            | Topic::ProposerPreferences => {
+            | Topic::PayloadAttestationMessage => {
                 return Err(Error::InternalError(format!(
                     "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
                 )));
+            }
+            Topic::ProposerPreferences => {
+                self.process_proposer_preferences(path, message_meta, message_id.clone(), peer_id)?
             }
         }
 
@@ -592,6 +601,27 @@ impl<E: EthSpec> GossipTester<E> {
                 sync_message,
                 subnet_id,
                 seen_timestamp,
+            );
+        Ok(())
+    }
+
+    fn process_proposer_preferences(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let proposer_preferences: SignedProposerPreferences =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        self.set_message_time(message_meta)?;
+
+        self.network_beacon_processor
+            .clone()
+            .process_gossip_proposer_preferences(
+                message_id,
+                peer_id,
+                Arc::new(proposer_preferences),
             );
         Ok(())
     }
