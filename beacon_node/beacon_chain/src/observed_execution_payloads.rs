@@ -1,210 +1,67 @@
+use hashlink::lru_cache::LruCache;
 use parking_lot::RwLock;
-use proto_array::Block as ProtoBlock;
-use std::collections::{HashMap, HashSet};
-use tracing::warn;
-use types::{ExecPayload, ExecutionBlockHash, Hash256, Slot};
+use types::{ExecPayload, ExecutionBlockHash};
 
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, beacon_chain::BeaconForkChoice};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
-/// Gas limits from execution payloads observed through gossip or another trusted source.
-#[derive(Default)]
+/// At one payload per slot, this holds 32 mainnet epochs. Empty blocks do not use entries.
+const PAYLOAD_GAS_LIMIT_CACHE_CAPACITY: usize = 1_024;
+
+/// Gas limits from execution payloads observed during gossip validation, import, or startup.
 pub struct ObservedExecutionPayloads {
-    gas_limits: RwLock<HashMap<ExecutionBlockHash, u64>>,
+    gas_limits: RwLock<LruCache<ExecutionBlockHash, u64>>,
+}
+
+impl Default for ObservedExecutionPayloads {
+    fn default() -> Self {
+        Self {
+            gas_limits: RwLock::new(LruCache::new(PAYLOAD_GAS_LIMIT_CACHE_CAPACITY)),
+        }
+    }
 }
 
 impl ObservedExecutionPayloads {
     pub fn get_gas_limit(&self, block_hash: ExecutionBlockHash) -> Option<u64> {
-        self.gas_limits.read().get(&block_hash).copied()
+        self.gas_limits.read().peek(&block_hash).copied()
     }
 
     pub(crate) fn insert(&self, block_hash: ExecutionBlockHash, gas_limit: u64) {
-        self.gas_limits
-            .write()
-            .entry(block_hash)
-            .or_insert(gas_limit);
-    }
-
-    pub(crate) fn retain(&self, block_hashes: &HashSet<ExecutionBlockHash>) {
-        self.gas_limits
-            .write()
-            .retain(|block_hash, _| block_hashes.contains(block_hash));
-    }
-}
-
-enum StoredPayloadSource {
-    GloasGenesis {
-        block_root: Hash256,
-        expected_block_hash: ExecutionBlockHash,
-    },
-    GloasEnvelope {
-        block_root: Hash256,
-        expected_block_hash: ExecutionBlockHash,
-    },
-    PreGloasBlock {
-        block_root: Hash256,
-        expected_block_hash: ExecutionBlockHash,
-    },
-}
-
-fn stored_payload_source(block: &ProtoBlock) -> Option<StoredPayloadSource> {
-    if let (Some(parent_block_hash), Some(block_hash)) = (
-        block.execution_payload_parent_hash,
-        block.execution_payload_block_hash,
-    ) {
-        if block.slot == Slot::new(0) {
-            return Some(StoredPayloadSource::GloasGenesis {
-                block_root: block.root,
-                expected_block_hash: parent_block_hash,
-            });
+        let mut gas_limits = self.gas_limits.write();
+        if !gas_limits.contains_key(&block_hash) {
+            gas_limits.insert(block_hash, gas_limit);
         }
-
-        if block.payload_received {
-            return Some(StoredPayloadSource::GloasEnvelope {
-                block_root: block.root,
-                expected_block_hash: block_hash,
-            });
-        }
-
-        return None;
     }
-
-    if block.execution_status.is_invalid() {
-        return None;
-    }
-    block
-        .execution_status
-        .block_hash()
-        .map(|expected_block_hash| StoredPayloadSource::PreGloasBlock {
-            block_root: block.root,
-            expected_block_hash,
-        })
-}
-
-pub(crate) fn referenced_execution_payload_hashes<T: BeaconChainTypes>(
-    fork_choice: &BeaconForkChoice<T>,
-) -> HashSet<ExecutionBlockHash> {
-    fork_choice
-        .proto_array()
-        .blocks()
-        .flat_map(|block| {
-            [
-                block.execution_payload_parent_hash,
-                block.execution_payload_block_hash,
-                block.execution_status.block_hash(),
-            ]
-            .into_iter()
-            .flatten()
-        })
-        .collect()
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Restore gas limits available directly from payloads retained with fork choice.
+    /// Seed the cache from the head when its payload is directly available.
     pub(crate) fn initialize_observed_execution_payloads(&self) -> Result<(), BeaconChainError> {
-        let sources = {
-            let fork_choice = self.canonical_head.fork_choice_read_lock();
-            fork_choice
-                .proto_array()
-                .blocks()
-                .filter_map(|block| stored_payload_source(&block))
-                .collect::<Vec<_>>()
-        };
+        if !self.spec.is_gloas_scheduled() {
+            return Ok(());
+        }
 
-        for source in sources {
-            match source {
-                StoredPayloadSource::GloasGenesis {
-                    block_root,
-                    expected_block_hash,
-                } => {
-                    let Some(block) = self
-                        .store
-                        .get_blinded_block(&block_root)
-                        .map_err(BeaconChainError::DBError)?
-                    else {
-                        warn!(
-                            ?block_root,
-                            "Unable to restore execution payload gas limit: block missing"
-                        );
-                        continue;
-                    };
-                    let bid = &block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()
-                        .map_err(BeaconChainError::BeaconStateError)?
-                        .message;
-                    if bid.parent_block_hash == expected_block_hash {
-                        self.observed_execution_payloads
-                            .insert(bid.parent_block_hash, bid.gas_limit);
-                    } else {
-                        warn!(
-                            ?block_root,
-                            %expected_block_hash,
-                            actual_block_hash = %bid.parent_block_hash,
-                            "Unable to restore execution payload gas limit: block hash mismatch"
-                        );
-                    }
-                }
-                StoredPayloadSource::GloasEnvelope {
-                    block_root,
-                    expected_block_hash,
-                } => {
-                    let Some(envelope) = self
-                        .store
-                        .get_payload_envelope(&block_root)
-                        .map_err(BeaconChainError::DBError)?
-                    else {
-                        warn!(
-                            ?block_root,
-                            "Unable to restore execution payload gas limit: envelope missing"
-                        );
-                        continue;
-                    };
-                    let payload = &envelope.message.payload;
-                    if payload.block_hash == expected_block_hash {
-                        self.observed_execution_payloads
-                            .insert(payload.block_hash, payload.gas_limit);
-                    } else {
-                        warn!(
-                            ?block_root,
-                            %expected_block_hash,
-                            actual_block_hash = %payload.block_hash,
-                            "Unable to restore execution payload gas limit: envelope hash mismatch"
-                        );
-                    }
-                }
-                StoredPayloadSource::PreGloasBlock {
-                    block_root,
-                    expected_block_hash,
-                } => {
-                    let Some(block) = self
-                        .store
-                        .get_blinded_block(&block_root)
-                        .map_err(BeaconChainError::DBError)?
-                    else {
-                        warn!(
-                            ?block_root,
-                            "Unable to restore execution payload gas limit: block missing"
-                        );
-                        continue;
-                    };
-                    let payload = block
-                        .message()
-                        .execution_payload()
-                        .map_err(BeaconChainError::BeaconStateError)?;
-                    if payload.block_hash() == expected_block_hash {
-                        self.observed_execution_payloads
-                            .insert(payload.block_hash(), payload.gas_limit());
-                    } else {
-                        warn!(
-                            ?block_root,
-                            %expected_block_hash,
-                            actual_block_hash = %payload.block_hash(),
-                            "Unable to restore execution payload gas limit: block hash mismatch"
-                        );
-                    }
-                }
+        let head = self.canonical_head.cached_head();
+        let block = head.snapshot.beacon_block.message();
+
+        if !block.fork_name_unchecked().gloas_enabled() {
+            if let Ok(payload) = block.body().execution_payload()
+                && payload.block_hash() != ExecutionBlockHash::zero()
+            {
+                self.observed_execution_payloads
+                    .insert(payload.block_hash(), payload.gas_limit());
             }
+        } else if block.slot() == self.spec.genesis_slot {
+            let bid = &block
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(BeaconChainError::BeaconStateError)?
+                .message;
+            self.observed_execution_payloads
+                .insert(bid.parent_block_hash, bid.gas_limit);
+        } else if let Some(envelope) = head.snapshot.execution_envelope.as_ref() {
+            let payload = &envelope.message.payload;
+            self.observed_execution_payloads
+                .insert(payload.block_hash, payload.gas_limit);
         }
 
         Ok(())
@@ -213,34 +70,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use fixed_bytes::FixedBytesExtended;
+    use types::{ExecutionBlockHash, Hash256};
 
-    use types::ExecutionBlockHash;
-
-    use super::ObservedExecutionPayloads;
+    use super::{ObservedExecutionPayloads, PAYLOAD_GAS_LIMIT_CACHE_CAPACITY};
 
     #[test]
-    fn retains_only_referenced_payloads() {
+    fn evicts_oldest_payload_when_full() {
         let payloads = ObservedExecutionPayloads::default();
-        let retained = ExecutionBlockHash::repeat_byte(0x01);
-        let pruned = ExecutionBlockHash::repeat_byte(0x02);
+        let oldest = execution_block_hash(0);
 
-        payloads.insert(retained, 30_000_000);
-        payloads.insert(pruned, 36_000_000);
-        payloads.retain(&HashSet::from([retained]));
+        for value in 0..=PAYLOAD_GAS_LIMIT_CACHE_CAPACITY as u64 {
+            payloads.insert(execution_block_hash(value), value);
+        }
 
-        assert_eq!(payloads.get_gas_limit(retained), Some(30_000_000));
-        assert_eq!(payloads.get_gas_limit(pruned), None);
+        assert_eq!(
+            payloads.gas_limits.read().len(),
+            PAYLOAD_GAS_LIMIT_CACHE_CAPACITY
+        );
+        assert_eq!(payloads.get_gas_limit(oldest), None);
+        assert_eq!(
+            payloads.get_gas_limit(execution_block_hash(
+                PAYLOAD_GAS_LIMIT_CACHE_CAPACITY as u64
+            )),
+            Some(PAYLOAD_GAS_LIMIT_CACHE_CAPACITY as u64)
+        );
     }
 
     #[test]
     fn keeps_first_gas_limit_for_execution_block_hash() {
         let payloads = ObservedExecutionPayloads::default();
-        let block_hash = ExecutionBlockHash::repeat_byte(0x01);
+        let block_hash = execution_block_hash(1);
 
         payloads.insert(block_hash, 30_000_000);
         payloads.insert(block_hash, 36_000_000);
 
         assert_eq!(payloads.get_gas_limit(block_hash), Some(30_000_000));
+    }
+
+    fn execution_block_hash(value: u64) -> ExecutionBlockHash {
+        ExecutionBlockHash::from_root(Hash256::from_low_u64_be(value))
     }
 }

@@ -35,7 +35,6 @@
 //! stack.
 
 use crate::chain_config::FastConfirmationMode;
-use crate::observed_execution_payloads::referenced_execution_payload_hashes;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::state_advance_timer::MAX_ADVANCE_DISTANCE;
@@ -1681,17 +1680,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_prune_blobs(data_availability_boundary);
         }
 
-        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-        let node_count_before_pruning = fork_choice.proto_array().len();
-        fork_choice.prune()?;
-        if fork_choice.proto_array().len() < node_count_before_pruning {
-            // Keep fork choice locked through cache pruning so an import cannot insert a payload
-            // that is absent from the retained-hash snapshot. Other paths release fork choice
-            // before taking the payload-cache lock, so there is no reverse lock order.
-            let retained_payload_hashes = referenced_execution_payload_hashes::<T>(&fork_choice);
-            self.observed_execution_payloads
-                .retain(&retained_payload_hashes);
-        }
+        // Take a write-lock on the canonical head and signal for it to prune.
+        self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
     }

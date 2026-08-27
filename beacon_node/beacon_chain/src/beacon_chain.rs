@@ -4642,7 +4642,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(fork_choice);
 
         // Keep pre-Gloas payloads available across a live transition to Gloas.
-        if !block.fork_name_unchecked().gloas_enabled()
+        if self.spec.is_gloas_scheduled()
+            && !block.fork_name_unchecked().gloas_enabled()
             && let Ok(payload) = block.body().execution_payload()
             && payload.block_hash() != ExecutionBlockHash::zero()
         {

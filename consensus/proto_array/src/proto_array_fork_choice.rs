@@ -940,14 +940,6 @@ impl ProtoArrayForkChoice {
         self.proto_array.nodes.is_empty()
     }
 
-    /// Iterate over all blocks currently retained in fork choice.
-    pub fn blocks(&self) -> impl Iterator<Item = Block> + '_ {
-        self.proto_array
-            .nodes
-            .iter()
-            .map(|node| self.proto_node_to_block(node))
-    }
-
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
         self.proto_array.indices.contains_key(block_root)
     }

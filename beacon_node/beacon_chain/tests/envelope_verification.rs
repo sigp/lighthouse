@@ -1,15 +1,46 @@
 use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
-use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env};
+use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use std::sync::Arc;
-use types::{Address, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
+use types::{Address, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
 
 type E = MinimalEthSpec;
 
 #[tokio::test]
 async fn pre_gloas_block_import_records_payload_gas_limit() {
+    if fork_name_from_env() != Some(ForkName::Fulu) {
+        return;
+    }
+
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(1));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let head = harness.chain.head_beacon_block();
+    let payload = head
+        .message()
+        .execution_payload()
+        .expect("Fulu block should contain an execution payload");
+    assert_eq!(
+        harness
+            .chain
+            .observed_execution_payloads
+            .get_gas_limit(payload.block_hash()),
+        Some(payload.gas_limit())
+    );
+}
+
+#[tokio::test]
+async fn pre_gloas_block_import_skips_cache_without_scheduled_gloas() {
     if fork_name_from_env() != Some(ForkName::Fulu) {
         return;
     }
@@ -33,7 +64,7 @@ async fn pre_gloas_block_import_records_payload_gas_limit() {
             .chain
             .observed_execution_payloads
             .get_gas_limit(payload.block_hash()),
-        Some(payload.gas_limit())
+        None
     );
 }
 
