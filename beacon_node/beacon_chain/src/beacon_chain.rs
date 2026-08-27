@@ -6689,6 +6689,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
                 slot_number,
                 target_gas_limit,
+                None, // TODO(heze): add inclusion list transactions
             );
 
             execution_layer

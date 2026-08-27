@@ -1157,6 +1157,7 @@ where
         Some(parent_beacon_block_root),
         slot_number,
         Some(target_gas_limit),
+        None, // TODO(heze): add inclusion list transactions
     );
     let payload_parameters = PayloadParameters {
         parent_hash: parent_block_hash,

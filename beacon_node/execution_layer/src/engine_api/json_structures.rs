@@ -905,7 +905,7 @@ impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V4, V5),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
@@ -921,16 +921,18 @@ pub struct JsonPayloadAttributes {
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3, V4))]
+    #[superstruct(only(V2, V3, V4, V5))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(V3, V4))]
+    #[superstruct(only(V3, V4, V5))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub target_gas_limit: u64,
+    #[superstruct(only(V5))]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -962,6 +964,16 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 parent_beacon_block_root: pa.parent_beacon_block_root,
                 slot_number: pa.slot_number,
                 target_gas_limit: pa.target_gas_limit,
+            }),
+            PayloadAttributes::V5(pa) => Self::V5(JsonPayloadAttributesV5 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: pa.parent_beacon_block_root,
+                slot_number: pa.slot_number,
+                target_gas_limit: pa.target_gas_limit,
+                inclusion_list_transactions: pa.inclusion_list_transactions,
             }),
         }
     }
@@ -996,6 +1008,16 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
                 slot_number: jpa.slot_number,
                 target_gas_limit: jpa.target_gas_limit,
+            }),
+            JsonPayloadAttributes::V5(jpa) => Self::V5(PayloadAttributesV5 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: jpa.parent_beacon_block_root,
+                slot_number: jpa.slot_number,
+                target_gas_limit: jpa.target_gas_limit,
+                inclusion_list_transactions: jpa.inclusion_list_transactions,
             }),
         }
     }

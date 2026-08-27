@@ -1504,6 +1504,9 @@ impl HttpJsonRpc {
                         ))
                     }
                 }
+                PayloadAttributes::V5(_) => {
+                    todo!("engine_forkchoiceUpdatedV5 not yet wired up");
+                }
             }
         } else if engine_capabilities.forkchoice_updated_v4 {
             self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)

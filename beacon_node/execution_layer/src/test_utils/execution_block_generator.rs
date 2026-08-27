@@ -803,6 +803,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V5(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
