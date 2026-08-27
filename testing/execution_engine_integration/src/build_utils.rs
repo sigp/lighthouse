@@ -59,7 +59,7 @@ pub fn checkout(repo_dir: &Path, revision_or_branch: &str) -> Result<(), String>
 }
 
 /// Gets the last annotated tag of the given repo.
-pub fn get_latest_release_geth(repo_dir: &Path, branch_name: &str) -> Result<String, String> {
+pub fn get_latest_release(repo_dir: &Path, branch_name: &str) -> Result<String, String> {
     // If the directory was already present it is possible we don't have the most recent tags.
     // Fetch them
     output_to_result(
@@ -86,52 +86,6 @@ pub fn get_latest_release_geth(repo_dir: &Path, branch_name: &str) -> Result<Str
             tag.trim().to_string()
         },
     )
-}
-
-/// Gets the latest stable `MAJOR.MINOR.PATCH` tag of the given repo, independent of branches.
-///
-/// Useful for repos that tag releases on per-release branches rather than a long-lived
-/// development branch (where [`get_latest_release_geth`] would not find them via `git describe`).
-pub fn get_latest_release_nethermind(repo_dir: &Path) -> Result<String, String> {
-    // If the directory was already present it is possible we don't have the most recent tags.
-    // Fetch them
-    output_to_result(
-        Command::new("git")
-            .arg("fetch")
-            .arg("--tags")
-            .arg("--force")
-            .arg("--prune")
-            .current_dir(repo_dir)
-            .output()
-            .map_err(|e| format!("Failed to fetch tags for {repo_dir:?}: Err: {e}"))?,
-        |_| {},
-    )?;
-    let tags = output_to_result(
-        Command::new("git")
-            .arg("tag")
-            .arg("--list")
-            .arg("--sort=-v:refname")
-            .current_dir(repo_dir)
-            .output()
-            .map_err(|e| format!("Failed to list tags for {repo_dir:?}: Err: {e}"))?,
-        |stdout| String::from_utf8_lossy(&stdout).into_owned(),
-    )?;
-    tags.lines()
-        .map(str::trim)
-        .find(|tag| is_stable_semver(tag))
-        .map(str::to_string)
-        .ok_or_else(|| format!("No stable release tag found in {repo_dir:?}"))
-}
-
-/// Returns `true` if `tag` looks like a stable `MAJOR.MINOR.PATCH` version.
-///
-/// This will prevent pulling versions such as `1.37.0-alpha` and `1.37.0-unstable`.
-fn is_stable_semver(tag: &str) -> bool {
-    let parts: Vec<&str> = tag.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 #[allow(dead_code)]
@@ -180,54 +134,5 @@ pub fn build_stdio() -> Stdio {
         Stdio::null()
     } else {
         Stdio::inherit()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_stable_semver_accepts_valid() {
-        assert!(is_stable_semver("1.37.2"));
-        assert!(is_stable_semver("0.0.0"));
-        assert!(is_stable_semver("1.0.0"));
-        assert!(is_stable_semver("10.20.30"));
-        assert!(is_stable_semver("100.200.300"));
-    }
-
-    #[test]
-    fn test_is_stable_semver_rejects_prerelease() {
-        assert!(!is_stable_semver("1.37.0-rc"));
-        assert!(!is_stable_semver("1.37.0-rc1"));
-        assert!(!is_stable_semver("1.37.0-alpha"));
-        assert!(!is_stable_semver("1.37.0-beta"));
-        assert!(!is_stable_semver("1.37.0-unstable"));
-    }
-
-    #[test]
-    fn test_is_stable_semver_rejects_wrong_arity() {
-        assert!(!is_stable_semver(""));
-        assert!(!is_stable_semver("1"));
-        assert!(!is_stable_semver("1.0"));
-        assert!(!is_stable_semver("1.0.0.0"));
-        assert!(!is_stable_semver("1.35.2.1"));
-    }
-
-    #[test]
-    fn test_is_stable_semver_rejects_non_numeric() {
-        assert!(!is_stable_semver("v1.0.0"));
-        assert!(!is_stable_semver("1.a.0"));
-        assert!(!is_stable_semver("abc"));
-        assert!(!is_stable_semver("1..0"));
-        assert!(!is_stable_semver(".1.0"));
-        assert!(!is_stable_semver("1.0."));
-    }
-
-    #[test]
-    fn test_is_stable_semver_rejects_whitespace() {
-        assert!(!is_stable_semver(" 1.0.0"));
-        assert!(!is_stable_semver("1.0.0 "));
-        assert!(!is_stable_semver("1. 0.0"));
     }
 }

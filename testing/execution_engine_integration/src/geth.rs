@@ -31,7 +31,7 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    let last_release = build_utils::get_latest_release_geth(&repo_dir, GETH_BRANCH).unwrap();
+    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth

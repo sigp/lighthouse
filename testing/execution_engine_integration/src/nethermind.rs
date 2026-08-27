@@ -8,12 +8,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
 
+/// The Nethermind version is pinned so the test is reproducible. Bump this manually when a newer
+/// release is needed.
+const NETHERMIND_BRANCH: &str = "release/1.39.3";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.Runner/Nethermind.Runner.csproj")
+        .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
         .current_dir(repo_dir)
@@ -29,8 +32,8 @@ pub fn build(execution_clients_dir: &Path) {
         build_utils::clone_repo(execution_clients_dir, NETHERMIND_REPO_URL).unwrap()
     }
 
-    // Get the latest stable release tag
-    let last_release = build_utils::get_latest_release_nethermind(&repo_dir).unwrap();
+    // Get the latest tag on the pinned release branch
+    let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
