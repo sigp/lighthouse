@@ -2718,6 +2718,16 @@ mod release_tests {
         )
         .unwrap();
 
+        // Set the parent slot payload availability so attestation packing can correctly score head votes.
+        let parent_slot = advanced_state.latest_execution_payload_bid().unwrap().slot;
+        let availability_index =
+            parent_slot.as_usize() % MinimalEthSpec::slots_per_historical_root();
+        advanced_state
+            .execution_payload_availability_mut()
+            .unwrap()
+            .set(availability_index, true)
+            .unwrap();
+
         let attestations = op_pool
             .get_attestations(&advanced_state, |_| true, |_| true, &spec)
             .unwrap();
