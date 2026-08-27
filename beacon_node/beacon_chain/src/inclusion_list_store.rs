@@ -66,8 +66,10 @@ pub struct InclusionListStore<E: EthSpec> {
 
 impl<E: EthSpec> InclusionListStore<E> {
     pub fn new(spec: &ChainSpec) -> Self {
+        // `heze_fork_epoch` holds the far future sentinel when Heze is unscheduled.
         let first_heze_slot = spec
             .heze_fork_epoch
+            .filter(|_| spec.is_heze_scheduled())
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()))
             .unwrap_or_else(|| Slot::new(0));
         Self {
@@ -285,7 +287,9 @@ mod tests {
     use super::{DependentRoot, InclusionListStore, InsertOutcome};
     use bls::Signature;
     use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
-    use types::{EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, Slot};
+    use types::{
+        Epoch, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, Slot,
+    };
 
     type E = MinimalEthSpec;
 
@@ -512,6 +516,40 @@ mod tests {
             store
                 .get_inclusion_list_transactions(Slot::new(10), dr, false)
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn floor_starts_at_the_first_heze_slot() {
+        let mut spec = E::default_spec();
+        spec.heze_fork_epoch = Some(Epoch::new(4));
+        let mut store = InclusionListStore::<E>::new(&spec);
+        let first_heze_slot = Epoch::new(4).start_slot(E::slots_per_epoch());
+        let dr = root(1);
+
+        assert_eq!(
+            store.process_inclusion_list(
+                signed_il(first_heze_slot.as_u64() - 1, 1, dr, &[0xaa]),
+                true
+            ),
+            InsertOutcome::Old
+        );
+        assert_eq!(
+            store.process_inclusion_list(signed_il(first_heze_slot.as_u64(), 1, dr, &[0xaa]), true),
+            InsertOutcome::New
+        );
+    }
+
+    /// The far future sentinel must not become the floor.
+    #[test]
+    fn unscheduled_heze_leaves_the_floor_at_zero() {
+        let mut spec = E::default_spec();
+        spec.heze_fork_epoch = Some(spec.far_future_epoch);
+        let mut store = InclusionListStore::<E>::new(&spec);
+
+        assert_eq!(
+            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            InsertOutcome::New
         );
     }
 }
