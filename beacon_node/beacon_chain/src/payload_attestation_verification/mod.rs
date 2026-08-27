@@ -32,20 +32,14 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
-    FutureSlot {
-        message_slot: Slot,
-        latest_permissible_slot: Slot,
-    },
+    FutureSlot { message_slot: Slot },
     /// The payload attestation message is from a slot that is prior to the earliest
     /// permissible slot (with respect to the gossip clock disparity).
     ///
     /// ## Peer scoring
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
-    PastSlot {
-        message_slot: Slot,
-        earliest_permissible_slot: Slot,
-    },
+    PastSlot { message_slot: Slot },
     /// We have already observed a valid payload attestation message from this validator
     /// for this slot.
     ///

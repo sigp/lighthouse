@@ -90,17 +90,20 @@ fn verify_bid_slot_range<S: SlotClock>(
     let current_time = slot_clock
         .now_duration()
         .ok_or(PayloadBidError::UnableToReadSlot)?;
-    let disparity = spec.maximum_gossip_clock_disparity();
     let earliest_permissible_time = slot_clock
         .start_of(bid_slot.saturating_sub(1u64))
         .ok_or(PayloadBidError::UnableToReadSlot)?
-        .saturating_sub(disparity);
+        .saturating_sub(spec.maximum_gossip_clock_disparity());
     let latest_permissible_time = slot_clock
         .start_of(bid_slot.saturating_add(1u64))
         .ok_or(PayloadBidError::UnableToReadSlot)?
-        .saturating_add(disparity);
+        .saturating_add(spec.maximum_gossip_clock_disparity());
 
-    if current_time < earliest_permissible_time || current_time > latest_permissible_time {
+    if current_time < earliest_permissible_time {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
+    }
+
+    if current_time > latest_permissible_time {
         return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
@@ -448,10 +451,11 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::is_gas_limit_target_compatible;
+    use super::{is_gas_limit_target_compatible, verify_bid_slot_range};
     use bls::Signature;
     use kzg::KzgCommitment;
     use ssz_types::ProgressiveVariableList;
+    use std::time::Duration;
     use types::{
         Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
         ProposerPreferences, SignedProposerPreferences, Slot,
@@ -459,6 +463,7 @@ mod tests {
 
     use super::verify_bid_consistency;
     use crate::payload_bid_verification::PayloadBidError;
+    use crate::slot_clock::{SlotClock, TestingSlotClock};
 
     type E = MinimalEthSpec;
 
@@ -490,6 +495,27 @@ mod tests {
         let spec = E::default_spec();
         let state = BeaconState::new(0, <_>::default(), &spec);
         (state, spec)
+    }
+
+    #[test]
+    fn test_bid_slot_upper_disparity_boundary() {
+        let spec = E::default_spec();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let bid_slot = Slot::new(100);
+        let upper_boundary = slot_clock
+            .start_of(bid_slot.saturating_add(1u64))
+            .unwrap()
+            .saturating_add(spec.maximum_gossip_clock_disparity());
+
+        slot_clock.set_current_time(upper_boundary);
+        assert!(verify_bid_slot_range(&slot_clock, bid_slot, &spec).is_ok());
+
+        slot_clock.set_current_time(upper_boundary.saturating_add(Duration::from_millis(1)));
+        assert!(matches!(
+            verify_bid_slot_range(&slot_clock, bid_slot, &spec),
+            Err(PayloadBidError::InvalidBidSlot { .. })
+        ));
     }
 
     #[test]
