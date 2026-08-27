@@ -417,7 +417,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             // infinity pubkey, so the state roots cannot match.
             "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
         ];
-        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str()) {
+        // Lighthouse permits epoch-boundary proposer re-orgs on all forks. The proposer lookahead
+        // introduced in Fulu makes this consistent with the specification from Fulu onward.
+        // See: https://github.com/ethereum/consensus-specs/pull/5547
+        const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
+
+        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
+            || (!fork_name.fulu_enabled()
+                && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
+        {
             return Err(Error::SkippedKnownFailure);
         }
 

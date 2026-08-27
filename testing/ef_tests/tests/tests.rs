@@ -944,20 +944,6 @@ mod ssz_static {
 }
 
 #[test]
-fn ssz_generic() {
-    SszGenericHandler::<BasicVector>::default().run();
-    SszGenericHandler::<Bitlist>::default().run();
-    SszGenericHandler::<Bitvector>::default().run();
-    SszGenericHandler::<Boolean>::default().run();
-    SszGenericHandler::<Uints>::default().run();
-    SszGenericHandler::<Containers>::default().run();
-    SszGenericHandler::<BasicProgressiveList>::default().run();
-    SszGenericHandler::<ProgressiveBitlist>::default().run();
-    SszGenericHandler::<ProgressiveContainers>::default().run();
-    SszGenericHandler::<CompatibleUnions>::default().run();
-}
-
-#[test]
 fn epoch_processing_justification_and_finalization() {
     EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::default().run();

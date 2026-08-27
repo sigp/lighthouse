@@ -178,6 +178,10 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
+    ///
+    /// Both variants intentionally carry the whole test harness (`Ok` to continue, `Err` to stop
+    /// with the state at that point), so boxing only the error would not shrink anything useful.
+    #[allow(clippy::result_large_err)]
     pub async fn apply_blocks_while<F>(self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(BeaconBlockRef<'_, E>, &BeaconState<E>) -> bool,

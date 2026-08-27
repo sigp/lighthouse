@@ -4,14 +4,17 @@ use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
+use std::marker::PhantomData;
 use std::{collections::HashMap, mem};
 use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder, BuilderPendingPayment,
-    ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork, PendingDeposit,
-    consts::gloas::PAYLOAD_BUILDER_VERSION, is_builder_withdrawal_credential,
+    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment,
+    ChainSpec, DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
+    PendingDeposit, ProgressiveKzgCommitments,
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
+    is_builder_withdrawal_credential,
 };
 
 /// Controls how builder deposit signatures are verified during `upgrade_to_gloas`.
@@ -117,10 +120,19 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
         latest_execution_payload_bid: ExecutionPayloadBid {
+            parent_block_hash: pre.latest_execution_payload_header.parent_hash,
+            parent_block_root: pre.latest_block_header.parent_root,
             block_hash: pre.latest_execution_payload_header.block_hash,
+            prev_randao: pre.latest_execution_payload_header.prev_randao,
+            fee_recipient: Address::ZERO,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
+            builder_index: BUILDER_INDEX_SELF_BUILD,
+            slot: pre.latest_block_header.slot,
+            value: 0,
+            execution_payment: 0,
+            blob_kzg_commitments: ProgressiveKzgCommitments::default(),
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
-            ..Default::default()
+            _phantom: PhantomData,
         },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,

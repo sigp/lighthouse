@@ -6,15 +6,16 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        OP_POOL_DB_KEY,
+        MakeAttestationOptions, OP_POOL_DB_KEY,
     },
 };
 use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
 use state_processing::GloasVerificationContext;
+use state_processing::common::get_attesting_indices_from_state;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use types::{
     BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint,
     DEFAULT_PRE_ELECTRA_WS_PERIOD, EthSpec, ForkName, Hash256, MainnetEthSpec, MinimalEthSpec,
@@ -529,6 +530,105 @@ async fn does_not_finalize_without_attestation() {
         state.finalized_checkpoint().epoch,
         0,
         "no epoch should have been finalized"
+    );
+}
+
+/// Checks that block production ranks attestations that vote for an available parent payload
+/// (`data.index == 1`) above ones that vote for the same block without it, when the op pool
+/// holds more attestations than fit in a block.
+#[tokio::test]
+async fn gloas_packs_attestations_voting_for_available_payload() {
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness.extend_slots(1).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_root = head.beacon_block_root;
+    let head_slot = head.beacon_block.slot();
+    assert_eq!(head_slot, Slot::new(1));
+    let validators = harness.get_all_validators();
+
+    let insert_attestations =
+        |attesting_validators: &[usize], slot: Slot, payload_present_override: Option<bool>| {
+            let fork = harness.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+            let (attestations, _) = harness.make_attestations_with_opts(
+                attesting_validators,
+                &head.beacon_state,
+                head.beacon_state_root(),
+                head_root.into(),
+                slot,
+                MakeAttestationOptions {
+                    limit: None,
+                    fork,
+                    payload_present_override,
+                },
+            );
+            for (attestation, _) in attestations
+                .into_iter()
+                .flat_map(|(committee_attestations, _)| committee_attestations)
+            {
+                let attesting_indices =
+                    get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref())
+                        .unwrap();
+                harness
+                    .chain
+                    .op_pool
+                    .insert_attestation(attestation, attesting_indices)
+                    .unwrap();
+            }
+        };
+
+    // Skip the rest of the epoch, attesting to the head at every skipped slot. Together with
+    // the head's own attestations, this fills a block's attestation limit with attestations
+    // that earn the target flag, but not the head flag.
+    let last_skipped_slot = Slot::new(E::slots_per_epoch() - 1);
+    for slot in (head_slot + 1).as_u64()..=last_skipped_slot.as_u64() {
+        harness.advance_slot();
+        insert_attestations(&validators, Slot::new(slot), None);
+    }
+
+    // At the next slot, half of the committee votes for the head's payload (`index == 1`) and
+    // the other half does not (`index == 0`). Both are non same-slot votes for the head. Only
+    // the first earns the head flag, so it must outrank the target-only attestations, and the
+    // second must not.
+    harness.advance_slot();
+    let contested_slot = last_skipped_slot + 1;
+    let mut state = head.beacon_state.clone();
+    state
+        .build_committee_cache(RelativeEpoch::Next, &harness.spec)
+        .unwrap();
+    let committees = state.get_beacon_committees_at_slot(contested_slot).unwrap();
+    assert_eq!(committees.len(), 1);
+    let committee = committees[0].committee;
+    let (payload_voters, no_payload_voters) = committee.split_at(committee.len() / 2);
+    insert_attestations(payload_voters, contested_slot, Some(true));
+    insert_attestations(no_payload_voters, contested_slot, Some(false));
+
+    harness.advance_slot();
+    let ((signed_block, _), _) = harness
+        .make_block(harness.get_current_state(), contested_slot + 1)
+        .await;
+    let attestations = signed_block
+        .message()
+        .body()
+        .attestations()
+        .collect::<Vec<_>>();
+    assert_eq!(attestations.len(), E::max_attestations_electra());
+    let contested_slot_indices = attestations
+        .iter()
+        .filter(|attestation| attestation.data().slot == contested_slot)
+        .map(|attestation| attestation.data().index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        contested_slot_indices,
+        vec![1],
+        "the block should pack only the attestation voting for the available payload"
     );
 }
 

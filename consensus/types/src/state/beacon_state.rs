@@ -129,6 +129,9 @@ pub enum BeaconStateError {
         slot: Slot,
         index: CommitteeIndex,
     },
+    NoInclusionListCommittee {
+        slot: Slot,
+    },
     ZeroSlotsPerEpoch,
     PubkeyCacheInconsistent,
     PubkeyCacheIncomplete {
@@ -1212,6 +1215,20 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<Vec<BeaconCommittee<'_>>, BeaconStateError> {
         let cache = self.committee_cache_at_slot(slot)?;
         cache.get_beacon_committees_at_slot(slot)
+    }
+
+    /// Get the inclusion list committee for the given `slot`. [New in Heze:EIP7805]
+    ///
+    /// Utilises the committee cache.
+    pub fn get_inclusion_list_committee(
+        &self,
+        slot: Slot,
+    ) -> Result<FixedVector<u64, E::InclusionListCommitteeSize>, BeaconStateError> {
+        let cache = self.committee_cache_at_slot(slot)?;
+        let committee =
+            cache.get_inclusion_list_committee_at_slot(slot, E::inclusion_list_committee_size())?;
+        let committee: Vec<u64> = committee.into_iter().map(|index| index as u64).collect();
+        Ok(FixedVector::new(committee)?)
     }
 
     /// Get all of the Beacon committees at a given relative epoch.
