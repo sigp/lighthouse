@@ -246,16 +246,16 @@ impl<E: EthSpec> OperationPool<E> {
             let mut aggregate_sig = AggregateSignature::infinity();
 
             for msg in msgs {
-                if let Some(pos) = ptc
-                    .0
-                    .iter()
-                    .position(|&idx| idx == msg.validator_index as usize)
-                    && !aggregation_bits.get(pos).unwrap_or(false)
-                {
-                    aggregation_bits
-                        .set(pos, true)
-                        .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
-                    aggregate_sig.add_assign(&msg.signature);
+                // Add the signature once per set bit.
+                for (ptc_index, &ptc_validator_index) in ptc.0.iter().enumerate() {
+                    if ptc_validator_index == msg.validator_index as usize
+                        && !aggregation_bits.get(ptc_index).unwrap_or(false)
+                    {
+                        aggregation_bits
+                            .set(ptc_index, true)
+                            .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
+                        aggregate_sig.add_assign(&msg.signature);
+                    }
                 }
             }
 
@@ -2401,11 +2401,101 @@ mod release_tests {
             .get_payload_attestations(&advanced_state, parent_root, &spec)
             .unwrap();
 
+        let expected_positions: Vec<usize> = ptc
+            .0
+            .iter()
+            .enumerate()
+            .filter(|&(_, &ptc_validator_index)| {
+                ptc_validator_index as u64 == ptc_member_0
+                    || ptc_validator_index as u64 == ptc_member_1
+            })
+            .map(|(ptc_index, _)| ptc_index)
+            .collect();
+
         assert_eq!(attestations.len(), 1);
-        assert_eq!(attestations[0].aggregation_bits.num_set_bits(), 2);
-        assert!(attestations[0].aggregation_bits.get(0).unwrap());
-        assert!(attestations[0].aggregation_bits.get(1).unwrap());
+        assert_eq!(
+            attestations[0].aggregation_bits.num_set_bits(),
+            expected_positions.len()
+        );
+        for pos in expected_positions {
+            assert!(attestations[0].aggregation_bits.get(pos).unwrap());
+        }
         assert!(attestations[0].data.payload_present);
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_sets_all_duplicate_ptc_positions() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let num_validators = 64;
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+
+        // Minimal preset: 16 PTC seats sampled from 8 committee members, so duplicates always exist.
+        let distinct_members: HashSet<usize> = ptc.0.iter().copied().collect();
+        assert!(distinct_members.len() < MinimalEthSpec::ptc_size());
+
+        let fork = state.fork();
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        for &validator_index in &distinct_members {
+            let data = PayloadAttestationData {
+                beacon_block_root: parent_root,
+                slot: target_slot,
+                payload_present: true,
+                blob_data_available: true,
+            };
+            let msg = harness.make_payload_attestation_message(validator_index, data, &fork);
+            op_pool.insert_payload_attestation_message(msg).unwrap();
+        }
+
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(2),
+            &spec,
+        )
+        .unwrap();
+        let attestations = op_pool
+            .get_payload_attestations(&advanced_state, parent_root, &spec)
+            .unwrap();
+
+        assert_eq!(attestations.len(), 1);
+        assert_eq!(
+            attestations[0].aggregation_bits.num_set_bits(),
+            MinimalEthSpec::ptc_size()
+        );
+
+        let indexed = state_processing::common::get_indexed_payload_attestation(
+            &advanced_state,
+            &attestations[0],
+            &spec,
+        )
+        .unwrap();
+        state_processing::per_block_processing::is_valid_indexed_payload_attestation(
+            &advanced_state,
+            &indexed,
+            state_processing::VerifySignatures::True,
+            &spec,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -2473,7 +2563,23 @@ mod release_tests {
             .iter()
             .map(|a| a.aggregation_bits.num_set_bits())
             .collect();
-        assert_eq!(bit_counts, vec![3, 2, 1, 1]);
+        let mut expected: Vec<usize> = combos
+            .iter()
+            .map(|(_, _, positions)| {
+                let validators: HashSet<usize> = positions.iter().map(|&pos| ptc.0[pos]).collect();
+                validators
+                    .iter()
+                    .map(|&validator_index| {
+                        ptc.0
+                            .iter()
+                            .filter(|&&ptc_validator_index| ptc_validator_index == validator_index)
+                            .count()
+                    })
+                    .sum()
+            })
+            .collect();
+        expected.sort_unstable_by(|a, b| b.cmp(a));
+        assert_eq!(bit_counts, expected);
     }
 
     /// Test when payload_present is true and the slot is not the head slot, `index` in AttestationData = 1 (for Gloas)
