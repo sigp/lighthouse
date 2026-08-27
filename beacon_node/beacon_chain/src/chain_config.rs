@@ -56,9 +56,6 @@ pub struct ChainConfig {
     pub paranoid_block_proposal: bool,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
-    /// The offset before the start of a proposal slot at which payload attributes should be sent.
-    pub checkpoint_sync_url_block_root: Option<Hash256>,
-    ///
     /// Low values are useful for execution engines which don't improve their payload after the
     /// first call, and high values are useful for ensuring the EL is given ample notice.
     pub prepare_payload_lookahead: Duration,
@@ -154,7 +151,6 @@ impl Default for ChainConfig {
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
             checkpoint_sync_url_timeout: 60,
-            checkpoint_sync_url_block_root: None,
 	    prepare_payload_lookahead: Duration::from_secs(4),
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
