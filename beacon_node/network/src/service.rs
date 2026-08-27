@@ -777,6 +777,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 {
                     self.libp2p.update_enr_cgc(new_custody_group_count);
                 }
+                // The CGC increase has moved our `earliest_available_slot` forward. Re-status
+                // all connected peers so they stop requesting data columns from ranges we no
+                // longer serve.
+                let connected_peers = self
+                    .network_globals
+                    .peers
+                    .read()
+                    .connected_peer_ids()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for peer_id in connected_peers {
+                    self.send_to_router(RouterMessage::StatusPeer(peer_id));
+                }
             }
         }
     }
