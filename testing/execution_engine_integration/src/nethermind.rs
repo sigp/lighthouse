@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 /// The Nethermind version is pinned so the test is reproducible. Bump this manually when a newer
 /// release is needed.
-const NETHERMIND_BRANCH: &str = "release/1.39.3";
+const NETHERMIND_BRANCH: &str = "release/1.38.0";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -19,6 +19,7 @@ fn build_result(repo_dir: &Path) -> Output {
         .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
+        .arg("-p:TreatWarningsAsErrors=false")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
