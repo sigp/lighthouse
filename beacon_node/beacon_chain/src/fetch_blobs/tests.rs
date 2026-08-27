@@ -1,7 +1,9 @@
 use crate::AvailabilityProcessingStatus;
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
-use crate::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs_inner};
+use crate::fetch_blobs::{
+    FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs_inner,
+};
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;
@@ -35,13 +37,13 @@ mod get_blobs_v2 {
 
         // Expectations: engine fetch blobs should not be triggered
         mock_adapter.expect_get_blobs_v2().times(0);
-        mock_adapter.expect_process_engine_blobs().times(0);
+        mock_adapter.expect_process_engine_blobs_fulu().times(0);
 
         let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new((&block).try_into().unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new((&block).try_into().unwrap())),
             &custody_columns,
             publish_fn,
         )
@@ -66,7 +68,9 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new(
+                PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            )),
             &custody_columns,
             publish_fn,
         )
@@ -87,14 +91,16 @@ mod get_blobs_v2 {
         blobs_and_proofs.pop();
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         // No blobs should be processed
-        mock_adapter.expect_process_engine_blobs().times(0);
+        mock_adapter.expect_process_engine_blobs_fulu().times(0);
 
         // Trigger fetch blobs on the block
         let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new(
+                PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            )),
             &custody_columns,
             publish_fn,
         )
@@ -120,14 +126,16 @@ mod get_blobs_v2 {
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_fork_choice_contains_block(&mut mock_adapter, vec![block.canonical_root()]);
         // No blobs should be processed
-        mock_adapter.expect_process_engine_blobs().times(0);
+        mock_adapter.expect_process_engine_blobs_fulu().times(0);
 
         // Trigger fetch blobs on the block
         let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new(
+                PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            )),
             &custody_columns,
             publish_fn,
         )
@@ -159,14 +167,16 @@ mod get_blobs_v2 {
             .expect_data_column_known_for_observation_key()
             .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
-        mock_adapter.expect_process_engine_blobs().times(0);
+        mock_adapter.expect_process_engine_blobs_fulu().times(0);
 
         // **WHEN**: Trigger `fetch_blobs` on the block
         let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new(
+                PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            )),
             &custody_columns,
             publish_fn,
         )
@@ -211,7 +221,9 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
+            PartialHeaderOrBid::PartialHeader(Arc::new(
+                PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            )),
             &custody_columns,
             publish_fn,
         )
@@ -269,7 +281,7 @@ fn mock_process_engine_blobs_result(
     result: Result<AvailabilityProcessingStatus, FetchEngineBlobError>,
 ) {
     mock_adapter
-        .expect_process_engine_blobs()
+        .expect_process_engine_blobs_fulu()
         .return_once(move |_, _, _| result);
 }
 
@@ -344,7 +356,7 @@ fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlob
     let test_runtime = TestRuntime::default();
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let kzg = get_kzg(&spec);
-    let partial_assembler = PartialDataColumnAssembler::new(32);
+    let partial_assembler = PartialDataColumnAssembler::new(32, false);
 
     let mut mock_adapter = MockFetchBlobsBeaconAdapter::default();
     mock_adapter.expect_spec().return_const(spec.clone());

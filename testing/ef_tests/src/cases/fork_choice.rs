@@ -1,8 +1,11 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::{AttestationFromBlock, PayloadVerificationStatus, ProposerHeadError};
+use ::fork_choice::{
+    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
+};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -86,6 +89,14 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
+    // Fast Confirmation Rule (FCR) checks
+    confirmed_root: Option<Hash256>,
+    safe_execution_block_hash: Option<ExecutionBlockHash>,
+    previous_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    current_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    previous_epoch_greatest_unrealized_checkpoint: Option<Checkpoint>,
+    previous_slot_head: Option<Hash256>,
+    current_slot_head: Option<Hash256>,
     head_payload_status: Option<u8>,
     payload_timeliness_vote: Option<PayloadVoteCheck>,
     payload_data_availability_vote: Option<PayloadVoteCheck>,
@@ -252,7 +263,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation, valid } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Gloas(attestation),
+                                valid,
+                            },
+                        )
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
@@ -269,7 +287,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     }
                 }
                 Step::AttesterSlashing { attester_slashing } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Gloas(attester_slashing),
+                            })
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),
@@ -383,6 +406,29 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(alpha.12): remove once fast confirmation matches the v1.7.0-alpha.12 spec. These
+        // cases are new in alpha.12 and test behaviour that is not implemented yet.
+        const IGNORED_FAST_CONFIRMATION_CASES: &[&str] = &[
+            "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
+            "is_one_confirmed_passes_with_empty_slot_and_attester_in_two_consecutive_slots_2",
+            "fcr_no_restart_if_head_gu_is_stale",
+            // This case runs past a sync committee period boundary. The vectors contain a real
+            // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
+            // infinity pubkey, so the state roots cannot match.
+            "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
+        ];
+        // Lighthouse permits epoch-boundary proposer re-orgs on all forks. The proposer lookahead
+        // introduced in Fulu makes this consistent with the specification from Fulu onward.
+        // See: https://github.com/ethereum/consensus-specs/pull/5547
+        const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
+
+        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
+            || (!fork_name.fulu_enabled()
+                && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
@@ -430,6 +476,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         proposer_boost_root,
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
+                        confirmed_root,
+                        safe_execution_block_hash,
+                        previous_epoch_observed_justified_checkpoint,
+                        current_epoch_observed_justified_checkpoint,
+                        previous_epoch_greatest_unrealized_checkpoint,
+                        previous_slot_head,
+                        current_slot_head,
                         head_payload_status,
                         payload_timeliness_vote,
                         payload_data_availability_vote,
@@ -480,6 +533,27 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
                     }
 
+                    if let Some(expected) = confirmed_root {
+                        tester.check_confirmed_root(*expected)?;
+                    }
+                    if let Some(expected) = safe_execution_block_hash {
+                        tester.check_safe_execution_block_hash(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_observed_justified_checkpoint {
+                        tester.check_previous_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = current_epoch_observed_justified_checkpoint {
+                        tester.check_current_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_greatest_unrealized_checkpoint {
+                        tester.check_previous_epoch_greatest_unrealized_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_slot_head {
+                        tester.check_previous_slot_head(*expected)?;
+                    }
+                    if let Some(expected) = current_slot_head {
+                        tester.check_current_slot_head(*expected)?;
+                    }
                     if let Some(expected_status) = head_payload_status {
                         tester.check_head_payload_status(*expected_status)?;
                     }
@@ -548,6 +622,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .chain_config(ChainConfig {
                 archive: true,
+                fast_confirmation: FastConfirmationMode::Enabled,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())
@@ -578,6 +653,14 @@ impl<E: EthSpec> Tester<E> {
             harness.chain.slot_clock.genesis_duration().as_secs(),
             genesis_time
         );
+
+        // Disable FCR auto-confirmation for spec tests. The spec only calls
+        // `on_fast_confirmation` at explicit `with_fast_confirmation` points,
+        // not on every block/attestation import. We trigger confirmation
+        // explicitly in `check_confirmed_root` instead.
+        if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
+            fcr_mutex.lock().set_spec_test_mode(true);
+        }
 
         Ok(Self { harness, spec })
     }
@@ -1256,6 +1339,139 @@ impl<E: EthSpec> Tester<E> {
         )
     }
 
+    fn get_fcr_field<T: Clone>(
+        &self,
+        field_name: &str,
+        f: impl FnOnce(&fast_confirmation::FastConfirmationRule) -> T,
+    ) -> Result<T, Error> {
+        let fcr_mutex = self
+            .harness
+            .chain
+            .canonical_head
+            .fast_confirmation
+            .as_ref()
+            .ok_or_else(|| {
+                Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
+            })?;
+        let guard = fcr_mutex.lock();
+        Ok(f(&guard))
+    }
+
+    pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
+        // Trigger head recomputation so fork choice state is up to date.
+        let cached_head = self.find_head()?;
+        let current_slot = self
+            .harness
+            .chain
+            .slot()
+            .map_err(|e| Error::InternalError(format!("Failed to get slot: {e:?}")))?;
+
+        // Explicitly trigger the confirmation step. `find_head()` above already
+        // ran the FCR setup via `on_fast_confirmation` (with `spec_test_mode`
+        // suppressing the confirmation), so the caches are warm; we just need
+        // to compute and store the new confirmed root.
+        let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let head_root = cached_head.head_block_root();
+        let finalized_cp = fork_choice_lock.finalized_checkpoint();
+        let unrealized_justified_cp = fork_choice_lock.unrealized_justified_checkpoint();
+        let proto_array = fork_choice_lock.proto_array().core_proto_array();
+        let votes = fork_choice_lock.proto_array().votes();
+        let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
+
+        if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
+            let mut fcr = fcr_mutex.lock();
+            fcr.confirmed_root = fcr
+                .get_latest_confirmed::<E>(
+                    head_root,
+                    &finalized_cp,
+                    &unrealized_justified_cp,
+                    current_slot,
+                    proto_array,
+                    votes,
+                    equivocating_indices,
+                )
+                .map_err(|e| {
+                    Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
+                })?;
+        }
+        drop(fork_choice_lock);
+
+        let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;
+        check_equal("confirmed_root", actual, expected)
+    }
+
+    pub fn check_safe_execution_block_hash(
+        &self,
+        expected: ExecutionBlockHash,
+    ) -> Result<(), Error> {
+        let confirmed_root =
+            self.get_fcr_field("safe_execution_block_hash", |fcr| fcr.confirmed_root)?;
+        let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let block = fork_choice.get_block(&confirmed_root).ok_or_else(|| {
+            Error::InternalError(format!(
+                "confirmed block {confirmed_root:?} not found in fork choice"
+            ))
+        })?;
+        let actual = block
+            .execution_status
+            .block_hash()
+            .or(block.execution_payload_parent_hash)
+            .unwrap_or_else(ExecutionBlockHash::zero);
+        check_equal("safe_execution_block_hash", actual, expected)
+    }
+
+    pub fn check_previous_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.previous_epoch_observed_justified.checkpoint()
+        })?;
+        check_equal(
+            "previous_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_current_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.current_epoch_observed_justified.checkpoint()
+        })?;
+        check_equal(
+            "current_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_epoch_greatest_unrealized_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self
+            .get_fcr_field("previous_epoch_greatest_unrealized_checkpoint", |fcr| {
+                fcr.previous_epoch_greatest_unrealized_checkpoint
+            })?;
+        check_equal(
+            "previous_epoch_greatest_unrealized_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_slot_head", |fcr| fcr.previous_slot_head)?;
+        check_equal("previous_slot_head", actual, expected)
+    }
+
+    pub fn check_current_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_slot_head", |fcr| fcr.current_slot_head)?;
+        check_equal("current_slot_head", actual, expected)
+    }
     pub fn process_payload_attestation_message(
         &self,
         msg: &PayloadAttestationMessage,

@@ -149,7 +149,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).await.unwrap();
 
         tokio::spawn(server);
 
@@ -255,13 +255,19 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = self
-            .client
-            .get_lighthouse_spec::<ConfigAndPresetGloas>()
-            .await
-            .map(|res| ConfigAndPreset::Gloas(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
+        let result = if self.spec.is_heze_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetHeze>()
+                .await
+                .map(|res| ConfigAndPreset::Heze(res.data))
+        } else {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 

@@ -4,13 +4,17 @@ use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
-use reqwest::header::CONTENT_TYPE;
+use opentelemetry::global;
+use opentelemetry_http::HeaderInjector;
+use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use std::time::{Duration, Instant};
 
@@ -24,9 +28,6 @@ pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
 
 pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
 pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
-
-pub const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
-pub const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
@@ -669,6 +670,14 @@ impl HttpJsonRpc {
             request = request.bearer_auth(auth.generate_token()?);
         };
 
+        // Inject the current span's trace context as a `traceparent` header.
+        let context = Span::current().context();
+        let mut headers = HeaderMap::new();
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&context, &mut HeaderInjector(&mut headers))
+        });
+        request = request.headers(headers);
+
         let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
@@ -757,20 +766,6 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, Error> {
-        let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
-
-        self.rpc_request(
-            ETH_GET_BLOCK_BY_HASH,
-            params,
-            ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-        )
-        .await
-    }
-
     pub async fn new_payload_v1<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
@@ -844,8 +839,7 @@ impl HttpJsonRpc {
             ),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
-            new_payload_request_electra
-                .execution_requests
+            types::ExecutionRequestsRef::Electra(new_payload_request_electra.execution_requests)
                 .get_execution_requests_list(),
         ]);
 
@@ -873,8 +867,7 @@ impl HttpJsonRpc {
             ),
             new_payload_request_fulu.versioned_hashes,
             new_payload_request_fulu.parent_beacon_block_root,
-            new_payload_request_fulu
-                .execution_requests
+            types::ExecutionRequestsRef::Electra(new_payload_request_fulu.execution_requests)
                 .get_execution_requests_list(),
         ]);
 
@@ -902,8 +895,7 @@ impl HttpJsonRpc {
             ),
             new_payload_request_gloas.versioned_hashes,
             new_payload_request_gloas.parent_beacon_block_root,
-            new_payload_request_gloas
-                .execution_requests
+            types::ExecutionRequestsRef::Gloas(new_payload_request_gloas.execution_requests)
                 .get_execution_requests_list(),
         ]);
 
@@ -1081,6 +1073,7 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
+            // TODO(heze): add a Heze arm once Heze payload retrieval is implemented.
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v6 with {}",
                 fork_name
@@ -1404,6 +1397,11 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
+            // TODO(heze): implement the Heze newPayload path once the engine API for Heze
+            // is specified.
+            NewPayloadRequest::Heze(_) => Err(Error::UnsupportedForkVariant(
+                "newPayload not implemented for Heze".to_string(),
+            )),
         }
     }
 
@@ -1453,6 +1451,11 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
                 }
             }
+            // TODO(heze): implement the Heze getPayload path once the engine API for Heze
+            // is specified.
+            ForkName::Heze => Err(Error::UnsupportedForkVariant(
+                "getPayload not implemented for Heze".to_string(),
+            )),
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload with {}",
                 fork_name
@@ -1502,6 +1505,9 @@ impl HttpJsonRpc {
                     }
                 }
             }
+        } else if engine_capabilities.forkchoice_updated_v4 {
+            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+                .await
         } else if engine_capabilities.forkchoice_updated_v3 {
             self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
                 .await
@@ -1666,7 +1672,7 @@ mod test {
             .unwrap()
             .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions().clone())
+        Ok(ep.transactions_bounded().unwrap().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(
@@ -1773,33 +1779,6 @@ mod test {
             .assert_auth_failure(|client| async move {
                 client
                     .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
-                    .await
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn get_block_by_hash_request() {
-        Tester::new(true)
-            .assert_request_equals(
-                |client| async move {
-                    let _ = client
-                        .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
-                        .await;
-                },
-                json!({
-                    "id": STATIC_ID,
-                    "jsonrpc": JSONRPC_VERSION,
-                    "method": ETH_GET_BLOCK_BY_HASH,
-                    "params": [HASH_01, false]
-                }),
-            )
-            .await;
-
-        Tester::new(false)
-            .assert_auth_failure(|client| async move {
-                client
-                    .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
                     .await
             })
             .await;

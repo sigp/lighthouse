@@ -1,5 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use bls::{PublicKeyBytes, Signature};
+use bls::{AggregateSignature, PublicKeyBytes, Signature};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
 use futures::{Stream, future::join_all, stream};
@@ -19,15 +19,15 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
-    AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
-    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
-    FullPayload, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
-    graffiti::GraffitiString,
+    AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
+    BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -561,39 +561,35 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })
     }
 
-    /// Sign an attestation without performing any slashing protection checks.
+    /// Sign AttestationData without performing any slashing protection checks.
     ///
     /// THIS METHOD IS DANGEROUS AND SHOULD ONLY BE USED INTERNALLY IMMEDIATELY PRIOR TO A
     /// SLASHING PROTECTION CHECK. See `slashing_protect_attestations`.
     ///
     /// This method DOES perform doppelganger protection checks.
     #[instrument(level = "debug", skip_all)]
-    async fn sign_attestation_no_slashing_protection(
+    async fn sign_attestation_data_no_slashing_protection(
         &self,
         validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<E>,
-    ) -> Result<(), Error> {
+        data: &AttestationData,
+    ) -> Result<AggregateSignature, Error> {
         // Get the signing method and check doppelganger protection.
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 
-        // Sign the attestation.
-        let signing_epoch = attestation.data().target.epoch;
+        // Sign the attestation data.
+        let signing_epoch = data.target.epoch;
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::AttestationData(attestation.data()),
+                SignableMessage::AttestationData(data),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
             )
             .await?;
-        attestation
-            .add_signature(&signature, validator_committee_position)
-            .map_err(Error::UnableToSignAttestation)?;
 
-        Ok(())
+        Ok(AggregateSignature::from(&signature))
     }
 
     /// Provide slashing protection for `attestations`, safely updating the slashing protection DB.
@@ -607,8 +603,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     #[instrument(level = "debug", skip_all)]
     fn slashing_protect_attestations(
         &self,
-        attestations: Vec<(u64, Attestation<E>, PublicKeyBytes)>,
-    ) -> Result<Vec<(u64, Attestation<E>)>, Error> {
+        attestations: Vec<(SingleAttestation, PublicKeyBytes)>,
+    ) -> Result<Vec<SingleAttestation>, Error> {
         let mut safe_attestations = Vec::with_capacity(attestations.len());
         let mut attestations_to_check = Vec::with_capacity(attestations.len());
 
@@ -617,9 +613,9 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         //
         // All attestations are added to `attestation_to_check`, with skipped attestations having
         // `CheckSlashability::No`.
-        for (_, attestation, validator_pubkey) in &attestations {
+        for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
-            let signing_epoch = attestation.data().target.epoch;
+            let signing_epoch = attestation.data.target.epoch;
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
             let domain_hash = signing_context.domain_hash(&self.spec);
 
@@ -631,7 +627,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 CheckSlashability::No
             };
             attestations_to_check.push((
-                attestation.data(),
+                &attestation.data,
                 validator_pubkey,
                 domain_hash,
                 check_slashability,
@@ -647,12 +643,12 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .check_and_insert_attestations(&attestations_to_check)
             .map_err(Error::Slashable)?;
 
-        for ((validator_index, attestation, validator_pubkey), slashing_status) in
+        for ((attestation, validator_pubkey), slashing_status) in
             attestations.into_iter().zip(results.into_iter())
         {
             match slashing_status {
                 Ok(Safe::Valid) => {
-                    safe_attestations.push((validator_index, attestation));
+                    safe_attestations.push(attestation);
                     validator_metrics::inc_counter_vec(
                         &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                         &[validator_metrics::SUCCESS],
@@ -678,8 +674,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 }
                 Err(e) => {
                     warn!(
-                        slot = %attestation.data().slot,
-                        block_root = ?attestation.data().beacon_block_root,
+                        slot = %attestation.data.slot,
+                        block_root = ?attestation.data.beacon_block_root,
                         public_key = ?validator_pubkey,
                         error = ?e,
                         "Skipping signing of slashable attestation"
@@ -942,12 +938,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                     }
                 })
             })
-            .and_then(|factor| {
-                // If builder boost factor is set to 100 it should be treated
-                // as None to prevent unnecessary calculations that could
-                // lead to loss of information.
-                if factor == 100 { None } else { Some(factor) }
-            })
+            // If builder boost factor is set to 100 it should be treated as None
+            // to prevent unnecessary calculations that could lead to loss of information.
+            .filter(|&factor| factor != 100)
     }
 
     async fn randao_reveal(
@@ -1000,32 +993,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     fn sign_attestations(
         self: &Arc<Self>,
-        mut attestations: Vec<AttestationToSign<E>>,
-    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<E>)>, Error>> + Send {
+        attestations: Vec<AttestationToSign>,
+    ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error>> + Send {
         let store = self.clone();
         stream::once(async move {
             // Sign all attestations concurrently.
-            let signing_futures = attestations.iter_mut().map(
-                |AttestationToSign {
-                     pubkey,
-                     validator_committee_index,
-                     attestation,
-                     ..
-                 }| {
-                    let pubkey = *pubkey;
-                    let validator_committee_index = *validator_committee_index;
-                    let store = store.clone();
-                    async move {
-                        store
-                            .sign_attestation_no_slashing_protection(
-                                pubkey,
-                                validator_committee_index,
-                                attestation,
-                            )
-                            .await
-                    }
-                },
-            );
+            let signing_futures =
+                attestations
+                    .iter()
+                    .map(|AttestationToSign { pubkey, data, .. }| {
+                        let pubkey = *pubkey;
+                        let store = store.clone();
+                        async move {
+                            store
+                                .sign_attestation_data_no_slashing_protection(pubkey, data)
+                                .await
+                        }
+                    });
 
             // Execute all signing in parallel.
             let results: Vec<_> = join_all(signing_futures).await;
@@ -1034,10 +1018,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             let mut signed_attestations = Vec::with_capacity(attestations.len());
             for (result, att) in results.into_iter().zip(attestations) {
                 match result {
-                    Ok(()) => {
+                    Ok(signature) => {
                         signed_attestations.push((
-                            att.validator_index,
-                            att.attestation,
+                            SingleAttestation {
+                                committee_index: att.committee_index,
+                                attester_index: att.attester_index,
+                                data: att.data,
+                                signature,
+                            },
                             att.pubkey,
                         ));
                     }
