@@ -156,7 +156,7 @@ pub struct ResolvedBuilderConfig {
 }
 
 impl ValidatorBuilderConfig {
-    pub(crate) fn validate_builder_entries(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         let Some(builders) = &self.builders else {
             return Ok(());
         };
@@ -317,7 +317,7 @@ impl BuilderConfigFile {
         }
 
         for config in self.validator_configs.values() {
-            config.validate_builder_entries()?;
+            config.validate()?;
         }
 
         Ok(())

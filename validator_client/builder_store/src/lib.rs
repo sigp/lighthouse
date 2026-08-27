@@ -155,7 +155,7 @@ impl BuilderStore {
         validator_pubkey: &bls::PublicKeyBytes,
         validator_config: ValidatorBuilderConfig,
     ) -> Result<(), Error> {
-        validator_config.validate_builder_entries()?;
+        validator_config.validate()?;
 
         self.persist_update(|candidate| {
             candidate
