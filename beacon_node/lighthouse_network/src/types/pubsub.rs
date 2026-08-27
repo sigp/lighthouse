@@ -451,6 +451,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ExecutionProof(Arc::new(execution_proof)))
                     }
                     GossipKind::InclusionList => {
+                        if data.len() > E::max_signed_inclusion_list_size() {
+                            return Err(format!(
+                                "SignedInclusionList size {} exceeds MAX_SIGNED_INCLUSION_LIST_SIZE {}",
+                                data.len(),
+                                E::max_signed_inclusion_list_size()
+                            ));
+                        }
                         let inclusion_list = SignedInclusionList::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::InclusionList(Box::new(inclusion_list)))
@@ -843,5 +850,14 @@ mod tests {
             !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn heze_inclusion_list_size_bound() {
+        let max = E::max_signed_inclusion_list_size();
+        let err = decode_oversized(GossipKind::InclusionList, max + 1).unwrap_err();
+        assert!(err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::InclusionList, max).unwrap_err();
+        assert!(!err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
     }
 }

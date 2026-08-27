@@ -998,6 +998,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.gossip_payload_attestation_queue.pop()
                         {
                             Some(item)
+                        // Check inclusion lists next, they also influence fork choice.
+                        } else if let Some(item) = work_queues.gossip_inclusion_list_queue.pop() {
+                            Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
                         } else if let Some(item) = work_queues.sync_contribution_queue.pop() {
@@ -1025,9 +1028,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) =
                             work_queues.gossip_proposer_preferences_queue.pop()
                         {
-                            Some(item)
-                        // Check inclusion lists.
-                        } else if let Some(item) = work_queues.gossip_inclusion_list_queue.pop() {
                             Some(item)
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
