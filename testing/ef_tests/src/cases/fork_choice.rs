@@ -32,6 +32,8 @@ use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::per_block_processing::verify_attester_slashing;
 use state_processing::state_advance::complete_state_advance;
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -704,6 +706,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 struct Tester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     spec: Arc<ChainSpec>,
+    /// Roots of successfully imported blocks. Spec `on_block` returns early for known blocks,
+    /// but Lighthouse prunes finalized and abandoned blocks, so the store can't answer
+    /// "was this block ever imported".
+    imported_blocks: RefCell<HashSet<Hash256>>,
 }
 
 impl<E: EthSpec> Tester<E> {
@@ -768,7 +774,11 @@ impl<E: EthSpec> Tester<E> {
             fcr_mutex.lock().set_spec_test_mode(true);
         }
 
-        Ok(Self { harness, spec })
+        Ok(Self {
+            harness,
+            spec,
+            imported_blocks: RefCell::new(HashSet::new()),
+        })
     }
 
     fn tick_to_slot(&self, tick: u64) -> Result<Slot, Error> {
@@ -830,6 +840,11 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
+        // Re-feeding a known block is a no-op success, like the spec's `on_block`.
+        if self.imported_blocks.borrow().contains(&block_root) {
+            return Ok(());
+        }
+
         let mut data_column_success = true;
 
         if let Some(columns) = columns.clone() {
@@ -867,12 +882,10 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let is_duplicate = matches!(
-            &result,
-            Err(beacon_chain::BlockError::DuplicateFullyImported(_))
-        );
-        let success = data_column_success
-            && (result.as_ref().is_ok_and(|inner| inner.is_ok()) || is_duplicate);
+        let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        if success {
+            self.imported_blocks.borrow_mut().insert(block_root);
+        }
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -901,6 +914,11 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
+        // Re-feeding a known block is a no-op success, like the spec's `on_block`.
+        if self.imported_blocks.borrow().contains(&block_root) {
+            return Ok(());
+        }
 
         let mut blob_success = true;
 
@@ -976,15 +994,10 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        // Spec `on_block` is idempotent: re-importing an already-known block is a no-op
-        // success. Lighthouse surfaces this as `BlockError::DuplicateFullyImported`; the
-        // compliance suite re-feeds blocks repeatedly, so treat duplicates as success.
-        let is_duplicate = matches!(
-            &result,
-            Err(beacon_chain::BlockError::DuplicateFullyImported(_))
-        );
-        let success =
-            blob_success && (result.as_ref().is_ok_and(|inner| inner.is_ok()) || is_duplicate);
+        let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        if success {
+            self.imported_blocks.borrow_mut().insert(block_root);
+        }
         // Only assert valid blocks import; blob-DA failure cases are expected to import now.
         if valid && !success {
             return Err(Error::DidntFail(format!(
