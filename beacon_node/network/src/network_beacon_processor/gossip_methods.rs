@@ -1,5 +1,5 @@
 use crate::{
-    metrics::{self, EnvelopeSource, register_process_result_metrics},
+    metrics::{self, register_process_result_metrics},
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
@@ -15,7 +15,7 @@ use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
-    EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+    EnvelopeError, EnvelopeSource, gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
@@ -3816,7 +3816,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
             .await;
 
         let verified_envelope = match verification_result {
@@ -3896,7 +3896,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let inner_self = self.clone();
                         let chain = self.chain.clone();
                         let process_fn = Box::pin(async move {
-                            match chain.verify_envelope_for_gossip(envelope).await {
+                            match chain
+                                .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+                                .await
+                            {
                                 Ok(verified_envelope) => {
                                     let envelope_slot = verified_envelope.signed_envelope.slot();
                                     inner_self.propagate_envelope_if_timely(
@@ -3945,6 +3948,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::EnvelopeAlreadySeen { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
