@@ -15,7 +15,7 @@ pub fn get<T: 'static + SlotClock + Clone, E: EthSpec>(
 ) -> Result<api_types::BuilderConfig, warp::Rejection> {
     let validator_pubkey = require_validator(&validator_pubkey, &validator_store)?;
     Ok(into_api_builder_config(
-        configured_builders.validator_config(&validator_pubkey),
+        configured_builders.get_validator_config(&validator_pubkey),
     ))
 }
 

@@ -142,7 +142,7 @@ impl BuilderStore {
     }
 
     /// Return the fully resolved configuration for a validator without signing builder auth data.
-    pub fn validator_config(
+    pub fn get_validator_config(
         &self,
         validator_pubkey: &bls::PublicKeyBytes,
     ) -> ResolvedBuilderConfig {
@@ -155,7 +155,7 @@ impl BuilderStore {
         validator_pubkey: &bls::PublicKeyBytes,
         validator_config: ValidatorBuilderConfig,
     ) -> Result<(), Error> {
-        validator_config.validate()?;
+        validator_config.validate_builder_entries()?;
 
         self.persist_update(|candidate| {
             candidate
@@ -246,9 +246,10 @@ mod tests {
         let store = BuilderStore::open_or_create(directory.path()).unwrap();
         let validator = Keypair::random().pk.compress();
 
-        store
-            .insert(global_builder("https://global-builder.example", 7))
-            .unwrap();
+        let mut configured_global_builder = global_builder("https://global-builder.example", 7);
+        configured_global_builder.min_bid = Some(100);
+        configured_global_builder.builder_boost_factor = Some(200);
+        store.insert(configured_global_builder).unwrap();
         let mut empty_auth = global_builder("https://empty-auth.example", 7);
         empty_auth.auth_data = Some(RequestAuthData::default());
         store.insert(empty_auth).unwrap();
@@ -267,7 +268,7 @@ mod tests {
             )
             .unwrap();
 
-        let inherited = store.validator_config(&validator);
+        let inherited = store.get_validator_config(&validator);
         assert_eq!(inherited.min_bid, 5);
         assert_eq!(inherited.builder_boost_factor, 125);
         assert_eq!(inherited.builders.len(), 1);
@@ -285,13 +286,15 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(store.validator_config(&validator).builders.is_empty());
+        assert!(store.get_validator_config(&validator).builders.is_empty());
 
         store.delete_validator_config(&validator).unwrap();
-        let restored = store.validator_config(&validator);
+        let restored = store.get_validator_config(&validator);
         assert_eq!(restored.min_bid, 0);
         assert_eq!(restored.builder_boost_factor, 100);
         assert_eq!(restored.builders.len(), 1);
+        assert_eq!(restored.builders[0].min_bid, Some(100));
+        assert_eq!(restored.builders[0].builder_boost_factor, Some(200));
     }
 
     #[test]
@@ -309,8 +312,8 @@ mod tests {
 
         let restarted = BuilderStore::open_or_create(directory.path()).unwrap();
         assert_eq!(
-            restarted.validator_config(&validator),
-            store.validator_config(&validator)
+            restarted.get_validator_config(&validator),
+            store.get_validator_config(&validator)
         );
 
         restarted.delete_validator_config(&validator).unwrap();
@@ -335,7 +338,7 @@ mod tests {
                 .insert(global_builder("https://global-builder.example", 7))
                 .is_err()
         );
-        assert!(store.validator_config(&validator).builders.is_empty());
+        assert!(store.get_validator_config(&validator).builders.is_empty());
     }
 
     #[test]
@@ -360,12 +363,12 @@ mod tests {
         for handle in handles {
             handle.join().unwrap().unwrap();
         }
-        assert_eq!(store.validator_config(&first).min_bid, 11);
-        assert_eq!(store.validator_config(&second).min_bid, 22);
+        assert_eq!(store.get_validator_config(&first).min_bid, 11);
+        assert_eq!(store.get_validator_config(&second).min_bid, 22);
 
         let restarted = BuilderStore::open_or_create(directory.path()).unwrap();
-        assert_eq!(restarted.validator_config(&first).min_bid, 11);
-        assert_eq!(restarted.validator_config(&second).min_bid, 22);
+        assert_eq!(restarted.get_validator_config(&first).min_bid, 11);
+        assert_eq!(restarted.get_validator_config(&second).min_bid, 22);
     }
 
     #[test]
@@ -434,7 +437,7 @@ mod tests {
             )
             .unwrap();
 
-        let resolved = store.validator_config(&validator);
+        let resolved = store.get_validator_config(&validator);
         assert_eq!(resolved.builders[0].max_execution_payment, 9);
         assert_eq!(resolved.builders[1].max_execution_payment, 0);
     }

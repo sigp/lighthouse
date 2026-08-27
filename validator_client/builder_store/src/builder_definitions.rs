@@ -156,7 +156,7 @@ pub struct ResolvedBuilderConfig {
 }
 
 impl ValidatorBuilderConfig {
-    pub(crate) fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate_builder_entries(&self) -> Result<(), Error> {
         let Some(builders) = &self.builders else {
             return Ok(());
         };
@@ -317,7 +317,7 @@ impl BuilderConfigFile {
         }
 
         for config in self.validator_configs.values() {
-            config.validate()?;
+            config.validate_builder_entries()?;
         }
 
         Ok(())
@@ -326,12 +326,12 @@ impl BuilderConfigFile {
     /// Resolve the configuration that applies to `validator_pubkey`.
     pub fn resolved_for(&self, validator_pubkey: &PublicKeyBytes) -> ResolvedBuilderConfig {
         let validator_config = self.validator_configs.get(&validator_pubkey.to_string());
-        let min_bid = validator_config
-            .and_then(|config| config.min_bid)
-            .unwrap_or(self.min_bid);
-        let builder_boost_factor = validator_config
-            .and_then(|config| config.builder_boost_factor)
-            .unwrap_or(self.builder_boost_factor);
+        let validator_min_bid = validator_config.and_then(|config| config.min_bid);
+        let validator_builder_boost_factor =
+            validator_config.and_then(|config| config.builder_boost_factor);
+        let min_bid = validator_min_bid.unwrap_or(self.min_bid);
+        let builder_boost_factor =
+            validator_builder_boost_factor.unwrap_or(self.builder_boost_factor);
 
         let builders = match validator_config.and_then(|config| config.builders.as_ref()) {
             Some(builders) => builders
@@ -353,9 +353,17 @@ impl BuilderConfigFile {
                 })
                 .map(|builder| {
                     let mut builder = builder.clone();
-                    builder.min_bid = Some(builder.min_bid.unwrap_or(min_bid));
-                    builder.builder_boost_factor =
-                        Some(builder.builder_boost_factor.unwrap_or(builder_boost_factor));
+                    // Validator defaults override values on inherited global builders.
+                    builder.min_bid = Some(
+                        validator_min_bid
+                            .or(builder.min_bid)
+                            .unwrap_or(self.min_bid),
+                    );
+                    builder.builder_boost_factor = Some(
+                        validator_builder_boost_factor
+                            .or(builder.builder_boost_factor)
+                            .unwrap_or(self.builder_boost_factor),
+                    );
                     builder
                 })
                 .collect(),
