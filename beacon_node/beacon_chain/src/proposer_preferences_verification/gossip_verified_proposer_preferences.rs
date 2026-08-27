@@ -37,6 +37,32 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     Ok(())
 }
 
+/// Verify that the proposal slot has not passed, accounting for
+/// `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+fn verify_proposal_slot_range<S: SlotClock>(
+    slot_clock: &S,
+    proposal_slot: Slot,
+    current_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<(), ProposerPreferencesError> {
+    let current_time = slot_clock
+        .now_duration()
+        .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
+    let latest_permissible_time = slot_clock
+        .start_of(proposal_slot)
+        .ok_or(ProposerPreferencesError::UnableToReadSlot)?
+        .saturating_add(spec.maximum_gossip_clock_disparity());
+
+    if current_time > latest_permissible_time {
+        return Err(ProposerPreferencesError::ProposalSlotAlreadyPassed {
+            proposal_slot,
+            current_slot,
+        });
+    }
+
+    Ok(())
+}
+
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
@@ -70,14 +96,6 @@ impl GossipVerifiedProposerPreferences {
             .slot_clock
             .now_with_future_tolerance(ctx.spec.maximum_gossip_clock_disparity())
             .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
-        let current_time = ctx
-            .slot_clock
-            .now_duration()
-            .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
-        let proposal_slot_start = ctx
-            .slot_clock
-            .start_of(proposal_slot)
-            .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
 
         if ctx
             .gossip_verified_proposer_preferences_cache
@@ -96,14 +114,7 @@ impl GossipVerifiedProposerPreferences {
             ctx.spec,
         )?;
 
-        if current_time
-            > proposal_slot_start.saturating_add(ctx.spec.maximum_gossip_clock_disparity())
-        {
-            return Err(ProposerPreferencesError::ProposalSlotAlreadyPassed {
-                proposal_slot,
-                current_slot,
-            });
-        }
+        verify_proposal_slot_range(ctx.slot_clock, proposal_slot, current_slot, ctx.spec)?;
 
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
 
