@@ -10,17 +10,26 @@ use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
+use types::is_builder_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
+    parent_slot: Option<Slot>,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
+    // limits, so the spec's per-block limits are enforced at runtime instead.
+    if state.fork_name_unchecked().gloas_enabled() {
+        verify_operation_list_lengths(block_body)?;
+    }
+
     process_proposer_slashings(
         state,
-        block_body.proposer_slashings(),
+        &block_body.proposer_slashings().to_cow_slice(),
         verify_signatures,
         ctxt,
         spec,
@@ -32,12 +41,29 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
-    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    process_attestations(
+        state,
+        block_body,
+        verify_signatures,
+        parent_slot,
+        ctxt,
+        spec,
+    )?;
+    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    process_exits(
+        state,
+        &block_body.voluntary_exits().to_cow_slice(),
+        verify_signatures,
+        spec,
+    )?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
-        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+        process_bls_to_execution_changes(
+            state,
+            &bls_to_execution_changes.to_cow_slice(),
+            verify_signatures,
+            spec,
+        )?;
     }
 
     if state.fork_name_unchecked().gloas_enabled() {
@@ -57,6 +83,62 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             &block_body.execution_requests()?.consolidations,
             spec,
         )?;
+    }
+
+    Ok(())
+}
+
+/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
+/// `ProgressiveList` is unbounded so they must be checked explicitly.
+pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    block_body: BeaconBlockBodyRef<E, Payload>,
+) -> Result<(), BlockProcessingError> {
+    let checks: [(&str, usize, usize); 6] = [
+        (
+            "proposer_slashings",
+            block_body.proposer_slashings().len(),
+            E::MaxProposerSlashings::to_usize(),
+        ),
+        (
+            "attester_slashings",
+            block_body.attester_slashings_len(),
+            E::MaxAttesterSlashingsElectra::to_usize(),
+        ),
+        (
+            "attestations",
+            block_body.attestations_len(),
+            E::MaxAttestationsElectra::to_usize(),
+        ),
+        (
+            "voluntary_exits",
+            block_body.voluntary_exits().len(),
+            E::MaxVoluntaryExits::to_usize(),
+        ),
+        (
+            "bls_to_execution_changes",
+            block_body
+                .bls_to_execution_changes()
+                .map(|changes| changes.len())
+                .unwrap_or(0),
+            E::MaxBlsToExecutionChanges::to_usize(),
+        ),
+        (
+            "payload_attestations",
+            block_body
+                .payload_attestations()
+                .map(|atts| atts.len())
+                .unwrap_or(0),
+            E::MaxPayloadAttestations::to_usize(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
     }
 
     Ok(())
@@ -173,7 +255,7 @@ pub mod altair_deneb {
         let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+            get_attestation_participation_flag_indices(state, data, None, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
@@ -184,7 +266,7 @@ pub mod altair_deneb {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -230,6 +312,7 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         attestations: I,
         verify_signatures: VerifySignatures,
+        parent_slot: Option<Slot>,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError>
@@ -237,7 +320,15 @@ pub mod gloas {
         I: Iterator<Item = AttestationRef<'a, E>>,
     {
         attestations.enumerate().try_for_each(|(i, attestation)| {
-            process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+            process_attestation(
+                state,
+                attestation,
+                i,
+                verify_signatures,
+                parent_slot,
+                ctxt,
+                spec,
+            )
         })
     }
 
@@ -245,8 +336,9 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         attestation: AttestationRef<E>,
         att_index: usize,
-        ctxt: &mut ConsensusContext<E>,
         verify_signatures: VerifySignatures,
+        parent_slot: Option<Slot>,
+        ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
@@ -265,8 +357,13 @@ pub mod gloas {
         // Matching roots, participation flag indices
         let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
-        let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+        let participation_flag_indices = get_attestation_participation_flag_indices(
+            state,
+            data,
+            parent_slot,
+            inclusion_delay,
+            spec,
+        )?;
 
         // [New in EIP-7732]
         let current_epoch_target = data.target.epoch == state.current_epoch();
@@ -299,12 +396,18 @@ pub mod gloas {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             // [New in Gloas:EIP7732]
-            // For same-slot attestations, check if we're setting any new flags
-            // If we are, this validator hasn't contributed to this slot's quorum yet
+            let had_no_participation = state
+                .get_epoch_participation_mut(data.target.epoch, previous_epoch, current_epoch)?
+                .get(index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?
+                .into_u8()
+                == 0;
+
+            // [New in Gloas:EIP7732]
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -333,9 +436,8 @@ pub mod gloas {
             }
 
             // [New in Gloas:EIP7732]
-            // Add weight for same-slot attestations when any new flag is set.
-            // This ensures each validator contributes exactly once per slot.
             if will_set_new_flag
+                && had_no_participation
                 && state.is_attestation_same_slot(data)?
                 && payment_withdrawal_amount > 0
             {
@@ -466,6 +568,7 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
+    parent_slot: Option<Slot>,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -474,6 +577,7 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             state,
             block_body.attestations(),
             verify_signatures,
+            parent_slot,
             ctxt,
             spec,
         )?;
@@ -668,7 +772,7 @@ pub fn apply_deposit<E: EthSpec>(
 
     if let Some(index) = validator_index {
         // [Modified in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -701,7 +805,7 @@ pub fn apply_deposit<E: EthSpec>(
         )?;
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -827,7 +931,7 @@ pub fn process_deposit_requests<E: EthSpec>(
         let slot = state.slot();
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: request.pubkey,
                 withdrawal_credentials: request.withdrawal_credentials,
@@ -858,6 +962,10 @@ fn process_builder_deposit_request<E: EthSpec>(
     builder_deposit_request: &BuilderDepositRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if !is_builder_withdrawal_credential(builder_deposit_request.withdrawal_credentials, spec) {
+        return Ok(());
+    }
+
     let builder_index = state
         .builders()?
         .iter()
@@ -866,13 +974,10 @@ fn process_builder_deposit_request<E: EthSpec>(
     match builder_index {
         None => {
             if builder_deposit_request.is_valid_builder_deposit_signature(spec) {
-                let version = builder_deposit_request
-                    .version()
-                    .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
                 let slot = state.slot();
                 state.add_builder_to_registry(
                     builder_deposit_request.pubkey,
-                    version,
+                    PAYLOAD_BUILDER_VERSION,
                     builder_deposit_request.withdrawal_credentials,
                     builder_deposit_request.amount,
                     slot,
@@ -887,16 +992,14 @@ fn process_builder_deposit_request<E: EthSpec>(
                 .get_mut(builder_index)
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index as u64))?;
 
-            // TODO(gloas): this is already different in `master`, needs an update when we go
-            // to spec 1.7.0-alpha.12+
-            builder
-                .balance
-                .safe_add_assign(builder_deposit_request.amount)?;
-
-            if builder.withdrawable_epoch != spec.far_future_epoch {
+            if builder.withdrawable_epoch != spec.far_future_epoch && builder.balance == 0 {
                 builder.withdrawable_epoch =
                     current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
             }
+
+            builder
+                .balance
+                .safe_add_assign(builder_deposit_request.amount)?;
         }
     }
 

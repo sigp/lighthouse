@@ -31,8 +31,54 @@ use mockall_double::double;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{debug, instrument, warn};
-use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError, PartialDataColumnHeader};
-use types::{BeaconStateError, EthSpec, Hash256, VersionedHash};
+use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError};
+use types::{
+    AbstractExecPayload, BeaconStateError, EthSpec, Hash256, KzgCommitment, ListRef,
+    PartialDataColumnHeader, SignedBeaconBlock, SignedExecutionPayloadBid, Slot, VersionedHash,
+};
+
+/// The source of the KZG commitments for a block's partial data columns.
+///
+/// This enum lives during the transitional period of Fulu and Gloas support for partial messages.
+/// After Gloas has been activated on all supported networks, it can be removed in favour of the bid
+/// only. It is a CL-internal dispatch wrapper (not a spec/wire type — it has no SSZ or tree-hash
+/// representation), so it lives in `beacon_chain` rather than `consensus/types`.
+#[derive(Debug, Clone)]
+pub enum PartialHeaderOrBid<E: EthSpec> {
+    PartialHeader(Arc<PartialDataColumnHeader<E>>),
+    Bid(Arc<SignedExecutionPayloadBid<E>>),
+}
+
+impl<E: EthSpec> PartialHeaderOrBid<E> {
+    /// Extract the commitments source from a block: the execution payload bid if the block is
+    /// post-Gloas, otherwise the partial data column header. Returns `None` for blocks that carry
+    /// neither (e.g. the header cannot be built, or the block predates blob commitments).
+    pub fn try_from_block<P: AbstractExecPayload<E>>(
+        block: &SignedBeaconBlock<E, P>,
+    ) -> Option<Self> {
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            Some(PartialHeaderOrBid::Bid(Arc::new(bid.clone())))
+        } else {
+            PartialDataColumnHeader::try_from(block)
+                .ok()
+                .map(|h| PartialHeaderOrBid::PartialHeader(Arc::new(h)))
+        }
+    }
+
+    pub fn kzg_commitments(&self) -> ListRef<'_, KzgCommitment, E::MaxBlobCommitmentsPerBlock> {
+        match self {
+            PartialHeaderOrBid::PartialHeader(header) => ListRef::Basic(&header.kzg_commitments),
+            PartialHeaderOrBid::Bid(bid) => ListRef::Progressive(&bid.message.blob_kzg_commitments),
+        }
+    }
+
+    pub fn slot(&self) -> Slot {
+        match self {
+            PartialHeaderOrBid::PartialHeader(header) => header.slot(),
+            PartialHeaderOrBid::Bid(bid) => bid.message.slot,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum FetchEngineBlobError {
@@ -55,14 +101,14 @@ pub enum FetchEngineBlobError {
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+    header_or_bid: PartialHeaderOrBid<T::EthSpec>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     fetch_and_process_engine_blobs_inner(
         FetchBlobsBeaconAdapter::new(chain),
         block_root,
-        header,
+        header_or_bid,
         custody_columns,
         publish_fn,
     )
@@ -74,12 +120,12 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+    header_or_bid: PartialHeaderOrBid<T::EthSpec>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-    let versioned_hashes = header
-        .kzg_commitments
+    let versioned_hashes = header_or_bid
+        .kzg_commitments()
         .iter()
         .map(kzg_commitment_to_versioned_hash)
         .collect::<Vec<_>>();
@@ -95,12 +141,12 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
 
     if chain_adapter
         .spec()
-        .is_peer_das_enabled_for_epoch(header.slot().epoch(T::EthSpec::slots_per_epoch()))
+        .is_peer_das_enabled_for_epoch(header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch()))
     {
         fetch_and_process_blobs_v2_or_v3(
             chain_adapter,
             block_root,
-            header,
+            header_or_bid,
             versioned_hashes,
             custody_columns,
             publish_fn,
@@ -117,13 +163,13 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
 async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+    header_or_bid: PartialHeaderOrBid<T::EthSpec>,
     versioned_hashes: Vec<VersionedHash>,
     custody_columns_indices: &[ColumnIndex],
     publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
-    let slot = header.slot();
+    let slot = header_or_bid.slot();
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
 
@@ -210,7 +256,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let custody_columns_to_import = compute_custody_columns_to_import(
         &chain_adapter,
         block_root,
-        &header,
+        &header_or_bid,
         blobs_and_proofs,
         custody_columns_indices,
     )
@@ -224,44 +270,78 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    let full_columns = match chain_adapter.partial_assembler() {
-        Some(assembler) => {
-            // Initialize the partial assembler with the columns from the engine and return any full
-            // columns for publishing
-            assembler
-                .merge_partials(block_root, custody_columns_to_import, header)
-                .ok_or_else(|| {
-                    FetchEngineBlobError::InternalError(
-                        "Failed to merge partials into assembler".to_string(),
-                    )
-                })?
-                .full_columns
-        }
-        None => {
-            // Partial columns are disabled, so let's try to directly convert the columns we got
-            // from the EL into full columns.
-            custody_columns_to_import
+    let availability_processing_status = match &header_or_bid {
+        PartialHeaderOrBid::PartialHeader(header) => {
+            let custody_columns_to_import: Vec<_> = custody_columns_to_import
                 .into_iter()
-                .filter_map(|col| col.try_into_full(&header))
-                .collect()
+                .filter_map(|column| {
+                    KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(column).into_fulu()
+                })
+                .collect();
+            let full_columns = match chain_adapter.partial_assembler() {
+                Some(assembler) => {
+                    // Initialize the partial assembler with the columns from the engine and return
+                    // any full columns for publishing.
+                    assembler
+                        .merge_partials(block_root, custody_columns_to_import, header.clone())
+                        .ok_or_else(|| {
+                            FetchEngineBlobError::InternalError(
+                                "Failed to merge partials into assembler".to_string(),
+                            )
+                        })?
+                        .full_columns
+                }
+                None => {
+                    // Partial columns are disabled, so let's try to directly convert the columns we
+                    // got from the EL into full columns.
+                    custody_columns_to_import
+                        .into_iter()
+                        .filter_map(|col| col.try_into_full(header))
+                        .collect()
+                }
+            };
+
+            if !full_columns.is_empty() {
+                // Publish complete columns
+                publish_fn(full_columns.clone());
+
+                chain_adapter
+                    .process_engine_blobs_fulu(slot, block_root, full_columns)
+                    .await?
+            } else {
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root)
+            }
         }
-    };
+        PartialHeaderOrBid::Bid(bid) => {
+            let custody_columns_to_import: Vec<_> = custody_columns_to_import
+                .into_iter()
+                .filter_map(|column| {
+                    KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(column).into_gloas()
+                })
+                .collect();
+            // Ensure the bid is present in the cache.
+            chain_adapter
+                .pending_payload_cache()
+                .insert_bid(block_root, bid.clone());
+            // Merge partials into the pending payload cache and return any full columns for
+            // publishing.
+            let (availability, merge_result) = chain_adapter
+                .pending_payload_cache()
+                .merge_partial_data_columns(block_root, &custody_columns_to_import)
+                .map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!(
+                        "Failed to merge partials into pending payload cache: {e:?}"
+                    ))
+                })?;
+            // Publish complete columns
+            if !merge_result.full_columns.is_empty() {
+                publish_fn(merge_result.full_columns);
+            }
 
-    // Publish complete columns
-    if !full_columns.is_empty() {
-        publish_fn(full_columns.clone());
-    }
-    // We publish all partials at the calling site, regardless of result, as previous publishs
-    // have been blocked, waiting for the results of this call
-
-    // Process complete columns through DA checker
-    let availability_processing_status = if !full_columns.is_empty() {
-        chain_adapter
-            .process_engine_blobs(slot, block_root, full_columns)
-            .await?
-    } else {
-        // No complete columns yet, still missing components
-        AvailabilityProcessingStatus::MissingComponents(slot, block_root)
+            chain_adapter
+                .process_payload_envelope_availability(slot, availability)
+                .await?
+        }
     };
 
     Ok(Some(availability_processing_status))
@@ -271,15 +351,15 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
     block_root: Hash256,
-    header: &PartialDataColumnHeader<T::EthSpec>,
+    header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
     blobs_and_proofs: Vec<BlobAndProofV3<T::EthSpec>>,
     custody_columns_indices: &[ColumnIndex],
-) -> Result<Vec<KzgVerifiedCustodyPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
+) -> Result<Vec<KzgVerifiedPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
     let custody_columns_indices = custody_columns_indices.to_vec();
-    let header = header.clone();
+    let header_or_bid = header_or_bid.clone();
     chain_adapter
         .executor()
         .spawn_blocking_handle(
@@ -297,9 +377,14 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                             .map(|BlobAndProofV2 { blob, proofs }| (blob, proofs.as_ref()))
                     })
                     .collect::<Vec<_>>();
-                let data_columns_result =
-                    blobs_to_partial_data_columns(blob_and_proof_refs, &header, &kzg, &spec)
-                        .discard_timer_on_break(&mut timer);
+                let data_columns_result = blobs_to_partial_data_columns(
+                    block_root,
+                    blob_and_proof_refs,
+                    &header_or_bid,
+                    &kzg,
+                    &spec,
+                )
+                .discard_timer_on_break(&mut timer);
                 drop(timer);
 
                 // This filtering ensures we only import and publish the custody columns.
@@ -309,21 +394,22 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index))
-                            .map(|col| {
-                                KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-                                    KzgVerifiedPartialDataColumn::from_execution_verified(
-                                        Arc::new(col),
-                                    ),
-                                )
-                            })
+                            .filter(|col| custody_columns_indices.contains(col.index()))
+                            .map(KzgVerifiedPartialDataColumn::from_execution_verified)
                             .collect::<Vec<_>>()
                     })
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                let observation_key =
-                    ObservationKey::from_partial_column_header(&header, block_root, &spec);
+                let observation_key = match &header_or_bid {
+                    PartialHeaderOrBid::PartialHeader(header) => ObservationKey::new_proposer_key(
+                        header.signed_block_header.message.proposer_index,
+                        header.slot(),
+                    ),
+                    PartialHeaderOrBid::Bid(bid) => {
+                        ObservationKey::new_block_root_key(block_root, bid.message.slot)
+                    }
+                };
 
                 if let Some(observed_columns) =
                     chain_adapter_cloned.data_column_known_for_observation_key(observation_key)
@@ -335,8 +421,8 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 }
 
                 // Only consider columns that are not already known to data availability.
-                if let Some(known_columns) =
-                    chain_adapter_cloned.cached_data_column_indexes(&block_root, header.slot())
+                if let Some(known_columns) = chain_adapter_cloned
+                    .cached_data_column_indexes(&block_root, header_or_bid.slot())
                 {
                     custody_columns.retain(|col| !known_columns.contains(&col.index()));
                     if custody_columns.is_empty() {

@@ -806,14 +806,25 @@ pub async fn fork_choice_before_proposal() {
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_d)
         .into();
-    let block_d = tester
-        .client
-        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
-        .await
-        .unwrap()
-        .into_data()
-        .deconstruct()
-        .0;
+    // Post-Gloas, block production is only supported via the v4 endpoint.
+    let block_d = if harness.spec.fork_name_at_slot::<E>(slot_d).gloas_enabled() {
+        tester
+            .client
+            .get_validator_blocks_v4::<E>(slot_d, &randao_reveal, None, false, None, None)
+            .await
+            .unwrap()
+            .0
+            .into_block()
+    } else {
+        tester
+            .client
+            .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
+            .await
+            .unwrap()
+            .into_data()
+            .deconstruct()
+            .0
+    };
 
     // Head is now B.
     assert_eq!(

@@ -91,6 +91,7 @@ pub struct Checks {
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
     // Fast Confirmation Rule (FCR) checks
     confirmed_root: Option<Hash256>,
+    safe_execution_block_hash: Option<ExecutionBlockHash>,
     previous_epoch_observed_justified_checkpoint: Option<Checkpoint>,
     current_epoch_observed_justified_checkpoint: Option<Checkpoint>,
     previous_epoch_greatest_unrealized_checkpoint: Option<Checkpoint>,
@@ -262,7 +263,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation, valid } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Gloas(attestation),
+                                valid,
+                            },
+                        )
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
@@ -279,7 +287,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     }
                 }
                 Step::AttesterSlashing { attester_slashing } => {
-                    if fork_name.electra_enabled() {
+                    if fork_name.gloas_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Gloas(attester_slashing),
+                            })
+                    } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),
@@ -393,6 +406,29 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(alpha.12): remove once fast confirmation matches the v1.7.0-alpha.12 spec. These
+        // cases are new in alpha.12 and test behaviour that is not implemented yet.
+        const IGNORED_FAST_CONFIRMATION_CASES: &[&str] = &[
+            "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
+            "is_one_confirmed_passes_with_empty_slot_and_attester_in_two_consecutive_slots_2",
+            "fcr_no_restart_if_head_gu_is_stale",
+            // This case runs past a sync committee period boundary. The vectors contain a real
+            // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
+            // infinity pubkey, so the state roots cannot match.
+            "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
+        ];
+        // Lighthouse permits epoch-boundary proposer re-orgs on all forks. The proposer lookahead
+        // introduced in Fulu makes this consistent with the specification from Fulu onward.
+        // See: https://github.com/ethereum/consensus-specs/pull/5547
+        const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
+
+        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
+            || (!fork_name.fulu_enabled()
+                && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
@@ -441,6 +477,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
                         confirmed_root,
+                        safe_execution_block_hash,
                         previous_epoch_observed_justified_checkpoint,
                         current_epoch_observed_justified_checkpoint,
                         previous_epoch_greatest_unrealized_checkpoint,
@@ -498,6 +535,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected) = confirmed_root {
                         tester.check_confirmed_root(*expected)?;
+                    }
+                    if let Some(expected) = safe_execution_block_hash {
+                        tester.check_safe_execution_block_hash(*expected)?;
                     }
                     if let Some(expected) = previous_epoch_observed_justified_checkpoint {
                         tester.check_previous_epoch_observed_justified_checkpoint(*expected)?;
@@ -1358,6 +1398,26 @@ impl<E: EthSpec> Tester<E> {
 
         let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;
         check_equal("confirmed_root", actual, expected)
+    }
+
+    pub fn check_safe_execution_block_hash(
+        &self,
+        expected: ExecutionBlockHash,
+    ) -> Result<(), Error> {
+        let confirmed_root =
+            self.get_fcr_field("safe_execution_block_hash", |fcr| fcr.confirmed_root)?;
+        let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let block = fork_choice.get_block(&confirmed_root).ok_or_else(|| {
+            Error::InternalError(format!(
+                "confirmed block {confirmed_root:?} not found in fork choice"
+            ))
+        })?;
+        let actual = block
+            .execution_status
+            .block_hash()
+            .or(block.execution_payload_parent_hash)
+            .unwrap_or_else(ExecutionBlockHash::zero);
+        check_equal("safe_execution_block_hash", actual, expected)
     }
 
     pub fn check_previous_epoch_observed_justified_checkpoint(

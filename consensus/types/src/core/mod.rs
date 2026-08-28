@@ -7,6 +7,7 @@ mod enr_fork_id;
 mod eth_spec;
 mod execution_block_hash;
 mod graffiti;
+mod list_ref;
 mod non_zero_usize;
 mod preset;
 mod relative_epoch;
@@ -28,6 +29,7 @@ pub use enr_fork_id::EnrForkId;
 pub use eth_spec::{EthSpec, EthSpecId, GNOSIS, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 pub use execution_block_hash::ExecutionBlockHash;
 pub use graffiti::{GRAFFITI_BYTES_LEN, Graffiti, GraffitiString};
+pub use list_ref::ListRef;
 pub use non_zero_usize::new_non_zero_usize;
 pub use preset::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
