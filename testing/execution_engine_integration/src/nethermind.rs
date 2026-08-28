@@ -19,7 +19,9 @@ fn build_result(repo_dir: &Path) -> Output {
         .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
-        .arg("-p:TreatWarningsAsErrors=false")
+        // TODO: temporary flag to suppress the `NU1903` warning for a vulnerable package pinned
+        // by 1.38.0, can be removed in future when updating the version.
+        .arg("-p:WarningsNotAsErrors=NU1903")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
