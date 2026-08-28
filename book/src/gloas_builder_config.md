@@ -5,12 +5,17 @@
 
 The validator client reads its external-builder settings from a YAML file named
 `builder_definitions.yml` in the validator directory
-(`<datadir>/validators/builder_definitions.yml`). The file holds two things:
+(`<datadir>/validators/builder_definitions.yml`). The file contains:
 
 - **A global bid policy** — `min_bid` and `builder_boost_factor`, applied to bids received over p2p
   (gossip) and used as the default for any builder that does not set its own.
 - **A list of builders** to request bids from directly, each with optional per-builder overrides of
   the global policy.
+- **Per-validator configurations** under `validator_configs`, managed through the standard keymanager
+  API. Each map key is a validator public key.
+
+Use `GET`, `POST`, and `DELETE` at `/eth/v1/validator/{pubkey}/builder_config`. `GET` returns the
+configuration in use. `POST` replaces the stored configuration. `DELETE` restores global inheritance.
 
 ## Example
 
@@ -35,11 +40,16 @@ builders:
     builder_pubkeys:                    # optional — reject a bid not signed by one of these keys
       - "0xa1b2c3d4..."
     # auth_data: "0x68747470..."        # optional — defaults to the UTF-8 bytes of `url`
+
+# Optional per-validator configuration.
+# validator_configs:
+#   "0x<validator-public-key>":
+#     min_bid: 500000000
+#     builders: []                 # explicitly disable direct builders for this validator
 ```
 
-> **Comments are not preserved.** The validator client rewrites this file when builders are added or
-> removed (for example via the keymanager API), which strips YAML comments. Keep an annotated copy
-> elsewhere if you rely on inline notes.
+> **Comments are not preserved.** The validator client rewrites this file when builder settings
+> change through the keymanager API. Keep an annotated copy elsewhere if you rely on inline notes.
 
 ## Fields
 
@@ -50,6 +60,7 @@ builders:
 | `min_bid` | no | `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. |
 | `builder_boost_factor` | no | `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. |
 | `builders` | no | `[]` | The list of builders to request bids from directly. |
+| `validator_configs` | no | `{}` | Builder settings for individual validators. Omitted fields use global values. An empty `builders` list uses no direct builders. |
 
 ### Per builder (each entry under `builders`)
 

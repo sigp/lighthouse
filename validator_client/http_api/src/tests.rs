@@ -12,10 +12,14 @@ use account_utils::{
     random_password_string, validator_definitions::ValidatorDefinitions,
 };
 use bls::{Keypair, PublicKeyBytes};
+use builder_store::{BuilderDefinition, BuilderStore};
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
     Error as ApiError,
-    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    lighthouse_vc::{
+        http_client::{StatusCode, ValidatorClientHttpClient},
+        types::*,
+    },
     types::ErrorMessage as ApiErrorMessage,
 };
 use eth2_keystore::KeystoreBuilder;
@@ -44,6 +48,7 @@ struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
+    configured_builders: BuilderStore,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     spec: Arc<ChainSpec>,
@@ -65,6 +70,7 @@ impl ApiTester {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join("api-token.txt");
+        let configured_builders = BuilderStore::open_or_create(validator_dir.path()).unwrap();
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -115,6 +121,7 @@ impl ApiTester {
             api_secret,
             block_service: None,
             validator_dir: Some(validator_dir.path().into()),
+            configured_builders: configured_builders.clone(),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
@@ -154,6 +161,7 @@ impl ApiTester {
             client,
             initialized_validators,
             validator_store,
+            configured_builders,
             url,
             slot_clock,
             spec,
@@ -941,6 +949,20 @@ async fn routes_with_invalid_auth() {
                 .await
         })
         .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_builder_config(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_builder_config(&PublicKeyBytes::empty(), &BuilderConfig::default())
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.delete_builder_config(&PublicKeyBytes::empty()).await
+        })
+        .await
         .test_with_invalid_auth(|client| async move { client.get_keystores().await })
         .await
         .test_with_invalid_auth(|client| async move {
@@ -983,6 +1005,206 @@ async fn routes_with_invalid_auth() {
                 .await
         })
         .await;
+}
+
+async fn builder_configuration_tester() -> (ApiTester, PublicKeyBytes) {
+    let tester = ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 1,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await;
+    let validator = tester
+        .client
+        .get_lighthouse_validators()
+        .await
+        .unwrap()
+        .data[0]
+        .voting_pubkey;
+    (tester, validator)
+}
+
+fn builder_entry(url: &str) -> BuilderEntry {
+    BuilderEntry {
+        url: url.parse().unwrap(),
+        auth_data: None,
+        builder_pubkeys: None,
+        max_execution_payment: None,
+        min_bid: None,
+        builder_boost_factor: None,
+    }
+}
+
+#[tokio::test]
+async fn builder_configuration_lifecycle() {
+    let (tester, validator) = builder_configuration_tester().await;
+    tester
+        .configured_builders
+        .insert(BuilderDefinition {
+            enabled: true,
+            url: "https://global-builder.example".parse().unwrap(),
+            auth_data: None,
+            builder_pubkeys: vec![],
+            max_execution_payment: 7,
+            min_bid: None,
+            builder_boost_factor: None,
+        })
+        .unwrap();
+
+    let inherited = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(inherited.min_bid.unwrap().value, 0);
+    assert_eq!(inherited.builder_boost_factor.unwrap().value, 100);
+    let inherited_builders = inherited.builders.as_ref().unwrap();
+    assert_eq!(inherited_builders.len(), 1);
+    assert_eq!(
+        inherited_builders[0].max_execution_payment.unwrap().value,
+        7
+    );
+
+    let empty_post = tester
+        .client
+        .post_builder_config(&validator, &BuilderConfig::default())
+        .await
+        .unwrap();
+    assert_eq!(empty_post.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        inherited
+    );
+
+    let custom = BuilderConfig {
+        min_bid: Some(Quoted { value: 3 }),
+        builder_boost_factor: Some(Quoted { value: 115 }),
+        builders: Some(vec![BuilderEntry {
+            auth_data: Some(RequestAuthData::new(b"validator-auth".to_vec()).unwrap()),
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(Quoted { value: 8 }),
+            ..builder_entry("https://builder.example")
+        }]),
+    };
+    tester
+        .client
+        .post_builder_config(&validator, &custom)
+        .await
+        .unwrap();
+    let mut expected = custom.clone();
+    let expected_builder = &mut expected.builders.as_mut().unwrap()[0];
+    expected_builder.min_bid = custom.min_bid;
+    expected_builder.builder_boost_factor = custom.builder_boost_factor;
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        expected
+    );
+
+    let empty_list = BuilderConfig {
+        builders: Some(vec![]),
+        ..Default::default()
+    };
+    tester
+        .client
+        .post_builder_config(&validator, &empty_list)
+        .await
+        .unwrap();
+    let resolved_empty = tester.client.get_builder_config(&validator).await.unwrap();
+    assert_eq!(resolved_empty.min_bid, inherited.min_bid);
+    assert_eq!(
+        resolved_empty.builder_boost_factor,
+        inherited.builder_boost_factor
+    );
+    assert_eq!(resolved_empty.builders, Some(vec![]));
+
+    let delete = tester
+        .client
+        .delete_builder_config(&validator)
+        .await
+        .unwrap();
+    assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        inherited
+    );
+}
+
+#[tokio::test]
+async fn builder_configuration_unknown_validator() {
+    let tester = ApiTester::new().await;
+    let unknown = Keypair::random().pk.compress();
+    assert_server_error_code(tester.client.get_builder_config(&unknown).await, 404);
+    assert_server_error_code(
+        tester
+            .client
+            .post_builder_config(&unknown, &BuilderConfig::default())
+            .await,
+        404,
+    );
+    assert_server_error_code(tester.client.delete_builder_config(&unknown).await, 404);
+}
+
+#[tokio::test]
+async fn builder_configuration_rejects_invalid_input() {
+    let (tester, validator) = builder_configuration_tester().await;
+    let invalid = BuilderConfig {
+        builders: Some(vec![BuilderEntry {
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(Quoted { value: 1 }),
+            ..builder_entry("ftp://builder.example")
+        }]),
+        ..Default::default()
+    };
+    assert_server_error_code(
+        tester
+            .client
+            .post_builder_config(&validator, &invalid)
+            .await,
+        400,
+    );
+
+    let empty_auth = BuilderConfig {
+        builders: Some(vec![BuilderEntry {
+            auth_data: Some(RequestAuthData::default()),
+            builder_pubkeys: Some(vec![]),
+            max_execution_payment: Some(Quoted { value: 1 }),
+            ..builder_entry("https://builder.example")
+        }]),
+        ..Default::default()
+    };
+    assert_server_error_code(
+        tester
+            .client
+            .post_builder_config(&validator, &empty_auth)
+            .await,
+        400,
+    );
+
+    let before = tester.client.get_builder_config(&validator).await.unwrap();
+    let duplicate = builder_entry("https://duplicate-builder.example");
+    assert_server_error_code(
+        tester
+            .client
+            .post_builder_config(
+                &validator,
+                &BuilderConfig {
+                    builders: Some(vec![duplicate.clone(), duplicate]),
+                    ..Default::default()
+                },
+            )
+            .await,
+        400,
+    );
+    assert_eq!(
+        tester.client.get_builder_config(&validator).await.unwrap(),
+        before
+    );
+}
+
+fn assert_server_error_code<T: std::fmt::Debug>(result: Result<T, ApiError>, expected: u16) {
+    match result {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code, .. })) if code == expected => (),
+        other => panic!("expected HTTP {expected}, got {other:?}"),
+    }
 }
 
 #[tokio::test]

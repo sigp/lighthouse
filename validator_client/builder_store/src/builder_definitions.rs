@@ -1,11 +1,12 @@
 use account_utils::write_file_via_temporary;
 use bls::PublicKeyBytes;
-use builder_types::{BuilderUrl, MAX_BUILDER_ENTRIES, RequestAuthData};
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use builder_types::{BuilderPubkeys, BuilderUrl, MAX_BUILDER_ENTRIES, RequestAuthData};
+use serde::{Deserialize, Deserializer, Serialize, de};
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 /// The file name for the serialized `BuilderConfigFile` struct.
 pub const BUILDERS_FILENAME: &str = "builder_definitions.yml";
@@ -35,6 +36,10 @@ pub enum Error {
     /// More than `MAX_BUILDER_ENTRIES` builders are enabled, exceeding what fits in a
     /// `BuilderConfig`.
     TooManyEnabledBuilders { enabled: usize, max: usize },
+    /// A builder entry contains more public keys than fits in a `BuilderEntry`.
+    TooManyBuilderPubkeys(BuilderUrl),
+    /// A builder entry contains an explicitly empty authentication value.
+    EmptyAuthData(BuilderUrl),
 }
 
 /// A single builder in the config file: a direct bid request, with optional per-builder overrides
@@ -104,6 +109,84 @@ mod serde_option_auth_data {
     }
 }
 
+/// A per-validator builder configuration as submitted through the keymanager API.
+///
+/// Every field is optional so that an omitted value can inherit from the global configuration.
+/// `builders: Some(vec![])` is intentionally different from `builders: None`: the former disables
+/// direct builder requests for this validator, while the latter follows the global builder list.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ValidatorBuilderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_bid: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builders: Option<Vec<ValidatorBuilderDefinition>>,
+}
+
+/// A builder entry in a per-validator configuration.
+///
+/// Unlike [`BuilderDefinition`], `max_execution_payment` is optional because the keymanager API
+/// allows it to inherit from the validator client's matching global builder definition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ValidatorBuilderDefinition {
+    pub url: BuilderUrl,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "serde_option_auth_data"
+    )]
+    pub auth_data: Option<RequestAuthData>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub builder_pubkeys: Vec<PublicKeyBytes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_execution_payment: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_bid: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+}
+
+/// A fully resolved builder configuration used by the validator client and the HTTP API.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedBuilderConfig {
+    pub min_bid: u64,
+    pub builder_boost_factor: u64,
+    pub builders: Vec<BuilderDefinition>,
+}
+
+impl ValidatorBuilderConfig {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        let Some(builders) = &self.builders else {
+            return Ok(());
+        };
+
+        if builders.len() > MAX_BUILDER_ENTRIES {
+            return Err(Error::TooManyEnabledBuilders {
+                enabled: builders.len(),
+                max: MAX_BUILDER_ENTRIES,
+            });
+        }
+
+        let mut seen_auth_urls = HashSet::new();
+        for builder in builders {
+            validate_builder_definition(&builder.url, &builder.auth_data, &mut seen_auth_urls)?;
+            if BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_err() {
+                return Err(Error::TooManyBuilderPubkeys(builder.url.clone()));
+            }
+            if builder
+                .auth_data
+                .as_ref()
+                .is_some_and(|data| data.is_empty())
+            {
+                return Err(Error::EmptyAuthData(builder.url.clone()));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// The validator client's builder configuration file.
 ///
 /// Holds the global bid-policy defaults plus the list of builders to request bids from directly. It
@@ -122,6 +205,30 @@ pub struct BuilderConfigFile {
     /// The builders to request bids from directly.
     #[serde(default)]
     pub builders: Vec<BuilderDefinition>,
+    /// Per-validator overrides. The key is the compressed validator public key in hex form.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "deserialize_validator_configs_and_standardize_pubkeys"
+    )]
+    pub validator_configs: BTreeMap<String, ValidatorBuilderConfig>,
+}
+
+fn deserialize_validator_configs_and_standardize_pubkeys<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, ValidatorBuilderConfig>, D::Error> {
+    let configs = BTreeMap::<String, ValidatorBuilderConfig>::deserialize(deserializer)?;
+    let mut standardized = BTreeMap::new();
+    for (key, config) in configs {
+        let public_key = PublicKeyBytes::from_str(&key).map_err(de::Error::custom)?;
+        if standardized
+            .insert(public_key.to_string(), config)
+            .is_some()
+        {
+            return Err(de::Error::custom("duplicate validator public key"));
+        }
+    }
+    Ok(standardized)
 }
 
 impl Default for BuilderConfigFile {
@@ -130,6 +237,7 @@ impl Default for BuilderConfigFile {
             min_bid: 0,
             builder_boost_factor: default_builder_boost_factor(),
             builders: Vec::new(),
+            validator_configs: BTreeMap::new(),
         }
     }
 }
@@ -205,28 +313,136 @@ impl BuilderConfigFile {
                 continue;
             }
             let url = &definition.url;
-            // Reject malformed or non-http(s) builder URLs here, at config load, rather than
-            // silently skipping them during block proposal.
-            let sensitive_url = url
-                .to_sensitive_url()
-                .map_err(|_| Error::InvalidBuilderUrl(url.clone()))?;
-            if !matches!(sensitive_url.expose_full().scheme(), "http" | "https") {
-                return Err(Error::UnsupportedUrlScheme(url.clone()));
-            }
+            validate_builder_definition(url, &definition.auth_data, &mut seen_auth_urls)?;
+        }
 
-            let auth = definition
-                .auth_data
-                .clone()
-                .unwrap_or_else(|| url.to_default_auth_data());
-            // two entries cannot contain the same url and auth data
-            let key = (url.clone(), auth);
-            if !seen_auth_urls.insert(key) {
-                return Err(Error::DuplicateBuilderAuth(url.clone()));
-            }
+        for config in self.validator_configs.values() {
+            config.validate()?;
         }
 
         Ok(())
     }
+
+    /// Resolve the configuration that applies to `validator_pubkey`.
+    pub fn resolved_for(&self, validator_pubkey: &PublicKeyBytes) -> ResolvedBuilderConfig {
+        let validator_config = self.validator_configs.get(&validator_pubkey.to_string());
+        let validator_min_bid = validator_config.and_then(|config| config.min_bid);
+        let validator_builder_boost_factor =
+            validator_config.and_then(|config| config.builder_boost_factor);
+        let min_bid = validator_min_bid.unwrap_or(self.min_bid);
+        let builder_boost_factor =
+            validator_builder_boost_factor.unwrap_or(self.builder_boost_factor);
+
+        let builders = match validator_config.and_then(|config| config.builders.as_ref()) {
+            Some(builders) => builders
+                .iter()
+                .map(|builder| {
+                    self.resolve_validator_builder(builder, min_bid, builder_boost_factor)
+                })
+                .collect(),
+            None => self
+                .builders
+                .iter()
+                .filter(|builder| {
+                    builder.enabled
+                        && BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_ok()
+                        && !builder
+                            .auth_data
+                            .as_ref()
+                            .is_some_and(|auth_data| auth_data.is_empty())
+                })
+                .map(|builder| {
+                    let mut builder = builder.clone();
+                    // Validator defaults override values on inherited global builders.
+                    builder.min_bid = Some(
+                        validator_min_bid
+                            .or(builder.min_bid)
+                            .unwrap_or(self.min_bid),
+                    );
+                    builder.builder_boost_factor = Some(
+                        validator_builder_boost_factor
+                            .or(builder.builder_boost_factor)
+                            .unwrap_or(self.builder_boost_factor),
+                    );
+                    builder
+                })
+                .collect(),
+        };
+
+        ResolvedBuilderConfig {
+            min_bid,
+            builder_boost_factor,
+            builders,
+        }
+    }
+
+    fn resolve_validator_builder(
+        &self,
+        builder: &ValidatorBuilderDefinition,
+        min_bid: u64,
+        builder_boost_factor: u64,
+    ) -> BuilderDefinition {
+        let max_execution_payment = builder
+            .max_execution_payment
+            .or_else(|| self.global_max_execution_payment(builder))
+            .unwrap_or_default();
+
+        BuilderDefinition {
+            enabled: true,
+            url: builder.url.clone(),
+            auth_data: builder.auth_data.clone(),
+            builder_pubkeys: builder.builder_pubkeys.clone(),
+            max_execution_payment,
+            min_bid: Some(builder.min_bid.unwrap_or(min_bid)),
+            builder_boost_factor: Some(
+                builder.builder_boost_factor.unwrap_or(builder_boost_factor),
+            ),
+        }
+    }
+
+    fn global_max_execution_payment(&self, builder: &ValidatorBuilderDefinition) -> Option<u64> {
+        let auth_data = builder
+            .auth_data
+            .clone()
+            .unwrap_or_else(|| builder.url.to_default_auth_data());
+        self.builders
+            .iter()
+            .filter(|global| global.enabled)
+            .find(|global| {
+                global.url == builder.url
+                    && global
+                        .auth_data
+                        .clone()
+                        .unwrap_or_else(|| global.url.to_default_auth_data())
+                        == auth_data
+            })
+            .map(|global| global.max_execution_payment)
+    }
+}
+
+fn validate_builder_definition(
+    url: &BuilderUrl,
+    auth_data: &Option<RequestAuthData>,
+    seen_auth_urls: &mut HashSet<(BuilderUrl, RequestAuthData)>,
+) -> Result<(), Error> {
+    // Reject malformed or non-http(s) builder URLs here, at config load, rather than silently
+    // skipping them during block proposal.
+    let sensitive_url = url
+        .to_sensitive_url()
+        .map_err(|_| Error::InvalidBuilderUrl(url.clone()))?;
+    if !matches!(sensitive_url.expose_full().scheme(), "http" | "https") {
+        return Err(Error::UnsupportedUrlScheme(url.clone()));
+    }
+
+    let auth = auth_data
+        .clone()
+        .unwrap_or_else(|| url.to_default_auth_data());
+    // Two entries cannot contain the same URL and auth data.
+    if !seen_auth_urls.insert((url.clone(), auth)) {
+        return Err(Error::DuplicateBuilderAuth(url.clone()));
+    }
+
+    Ok(())
 }
 
 impl<'a> IntoIterator for &'a BuilderConfigFile {
@@ -288,5 +504,19 @@ mod tests {
                 "unset `{field}` should be omitted:\n{yaml}"
             );
         }
+    }
+
+    #[test]
+    fn validator_config_pubkey_keys_use_standard_format() {
+        let public_key = bls::Keypair::random().pk.compress();
+        let encoded = public_key.to_string();
+        let uppercase = format!("0x{}", encoded[2..].to_uppercase());
+        let yaml = format!("validator_configs:\n  {uppercase}: {{}}\n");
+
+        let config: BuilderConfigFile = yaml_serde::from_str(&yaml).unwrap();
+        assert!(config.validator_configs.contains_key(&encoded));
+
+        let invalid = "validator_configs:\n  not-a-public-key: {}\n";
+        assert!(yaml_serde::from_str::<BuilderConfigFile>(invalid).is_err());
     }
 }

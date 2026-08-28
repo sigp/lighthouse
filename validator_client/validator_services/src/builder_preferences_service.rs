@@ -224,7 +224,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                 let config = self
                     .inner
                     .configured_builders
-                    .builder_config(|auth_data| {
+                    .builder_config(&pubkey, |auth_data| {
                         self.inner.request_auth_cache.get_or_sign(
                             slot,
                             pubkey,
