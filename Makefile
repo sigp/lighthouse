@@ -30,9 +30,6 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# Hard fork used for op_pool tests
-TEST_OP_POOL_FORKS=gloas
-
 # List of all recent hard forks. This list is used to set env variables for several tests.
 # Include phase0 to test the code paths in sync that are pre blobs
 RECENT_FORKS=fulu gloas
@@ -218,7 +215,7 @@ test-http-api-%:
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
-test-op-pool: $(patsubst %,test-op-pool-%,$(TEST_OP_POOL_FORKS))
+test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS))
 
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
