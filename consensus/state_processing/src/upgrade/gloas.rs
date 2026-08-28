@@ -10,8 +10,8 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment,
-    ChainSpec, DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
+    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
+    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
     PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
