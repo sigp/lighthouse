@@ -2544,6 +2544,7 @@ mod release_tests {
                 op_pool.insert_payload_attestation_message(msg).unwrap();
             }
         }
+
         // When: we pack attestations for block production at slot 2.
         let mut advanced_state = state.clone();
         state_processing::state_advance::complete_state_advance(
