@@ -16,7 +16,7 @@ impl WithdrawalCredentials {
 
     /// Append the 0x01 prefix to the withdrawal credentials, signalling that it
     /// is a non-compounding validator that receives rewards for to an
-    /// ETH1\execution address.
+    /// ETH1 execution address.
     pub fn type_0x01(withdrawal_address: Address, spec: &ChainSpec) -> Self {
         let mut withdrawal_credentials = [0; 32];
         withdrawal_credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
@@ -25,8 +25,7 @@ impl WithdrawalCredentials {
     }
 
     /// Append the 0x02 prefix to the withdrawal credentials, signalling that it
-    /// is a compounding validator that receives rewards for to an
-    /// ETH1\execution address.
+    /// is a compounding validator.
     pub fn type_0x02(withdrawal_address: Address, spec: &ChainSpec) -> Self {
         let mut withdrawal_credentials = [0; 32];
         withdrawal_credentials[0] = spec.compounding_withdrawal_prefix_byte;
