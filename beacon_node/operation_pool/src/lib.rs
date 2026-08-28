@@ -2634,7 +2634,7 @@ mod release_tests {
         // The head is now Slot 2, but Slot 2 has no block (skipped slot)
         harness.advance_slot();
 
-        let attestations_with_payload_present = harness.make_unaggregated_attestations(
+        let attestations_with_payload = harness.make_unaggregated_attestations(
             &all_validators,
             state,
             state_root,
@@ -2645,7 +2645,7 @@ mod release_tests {
         // head_block is still Slot 1 (since Slot 2 is a skipped slot)
         // block.slot (Slot 1) != current_slot (Slot 2)
         // With payload_present and attesting at Slot 2, index = 1
-        for committee_attestations in &attestations_with_payload_present {
+        for committee_attestations in &attestations_with_payload {
             for (attestation, _subnetid) in committee_attestations {
                 assert_eq!(
                     attestation.data().index,
@@ -2657,7 +2657,7 @@ mod release_tests {
 
         // Create attestations at Slot 2 without payload_present
         let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
-        let (attestations_no_payload_present, _attesters) = harness.make_attestations_with_opts(
+        let (attestations_no_payload, _attesters) = harness.make_attestations_with_opts(
             &all_validators,
             state,
             state_root,
@@ -2671,9 +2671,7 @@ mod release_tests {
         );
 
         // Without payload_present, index = 0
-        for (committee_attestations, _signed_aggregate_and_proof) in
-            &attestations_no_payload_present
-        {
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_no_payload {
             for (attestation, _subnetid) in committee_attestations {
                 assert_eq!(
                     attestation.data().index,
@@ -2686,7 +2684,7 @@ mod release_tests {
         let op_pool = OperationPool::<MinimalEthSpec>::new();
 
         // Insert attestations with index 1
-        for committee_attestations in &attestations_with_payload_present {
+        for committee_attestations in &attestations_with_payload {
             for (attestation, _subnetid) in committee_attestations {
                 let attesting_indices =
                     get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
@@ -2697,9 +2695,7 @@ mod release_tests {
         }
 
         // Insert attestations with index 0
-        for (committee_attestations, _signed_aggregate_and_proof) in
-            &attestations_no_payload_present
-        {
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_no_payload {
             for (attestation, _subnetid) in committee_attestations {
                 let attesting_indices =
                     get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
