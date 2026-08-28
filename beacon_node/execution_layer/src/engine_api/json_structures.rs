@@ -932,6 +932,7 @@ pub struct JsonPayloadAttributes {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub target_gas_limit: u64,
     #[superstruct(only(V5))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub inclusion_list_transactions: ProgressiveTransactions,
 }
 

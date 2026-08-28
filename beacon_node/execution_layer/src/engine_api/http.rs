@@ -51,6 +51,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
 pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
+pub const ENGINE_FORKCHOICE_UPDATED_V5: &str = "engine_forkchoiceUpdatedV5";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
@@ -89,6 +90,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4,
+    ENGINE_FORKCHOICE_UPDATED_V5,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
@@ -1165,6 +1167,27 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn forkchoice_updated_v5(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V5,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
@@ -1238,6 +1261,7 @@ impl HttpJsonRpc {
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
             forkchoice_updated_v4: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V4),
+            forkchoice_updated_v5: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V5),
             get_payload_bodies_by_hash_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_range_v1: capabilities
@@ -1505,9 +1529,19 @@ impl HttpJsonRpc {
                     }
                 }
                 PayloadAttributes::V5(_) => {
-                    todo!("engine_forkchoiceUpdatedV5 not yet wired up");
+                    if engine_capabilities.forkchoice_updated_v5 {
+                        self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported(
+                            "engine_forkchoiceUpdatedV5",
+                        ))
+                    }
                 }
             }
+        } else if engine_capabilities.forkchoice_updated_v5 {
+            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
+                .await
         } else if engine_capabilities.forkchoice_updated_v4 {
             self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
                 .await
