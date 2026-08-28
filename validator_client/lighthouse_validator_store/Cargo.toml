@@ -8,6 +8,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
+builder_types = { workspace = true }
 doppelganger_service = { workspace = true }
 either = { workspace = true }
 environment = { workspace = true }
