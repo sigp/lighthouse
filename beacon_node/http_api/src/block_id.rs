@@ -72,6 +72,45 @@ impl BlockId {
                 Ok((justified_checkpoint.root, execution_optimistic, false))
             }
             CoreBlockId::Slot(slot) => {
+                if let Some((cached_slot, cached_root)) = chain
+                    .early_attester_cache
+                    .get_head_block_root()
+                    .filter(|(cached_slot, _)| cached_slot == slot)
+                {
+                    let cached_root_is_persisted = chain
+                        .store
+                        .block_exists(&cached_root)
+                        .map_err(BeaconChainError::DBError)
+                        .map_err(warp_utils::reject::unhandled_error)?;
+
+                    let cached_head = if cached_root_is_persisted {
+                        let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                        chain.early_attester_cache.get_head_block_root().filter(
+                            |(current_slot, current_root)| {
+                                current_slot == slot
+                                    && *current_root
+                                        == fork_choice.cached_fork_choice_view().head_block_root
+                            },
+                        )
+                    } else {
+                        // Block import holds the fork choice write lock from cache insertion until
+                        // persistence. Re-read the cache so a concurrent clear is not accepted.
+                        chain
+                            .early_attester_cache
+                            .get_head_block_root()
+                            .filter(|cached_head| *cached_head == (cached_slot, cached_root))
+                    };
+
+                    return cached_head
+                        .map(|(_, root)| (root, false, false))
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "beacon block at slot {}",
+                                slot
+                            ))
+                        });
+                }
+
                 let execution_optimistic = chain
                     .is_optimistic_or_invalid_head()
                     .map_err(warp_utils::reject::unhandled_error)?;
@@ -132,12 +171,8 @@ impl BlockId {
                 } else if chain.early_attester_cache.get_block(*root).is_some() {
                     // Fall back to the early attester cache for blocks that are in fork choice
                     // but haven't been written to disk yet.
-                    let execution_optimistic = chain
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .is_optimistic_or_invalid_block(root)
-                        .unwrap_or(false);
-                    Ok((*root, execution_optimistic, false))
+                    // Blocks in this cache are execution validated and not finalized.
+                    Ok((*root, false, false))
                 } else {
                     Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
@@ -146,6 +181,26 @@ impl BlockId {
                 }
             }
         }
+    }
+
+    pub(crate) fn is_canonical<T: BeaconChainTypes>(
+        &self,
+        root: Hash256,
+        slot: Slot,
+        chain: &BeaconChain<T>,
+    ) -> Result<bool, warp::Rejection> {
+        // A successful slot lookup only returns the canonical block at that slot.
+        if matches!(
+            &self.0,
+            CoreBlockId::Slot(requested_slot) if *requested_slot == slot
+        ) {
+            return Ok(true);
+        }
+
+        chain
+            .block_root_at_slot(slot, WhenSlotSkipped::None)
+            .map_err(warp_utils::reject::unhandled_error)
+            .map(|canonical| canonical.is_some_and(|canonical| root == canonical))
     }
 
     pub fn blinded_block_by_root<T: BeaconChainTypes>(
@@ -553,14 +608,19 @@ mod tests {
         custody_context::NodeCustodyType,
         data_availability_checker::AvailableBlock,
         test_utils::{
-            BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
+            AttestationStrategy, BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
             generate_data_column_sidecars_from_block,
         },
     };
+    use fork_choice::AttestationFromBlock;
+    use proto_array::Block as ProtoBlock;
+    use std::sync::mpsc::Receiver;
+    use std::thread::JoinHandle;
     use std::time::Duration;
-    use types::MinimalEthSpec;
+    use types::{BeaconState, MinimalEthSpec};
 
     type TestHarness = BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+    type TestChain = BeaconChain<EphemeralHarnessType<MinimalEthSpec>>;
 
     fn harness() -> TestHarness {
         BeaconChainHarness::builder(MinimalEthSpec)
@@ -645,6 +705,236 @@ mod tests {
         assert_eq!(
             BlockId(CoreBlockId::Head).root(&harness.chain).unwrap().0,
             block_root
+        );
+    }
+
+    struct UnpersistedBlock {
+        available_block: AvailableBlock<MinimalEthSpec>,
+        post_state: BeaconState<MinimalEthSpec>,
+        proto_block: ProtoBlock,
+    }
+
+    impl UnpersistedBlock {
+        fn root(&self) -> Hash256 {
+            self.available_block.block_root()
+        }
+    }
+
+    async fn make_unpersisted_block(
+        harness: &TestHarness,
+        state: BeaconState<MinimalEthSpec>,
+        slot: Slot,
+    ) -> UnpersistedBlock {
+        let (block_contents, post_state) = harness.make_block(state, slot).await;
+        let (block, _) = block_contents;
+        let available_block = AvailableBlock::new(
+            block,
+            AvailableBlockData::NoData,
+            &harness.chain.custody_context,
+        )
+        .unwrap();
+        let block_root = available_block.block_root();
+        let proto_block = {
+            let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
+            fork_choice
+                .on_block(
+                    slot,
+                    available_block.block().message(),
+                    block_root,
+                    Duration::ZERO,
+                    &post_state,
+                    PayloadVerificationStatus::Verified,
+                    &harness.chain.spec,
+                )
+                .unwrap();
+            fork_choice.get_block(&block_root).unwrap()
+        };
+        UnpersistedBlock {
+            available_block,
+            post_state,
+            proto_block,
+        }
+    }
+
+    fn cache_block(harness: &TestHarness, block: &UnpersistedBlock) {
+        harness
+            .chain
+            .early_attester_cache
+            .add_head_block(
+                block.root(),
+                &block.available_block,
+                block.proto_block.clone(),
+                &block.post_state,
+            )
+            .unwrap();
+    }
+
+    fn spawn_slot_header_lookup(
+        chain: Arc<TestChain>,
+        slot: Slot,
+    ) -> (JoinHandle<()>, Receiver<(Hash256, bool, bool, bool)>) {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let request = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let block_id = BlockId(CoreBlockId::Slot(slot));
+            let result = block_id.root(&chain).unwrap();
+            let (block, _, _) = BlockId::from_root(result.0).blinded_block(&chain).unwrap();
+            assert_eq!(block.canonical_root(), result.0);
+            let canonical = block_id
+                .is_canonical(result.0, block.slot(), &chain)
+                .unwrap();
+            result_tx
+                .send((result.0, result.1, result.2, canonical))
+                .unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        (request, result_rx)
+    }
+
+    #[tokio::test]
+    async fn slot_uses_early_attester_cache_for_unpersisted_head() {
+        let harness = harness();
+        let chain = &harness.chain;
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let block = make_unpersisted_block(&harness, harness.get_current_state(), slot).await;
+        let block_root = block.root();
+        let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+        let (head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
+        assert_eq!(head_root, block_root, "precondition: block must be head");
+        cache_block(&harness, &block);
+
+        assert!(
+            !chain.store.block_exists(&block_root).unwrap(),
+            "precondition: head block must not be persisted"
+        );
+        assert_eq!(
+            chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap(),
+            None,
+            "precondition: persisted lookup must not know the new head"
+        );
+
+        let (request, result_rx) = spawn_slot_header_lookup(chain.clone(), slot);
+        assert_eq!(
+            result_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("unpersisted lookup must not wait for the fork choice write lock"),
+            (block_root, false, false, true)
+        );
+        chain.early_attester_cache.clear();
+        assert!(
+            BlockId(CoreBlockId::Slot(slot))
+                .is_canonical(block_root, slot, chain)
+                .unwrap(),
+            "resolved slot must remain canonical across the cache handoff"
+        );
+        drop(fork_choice);
+        request.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn slot_rejects_stale_cache_and_accepts_same_slot_replacement() {
+        let harness = harness();
+        let chain = &harness.chain;
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let block_a = make_unpersisted_block(&harness, state.clone(), slot).await;
+        let block_b = make_unpersisted_block(&harness, state, slot).await;
+        let block_root_a = block_a.root();
+        let block_root_b = block_b.root();
+        assert_ne!(
+            block_root_a, block_root_b,
+            "precondition: blocks must compete at the same slot"
+        );
+
+        let old_head_root = {
+            let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+            let (head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
+            head_root
+        };
+        let (stale_block, replacement_block) = if old_head_root == block_root_a {
+            (&block_a, &block_b)
+        } else {
+            (&block_b, &block_a)
+        };
+
+        cache_block(&harness, stale_block);
+        chain
+            .store
+            .put_block(
+                &stale_block.root(),
+                stale_block.available_block.block().clone(),
+            )
+            .unwrap();
+        assert_eq!(
+            BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap(),
+            (stale_block.root(), false, false),
+            "persisted cache entry must cover the gap before the canonical head is updated"
+        );
+
+        let fork_name = chain.spec.fork_name_at_slot::<MinimalEthSpec>(slot);
+        let attestations = harness.get_single_attestations(
+            &AttestationStrategy::AllValidators,
+            &replacement_block.post_state,
+            replacement_block.available_block.block().state_root(),
+            replacement_block.root(),
+            slot,
+        );
+        harness.advance_slot();
+        let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+        for (attestation, _) in attestations.into_iter().flatten() {
+            let indexed_attestation = attestation.to_indexed::<MinimalEthSpec>(fork_name).unwrap();
+            fork_choice
+                .on_attestation(
+                    chain.slot().unwrap(),
+                    indexed_attestation.to_ref(),
+                    AttestationFromBlock::False,
+                    &chain.spec,
+                )
+                .unwrap();
+        }
+        let (new_head_root, _) = fork_choice
+            .get_head(chain.slot().unwrap(), &chain.spec)
+            .unwrap();
+        assert_eq!(
+            new_head_root,
+            replacement_block.root(),
+            "precondition: new votes must replace the same-slot head"
+        );
+        drop(fork_choice);
+
+        let rejection = BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap_err();
+        assert!(
+            rejection
+                .find::<warp_utils::reject::CustomNotFound>()
+                .is_some(),
+            "stale same-slot cache entry must produce the existing not-found rejection"
+        );
+
+        cache_block(&harness, replacement_block);
+        chain
+            .store
+            .put_block(
+                &replacement_block.root(),
+                replacement_block.available_block.block().clone(),
+            )
+            .unwrap();
+        assert_eq!(
+            BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap(),
+            (replacement_block.root(), false, false),
+            "same-slot replacement must be served"
         );
     }
 
@@ -763,6 +1053,12 @@ mod tests {
         assert_eq!(
             BlockId(CoreBlockId::Root(block_root)).root(chain).unwrap(),
             (block_root, false, false)
+        );
+        assert!(
+            !BlockId(CoreBlockId::Root(block_root))
+                .is_canonical(block_root, block.slot(), chain)
+                .unwrap(),
+            "root lookup must preserve persisted canonical metadata"
         );
 
         let (blinded_block, execution_optimistic, finalized) =

@@ -56,7 +56,7 @@ use axum::Router;
 use axum_utils::server::Server;
 use axum_utils::tls::TlsConfig;
 use beacon::states;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
@@ -791,10 +791,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     let (block, _execution_optimistic, _finalized) =
                         BlockId::from_root(root).blinded_block(&chain)?;
 
-                    let canonical = chain
-                        .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
-                        .map_err(warp_utils::reject::unhandled_error)?
-                        .is_some_and(|canonical| root == canonical);
+                    let canonical = block_id.is_canonical(root, block.slot(), &chain)?;
 
                     let data = api_types::BlockHeaderData {
                         root,
