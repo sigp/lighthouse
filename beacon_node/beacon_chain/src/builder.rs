@@ -22,6 +22,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
 use bls::Signature;
+use builder_client::Builders;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
@@ -93,6 +94,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     op_pool: Option<OperationPool<T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<Builders>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -136,6 +138,7 @@ where
             op_pool: None,
             execution_layer: None,
             proof_engine: None,
+            builders: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
@@ -635,6 +638,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` builder service (the Gloas Builder API client).
+    pub fn builders(mut self, builders: Option<Arc<Builders>>) -> Self {
+        self.builders = builders;
+        self
+    }
+
     /// Sets the node custody type for data column import.
     pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
         self.node_custody_type = node_custody_type;
@@ -1026,6 +1035,7 @@ where
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
             proof_engine: self.proof_engine,
+            builders: self.builders,
             genesis_validators_root,
             genesis_time,
             canonical_head,

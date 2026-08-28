@@ -23,6 +23,9 @@ use types::{
 
 /// Verify that an execution payload bid is consistent with the current chain state
 /// and proposer preferences.
+///
+/// These checks are shared by gossip and direct bids. Source-specific checks (e.g. the gossip-only
+/// requirement that `execution_payment == 0`) are applied by the caller.
 pub(crate) fn verify_bid_consistency<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
     current_slot: Slot,
@@ -34,14 +37,6 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
     if bid_slot != current_slot && bid_slot != current_slot.saturating_add(1u64) {
         return Err(PayloadBidError::InvalidBidSlot { bid_slot });
-    }
-
-    // Execution payments are used by off protocol builders. In protocol bids
-    // should always have this value set to zero.
-    if bid.execution_payment != 0 {
-        return Err(PayloadBidError::ExecutionPaymentNonZero {
-            execution_payment: bid.execution_payment,
-        });
     }
 
     if bid.fee_recipient != proposer_preferences.message.fee_recipient {
@@ -58,9 +53,23 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         });
     }
 
+    verify_bid_state_conditions(bid, head_state, spec)
+}
+
+/// Verify the bid conditions that depend on the beacon `state`: the builder is active, is a payload
+/// builder, and can cover the bid. These are exactly the state-dependent checks
+/// `process_execution_payload_bid` re-applies in `per_block_processing`, and the only bid conditions
+/// that can go stale between gossip verification and block production (e.g. the builder's balance
+/// dropping). Re-running them against the production state lets bid selection drop a gossip bid that
+/// has since become invalid, rather than committing to it and failing the whole block.
+pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     let builder_index = bid.builder_index;
 
-    let is_active_builder = head_state
+    let is_active_builder = state
         .is_active_builder(builder_index, spec)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
 
@@ -68,7 +77,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         return Err(PayloadBidError::InvalidBuilder { builder_index });
     }
 
-    let builder_version = head_state.get_builder(builder_index)?.version;
+    let builder_version = state.get_builder(builder_index)?.version;
     if builder_version != PAYLOAD_BUILDER_VERSION {
         return Err(PayloadBidError::InvalidBuilderVersion {
             builder_index,
@@ -76,7 +85,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         });
     }
 
-    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
+    if !state.can_builder_cover_bid(builder_index, bid.value, spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
             builder_bid: bid.value,
@@ -187,6 +196,14 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
 
+        // Execution payments are used by off-protocol builders. In-protocol (gossip) bids should
+        // always have this value set to zero.
+        if signed_bid.message.execution_payment != 0 {
+            return Err(PayloadBidError::ExecutionPaymentNonZero {
+                execution_payment: signed_bid.message.execution_payment,
+            });
+        }
+
         if ctx
             .gossip_verified_payload_bid_cache
             .seen_builder_bid_for_parent(&bid_slot, bid_parent, signed_bid.message.builder_index)
@@ -287,9 +304,12 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         }
 
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
-        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`.
+        // Query the mix at the state's own current epoch (`head_state` stands in for the parent
+        // post-state); using the wall-clock epoch instead would be out of bounds during the first
+        // slot(s) of an epoch, before a block advances the head into it.
         if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+            != *head_state.get_randao_mix(head_state.current_epoch())?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
@@ -346,10 +366,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
         ctx.gossip_verified_payload_bid_cache
-            .insert_seen_builder_bid(&gossip_verified_bid);
-
-        ctx.gossip_verified_payload_bid_cache
-            .insert_highest_bid(gossip_verified_bid.clone());
+            .observe_bid(gossip_verified_bid.clone());
 
         Ok(gossip_verified_bid)
     }
@@ -519,23 +536,6 @@ mod tests {
         assert!(matches!(
             result,
             Err(PayloadBidError::InvalidBidSlot { .. })
-        ));
-    }
-
-    #[test]
-    fn test_execution_payment_nonzero() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        bid.execution_payment = 42;
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(
-            result,
-            Err(PayloadBidError::ExecutionPaymentNonZero {
-                execution_payment: 42
-            })
         ));
     }
 
