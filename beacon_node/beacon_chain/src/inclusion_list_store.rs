@@ -57,7 +57,6 @@ struct SlotEntry {
 pub struct InclusionListStore<E: EthSpec> {
     slots: HashMap<Slot, SlotEntry>,
     lowest_permissible_slot: Slot,
-    first_heze_slot: Slot,
     /// One more than `MIN_SLOTS_FOR_INCLUSION_LISTS_REQUESTS` requires. A slot `S` payload
     /// envelope reads the slot `S-1` lists, and might not be processed until the clock is at `S+1`.
     slots_retained: u64,
@@ -75,7 +74,6 @@ impl<E: EthSpec> InclusionListStore<E> {
         Self {
             slots: HashMap::new(),
             lowest_permissible_slot: first_heze_slot,
-            first_heze_slot,
             slots_retained: spec
                 .min_slots_for_inclusion_lists_requests
                 .saturating_add(1),
@@ -272,13 +270,12 @@ impl<E: EthSpec> InclusionListStore<E> {
 
     /// Drop every slot below `current_slot - slots_retained`. Hooked into the per-slot timer.
     pub fn prune(&mut self, current_slot: Slot) {
-        let lowest_permissible_slot = std::cmp::max(
+        self.lowest_permissible_slot = std::cmp::max(
             current_slot.saturating_sub(self.slots_retained),
-            self.first_heze_slot,
+            self.lowest_permissible_slot,
         );
-        self.lowest_permissible_slot = lowest_permissible_slot;
         self.slots
-            .retain(|slot, _| *slot >= lowest_permissible_slot);
+            .retain(|slot, _| *slot >= self.lowest_permissible_slot);
     }
 }
 
