@@ -576,7 +576,10 @@ impl ForkChoiceTestDefinition {
                 }
                 Operation::ProcessExecutionPayloadEnvelope { block_root } => {
                     fork_choice
-                        .on_valid_payload_envelope_received(block_root)
+                        .on_payload_envelope_received(
+                            block_root,
+                            ExecutionStatus::Valid(ExecutionBlockHash::zero()),
+                        )
                         .unwrap_or_else(|e| {
                             panic!(
                                 "on_execution_payload op at index {} returned error: {}",

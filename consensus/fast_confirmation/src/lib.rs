@@ -1230,11 +1230,22 @@ fn parent_node_of<'a>(
 /// Pre-bellatrix `Irrelevant` payloads and missing nodes are treated as not
 /// optimistic (the spec MUST applies post-merge). A missing node will be
 /// rejected later by `get_block_slot`, so this returning `false` here is safe.
+///
+/// A Gloas block has two fork choice nodes, so this checks both. The first is the payload of
+/// the block. The second is the payload that the empty node inherits. In Gloas the
+/// confirmation rule applies to the parent block, which adds one slot of delay.
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    Ok(get_block(root, proto_array)?
+    if get_block(root, proto_array)?
         .execution_status()
-        .ok()
-        .is_some_and(|s| s.is_optimistic_or_invalid()))
+        .is_optimistic_or_invalid()
+    {
+        return Ok(true);
+    }
+
+    Ok(proto_array
+        .empty_node_execution_status(root)
+        .map(|status| status.is_optimistic_or_invalid())
+        .unwrap_or(false))
 }
 
 /// Spec: `is_ancestor`.

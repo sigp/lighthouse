@@ -597,9 +597,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// significantly past the cached `head_snapshot`. In such a scenario it is likely prudent to
     /// run `BeaconChain::recompute_head` to update the cached values.
     pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
-        let head_block_root = self.cached_head().head_block_root();
+        let head = self.cached_head();
+        let head_block_root = head.head_block_root();
         self.fork_choice_read_lock()
-            .get_block_execution_status(&head_block_root)
+            .get_node_execution_status(&head_block_root, head.head_payload_status())
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
     }
 
@@ -615,7 +616,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let head_block_root = head.head_block_root();
         let execution_status = self
             .fork_choice_read_lock()
-            .get_block_execution_status(&head_block_root)
+            .get_node_execution_status(&head_block_root, head.head_payload_status())
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))?;
         Ok((head, execution_status))
     }

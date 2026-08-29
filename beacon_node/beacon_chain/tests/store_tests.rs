@@ -29,6 +29,7 @@ use beacon_chain::{
 use bls::{Keypair, Signature, SignatureBytes};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
+use fork_choice::PayloadVerificationStatus;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
@@ -56,6 +57,7 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
+use types::ExecutionBlockHash;
 use types::test_utils::test_arbitrary_instance;
 use types::*;
 
@@ -3439,7 +3441,11 @@ async fn weak_subjectivity_sync_test(
         beacon_chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(wss_block_root)
+            .on_payload_envelope_received(
+                wss_block_root,
+                PayloadVerificationStatus::Verified,
+                ExecutionBlockHash::zero(),
+            )
             .unwrap();
     }
 
@@ -3519,7 +3525,11 @@ async fn weak_subjectivity_sync_test(
             beacon_chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(block_root)
+                .on_payload_envelope_received(
+                    block_root,
+                    PayloadVerificationStatus::Verified,
+                    ExecutionBlockHash::zero(),
+                )
                 .unwrap();
         }
 
