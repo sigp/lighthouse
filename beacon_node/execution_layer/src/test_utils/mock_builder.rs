@@ -17,6 +17,8 @@ use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use ssz_types::VariableList;
+use state_processing::per_block_processing::get_expected_withdrawals;
+use state_processing::state_advance::partial_state_advance;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -37,7 +39,7 @@ use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
     ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    SignedValidatorRegistrationData, Slot, Uint256, Withdrawal,
 };
 use warp::{
     Filter, Rejection,
@@ -793,6 +795,26 @@ impl<E: EthSpec> MockBuilder<E> {
         Ok(())
     }
 
+    /// Compute expected withdrawals for a proposal at `proposal_slot`.
+    ///
+    /// Only call when Capella is enabled for `proposal_slot`.
+    fn compute_withdrawals_for_proposal_slot(
+        mut state: BeaconState<E>,
+        proposal_slot: Slot,
+        state_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Withdrawal>, String> {
+        let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
+        if proposal_epoch != state.current_epoch() {
+            partial_state_advance(&mut state, Some(state_root), proposal_slot, spec)
+                .map_err(|e| format!("failed to advance state for withdrawals: {e:?}"))?;
+        }
+
+        get_expected_withdrawals(&state, spec)
+            .map(|expected_withdrawals| expected_withdrawals.withdrawals().to_vec())
+            .map_err(|e| format!("failed to get expected withdrawals: {e:?}"))
+    }
+
     /// Get the `PayloadParameters` for requesting an ExecutionPayload for `slot`
     /// for the given `validator_index` and `pubkey`.
     async fn get_payload_params(
@@ -803,6 +825,14 @@ impl<E: EthSpec> MockBuilder<E> {
         validator_index: Option<u64>,
     ) -> Result<PayloadParametersCloned, String> {
         let fork = self.fork_name_at_slot(slot);
+        // TODO(gloas): mock_builder does not support post-Gloas; use prepare_payload /
+        // gloas_reorg tests. Builders should use the payload_attributes SSE event.
+        if fork.gloas_enabled() {
+            return Err(
+                "mock_builder get_payload_params unsupported post-Gloas (use Gloas-specific tests)"
+                    .into(),
+            );
+        }
 
         let block_id = match head_block_root {
             Some(block_root) => BlockId::Root(block_root),
@@ -817,9 +847,6 @@ impl<E: EthSpec> MockBuilder<E> {
             .into_data();
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
-
-        // TODO(gloas): Currently the tests are pre-Gloas and we are not considering
-        // other payload statuses. This codepath may not be relevant for Gloas.
         let head_payload_status = fork_choice::PayloadStatus::Pending;
 
         let head_execution_payload = head
@@ -893,18 +920,15 @@ impl<E: EthSpec> MockBuilder<E> {
             .ok_or_else(|| "missing state".to_string())?
             .into_data();
 
-        let prev_randao = head_state
+        let prev_randao = *head_state
             .get_randao_mix(head_state.current_epoch())
             .map_err(|_| "couldn't get prev randao".to_string())?;
 
+        let state_root = head.message().state_root();
         let expected_withdrawals = if fork.capella_enabled() {
-            Some(
-                self.beacon_client
-                    .get_expected_withdrawals(&StateId::Head)
-                    .await
-                    .map_err(|e| format!("Failed to get expected withdrawals: {:?}", e))?
-                    .data,
-            )
+            Some(Self::compute_withdrawals_for_proposal_slot(
+                head_state, slot, state_root, &self.spec,
+            )?)
         } else {
             None
         };
@@ -916,7 +940,7 @@ impl<E: EthSpec> MockBuilder<E> {
             // which was abandoned because it broke too many tests in subtle ways.
             ForkName::Bellatrix | ForkName::Capella => PayloadAttributes::new(
                 timestamp,
-                *prev_randao,
+                prev_randao,
                 fee_recipient,
                 expected_withdrawals,
                 None,
@@ -925,22 +949,16 @@ impl<E: EthSpec> MockBuilder<E> {
             ),
             ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
                 timestamp,
-                *prev_randao,
+                prev_randao,
                 fee_recipient,
                 expected_withdrawals,
                 Some(head_block_root),
                 None,
                 None,
             ),
-            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
-                timestamp,
-                *prev_randao,
-                fee_recipient,
-                expected_withdrawals,
-                Some(head_block_root),
-                Some(slot.as_u64()),
-                None, // TODO(gloas): pass target_gas_limit
-            ),
+            ForkName::Gloas | ForkName::Heze => {
+                unreachable!("post-Gloas forks are rejected at the start of get_payload_params")
+            }
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
             }
