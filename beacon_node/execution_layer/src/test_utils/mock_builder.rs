@@ -28,7 +28,6 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-use types::ExecutionBlockHash;
 use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
@@ -39,6 +38,7 @@ use types::{
     ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
     SignedValidatorRegistrationData, Slot, Uint256,
 };
+use types::{ExecutionBlockHash, ProgressiveTransactions};
 use warp::{
     Filter, Rejection,
     http::StatusCode,
@@ -952,7 +952,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(head_block_root),
                 Some(slot.as_u64()),
                 None,
-                None, // TODO(heze): pass inclusion_list_transactions
+                Some(ProgressiveTransactions::empty()), // TODO(heze): pass inclusion_list_transactions
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());

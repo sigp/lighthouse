@@ -1174,7 +1174,8 @@ impl HttpJsonRpc {
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
+            payload_attributes.map(JsonPayloadAttributes::from),
+            null
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self

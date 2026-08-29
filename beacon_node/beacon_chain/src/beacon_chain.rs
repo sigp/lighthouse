@@ -6678,6 +6678,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
+                // TODO(heze): populate from the inclusion list store
+                Some(ProgressiveTransactions::empty())
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6689,7 +6696,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
                 slot_number,
                 target_gas_limit,
-                None, // TODO(heze): add inclusion list transactions
+                inclusion_list_transactions,
             );
 
             execution_layer
