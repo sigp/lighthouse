@@ -761,21 +761,11 @@ fn build_partial_column_cells<E: EthSpec>(
     Ok((bitmap, columns, column_kzg_proofs))
 }
 
-// TODO(gloas) blob reconstruction will fail post gloas. We should just return `Blob`s
-// instead of a `BlobSidecar`. This might require a beacon api spec change as well.
-/// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
-///
-/// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
-/// with the block.
-/// This function does NOT use rayon as this is primarily used by a non critical path in HTTP API
-/// and it will be slow if the node needs to reconstruct the blobs
-pub fn reconstruct_blobs<E: EthSpec>(
+fn reconstruct_blob_data_with_indices<E: EthSpec>(
     kzg: &Kzg,
     mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,
-    blob_indices_opt: Option<Vec<u64>>,
-    signed_block: &SignedBlindedBeaconBlock<E>,
-    spec: &ChainSpec,
-) -> Result<BlobSidecarList<E>, String> {
+    blob_indices: Vec<usize>,
+) -> Result<Vec<(usize, Blob<E>)>, String> {
     // Sort data columns by index to ensure ascending order for KZG operations
     data_columns.sort_unstable_by_key(|dc| *dc.index());
 
@@ -783,18 +773,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
         return Err("data_columns should have at least one element".to_string());
     }
 
-    let blob_indices: Vec<usize> = match blob_indices_opt {
-        Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
-        None => {
-            let num_of_blobs = signed_block
-                .message()
-                .blob_kzg_commitments_len()
-                .ok_or_else(|| "Block does not have blob KZG commitments".to_string())?;
-            (0..num_of_blobs).collect()
-        }
-    };
-
-    let blob_sidecars = blob_indices
+    blob_indices
         .into_iter()
         .map(|row_index| {
             let mut cells: Vec<KzgCellRef> = vec![];
@@ -833,7 +812,59 @@ pub fn reconstruct_blobs<E: EthSpec>(
                     .collect()
             };
 
-            let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
+            Blob::<E>::new(blob_bytes)
+                .map(|blob| (row_index, blob))
+                .map_err(|e| format!("{e:?}"))
+        })
+        .collect()
+}
+
+/// Reconstruct blob data from a subset of data column sidecars (requires at least 50%).
+///
+/// Unlike [`reconstruct_blobs`], this function does not construct `BlobSidecar`s, so it works
+/// post-Gloas where blob commitments no longer have inclusion proofs in the beacon block body.
+pub fn reconstruct_blob_data<E: EthSpec>(
+    kzg: &Kzg,
+    data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    blob_indices_opt: Option<Vec<u64>>,
+    num_blobs: usize,
+) -> Result<Vec<Blob<E>>, String> {
+    let blob_indices = blob_indices_opt.map_or_else(
+        || (0..num_blobs).collect(),
+        |indices| indices.into_iter().map(|i| i as usize).collect(),
+    );
+
+    reconstruct_blob_data_with_indices(kzg, data_columns, blob_indices)
+        .map(|blobs| blobs.into_iter().map(|(_row_index, blob)| blob).collect())
+}
+
+/// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
+///
+/// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
+/// with the block.
+/// This function does NOT use rayon as this is primarily used by a non critical path in HTTP API
+/// and it will be slow if the node needs to reconstruct the blobs
+pub fn reconstruct_blobs<E: EthSpec>(
+    kzg: &Kzg,
+    data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    blob_indices_opt: Option<Vec<u64>>,
+    signed_block: &SignedBlindedBeaconBlock<E>,
+    spec: &ChainSpec,
+) -> Result<BlobSidecarList<E>, String> {
+    let blob_indices: Vec<usize> = match blob_indices_opt {
+        Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
+        None => {
+            let num_of_blobs = signed_block
+                .message()
+                .blob_kzg_commitments_len()
+                .ok_or_else(|| "Block does not have blob KZG commitments".to_string())?;
+            (0..num_of_blobs).collect()
+        }
+    };
+
+    let blob_sidecars = reconstruct_blob_data_with_indices(kzg, data_columns, blob_indices)?
+        .into_iter()
+        .map(|(row_index, blob)| {
             let kzg_proof = KzgProof::empty();
 
             BlobSidecar::<E>::new_with_existing_proof(row_index, blob, signed_block, kzg_proof)
