@@ -320,6 +320,23 @@ impl FastConfirmationRule {
             self.head_balance_source = BalanceSourceData::new(head_state, head_root)?;
         }
 
+        self.update_tracking_variables::<E>(
+            head_root,
+            unrealized_justified_checkpoint,
+            current_slot,
+            checkpoint_state,
+        )
+    }
+
+    /// The state-free part of `update_fast_confirmation_variables`. Must run every slot even
+    /// when no head state is available.
+    pub fn update_tracking_variables<E: EthSpec>(
+        &mut self,
+        head_root: Hash256,
+        unrealized_justified_checkpoint: &Checkpoint,
+        current_slot: Slot,
+        checkpoint_state: Option<&BeaconState<E>>,
+    ) -> Result<(), Error> {
         // Spec: update_fast_confirmation_variables must be called at most once per slot.
         if self.last_update_slot.is_none_or(|s| current_slot > s) {
             // Rotate the slot heads unconditionally, once per slot (spec).
