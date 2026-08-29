@@ -593,33 +593,31 @@ where
         )?;
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
-        // If the payload envelope was received (Full), use the bid's block_hash as the
-        // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
+        //
+        // A Gloas block keeps its payload outside the block, so the hash comes from the bid and
+        // depends on the node the head is on: the payload of the block when the head is `Full`,
+        // and the payload the block builds on otherwise. Pre-Gloas blocks carry no bid, so they
+        // fall back to the hash in their own execution status.
+        //
         // For justified/finalized hashes we always use the bid's parent_block_hash, since the
         // payload from the justified/finalized block is not itself justified/finalized due to
         // being applied immediately prior to the next block.
         let head_hash = self.get_block(&head_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(match head_payload_status {
-                    PayloadStatus::Full => b.execution_payload_block_hash,
-                    PayloadStatus::Pending | PayloadStatus::Empty => {
-                        b.execution_payload_parent_hash
-                    }
-                })
+            match head_payload_status {
+                PayloadStatus::Full => b.execution_payload_block_hash,
+                PayloadStatus::Pending | PayloadStatus::Empty => b.execution_payload_parent_hash,
+            }
+            .or_else(|| b.execution_status.block_hash())
         });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
         let justified_hash = self.get_block(&justified_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(b.execution_payload_parent_hash)
+            b.execution_payload_parent_hash
+                .or_else(|| b.execution_status.block_hash())
         });
         let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(b.execution_payload_parent_hash)
+            b.execution_payload_parent_hash
+                .or_else(|| b.execution_status.block_hash())
         });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
@@ -722,13 +720,33 @@ where
     /// Mark a Gloas payload envelope as valid and received.
     ///
     /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
+        payload_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
+        let execution_status = match payload_verification_status {
+            PayloadVerificationStatus::Verified => ExecutionStatus::Valid(payload_block_hash),
+            PayloadVerificationStatus::Optimistic => {
+                ExecutionStatus::Optimistic(payload_block_hash)
+            }
+            // A revealed Gloas payload always has execution enabled, so this is a logic error.
+            PayloadVerificationStatus::Irrelevant => {
+                return Err(Error::InvalidPayloadStatus {
+                    block_slot: Slot::new(0),
+                    block_root,
+                    payload_verification_status,
+                });
+            }
+        };
+
+        // `on_payload_envelope_received` promotes the ancestry itself. It starts at the parent.
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
-            .map_err(Error::FailedToProcessValidExecutionPayload)
+            .on_payload_envelope_received(block_root, execution_status)
+            .map_err(Error::FailedToProcessValidExecutionPayload)?;
+
+        Ok(())
     }
 
     /// Pre-Gloas only.
@@ -1671,6 +1689,20 @@ where
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block_execution_status(block_root)
+        } else {
+            None
+        }
+    }
+
+    /// See `ProtoArrayForkChoice::get_node_execution_status` for documentation.
+    pub fn get_node_execution_status(
+        &self,
+        block_root: &Hash256,
+        payload_status: PayloadStatus,
+    ) -> Option<ExecutionStatus> {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
+            self.proto_array
+                .get_node_execution_status(block_root, payload_status)
         } else {
             None
         }

@@ -21,6 +21,7 @@ use beacon_chain::{
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
+use fork_choice::PayloadVerificationStatus;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
@@ -31,6 +32,7 @@ use state_processing::{
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
+use types::ExecutionBlockHash;
 use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
@@ -277,7 +279,11 @@ fn update_fork_choice_with_envelopes(
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(snapshot.beacon_block_root);
+                .on_payload_envelope_received(
+                    snapshot.beacon_block_root,
+                    PayloadVerificationStatus::Verified,
+                    ExecutionBlockHash::zero(),
+                );
         }
     }
 }
@@ -1284,7 +1290,11 @@ async fn block_gossip_verification() {
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
+                .on_payload_envelope_received(
+                    snapshot.beacon_block_root,
+                    PayloadVerificationStatus::Verified,
+                    ExecutionBlockHash::zero(),
+                )
                 .expect("should update fork choice with envelope");
         }
     }
@@ -2620,7 +2630,11 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
         .chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_valid_payload_envelope_received(block_root)
+        .on_payload_envelope_received(
+            block_root,
+            PayloadVerificationStatus::Verified,
+            ExecutionBlockHash::zero(),
+        )
         .expect("payload should be marked received");
 
     let data_sidecars = Some(DataSidecars::DataColumns(

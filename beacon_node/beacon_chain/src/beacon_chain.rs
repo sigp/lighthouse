@@ -4436,10 +4436,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
             match fork_choice.get_head(current_slot, &self.spec) {
                 // This block became the head, add it to the early attester cache.
-                Ok((new_head_root, _)) if new_head_root == block_root => {
+                Ok((new_head_root, head_payload_status)) if new_head_root == block_root => {
+                    // Ask about the node that the head is on. The status of the block can let an
+                    // empty head claim a validity that its branch never established.
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                        let new_head_is_optimistic =
-                            proto_block.execution_status.is_optimistic_or_invalid();
+                        let new_head_is_optimistic = fork_choice
+                            .get_node_execution_status(&block_root, head_payload_status)
+                            .is_some_and(|status| status.is_optimistic_or_invalid());
 
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
@@ -5503,12 +5506,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
-        // This only works pre-Gloas, but we don't run this code for Gloas anyway.
+        // This only works pre-Gloas, so a Gloas node reports no head hash here.
         let parent_head_hash = info
             .parent_node
-            .execution_status()
+            .as_v17()
             .ok()
-            .and_then(|execution_status| execution_status.block_hash());
+            .and_then(|node| node.execution_status.block_hash());
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: info.parent_node.root(),
             head_hash: parent_head_hash,

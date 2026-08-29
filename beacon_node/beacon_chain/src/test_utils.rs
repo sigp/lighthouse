@@ -34,6 +34,7 @@ use execution_layer::{
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadVerificationStatus;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
@@ -3089,6 +3090,7 @@ where
             slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
+        let payload_block_hash = signed_envelope.message.payload.block_hash;
 
         state_processing::envelope_processing::verify_execution_payload_envelope(
             state,
@@ -3176,7 +3178,11 @@ where
         self.chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(
+                block_root,
+                PayloadVerificationStatus::Verified,
+                payload_block_hash,
+            )
             .expect("should update fork choice with envelope");
 
         // Run fork choice because the envelope could become the head.

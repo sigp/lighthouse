@@ -542,12 +542,13 @@ impl ProtoArrayForkChoice {
     /// Mark a Gloas payload envelope as valid and received.
     ///
     /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        execution_status: ExecutionStatus,
     ) -> Result<(), String> {
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(block_root, execution_status)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
@@ -834,10 +835,10 @@ impl ProtoArrayForkChoice {
     /// This will operate on *all* blocks, even those that do not descend from the finalized
     /// ancestor.
     pub fn contains_invalid_payloads(&mut self) -> bool {
-        self.proto_array.nodes.iter().any(|node| {
-            node.execution_status()
-                .is_ok_and(|status| status.is_invalid())
-        })
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status().is_invalid())
     }
 
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
@@ -860,10 +861,8 @@ impl ProtoArrayForkChoice {
                 .ok_or("unreachable index out of bounds in proto_array nodes")?;
 
             match node.execution_status() {
-                Ok(ExecutionStatus::Invalid(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash);
-                    }
+                ExecutionStatus::Invalid(block_hash) => {
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(block_hash);
 
                     // Restore the weight of the node, it would have been set to `0` in
                     // `apply_score_changes` when it was invalidated.
@@ -908,14 +907,11 @@ impl ProtoArrayForkChoice {
                 }
                 // There are no balance changes required if the node was either valid or
                 // optimistic.
-                Ok(ExecutionStatus::Valid(block_hash))
-                | Ok(ExecutionStatus::Optimistic(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash)
-                    }
+                ExecutionStatus::Valid(block_hash) | ExecutionStatus::Optimistic(block_hash) => {
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(block_hash);
                 }
                 // An irrelevant node cannot become optimistic, this is a no-op.
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
+                ExecutionStatus::Irrelevant(_) => (),
             }
         }
 
@@ -988,9 +984,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
             justified_checkpoint: *block.justified_checkpoint(),
             finalized_checkpoint: *block.finalized_checkpoint(),
-            execution_status: block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            execution_status: block.execution_status(),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
@@ -1060,11 +1054,29 @@ impl ProtoArrayForkChoice {
     /// Returns the `block.execution_status` field, if the block is present.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         let block = self.get_proto_node(block_root)?;
-        Some(
-            block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-        )
+        Some(block.execution_status())
+    }
+
+    /// Execution status of one fork choice node of a Gloas block.
+    ///
+    /// A block has two nodes. `(root, FULL)` takes the status of the payload of the block.
+    /// `(root, EMPTY)` inherits the status of the nearest ancestor across a `FULL` edge.
+    ///
+    /// The status of the block is the wrong answer for an empty head. That payload can be valid
+    /// while the payload that the branch ran is still optimistic. The node then reports the chain
+    /// as validated when no execution layer validated it. `PENDING` counts as empty.
+    pub fn get_node_execution_status(
+        &self,
+        block_root: &Hash256,
+        payload_status: PayloadStatus,
+    ) -> Option<ExecutionStatus> {
+        match payload_status {
+            PayloadStatus::Full => self.get_block_execution_status(block_root),
+            PayloadStatus::Empty | PayloadStatus::Pending => self
+                .proto_array
+                .empty_node_execution_status(*block_root)
+                .ok(),
+        }
     }
 
     /// Returns whether the execution payload for a block has been received.

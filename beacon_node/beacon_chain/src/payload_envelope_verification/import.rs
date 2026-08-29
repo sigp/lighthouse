@@ -170,14 +170,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
-        if payload_verification_outcome
-            .payload_verification_status
-            .is_optimistic()
-        {
-            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
-        }
-
         Ok(AvailabilityPendingExecutedEnvelope::new(
             signed_envelope,
             block_root,
@@ -247,7 +239,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(
+                block_root,
+                payload_verification_status,
+                signed_envelope.message().payload.block_hash,
+            )
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // It is important NOT to return errors here before the database commit, because the envelope
