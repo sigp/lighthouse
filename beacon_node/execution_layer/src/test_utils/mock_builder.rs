@@ -33,12 +33,11 @@ use types::builder::{
     BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
-    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
-    ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    ExecutionPayload, ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra,
+    ForkName, ForkVersionDecode, Hash256, ProgressiveTransactions, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use types::{ExecutionBlockHash, ProgressiveTransactions};
 use warp::{
     Filter, Rejection,
     http::StatusCode,

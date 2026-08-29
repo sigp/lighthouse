@@ -1567,7 +1567,7 @@ mod test {
     use super::*;
     use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
     use fixed_bytes::FixedBytesExtended;
-    use ssz_types::VariableList;
+    use ssz_types::{ProgressiveVariableList, VariableList};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -1874,6 +1874,77 @@ mod test {
                             prev_randao: Hash256::zero(),
                             suggested_fee_recipient: Address::repeat_byte(0),
                         })),
+                    )
+                    .await
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_v5_with_payload_attributes_request() {
+        let payload_attributes = || {
+            Some(PayloadAttributes::V5(PayloadAttributesV5 {
+                timestamp: 5,
+                prev_randao: Hash256::zero(),
+                suggested_fee_recipient: Address::repeat_byte(0),
+                withdrawals: vec![],
+                parent_beacon_block_root: Hash256::zero(),
+                slot_number: 7,
+                target_gas_limit: 30_000_000,
+                inclusion_list_transactions: ProgressiveVariableList::new(vec![
+                    ProgressiveVariableList::new(vec![0x02, 0xf8, 0x6f]),
+                ]),
+            }))
+        };
+
+        Tester::new(true)
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .forkchoice_updated_v5(
+                            ForkchoiceState {
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
+                            },
+                            payload_attributes(),
+                        )
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_FORKCHOICE_UPDATED_V5,
+                    "params": [{
+                        "headBlockHash": HASH_01,
+                        "safeBlockHash": HASH_01,
+                        "finalizedBlockHash": HASH_00,
+                    },
+                    {
+                        "timestamp": "0x5",
+                        "prevRandao": HASH_00,
+                        "suggestedFeeRecipient": ADDRESS_00,
+                        "withdrawals": [],
+                        "parentBeaconBlockRoot": HASH_00,
+                        "slotNumber": "0x7",
+                        "targetGasLimit": "0x1c9c380",
+                        "inclusionListTransactions": ["0x02f86f"],
+                    },
+                    null]
+                }),
+            )
+            .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v5(
+                        ForkchoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            finalized_block_hash: ExecutionBlockHash::zero(),
+                        },
+                        payload_attributes(),
                     )
                     .await
             })
