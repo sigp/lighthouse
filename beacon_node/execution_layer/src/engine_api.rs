@@ -178,6 +178,7 @@ pub struct PayloadAttributes {
 }
 
 impl PayloadAttributes {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         timestamp: u64,
         prev_randao: Hash256,
