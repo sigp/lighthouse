@@ -28,15 +28,16 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
+use types::ExecutionBlockHash;
 use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
-    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    ExecutionPayload, ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra,
-    ForkName, ForkVersionDecode, Hash256, ProgressiveTransactions, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
+    ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use warp::{
     Filter, Rejection,
@@ -933,7 +934,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
@@ -942,16 +943,6 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(slot.as_u64()),
                 None, // TODO(gloas): pass target_gas_limit
                 None,
-            ),
-            ForkName::Heze => PayloadAttributes::new(
-                timestamp,
-                *prev_randao,
-                fee_recipient,
-                expected_withdrawals,
-                Some(head_block_root),
-                Some(slot.as_u64()),
-                None,
-                Some(ProgressiveTransactions::empty()), // TODO(heze): pass inclusion_list_transactions
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
