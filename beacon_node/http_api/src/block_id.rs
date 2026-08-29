@@ -608,11 +608,10 @@ mod tests {
         custody_context::NodeCustodyType,
         data_availability_checker::AvailableBlock,
         test_utils::{
-            AttestationStrategy, BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
+            BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
             generate_data_column_sidecars_from_block,
         },
     };
-    use fork_choice::AttestationFromBlock;
     use proto_array::Block as ProtoBlock;
     use std::sync::mpsc::Receiver;
     use std::thread::JoinHandle;
@@ -711,7 +710,6 @@ mod tests {
     struct UnpersistedBlock {
         available_block: AvailableBlock<MinimalEthSpec>,
         post_state: BeaconState<MinimalEthSpec>,
-        proto_block: ProtoBlock,
     }
 
     impl UnpersistedBlock {
@@ -733,37 +731,41 @@ mod tests {
             &harness.chain.custody_context,
         )
         .unwrap();
-        let block_root = available_block.block_root();
-        let proto_block = {
-            let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
-            fork_choice
-                .on_block(
-                    slot,
-                    available_block.block().message(),
-                    block_root,
-                    Duration::ZERO,
-                    &post_state,
-                    PayloadVerificationStatus::Verified,
-                    &harness.chain.spec,
-                )
-                .unwrap();
-            fork_choice.get_block(&block_root).unwrap()
-        };
         UnpersistedBlock {
             available_block,
             post_state,
-            proto_block,
         }
     }
 
-    fn cache_block(harness: &TestHarness, block: &UnpersistedBlock) {
+    fn add_block_to_fork_choice(
+        harness: &TestHarness,
+        block: &UnpersistedBlock,
+        block_delay: Duration,
+    ) -> ProtoBlock {
+        let block_root = block.root();
+        let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
+        fork_choice
+            .on_block(
+                block.available_block.block().slot(),
+                block.available_block.block().message(),
+                block_root,
+                block_delay,
+                &block.post_state,
+                PayloadVerificationStatus::Verified,
+                &harness.chain.spec,
+            )
+            .unwrap();
+        fork_choice.get_block(&block_root).unwrap()
+    }
+
+    fn cache_block(harness: &TestHarness, block: &UnpersistedBlock, proto_block: ProtoBlock) {
         harness
             .chain
             .early_attester_cache
             .add_head_block(
                 block.root(),
                 &block.available_block,
-                block.proto_block.clone(),
+                proto_block,
                 &block.post_state,
             )
             .unwrap();
@@ -804,10 +806,11 @@ mod tests {
         let slot = harness.get_current_slot();
         let block = make_unpersisted_block(&harness, harness.get_current_state(), slot).await;
         let block_root = block.root();
+        let proto_block = add_block_to_fork_choice(&harness, &block, Duration::ZERO);
         let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
         let (head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
         assert_eq!(head_root, block_root, "precondition: block must be head");
-        cache_block(&harness, &block);
+        cache_block(&harness, &block, proto_block);
 
         assert!(
             !chain.store.block_exists(&block_root).unwrap(),
@@ -859,18 +862,25 @@ mod tests {
             "precondition: blocks must compete at the same slot"
         );
 
-        let old_head_root = {
-            let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
-            let (head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
-            head_root
-        };
-        let (stale_block, replacement_block) = if old_head_root == block_root_a {
+        let (stale_block, replacement_block) = if block_root_a < block_root_b {
             (&block_a, &block_b)
         } else {
             (&block_b, &block_a)
         };
 
-        cache_block(&harness, stale_block);
+        let stale_proto_block = add_block_to_fork_choice(&harness, stale_block, Duration::MAX);
+        let old_head_root = {
+            let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+            let (head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
+            head_root
+        };
+        assert_eq!(
+            old_head_root,
+            stale_block.root(),
+            "precondition: first block must become head"
+        );
+
+        cache_block(&harness, stale_block, stale_proto_block);
         chain
             .store
             .put_block(
@@ -884,30 +894,10 @@ mod tests {
             "persisted cache entry must cover the gap before the canonical head is updated"
         );
 
-        let fork_name = chain.spec.fork_name_at_slot::<MinimalEthSpec>(slot);
-        let attestations = harness.get_single_attestations(
-            &AttestationStrategy::AllValidators,
-            &replacement_block.post_state,
-            replacement_block.available_block.block().state_root(),
-            replacement_block.root(),
-            slot,
-        );
-        harness.advance_slot();
+        let replacement_proto_block =
+            add_block_to_fork_choice(&harness, replacement_block, Duration::MAX);
         let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
-        for (attestation, _) in attestations.into_iter().flatten() {
-            let indexed_attestation = attestation.to_indexed::<MinimalEthSpec>(fork_name).unwrap();
-            fork_choice
-                .on_attestation(
-                    chain.slot().unwrap(),
-                    indexed_attestation.to_ref(),
-                    AttestationFromBlock::False,
-                    &chain.spec,
-                )
-                .unwrap();
-        }
-        let (new_head_root, _) = fork_choice
-            .get_head(chain.slot().unwrap(), &chain.spec)
-            .unwrap();
+        let (new_head_root, _) = fork_choice.get_head(slot, &chain.spec).unwrap();
         assert_eq!(
             new_head_root,
             replacement_block.root(),
@@ -923,7 +913,7 @@ mod tests {
             "stale same-slot cache entry must produce the existing not-found rejection"
         );
 
-        cache_block(&harness, replacement_block);
+        cache_block(&harness, replacement_block, replacement_proto_block);
         chain
             .store
             .put_block(
