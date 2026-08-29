@@ -94,7 +94,7 @@ impl BlockId {
                         )
                     } else {
                         // Block import holds the fork choice write lock from cache insertion until
-                        // persistence. Re-read the cache so a concurrent clear is not accepted.
+                        // persistence. Re-read the cache to reject an entry cleared during lookup.
                         chain
                             .early_attester_cache
                             .get_head_block_root()
@@ -821,7 +821,7 @@ mod tests {
                 .block_root_at_slot(slot, WhenSlotSkipped::None)
                 .unwrap(),
             None,
-            "precondition: persisted lookup must not know the new head"
+            "precondition: persisted slot lookup must not resolve the new head"
         );
 
         let (request, result_rx) = spawn_slot_header_lookup(chain.clone(), slot);
@@ -836,7 +836,7 @@ mod tests {
             BlockId(CoreBlockId::Slot(slot))
                 .is_canonical(block_root, slot, chain)
                 .unwrap(),
-            "resolved slot must remain canonical across the cache handoff"
+            "slot lookup result must remain canonical after the cache is cleared"
         );
         drop(fork_choice);
         request.join().unwrap();
@@ -862,6 +862,7 @@ mod tests {
             "precondition: blocks must compete at the same slot"
         );
 
+        // Import both blocks too late for proposer boost. Fork choice then selects the higher root.
         let (stale_block, replacement_block) = if block_root_a < block_root_b {
             (&block_a, &block_b)
         } else {
@@ -891,7 +892,7 @@ mod tests {
         assert_eq!(
             BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap(),
             (stale_block.root(), false, false),
-            "persisted cache entry must cover the gap before the canonical head is updated"
+            "persisted cached head must resolve before the canonical snapshot is updated"
         );
 
         let replacement_proto_block =
@@ -901,7 +902,7 @@ mod tests {
         assert_eq!(
             new_head_root,
             replacement_block.root(),
-            "precondition: new votes must replace the same-slot head"
+            "precondition: higher-root block must become head"
         );
         drop(fork_choice);
 
@@ -910,7 +911,7 @@ mod tests {
             rejection
                 .find::<warp_utils::reject::CustomNotFound>()
                 .is_some(),
-            "stale same-slot cache entry must produce the existing not-found rejection"
+            "stale same-slot cache entry must produce a not-found rejection"
         );
 
         cache_block(&harness, replacement_block, replacement_proto_block);
@@ -1048,7 +1049,7 @@ mod tests {
             !BlockId(CoreBlockId::Root(block_root))
                 .is_canonical(block_root, block.slot(), chain)
                 .unwrap(),
-            "root lookup must preserve persisted canonical metadata"
+            "unpersisted root lookup must not be marked canonical"
         );
 
         let (blinded_block, execution_optimistic, finalized) =
