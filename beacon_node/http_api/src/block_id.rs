@@ -72,44 +72,48 @@ impl BlockId {
                 Ok((justified_checkpoint.root, execution_optimistic, false))
             }
             CoreBlockId::Slot(slot) => {
-                if let Some((cached_slot, cached_root)) = chain
-                    .early_attester_cache
-                    .get_head_block_root()
-                    .filter(|(cached_slot, _)| cached_slot == slot)
+                let fallback_requires_fork_choice_check = if let Some((cached_slot, cached_root)) =
+                    chain
+                        .early_attester_cache
+                        .get_head_block_root()
+                        .filter(|(cached_slot, _)| cached_slot == slot)
                 {
-                    let cached_root_is_persisted = chain
-                        .store
-                        .block_exists(&cached_root)
-                        .map_err(BeaconChainError::DBError)
-                        .map_err(warp_utils::reject::unhandled_error)?;
+                    // Read the cache again before checking persistence. If the block is not
+                    // persisted, this read occurs while its importer holds the fork choice write lock.
+                    let cache_unchanged = chain.early_attester_cache.get_head_block_root()
+                        == Some((cached_slot, cached_root));
 
-                    let cached_head = if cached_root_is_persisted {
+                    if cache_unchanged {
+                        let cached_root_is_persisted = chain
+                            .store
+                            .block_exists(&cached_root)
+                            .map_err(BeaconChainError::DBError)
+                            .map_err(warp_utils::reject::unhandled_error)?;
+
+                        if !cached_root_is_persisted {
+                            return Ok((cached_root, false, false));
+                        }
+
+                        // Block import locks fork choice before it locks the early attester cache.
+                        // Use the same order to confirm the persisted cached head.
                         let fork_choice = chain.canonical_head.fork_choice_read_lock();
-                        chain.early_attester_cache.get_head_block_root().filter(
+                        let cached_head = chain.early_attester_cache.get_head_block_root().filter(
                             |(current_slot, current_root)| {
                                 current_slot == slot
                                     && *current_root
                                         == fork_choice.cached_fork_choice_view().head_block_root
                             },
-                        )
-                    } else {
-                        // Block import holds the fork choice write lock from cache insertion until
-                        // persistence. Re-read the cache to reject an entry cleared during lookup.
-                        chain
-                            .early_attester_cache
-                            .get_head_block_root()
-                            .filter(|cached_head| *cached_head == (cached_slot, cached_root))
-                    };
+                        );
 
-                    return cached_head
-                        .map(|(_, root)| (root, false, false))
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "beacon block at slot {}",
-                                slot
-                            ))
-                        });
-                }
+                        if let Some((_, root)) = cached_head {
+                            return Ok((root, false, false));
+                        }
+                    }
+
+                    true
+                } else {
+                    false
+                };
 
                 let execution_optimistic = chain
                     .is_optimistic_or_invalid_head()
@@ -125,6 +129,16 @@ impl BlockId {
                             ))
                         })
                     })?;
+                if fallback_requires_fork_choice_check {
+                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                    let current_head_root = fork_choice.cached_fork_choice_view().head_block_root;
+                    if !fork_choice.is_descendant(root, current_head_root) {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "beacon block at slot {}",
+                            slot
+                        )));
+                    }
+                }
                 let finalized = *slot
                     <= chain
                         .canonical_head
@@ -774,21 +788,23 @@ mod tests {
     fn spawn_slot_header_lookup(
         chain: Arc<TestChain>,
         slot: Slot,
-    ) -> (JoinHandle<()>, Receiver<(Hash256, bool, bool, bool)>) {
+    ) -> (JoinHandle<()>, Receiver<Hash256>) {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let request = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
             let block_id = BlockId(CoreBlockId::Slot(slot));
             let result = block_id.root(&chain).unwrap();
+            assert!(!result.1);
+            assert!(!result.2);
             let (block, _, _) = BlockId::from_root(result.0).blinded_block(&chain).unwrap();
             assert_eq!(block.canonical_root(), result.0);
-            let canonical = block_id
-                .is_canonical(result.0, block.slot(), &chain)
-                .unwrap();
-            result_tx
-                .send((result.0, result.1, result.2, canonical))
-                .unwrap();
+            assert!(
+                block_id
+                    .is_canonical(result.0, block.slot(), &chain)
+                    .unwrap()
+            );
+            result_tx.send(result.0).unwrap();
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         (request, result_rx)
@@ -829,7 +845,7 @@ mod tests {
             result_rx
                 .recv_timeout(Duration::from_secs(2))
                 .expect("unpersisted lookup must not wait for the fork choice write lock"),
-            (block_root, false, false, true)
+            block_root
         );
         chain.early_attester_cache.clear();
         assert!(
