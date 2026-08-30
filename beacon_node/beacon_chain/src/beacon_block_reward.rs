@@ -37,6 +37,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         initialize_epoch_cache(state, &self.spec)?;
 
+        // [New in Gloas:EIP7732] Since payload processing is deferred to the next block, the
+        // state doesn't have the parent's payload availability bit set yet. Set it here (if the
+        // payload is available) so that the head vote check on attestations matches block processing.
+        if state.fork_name_unchecked().gloas_enabled() {
+            let parent_bid = state.latest_execution_payload_bid()?;
+            let bid_parent_block_hash = block
+                .body()
+                .signed_execution_payload_bid()?
+                .message()
+                .parent_block_hash();
+            if bid_parent_block_hash == parent_bid.block_hash() {
+                let availability_index = parent_bid
+                    .slot()
+                    .as_usize()
+                    .safe_rem(T::EthSpec::slots_per_historical_root())?;
+                state
+                    .execution_payload_availability_mut()?
+                    .set(availability_index, true)?;
+            }
+        }
+
         self.compute_beacon_block_reward_with_cache(block, state)
     }
 

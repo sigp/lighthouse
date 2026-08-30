@@ -728,10 +728,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 let data = unaggregated_attestation.data();
 
+                // Score the attestation as if it were included in the next block. That block
+                // would build on the canonical block at `data.slot`, which may have been proposed
+                // in an earlier slot if `data.slot` was skipped.
                 let parent_slot = state
-                    .latest_execution_payload_bid()
-                    .ok()
-                    .map(|bid| bid.slot());
+                    .fork_name_unchecked()
+                    .gloas_enabled()
+                    .then(|| canonical_block_slot(state, data.slot));
 
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
@@ -2051,6 +2054,22 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             }
         }
     }
+}
+
+/// Returns the slot of the canonical block at `slot`, accounting for skipped slots.
+fn canonical_block_slot<E: EthSpec>(state: &BeaconState<E>, mut slot: Slot) -> Slot {
+    let Ok(block_root) = state.get_block_root(slot) else {
+        return slot;
+    };
+
+    while slot > 0
+        && state
+            .get_block_root(slot - 1)
+            .is_ok_and(|root| root == block_root)
+    {
+        slot -= 1;
+    }
+    slot
 }
 
 fn register_simulated_attestation(
