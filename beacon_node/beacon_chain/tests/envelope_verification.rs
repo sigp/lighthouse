@@ -1,10 +1,13 @@
-use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::payload_envelope_verification::EnvelopeSource;
+use beacon_chain::NotifyExecutionLayer;
+use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use std::sync::Arc;
-use types::{Address, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
+use types::{
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot,
+    WithdrawalRequest,
+};
 
 type E = MinimalEthSpec;
 
@@ -93,6 +96,85 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
             .observed_execution_payloads
             .get_gas_limit(genesis_bid.parent_block_hash),
         Some(genesis_bid.gas_limit)
+    );
+}
+
+#[tokio::test]
+async fn lookup_accepts_gloas_envelope_after_restart() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, envelope, _) = harness.make_block_with_envelope(state, target_slot).await;
+    let block_root = block_contents.0.canonical_root();
+
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+    harness
+        .chain
+        .persist_fork_choice()
+        .expect("fork choice should persist");
+
+    let resumed = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(64)
+        .resumed_ephemeral_store(harness.chain.store.clone())
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .testing_slot_clock(harness.chain.slot_clock.clone())
+        .build();
+    drop(harness);
+
+    assert!(
+        resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_none(),
+        "the pending bid cache should start empty after restart"
+    );
+
+    let verified_envelope = resumed
+        .chain
+        .verify_envelope_for_gossip(
+            Arc::new(envelope.expect("Gloas block should produce an envelope")),
+            EnvelopeSource::Rpc,
+        )
+        .await
+        .expect("envelope should verify");
+    resumed
+        .chain
+        .process_execution_payload_envelope(
+            block_root,
+            verified_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .expect("envelope should be accepted after restart");
+    assert!(
+        resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_some(),
+        "envelope processing should restore the pending bid cache"
     );
 }
 

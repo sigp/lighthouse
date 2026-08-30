@@ -238,18 +238,16 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
-    /// Insert an executed payload envelope into the cache and performs an availability check
+    /// Insert an executed payload envelope and its bid into the cache, then check availability.
     pub fn put_executed_payload_envelope(
         &self,
         executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let beacon_block_root = executed_envelope.envelope.beacon_block_root();
-        let bid = self
-            .get_bid(&beacon_block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(beacon_block_root))?;
 
         let (_, pending_components) =
-            self.update_pending_components(beacon_block_root, &bid, |pending_components| {
+            self.update_pending_components(beacon_block_root, bid, |pending_components| {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
@@ -712,8 +710,9 @@ mod data_availability_checker_tests {
 
     impl Setup {
         fn put_envelope(&self) -> Availability<E> {
+            let bid = self.cache.get_bid(&self.block_root).expect("bid");
             self.cache
-                .put_executed_payload_envelope(executed_envelope(self.block_root))
+                .put_executed_payload_envelope(executed_envelope(self.block_root), &bid)
                 .expect("put envelope")
         }
 
