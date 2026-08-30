@@ -1029,6 +1029,7 @@ where
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_execution_proofs: <_>::default(),
+            observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -1097,6 +1098,10 @@ where
             gossip_verified_proposer_preferences_cache: <_>::default(),
             observed_payload_envelopes: <_>::default(),
         };
+
+        beacon_chain
+            .initialize_observed_execution_payloads()
+            .map_err(|e| format!("Unable to restore execution payload gas limits: {e:?}"))?;
 
         let head = beacon_chain.head_snapshot();
 

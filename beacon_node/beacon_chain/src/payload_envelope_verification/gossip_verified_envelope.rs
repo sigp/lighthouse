@@ -16,6 +16,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
+    observed_execution_payloads::ObservedExecutionPayloads,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
     },
@@ -36,6 +37,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub observed_payload_envelopes: &'a ObservedPayloadEnvelopes,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
+    pub observed_execution_payloads: &'a ObservedExecutionPayloads,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -303,23 +305,24 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         }
 
-        // Emit SSE event once per envelope, on first observation from any source
-        if !envelope_already_seen
-            && let Some(event_handler) = ctx.event_handler.as_ref()
-            && event_handler.has_execution_payload_gossip_subscribers()
-        {
-            event_handler.register(EventKind::ExecutionPayloadGossip(
-                SseExecutionPayloadGossip {
-                    slot: block_slot,
-                    builder_index,
-                    block_hash: gossip_verified_envelope
-                        .signed_envelope
-                        .message
-                        .payload
-                        .block_hash,
-                    block_root: beacon_block_root,
-                },
-            ));
+        if !envelope_already_seen {
+            let payload = &gossip_verified_envelope.signed_envelope.message.payload;
+            ctx.observed_execution_payloads
+                .insert(payload.block_hash, payload.gas_limit);
+
+            // Emit the SSE event once for the first observation from any source.
+            if let Some(event_handler) = ctx.event_handler.as_ref()
+                && event_handler.has_execution_payload_gossip_subscribers()
+            {
+                event_handler.register(EventKind::ExecutionPayloadGossip(
+                    SseExecutionPayloadGossip {
+                        slot: block_slot,
+                        builder_index,
+                        block_hash: payload.block_hash,
+                        block_root: beacon_block_root,
+                    },
+                ));
+            }
         }
 
         Ok(gossip_verified_envelope)
@@ -347,6 +350,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             observed_payload_envelopes: &self.observed_payload_envelopes,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
+            observed_execution_payloads: &self.observed_execution_payloads,
         }
     }
 
