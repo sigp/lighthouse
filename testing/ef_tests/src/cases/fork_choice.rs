@@ -923,6 +923,7 @@ impl<E: EthSpec> Tester<E> {
                 &mut state,
                 Some(parent_state_root),
                 block.slot(),
+                None,
                 &self.harness.chain.spec,
             )
             .unwrap();

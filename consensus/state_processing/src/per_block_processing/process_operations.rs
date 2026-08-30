@@ -1,5 +1,6 @@
 use super::*;
 use crate::VerifySignatures;
+use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signature_cached};
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
@@ -1050,25 +1051,19 @@ fn process_builder_exit_request<E: EthSpec>(
 }
 
 /// Check if there is a pending deposit for a new validator with the given pubkey.
-// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
-// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
+///
+/// Signature verification results are looked up in the `builder_onboarding_cache` when one is
+/// provided, so only cache misses pay for BLS verification. The linear scan over
+/// `pending_deposits` remains, but only performs pubkey comparisons for non-matching entries.
 pub fn is_pending_validator<'a>(
     pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
     pubkey: &PublicKeyBytes,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> bool {
     pending_deposits.into_iter().any(|deposit| {
         deposit.pubkey == *pubkey
-            && is_valid_deposit_signature(
-                &DepositData {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    amount: deposit.amount,
-                    signature: deposit.signature.clone(),
-                },
-                spec,
-            )
-            .is_ok()
+            && is_valid_deposit_signature_cached(builder_onboarding_cache, deposit, spec)
     })
 }
 
