@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -98,6 +98,7 @@ pub enum BeaconStateError {
     SlotOutOfBounds,
     UnknownValidator(usize),
     UnknownBuilder(BuilderIndex),
+    BuilderRegistryNotEmpty,
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
@@ -2449,22 +2450,15 @@ impl<E: EthSpec> BeaconState<E> {
         // up elsewhere. It has been retconned into the spec to support index reuse but so far
         // index reuse is only relevant for builders.
         let builder_index = self.get_index_for_new_builder()?;
-        let builders = self.builders_mut()?;
-
-        let execution_address = withdrawal_credentials
-            .as_slice()
-            .get(12..)
-            .and_then(|bytes| Address::try_from(bytes).ok())
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
-
-        let builder = Builder {
+        let builder = Builder::from_deposit(
             pubkey,
             version,
-            execution_address,
-            balance: amount,
-            deposit_epoch: slot.epoch(E::slots_per_epoch()),
-            withdrawable_epoch: spec.far_future_epoch,
-        };
+            withdrawal_credentials,
+            amount,
+            slot.epoch(E::slots_per_epoch()),
+            spec,
+        )?;
+        let builders = self.builders_mut()?;
 
         if builder_index == builders.len() as u64 {
             builders.push(builder)?;
