@@ -22,6 +22,7 @@ use crate::{
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 
 /// Bundles only the dependencies needed for gossip verification of execution payload envelopes,
 /// decoupling `GossipVerifiedEnvelope::new` from the full `BeaconChain`.
@@ -32,6 +33,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_envelopes: &'a ObservedPayloadEnvelopes,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
@@ -239,6 +241,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
+                ctx.builder_onboarding_cache,
                 ctx.spec,
             )?;
             let expected_proposer = proposer.index;
@@ -343,6 +346,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec: &self.spec,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_envelopes: &self.observed_payload_envelopes,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
