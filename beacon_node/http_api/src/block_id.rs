@@ -399,16 +399,21 @@ impl BlockId {
             )
         })?;
 
-        let blob_indices_opt = query.versioned_hashes.as_ref().map(|versioned_hashes| {
-            blob_kzg_commitments
+        let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
+            let mut blob_indices = versioned_hashes
                 .iter()
-                .enumerate()
-                .filter_map(|(index, commitment)| {
-                    versioned_hashes
-                        .contains(&commitment.calculate_versioned_hash())
-                        .then_some(index as u64)
+                .flat_map(|versioned_hash| {
+                    blob_kzg_commitments.iter().position(|commitment| {
+                        let computed_hash = commitment.calculate_versioned_hash();
+                        computed_hash == *versioned_hash
+                    })
                 })
-                .collect::<Vec<_>>()
+                .map(|index| index as u64)
+                .collect::<Vec<_>>();
+            // Blobs must be returned in the order of their KZG commitments in the block,
+            // regardless of the order of the requested versioned hashes
+            blob_indices.sort_unstable();
+            blob_indices
         });
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
