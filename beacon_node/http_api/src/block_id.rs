@@ -1,6 +1,6 @@
 use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
-use beacon_chain::kzg_utils::{reconstruct_blob_data, reconstruct_blobs};
+use beacon_chain::kzg_utils::{reconstruct_blob_sidecars, reconstruct_blobs};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use types::{
     BlobSidecarList, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkName, Hash256,
-    KzgCommitment, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -366,7 +366,20 @@ impl BlockId {
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, query.indices, &block)?
+                let data_columns =
+                    Self::get_data_columns_for_blob_reconstruction(chain, root, &block)?;
+                reconstruct_blob_sidecars(
+                    &chain.kzg,
+                    data_columns,
+                    query.indices,
+                    &block,
+                    &chain.spec,
+                )
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Error reconstructing data columns: {e:?}"
+                    ))
+                })?
             } else {
                 Self::get_blobs(chain, root, query.indices, max_blobs_per_block)?
             }
@@ -392,7 +405,12 @@ impl BlockId {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
         })?;
 
-        let blob_kzg_commitments = Self::blob_kzg_commitments(&block)?;
+        let block_message = block.message();
+        let blob_kzg_commitments = block_message.blob_kzg_commitments().ok_or_else(|| {
+            warp_utils::reject::custom_bad_request(
+                "block is pre-Deneb and has no blobs".to_string(),
+            )
+        })?;
 
         let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
             versioned_hashes
@@ -410,13 +428,19 @@ impl BlockId {
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blobs = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blob_data_from_data_columns(
-                    chain,
-                    root,
+                let data_columns =
+                    Self::get_data_columns_for_blob_reconstruction(chain, root, &block)?;
+                reconstruct_blobs(
+                    &chain.kzg,
+                    data_columns,
                     blob_indices_opt,
-                    &block,
                     blob_kzg_commitments.len(),
-                )?
+                )
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Error reconstructing data columns: {e:?}"
+                    ))
+                })?
             } else {
                 Self::get_blobs(chain, root, blob_indices_opt, max_blobs_per_block)?
                     .into_iter()
@@ -439,28 +463,6 @@ impl BlockId {
             },
             data: blobs,
         })
-    }
-
-    fn blob_kzg_commitments<E: EthSpec>(
-        block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<&[KzgCommitment], Rejection> {
-        block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map(|commitments| &commitments[..])
-            .or_else(|_| {
-                block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    .map(|bid| bid.message.blob_kzg_commitments.as_ref())
-            })
-            .map_err(|_| {
-                warp_utils::reject::custom_bad_request(
-                    "block is pre-Deneb and has no blobs".to_string(),
-                )
-            })
     }
 
     fn get_blobs<T: BeaconChainTypes>(
@@ -490,37 +492,6 @@ impl BlockId {
 
         BlobSidecarList::new(blob_sidecar_list, max_blobs_per_block)
             .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
-    }
-
-    fn get_blobs_from_data_columns<T: BeaconChainTypes>(
-        chain: &BeaconChain<T>,
-        root: Hash256,
-        blob_indices: Option<Vec<u64>>,
-        block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
-        let data_columns = Self::get_data_columns_for_blob_reconstruction(chain, root, block)?;
-
-        reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(|e| {
-            warp_utils::reject::custom_server_error(format!(
-                "Error reconstructing data columns: {e:?}"
-            ))
-        })
-    }
-
-    fn get_blob_data_from_data_columns<T: BeaconChainTypes>(
-        chain: &BeaconChain<T>,
-        root: Hash256,
-        blob_indices: Option<Vec<u64>>,
-        block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-        num_blobs: usize,
-    ) -> Result<Vec<types::Blob<T::EthSpec>>, Rejection> {
-        let data_columns = Self::get_data_columns_for_blob_reconstruction(chain, root, block)?;
-
-        reconstruct_blob_data(&chain.kzg, data_columns, blob_indices, num_blobs).map_err(|e| {
-            warp_utils::reject::custom_server_error(format!(
-                "Error reconstructing data columns: {e:?}"
-            ))
-        })
     }
 
     fn get_data_columns_for_blob_reconstruction<T: BeaconChainTypes>(

@@ -761,7 +761,7 @@ fn build_partial_column_cells<E: EthSpec>(
     Ok((bitmap, columns, column_kzg_proofs))
 }
 
-fn reconstruct_blob_data_with_indices<E: EthSpec>(
+fn reconstruct_blobs_with_indices<E: EthSpec>(
     kzg: &Kzg,
     mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     blob_indices: Vec<usize>,
@@ -819,11 +819,11 @@ fn reconstruct_blob_data_with_indices<E: EthSpec>(
         .collect()
 }
 
-/// Reconstruct blob data from a subset of data column sidecars (requires at least 50%).
+/// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
 ///
-/// Unlike [`reconstruct_blobs`], this function does not construct `BlobSidecar`s, so it works
-/// post-Gloas where blob commitments no longer have inclusion proofs in the beacon block body.
-pub fn reconstruct_blob_data<E: EthSpec>(
+/// This function works post-Gloas where blob commitments no longer have inclusion proofs in the
+/// beacon block body.
+pub fn reconstruct_blobs<E: EthSpec>(
     kzg: &Kzg,
     data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     blob_indices_opt: Option<Vec<u64>>,
@@ -834,17 +834,17 @@ pub fn reconstruct_blob_data<E: EthSpec>(
         |indices| indices.into_iter().map(|i| i as usize).collect(),
     );
 
-    reconstruct_blob_data_with_indices(kzg, data_columns, blob_indices)
+    reconstruct_blobs_with_indices(kzg, data_columns, blob_indices)
         .map(|blobs| blobs.into_iter().map(|(_row_index, blob)| blob).collect())
 }
 
-/// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
+/// Reconstruct blob sidecars from a subset of data column sidecars (requires at least 50%).
 ///
 /// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
 /// with the block.
 /// This function does NOT use rayon as this is primarily used by a non critical path in HTTP API
 /// and it will be slow if the node needs to reconstruct the blobs
-pub fn reconstruct_blobs<E: EthSpec>(
+pub fn reconstruct_blob_sidecars<E: EthSpec>(
     kzg: &Kzg,
     data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     blob_indices_opt: Option<Vec<u64>>,
@@ -862,7 +862,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
         }
     };
 
-    let blob_sidecars = reconstruct_blob_data_with_indices(kzg, data_columns, blob_indices)?
+    let blob_sidecars = reconstruct_blobs_with_indices(kzg, data_columns, blob_indices)?
         .into_iter()
         .map(|(row_index, blob)| {
             let kzg_proof = KzgProof::empty();
@@ -944,8 +944,8 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 mod test {
     use crate::kzg_utils::{
         blob_to_kzg_commitment, blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas,
-        reconstruct_blobs, reconstruct_data_columns, validate_data_columns_with_commitments,
-        validate_full_data_columns,
+        reconstruct_blob_sidecars, reconstruct_data_columns,
+        validate_data_columns_with_commitments, validate_full_data_columns,
     };
     use bls::Signature;
     use eth2::types::BlobsBundle;
@@ -970,8 +970,8 @@ mod test {
         test_build_data_columns_fulu(&kzg, &fulu_spec);
         test_reconstruct_data_columns(&kzg, &fulu_spec);
         test_reconstruct_data_columns_unordered(&kzg, &fulu_spec);
-        test_reconstruct_blobs_from_data_columns(&kzg, &fulu_spec);
-        test_reconstruct_blobs_from_data_columns_unordered(&kzg, &fulu_spec);
+        test_reconstruct_blob_sidecars_from_data_columns(&kzg, &fulu_spec);
+        test_reconstruct_blob_sidecars_from_data_columns_unordered(&kzg, &fulu_spec);
         test_validate_data_columns(&kzg, &fulu_spec);
 
         test_validate_data_columns_with_commitments(&kzg, &fulu_spec);
@@ -1247,7 +1247,7 @@ mod test {
     }
 
     #[track_caller]
-    fn test_reconstruct_blobs_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+    fn test_reconstruct_blob_sidecars_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 3;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -1260,7 +1260,7 @@ mod test {
         let signed_blinded_block = signed_block.into();
         // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let blob_indices = vec![1, 2];
-        let reconstructed_blobs = reconstruct_blobs(
+        let reconstructed_blobs = reconstruct_blob_sidecars(
             kzg,
             column_sidecars[0..column_sidecars.len() / 2].to_vec(),
             Some(blob_indices.clone()),
@@ -1281,7 +1281,7 @@ mod test {
     }
 
     #[track_caller]
-    fn test_reconstruct_blobs_from_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
+    fn test_reconstruct_blob_sidecars_from_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -1293,11 +1293,12 @@ mod test {
         // Test reconstruction with columns in reverse order (non-ascending)
         let mut subset_columns: Vec<_> =
             column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec();
-        subset_columns.reverse(); // This would fail without proper sorting in reconstruct_blobs
+        subset_columns.reverse(); // This would fail without proper sorting during reconstruction.
 
         let signed_blinded_block = signed_block.into();
         let reconstructed_blobs =
-            reconstruct_blobs(kzg, subset_columns, None, &signed_blinded_block, spec).unwrap();
+            reconstruct_blob_sidecars(kzg, subset_columns, None, &signed_blinded_block, spec)
+                .unwrap();
 
         for (i, original_blob) in blobs.iter().enumerate() {
             let reconstructed_blob = &reconstructed_blobs.get(i).unwrap().blob;
