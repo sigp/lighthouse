@@ -1183,7 +1183,7 @@ where
                 .clone()
                 .spawn_blocking_with_rayon(
                     move || cache.seed_from_state(&head.beacon_state, &spec),
-                    task_executor::RayonPoolType::HighPriority,
+                    task_executor::RayonPoolType::LowPriority,
                     "initialize_builder_onboarding_cache",
                 );
         }
