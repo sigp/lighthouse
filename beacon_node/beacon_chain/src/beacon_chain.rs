@@ -4699,8 +4699,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_slot,
         );
 
-        // Pre-verify the signatures of any deposits this block added to the `pending_deposits`
-        // queue, so that builder onboarding at the gloas fork transition is a cache lookup.
+        // Pre-verify signatures of builder-related pending deposits so that builder onboarding
+        // at the gloas fork transition is a cache lookup.
         // Post-gloas the fork transition has already happened and the cache is no longer needed.
         if !state.fork_name_unchecked().gloas_enabled()
             && let Some(builder_onboarding_cache) = &self.builder_onboarding_cache

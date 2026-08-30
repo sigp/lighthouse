@@ -19,10 +19,10 @@ use types::{
 
 /// Controls how builder deposit signatures are verified during `upgrade_to_gloas`.
 ///
-/// The fork transition must check the signature of every builder deposit in the (unbounded)
-/// `pending_deposits` queue. The spec recommends clients pre-verify these signatures and
-/// cache the results (see the note in `specs/gloas/fork.md`) so that the fork transition
-/// itself is fast.
+/// The fork transition must verify signatures of builder deposits and same-pubkey validator
+/// deposits in the `pending_deposits` queue. The spec recommends clients pre-verify these
+/// signatures and cache the results (see the note in `specs/gloas/fork.md`) so that the fork
+/// transition itself is fast.
 pub enum GloasVerificationContext<'a> {
     /// Use the pre-computed builder deposit signature cache, falling back to inline
     /// verification on cache miss.
