@@ -399,16 +399,15 @@ impl BlockId {
             )
         })?;
 
-        let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
-            versioned_hashes
+        let blob_indices_opt = query.versioned_hashes.as_ref().map(|versioned_hashes| {
+            blob_kzg_commitments
                 .iter()
-                .flat_map(|versioned_hash| {
-                    blob_kzg_commitments.iter().position(|commitment| {
-                        let computed_hash = commitment.calculate_versioned_hash();
-                        computed_hash == *versioned_hash
-                    })
+                .enumerate()
+                .filter_map(|(index, commitment)| {
+                    versioned_hashes
+                        .contains(&commitment.calculate_versioned_hash())
+                        .then_some(index as u64)
                 })
-                .map(|index| index as u64)
                 .collect::<Vec<_>>()
         });
 
