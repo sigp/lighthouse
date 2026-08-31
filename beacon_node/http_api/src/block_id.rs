@@ -72,14 +72,13 @@ impl BlockId {
                 Ok((justified_checkpoint.root, execution_optimistic, false))
             }
             CoreBlockId::Slot(slot) => {
-                let fallback_requires_fork_choice_check = if let Some((cached_slot, cached_root)) =
-                    chain
-                        .early_attester_cache
-                        .get_head_block_root()
-                        .filter(|(cached_slot, _)| cached_slot == slot)
+                if let Some((cached_slot, cached_root)) = chain
+                    .early_attester_cache
+                    .get_head_block_root()
+                    .filter(|(cached_slot, _)| cached_slot == slot)
                 {
-                    // Read the cache again before checking persistence. If the block is not
-                    // persisted, this read occurs while its importer holds the fork choice write lock.
+                    // An unpersisted cache entry is only visible while its importer holds the fork
+                    // choice write lock, so an unchanged entry cannot be replaced concurrently.
                     let cache_unchanged = chain.early_attester_cache.get_head_block_root()
                         == Some((cached_slot, cached_root));
 
@@ -109,15 +108,9 @@ impl BlockId {
                             return Ok((root, false, false));
                         }
                     }
+                }
 
-                    true
-                } else {
-                    false
-                };
-
-                let execution_optimistic = chain
-                    .is_optimistic_or_invalid_head()
-                    .map_err(warp_utils::reject::unhandled_error)?;
+                let cached_head_root = chain.canonical_head.cached_head().head_block_root();
                 let root = chain
                     .block_root_at_slot(*slot, WhenSlotSkipped::None)
                     .map_err(warp_utils::reject::unhandled_error)
@@ -129,16 +122,30 @@ impl BlockId {
                             ))
                         })
                     })?;
-                if fallback_requires_fork_choice_check {
-                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
-                    let current_head_root = fork_choice.cached_fork_choice_view().head_block_root;
-                    if !fork_choice.is_descendant(root, current_head_root) {
-                        return Err(warp_utils::reject::custom_not_found(format!(
-                            "beacon block at slot {}",
-                            slot
-                        )));
-                    }
+
+                let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                let execution_optimistic = fork_choice
+                    .get_block_execution_status(&cached_head_root)
+                    .ok_or(BeaconChainError::HeadMissingFromForkChoice(
+                        cached_head_root,
+                    ))
+                    .map_err(warp_utils::reject::unhandled_error)?
+                    .is_optimistic_or_invalid();
+                let current_head_root = fork_choice.cached_fork_choice_view().head_block_root;
+
+                // The cached head can change after the slot lookup. Reject a recent block that is
+                // no longer on the fork choice head chain. Historical roots can be pruned from
+                // fork choice and retain the existing slot lookup behaviour.
+                if fork_choice.contains_block(&root)
+                    && !fork_choice.is_descendant(root, current_head_root)
+                {
+                    return Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon block at slot {}",
+                        slot
+                    )));
                 }
+                drop(fork_choice);
+
                 let finalized = *slot
                     <= chain
                         .canonical_head
@@ -195,26 +202,6 @@ impl BlockId {
                 }
             }
         }
-    }
-
-    pub(crate) fn is_canonical<T: BeaconChainTypes>(
-        &self,
-        root: Hash256,
-        slot: Slot,
-        chain: &BeaconChain<T>,
-    ) -> Result<bool, warp::Rejection> {
-        // A successful slot lookup only returns the canonical block at that slot.
-        if matches!(
-            &self.0,
-            CoreBlockId::Slot(requested_slot) if *requested_slot == slot
-        ) {
-            return Ok(true);
-        }
-
-        chain
-            .block_root_at_slot(slot, WhenSlotSkipped::None)
-            .map_err(warp_utils::reject::unhandled_error)
-            .map(|canonical| canonical.is_some_and(|canonical| root == canonical))
     }
 
     pub fn blinded_block_by_root<T: BeaconChainTypes>(
@@ -721,22 +708,22 @@ mod tests {
         );
     }
 
-    struct UnpersistedBlock {
+    struct AvailableBlockWithPostState {
         available_block: AvailableBlock<MinimalEthSpec>,
         post_state: BeaconState<MinimalEthSpec>,
     }
 
-    impl UnpersistedBlock {
+    impl AvailableBlockWithPostState {
         fn root(&self) -> Hash256 {
             self.available_block.block_root()
         }
     }
 
-    async fn make_unpersisted_block(
+    async fn make_available_block_with_post_state(
         harness: &TestHarness,
         state: BeaconState<MinimalEthSpec>,
         slot: Slot,
-    ) -> UnpersistedBlock {
+    ) -> AvailableBlockWithPostState {
         let (block_contents, post_state) = harness.make_block(state, slot).await;
         let (block, _) = block_contents;
         let available_block = AvailableBlock::new(
@@ -745,7 +732,7 @@ mod tests {
             &harness.chain.custody_context,
         )
         .unwrap();
-        UnpersistedBlock {
+        AvailableBlockWithPostState {
             available_block,
             post_state,
         }
@@ -753,7 +740,7 @@ mod tests {
 
     fn add_block_to_fork_choice(
         harness: &TestHarness,
-        block: &UnpersistedBlock,
+        block: &AvailableBlockWithPostState,
         block_delay: Duration,
     ) -> ProtoBlock {
         let block_root = block.root();
@@ -772,7 +759,11 @@ mod tests {
         fork_choice.get_block(&block_root).unwrap()
     }
 
-    fn cache_block(harness: &TestHarness, block: &UnpersistedBlock, proto_block: ProtoBlock) {
+    fn cache_block(
+        harness: &TestHarness,
+        block: &AvailableBlockWithPostState,
+        proto_block: ProtoBlock,
+    ) {
         harness
             .chain
             .early_attester_cache
@@ -785,10 +776,7 @@ mod tests {
             .unwrap();
     }
 
-    fn spawn_slot_header_lookup(
-        chain: Arc<TestChain>,
-        slot: Slot,
-    ) -> (JoinHandle<()>, Receiver<Hash256>) {
+    fn spawn_slot_lookup(chain: Arc<TestChain>, slot: Slot) -> (JoinHandle<()>, Receiver<Hash256>) {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let request = std::thread::spawn(move || {
@@ -799,11 +787,6 @@ mod tests {
             assert!(!result.2);
             let (block, _, _) = BlockId::from_root(result.0).blinded_block(&chain).unwrap();
             assert_eq!(block.canonical_root(), result.0);
-            assert!(
-                block_id
-                    .is_canonical(result.0, block.slot(), &chain)
-                    .unwrap()
-            );
             result_tx.send(result.0).unwrap();
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -820,7 +803,8 @@ mod tests {
         harness.advance_slot();
 
         let slot = harness.get_current_slot();
-        let block = make_unpersisted_block(&harness, harness.get_current_state(), slot).await;
+        let block =
+            make_available_block_with_post_state(&harness, harness.get_current_state(), slot).await;
         let block_root = block.root();
         let proto_block = add_block_to_fork_choice(&harness, &block, Duration::ZERO);
         let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
@@ -840,7 +824,7 @@ mod tests {
             "precondition: persisted slot lookup must not resolve the new head"
         );
 
-        let (request, result_rx) = spawn_slot_header_lookup(chain.clone(), slot);
+        let (request, result_rx) = spawn_slot_lookup(chain.clone(), slot);
         assert_eq!(
             result_rx
                 .recv_timeout(Duration::from_secs(2))
@@ -848,12 +832,6 @@ mod tests {
             block_root
         );
         chain.early_attester_cache.clear();
-        assert!(
-            BlockId(CoreBlockId::Slot(slot))
-                .is_canonical(block_root, slot, chain)
-                .unwrap(),
-            "slot lookup result must remain canonical after the cache is cleared"
-        );
         drop(fork_choice);
         request.join().unwrap();
     }
@@ -869,8 +847,8 @@ mod tests {
 
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
-        let block_a = make_unpersisted_block(&harness, state.clone(), slot).await;
-        let block_b = make_unpersisted_block(&harness, state, slot).await;
+        let block_a = make_available_block_with_post_state(&harness, state.clone(), slot).await;
+        let block_b = make_available_block_with_post_state(&harness, state, slot).await;
         let block_root_a = block_a.root();
         let block_root_b = block_b.root();
         assert_ne!(
@@ -878,7 +856,8 @@ mod tests {
             "precondition: blocks must compete at the same slot"
         );
 
-        // Import both blocks too late for proposer boost. Fork choice then selects the higher root.
+        // Add both blocks to fork choice too late for proposer boost. Fork choice then selects the
+        // higher root.
         let (stale_block, replacement_block) = if block_root_a < block_root_b {
             (&block_a, &block_b)
         } else {
@@ -942,6 +921,68 @@ mod tests {
             BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap(),
             (replacement_block.root(), false, false),
             "same-slot replacement must be served"
+        );
+    }
+
+    #[tokio::test]
+    async fn slot_rejects_cached_head_after_fork_choice_changes() {
+        let harness = harness();
+        let chain = &harness.chain;
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let block_a = make_available_block_with_post_state(&harness, state.clone(), slot).await;
+        let block_b = make_available_block_with_post_state(&harness, state, slot).await;
+        let (stale_block, replacement_block) = if block_a.root() < block_b.root() {
+            (&block_a, &block_b)
+        } else {
+            (&block_b, &block_a)
+        };
+
+        harness
+            .process_block(
+                slot,
+                stale_block.root(),
+                (stale_block.available_block.block().clone().into(), None),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            chain.canonical_head.cached_head().head_block_root(),
+            stale_block.root(),
+            "precondition: first block must be the cached head"
+        );
+        assert_eq!(
+            chain.early_attester_cache.get_head_block_root(),
+            None,
+            "precondition: early attester cache must be empty"
+        );
+
+        harness.advance_slot();
+        add_block_to_fork_choice(&harness, replacement_block, Duration::MAX);
+        let current_head_root = {
+            let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+            fork_choice
+                .get_head(harness.get_current_slot(), &chain.spec)
+                .unwrap()
+                .0
+        };
+        assert_eq!(
+            current_head_root,
+            replacement_block.root(),
+            "precondition: replacement block must be the fork choice head"
+        );
+
+        let rejection = BlockId(CoreBlockId::Slot(slot)).root(chain).unwrap_err();
+        assert!(
+            rejection
+                .find::<warp_utils::reject::CustomNotFound>()
+                .is_some(),
+            "cached head must be rejected after fork choice selects a same-slot replacement"
         );
     }
 
@@ -1061,11 +1102,12 @@ mod tests {
             BlockId(CoreBlockId::Root(block_root)).root(chain).unwrap(),
             (block_root, false, false)
         );
-        assert!(
-            !BlockId(CoreBlockId::Root(block_root))
-                .is_canonical(block_root, block.slot(), chain)
+        assert_ne!(
+            chain
+                .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap(),
-            "unpersisted root lookup must not be marked canonical"
+            Some(block_root),
+            "precondition: cached block must not be in the canonical snapshot"
         );
 
         let (blinded_block, execution_optimistic, finalized) =

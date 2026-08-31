@@ -56,7 +56,7 @@ use axum::Router;
 use axum_utils::server::Server;
 use axum_utils::tls::TlsConfig;
 use beacon::states;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
@@ -65,8 +65,8 @@ use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    self as api_types, BlockId as CoreBlockId, BroadcastValidation, EndpointVersion, ForkChoice,
+    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -791,7 +791,15 @@ pub async fn serve<T: BeaconChainTypes>(
                     let (block, _execution_optimistic, _finalized) =
                         BlockId::from_root(root).blinded_block(&chain)?;
 
-                    let canonical = block_id.is_canonical(root, block.slot(), &chain)?;
+                    // A successful slot lookup has already selected the canonical block at that
+                    // slot.
+                    let canonical = match &block_id.0 {
+                        CoreBlockId::Slot(requested_slot) => *requested_slot == block.slot(),
+                        _ => chain
+                            .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                            .map_err(warp_utils::reject::unhandled_error)?
+                            .is_some_and(|canonical| root == canonical),
+                    };
 
                     let data = api_types::BlockHeaderData {
                         root,
