@@ -1007,13 +1007,18 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
                 let duty = &duty_and_proof.duty;
                 let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-                subscriptions.push(BeaconCommitteeSubscription {
+                let beacon_committee = BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
                     committee_index: duty.committee_index,
                     committees_at_slot: duty.committees_at_slot,
                     slot: duty.slot,
                     is_aggregator,
-                });
+                };
+                subscriptions.push(beacon_committee.clone());
+                debug!(
+                    subscription = ?beacon_committee,
+                    "Beacon committee subscription",
+                );
                 subscription_slots_to_confirm.push(duty_and_proof.subscription_slots.clone());
             });
     }
@@ -1429,7 +1434,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
     // Create a HashMap for BeaconCommitteeSelection to match the duty later for distributed case involving middleware
     let mut selection_hashmap = HashMap::new();
-    let mut call_selection_endpoint = false;
+    let mut call_selection_endpoint = true;
 
     while !duties_by_slot.is_empty() {
         if let Some(duration) = slot_clock.duration_to_next_slot() {
@@ -1446,7 +1451,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             let lookahead_slot = current_slot + selection_lookahead;
 
-            let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
+            let mut relevant_duties = if duties_service.selection_proof_config.parallel_sign {
                 // Remove old slot duties and only keep current duties in distributed mode
                 duties_by_slot
                     .remove(&lookahead_slot)
@@ -1501,6 +1506,15 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                     }
                     // Once we have the selection_proof, we don't call the selections_endpoint again
                     call_selection_endpoint = false;
+
+                    // Insert all remaining duties into relevant_duties so they are
+                    // processed at once with the full selection proofs from the middleware
+                    for (slot, attester_data) in std::mem::take(&mut duties_by_slot) {
+                        relevant_duties
+                            .entry(slot)
+                            .or_default()
+                            .extend(attester_data);
+                    }
                 }
 
                 for duty in relevant_duties.into_values().flatten() {
