@@ -680,7 +680,7 @@ impl HttpJsonRpc {
             propagator.inject_context(&context, &mut HeaderInjector(&mut headers))
         });
         request = request.headers(headers);
-        
+
         let response_bytes = request.send().await?.error_for_status()?.bytes().await?;
 
         if let Some(label) = metrics::engine_method_label(method) {

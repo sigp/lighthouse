@@ -933,7 +933,7 @@ impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for JsonGetPayloadResponse<E> {
                     execution_requests: ExecutionRequests::Gloas(inner.requests).into(),
                 }))
             }
-            GetPayloadResponse::Heze(inner ) => {
+            GetPayloadResponse::Heze(inner) => {
                 Ok(JsonGetPayloadResponse::Heze(JsonGetPayloadResponseHeze {
                     execution_payload: inner.execution_payload.try_into()?,
                     block_value: inner.block_value,

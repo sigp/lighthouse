@@ -352,7 +352,7 @@ impl HttpRestSsz {
             NewPayloadRequest::Heze(request) => (
                 ForkName::Heze,
                 SszExecutionPayloadEnvelopeHeze::try_from(request)?.as_ssz_bytes(),
-            )
+            ),
         };
 
         let response = self
@@ -710,7 +710,7 @@ mod tests {
                 osaka_time: None,
                 amsterdam_time: None,
                 serve_rest_ssz: true,
-                heze_time: None
+                heze_time: None,
             };
             let server = MockServer::new_with_config(&runtime::Handle::current(), config, None);
             let url = SensitiveUrl::parse(&server.url()).unwrap();

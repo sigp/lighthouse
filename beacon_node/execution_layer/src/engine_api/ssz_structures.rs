@@ -16,8 +16,8 @@ use types::execution::{
 use types::{EthSpec, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
+    ExecutionRequests, ForkName,
 };
 
 #[superstruct(
@@ -917,7 +917,9 @@ impl<E: EthSpec> SszBodiesResponse<E> {
             ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                 SszBodiesResponseV2::from_ssz_bytes(bytes).map(Self::V2)
             }
-            ForkName::Gloas | ForkName::Heze => SszBodiesResponseV3::from_ssz_bytes(bytes).map(Self::V3),
+            ForkName::Gloas | ForkName::Heze => {
+                SszBodiesResponseV3::from_ssz_bytes(bytes).map(Self::V3)
+            }
         }
     }
 

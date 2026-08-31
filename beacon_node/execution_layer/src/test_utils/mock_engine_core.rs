@@ -1,7 +1,8 @@
 use crate::engine_api::{
     GetPayloadResponse, GetPayloadResponseBellatrix, GetPayloadResponseCapella,
     GetPayloadResponseDeneb, GetPayloadResponseElectra, GetPayloadResponseFulu,
-    GetPayloadResponseGloas, GetPayloadResponseHeze, PayloadAttributes, PayloadId, PayloadStatusV1Status,
+    GetPayloadResponseGloas, GetPayloadResponseHeze, PayloadAttributes, PayloadId,
+    PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1};

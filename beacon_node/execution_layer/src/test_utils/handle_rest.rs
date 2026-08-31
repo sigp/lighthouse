@@ -370,7 +370,11 @@ fn encode_bodies_response<E: EthSpec>(
             Some(payload) => (
                 true,
                 ExecutionPayloadBodyV1 {
-                    transactions:  payload.transactions_bounded().ok().cloned().unwrap_or_default(),
+                    transactions: payload
+                        .transactions_bounded()
+                        .ok()
+                        .cloned()
+                        .unwrap_or_default(),
                     withdrawals: payload.withdrawals_bounded().ok().cloned(),
                 },
             ),
