@@ -134,10 +134,10 @@ pub fn run<E: EthSpec>(
         let start = Instant::now();
 
         if partial {
-            partial_state_advance(&mut state, Some(state_root), target_slot, spec)
+            partial_state_advance(&mut state, Some(state_root), target_slot, None, spec)
                 .map_err(|e| format!("Unable to perform partial advance: {:?}", e))?;
         } else {
-            complete_state_advance(&mut state, Some(state_root), target_slot, spec)
+            complete_state_advance(&mut state, Some(state_root), target_slot, None, spec)
                 .map_err(|e| format!("Unable to perform complete advance: {:?}", e))?;
         }
 
