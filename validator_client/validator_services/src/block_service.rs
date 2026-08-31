@@ -594,7 +594,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             publish_envelope = block_response
                 .body()
                 .signed_execution_payload_bid()
-                // Preserve the existing envelope error path for malformed Gloas responses.
+                // If the response is not a Gloas block, keep envelope handling enabled so the
+                // invalid response does not silently succeed.
                 .map_or(true, |bid| {
                     bid.message.builder_index == BUILDER_INDEX_SELF_BUILD
                 });
@@ -691,7 +692,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         }
 
         // Capture before `sign_and_publish_block` moves `unsigned_block`.
-        let produced_block_root = publish_envelope.then(|| unsigned_block.block_root());
+        let payload_envelope_block_root = if publish_envelope {
+            Some(unsigned_block.block_root())
+        } else {
+            None
+        };
 
         self_ref
             .sign_and_publish_block(
@@ -704,7 +709,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             )
             .await?;
 
-        if let Some(beacon_block_root) = produced_block_root {
+        if let Some(beacon_block_root) = payload_envelope_block_root {
             self_ref
                 .fetch_sign_and_publish_payload_envelope(
                     &proposer_fallback,
