@@ -29,17 +29,26 @@ use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
-    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    Slot,
+    BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 pub mod import;
+pub mod observed_payload_envelopes;
 mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
+
+/// The path through which a payload envelope reached this node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
+pub enum EnvelopeSource {
+    Gossip,
+    Rpc,
+    Http,
+}
 
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
@@ -200,6 +209,12 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// A validated envelope for this `block_root` has already been seen from the
+    /// builder with `builder_index`, so this one is a duplicate.
+    EnvelopeAlreadySeen {
+        block_root: Hash256,
+        builder_index: BuilderIndex,
+    },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -213,6 +228,19 @@ pub enum EnvelopeError {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
     },
+    /// The envelope's parent beacon block root doesn't match the block's parent root.
+    ///
+    /// This must hold before the payload block hash is recomputed, since the envelope's
+    /// `parent_beacon_block_root` is an input to the execution block header.
+    ParentBeaconBlockRootMismatch { block: Hash256, envelope: Hash256 },
+    /// The recomputed execution block hash (or blob versioned hashes) of the envelope's
+    /// payload doesn't match its committed `block_hash`.
+    InvalidPayloadHash(String),
+    /// The SSZ root of the envelope's execution requests doesn't match the committed bid.
+    ExecutionRequestsRootMismatch {
+        committed_bid: Hash256,
+        envelope: Hash256,
+    },
     /// The block's proposer_index does not match the locally computed proposer
     IncorrectBlockProposer {
         proposer_index: u64,
@@ -223,6 +251,12 @@ pub enum EnvelopeError {
     PriorToFinalization {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
+    },
+    /// An envelope list exceeds its spec limit
+    OperationListTooLong {
+        kind: &'static str,
+        length: usize,
+        max: usize,
     },
     /// Some Beacon Chain Error
     BeaconChainError(Box<BeaconChainError>),
@@ -257,11 +291,16 @@ impl EnvelopeError {
             | EnvelopeError::BuilderIndexMismatch { .. }
             | EnvelopeError::SlotMismatch { .. }
             | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::ParentBeaconBlockRootMismatch { .. }
+            | EnvelopeError::InvalidPayloadHash(_)
+            | EnvelopeError::ExecutionRequestsRootMismatch { .. }
             | EnvelopeError::UnknownValidator { .. }
             | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::OperationListTooLong { .. }
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
@@ -357,4 +396,143 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
         state_root: block_state_root,
         beacon_block_root,
     })
+}
+
+/// Build a `NewPayloadRequest` binding an envelope's payload to its block's committed bid.
+///
+/// The versioned hashes are derived from the bid's `blob_kzg_commitments` (inside the
+/// proposer-signed block), so a subsequent `perform_optimistic_sync_verifications` binds the
+/// payload's blob transactions to the committed commitments.
+pub fn build_new_payload_request<'a, E: EthSpec>(
+    envelope: &'a SignedExecutionPayloadEnvelope<E>,
+    block: &'a types::SignedBeaconBlock<E>,
+) -> Result<execution_layer::NewPayloadRequest<'a, E>, EnvelopeError> {
+    let bid = &block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .map_err(|e| EnvelopeError::BeaconChainError(Box::new(BeaconChainError::from(e))))?
+        .message;
+
+    let versioned_hashes = bid
+        .blob_kzg_commitments
+        .iter()
+        .map(state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash)
+        .collect();
+
+    Ok(execution_layer::NewPayloadRequest::Gloas(
+        execution_layer::NewPayloadRequestGloas {
+            execution_payload: &envelope.message.payload,
+            versioned_hashes,
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+            execution_requests: &envelope.message.execution_requests,
+        },
+    ))
+}
+
+/// Recompute the execution block hash of an envelope's payload and verify it, along with the
+/// blob versioned hashes, against the bid committed in the (proposer-signed) block.
+///
+/// This is the CL-side substitute for the `is_valid_block_hash` portion of the spec's
+/// `verify_and_notify_new_payload`, used where the execution layer cannot be consulted
+/// (historical backfill).
+pub fn verify_envelope_payload_hash<E: EthSpec>(
+    envelope: &SignedExecutionPayloadEnvelope<E>,
+    block: &types::SignedBeaconBlock<E>,
+) -> Result<(), EnvelopeError> {
+    build_new_payload_request(envelope, block)?
+        .perform_optimistic_sync_verifications()
+        .map_err(|e| EnvelopeError::InvalidPayloadHash(format!("{e:?}")))
+}
+
+#[cfg(test)]
+mod payload_hash_tests {
+    use super::verify_envelope_payload_hash;
+    use bls::Signature;
+    use execution_layer::calculate_execution_block_hash;
+    use ssz_types::ProgressiveVariableList;
+    use std::marker::PhantomData;
+    use types::{
+        BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
+        ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
+        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid,
+        SignedExecutionPayloadEnvelope, Slot, SyncAggregate,
+    };
+
+    type E = MinimalEthSpec;
+
+    fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
+        let block = BeaconBlock::Gloas(BeaconBlockGloas {
+            slot,
+            proposer_index: 0,
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
+            body: BeaconBlockBodyGloas {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: ProgressiveVariableList::empty(),
+                attester_slashings: ProgressiveVariableList::empty(),
+                attestations: ProgressiveVariableList::empty(),
+                deposits: ProgressiveVariableList::empty(),
+                voluntary_exits: ProgressiveVariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                bls_to_execution_changes: ProgressiveVariableList::empty(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
+                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                payload_attestations: ProgressiveVariableList::empty(),
+                _phantom: PhantomData,
+            },
+        });
+        SignedBeaconBlock::from_block(block, Signature::empty())
+    }
+
+    /// Envelope whose payload's `block_hash` is the genuinely recomputed execution block hash.
+    fn make_consistent_envelope(slot: Slot) -> SignedExecutionPayloadEnvelope<E> {
+        let mut payload = ExecutionPayloadGloas::<E> {
+            slot_number: slot,
+            ..ExecutionPayloadGloas::default()
+        };
+        let requests = ExecutionRequestsGloas::default();
+        let parent_beacon_block_root = Hash256::ZERO;
+        let (block_hash, _) = calculate_execution_block_hash::<E>(
+            ExecutionPayloadRef::Gloas(&payload),
+            Some(parent_beacon_block_root),
+            Some(ExecutionRequestsRef::Gloas(&requests)),
+        );
+        payload.block_hash = block_hash;
+
+        SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope {
+                payload,
+                execution_requests: requests,
+                builder_index: 0,
+                beacon_block_root: Hash256::ZERO,
+                parent_beacon_block_root,
+            },
+            signature: Signature::empty(),
+        }
+    }
+
+    #[test]
+    fn accepts_payload_with_correct_block_hash() {
+        let slot = Slot::new(10);
+        let block = make_block(slot);
+        let envelope = make_consistent_envelope(slot);
+        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_ok());
+    }
+
+    #[test]
+    fn rejects_payload_with_tampered_contents() {
+        let slot = Slot::new(10);
+        let block = make_block(slot);
+        let mut envelope = make_consistent_envelope(slot);
+        // Tamper a field that only the hash recompute can catch.
+        envelope.message.payload.timestamp += 1;
+        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_err());
+    }
 }

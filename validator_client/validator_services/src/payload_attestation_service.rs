@@ -1,6 +1,7 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
 use eth2::types::PtcDuty;
+use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -210,20 +211,30 @@ where
 
     /// Sign `attestation_data` for each duty and publish the resulting messages, preferring SSZ
     /// and falling back to JSON.
+    ///
+    /// All signatures are requested concurrently, with no cap: `ValidatorStore` implementations
+    /// backed by remote signers (e.g. distributed validators awaiting a threshold of co-signers)
+    /// may not resolve any signature until all are requested.
     async fn sign_and_publish(
         &self,
         slot: Slot,
         duties: Vec<PtcDuty>,
         attestation_data: PayloadAttestationData,
     ) -> Result<(), String> {
-        let mut messages = Vec::with_capacity(duties.len());
+        let signing_futures = duties.iter().map(|duty| {
+            let data = attestation_data.clone();
+            async move {
+                let result = self
+                    .validator_store
+                    .sign_payload_attestation(duty.pubkey, data)
+                    .await;
+                (duty, result)
+            }
+        });
 
-        for duty in &duties {
-            match self
-                .validator_store
-                .sign_payload_attestation(duty.pubkey, attestation_data.clone())
-                .await
-            {
+        let mut messages = Vec::with_capacity(duties.len());
+        for (duty, result) in join_all(signing_futures).await {
+            match result {
                 Ok(message) => {
                     messages.push(message);
                 }
@@ -289,190 +300,79 @@ where
 mod tests {
     use super::*;
     use crate::duties_service::DutiesServiceBuilder;
-    use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-    use beacon_node_fallback::{
-        BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
-    };
-    use bls::{Keypair, PublicKeyBytes};
+    use bls::{PublicKeyBytes, Signature};
     use eth2::types::PtcDuty;
-    use eth2_keystore::KeystoreBuilder;
     use futures::FutureExt;
-    use initialized_validators::InitializedValidators;
-    use lighthouse_validator_store::LighthouseValidatorStore;
-    use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
     use slot_clock::ManualSlotClock;
-    use std::sync::Arc;
     use std::time::Duration;
-    use task_executor::test_utils::TestRuntime;
-    use tempfile::{TempDir, tempdir};
-    use types::{Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData, Slot};
-    use validator_test_rig::mock_beacon_node::MockBeaconNode;
-
-    type E = MainnetEthSpec;
-    type S = LighthouseValidatorStore<ManualSlotClock, E>;
-
-    async fn create_validator_store(
-        slot_clock: ManualSlotClock,
-        spec: Arc<ChainSpec>,
-        executor: TaskExecutor,
-        num_validators: usize,
-    ) -> (Arc<S>, Vec<PublicKeyBytes>, TempDir) {
-        let validator_dir = tempdir().unwrap();
-        let password = b"test";
-
-        let mut validator_definitions = Vec::with_capacity(num_validators);
-        let mut pubkeys = Vec::with_capacity(num_validators);
-
-        for i in 0..num_validators {
-            let keypair = Keypair::random();
-            let keystore = KeystoreBuilder::new(&keypair, password, String::new())
-                .unwrap()
-                .build()
-                .unwrap();
-            let keystore_path = validator_dir
-                .path()
-                .join(format!("voting-keystore-{i}.json"));
-            keystore
-                .to_json_writer(std::fs::File::create(&keystore_path).unwrap())
-                .unwrap();
-
-            let validator_definition = ValidatorDefinition::new_keystore_with_password(
-                keystore_path,
-                PasswordStorage::ValidatorDefinitions(
-                    String::from_utf8(password.to_vec()).unwrap().into(),
-                ),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-
-            pubkeys.push(keypair.pk.into());
-            validator_definitions.push(validator_definition);
-        }
-
-        let initialized_validators = InitializedValidators::from_definitions(
-            validator_definitions.into(),
-            validator_dir.path().into(),
-            Default::default(),
-        )
-        .await
-        .unwrap();
-
-        let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
-
-        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
-            initialized_validators,
-            slashing_protection,
-            Hash256::ZERO,
-            spec,
-            None,
-            slot_clock,
-            &Default::default(),
-            executor,
-        ));
-
-        for (i, pubkey) in pubkeys.iter().enumerate() {
-            validator_store.set_validator_index(pubkey, i as u64);
-        }
-
-        (validator_store, pubkeys, validator_dir)
-    }
+    use types::{
+        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot,
+    };
+    use validator_test_rig::mock_validator_store::MockValidatorStore;
+    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     struct TestHarness {
-        mock_beacon_node_1: MockBeaconNode<E>,
-        mock_beacon_node_2: MockBeaconNode<E>,
+        harness: ValidatorClientHarness,
         service: PayloadAttestationService<S, ManualSlotClock>,
-        pubkeys: Vec<PublicKeyBytes>,
-        _test_runtime: TestRuntime,
-        _validator_dir: TempDir,
     }
 
     impl TestHarness {
-        async fn create_validators(num_validators: usize) -> Self {
-            let mut default_spec = MainnetEthSpec::default_spec();
-            default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-            let spec = Arc::new(default_spec);
-
-            let test_runtime = TestRuntime::default();
-            let executor = test_runtime.task_executor.clone();
-            let slot_duration = spec.get_slot_duration();
-            let slot_clock =
-                ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-
-            let (validator_store, pubkeys, validator_dir) = create_validator_store(
-                slot_clock.clone(),
-                spec.clone(),
-                executor.clone(),
-                num_validators,
-            )
-            .await;
-
-            let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-            let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-            let beacon_node_1 =
-                CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-            let beacon_node_2 =
-                CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-
-            let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-                vec![beacon_node_1, beacon_node_2],
-                BeaconNodeConfig::default(),
-                vec![],
-                spec.clone(),
-            ));
-
-            let duties_service = Arc::new(
-                DutiesServiceBuilder::new()
-                    .validator_store(validator_store.clone())
-                    .slot_clock(slot_clock.clone())
-                    .beacon_nodes(beacon_node_fallback.clone())
-                    .executor(executor.clone())
-                    .spec(spec.clone())
-                    .build()
-                    .unwrap(),
-            );
-
-            let service = PayloadAttestationService::new(
-                duties_service,
-                validator_store,
-                slot_clock,
-                beacon_node_fallback,
-                executor,
-                spec,
-            );
-
-            Self {
-                mock_beacon_node_1,
-                mock_beacon_node_2,
-                service,
-                pubkeys,
-                _test_runtime: test_runtime,
-                _validator_dir: validator_dir,
-            }
+        async fn new_with_validators(num_validators: usize) -> Self {
+            let harness = ValidatorClientHarness::new(num_validators).await;
+            let service = build_service(&harness, harness.validator_store.clone());
+            Self { harness, service }
         }
 
         fn insert_ptc_duties(&self, slot: Slot) {
-            let duties = self
-                .pubkeys
-                .iter()
-                .enumerate()
-                .map(|(i, pubkey)| PtcDuty {
-                    pubkey: *pubkey,
-                    validator_index: i as u64,
-                    slot,
-                })
-                .collect();
-            self.service
-                .duties_service
-                .ptc_duties
-                .write()
-                .insert(Epoch::new(0), (Hash256::ZERO, duties));
+            self.service.duties_service.ptc_duties.write().insert(
+                Epoch::new(0),
+                (Hash256::ZERO, ptc_duties(&self.harness.pubkeys, slot)),
+            );
+        }
+    }
+
+    fn build_service<S: ValidatorStore + 'static>(
+        harness: &ValidatorClientHarness,
+        store: Arc<S>,
+    ) -> PayloadAttestationService<S, ManualSlotClock> {
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(store.clone())
+                .slot_clock(harness.slot_clock.clone())
+                .beacon_nodes(harness.beacon_nodes.clone())
+                .executor(harness.test_runtime.task_executor.clone())
+                .spec(harness.spec.clone())
+                .build()
+                .unwrap(),
+        );
+        PayloadAttestationService::new(
+            duties_service,
+            store,
+            harness.slot_clock.clone(),
+            harness.beacon_nodes.clone(),
+            harness.test_runtime.task_executor.clone(),
+            harness.spec.clone(),
+        )
+    }
+
+    fn ptc_duties(pubkeys: &[PublicKeyBytes], slot: Slot) -> Vec<PtcDuty> {
+        pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| PtcDuty {
+                pubkey: *pubkey,
+                validator_index: i as u64,
+                slot,
+            })
+            .collect()
+    }
+
+    fn attestation_data(slot: Slot) -> PayloadAttestationData {
+        PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot,
+            payload_present: true,
+            blob_data_available: true,
         }
     }
 
@@ -486,7 +386,7 @@ mod tests {
     async fn test_wait_for_attestation_slot() {
         tokio::time::pause();
 
-        let harness = TestHarness::create_validators(1).await;
+        let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
@@ -520,10 +420,10 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let attestation_slot = Slot::new(1);
-        harness.insert_ptc_duties(attestation_slot);
+        test_harness.insert_ptc_duties(attestation_slot);
 
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
@@ -532,7 +432,8 @@ mod tests {
             blob_data_available: true,
         };
 
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
                 &expected_payload_attestation,
@@ -540,14 +441,16 @@ mod tests {
                 attestation_slot,
             );
 
-        let mock_ssz = harness
+        let mock_ssz = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
-        let mock_json = harness
+        let mock_json = test_harness
+            .harness
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.service;
+        let service = test_harness.service;
         let (duties, attestation_data) = service
             .produce_payload_attestation_data(attestation_slot)
             .await
@@ -558,7 +461,8 @@ mod tests {
             .await
             .unwrap();
 
-        let messages = harness
+        let messages = test_harness
+            .harness
             .mock_beacon_node_1
             .payload_attestation_message
             .lock()
@@ -589,10 +493,10 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let attestation_slot = Slot::new(1);
-        harness.insert_ptc_duties(attestation_slot);
+        test_harness.insert_ptc_duties(attestation_slot);
 
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
@@ -601,7 +505,8 @@ mod tests {
             blob_data_available: true,
         };
 
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
                 &expected_payload_attestation,
@@ -610,14 +515,16 @@ mod tests {
             );
 
         // mock_ssz returns 500 to simulate BN does not support SSZ, so that it fallbacks to mock_json
-        let mock_ssz = harness
+        let mock_ssz = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz_error();
-        let mock_json = harness
+        let mock_json = test_harness
+            .harness
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.service;
+        let service = test_harness.service;
         let (duties, attestation_data) = service
             .produce_payload_attestation_data(attestation_slot)
             .await
@@ -636,7 +543,8 @@ mod tests {
         mock_ssz.expect(2).assert();
         mock_json.expect(1).assert();
 
-        let messages = harness
+        let messages = test_harness
+            .harness
             .mock_beacon_node_2
             .payload_attestation_message
             .lock()
@@ -651,14 +559,15 @@ mod tests {
 
     #[tokio::test]
     async fn no_duties_no_publish() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         // we do not insert any duties in this test
-        let mock = harness
+        let mock = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let service = harness.service;
+        let service = test_harness.service;
 
         // when there is no duty, data production returns `None` so there is nothing to publish
         // therefore, the beacon node is not called, expected to hit 0
@@ -673,7 +582,8 @@ mod tests {
         mock.expect(0).assert();
 
         assert!(
-            harness
+            test_harness
+                .harness
                 .mock_beacon_node_1
                 .payload_attestation_message
                 .lock()
@@ -685,28 +595,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_payload_attestation_data_error() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let attestation_slot = Slot::new(1);
         // We have PTC duties
-        harness.insert_ptc_duties(attestation_slot);
+        test_harness.insert_ptc_duties(attestation_slot);
 
         // However, we simulate that both BNs have error in get_validator_payload_attestation_data
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data_error(attestation_slot);
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_2
             .mock_get_validator_payload_attestation_data_error(attestation_slot);
 
-        let mock_ssz = harness
+        let mock_ssz = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
-        let mock_json = harness
+        let mock_json = test_harness
+            .harness
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.service;
+        let service = test_harness.service;
         // Data production should error before any signing/publishing happens.
         let result = service
             .produce_payload_attestation_data(attestation_slot)
@@ -719,7 +633,8 @@ mod tests {
 
         // No payload attestation message published
         assert!(
-            harness
+            test_harness
+                .harness
                 .mock_beacon_node_1
                 .payload_attestation_message
                 .lock()
@@ -732,10 +647,10 @@ mod tests {
     #[tokio::test]
     async fn publish_multiple_payload_attestation_messages() {
         // Create 3 validators with 1 PTC duty for each validator
-        let mut harness = TestHarness::create_validators(3).await;
+        let mut test_harness = TestHarness::new_with_validators(3).await;
 
         let attestation_slot = Slot::new(1);
-        harness.insert_ptc_duties(attestation_slot);
+        test_harness.insert_ptc_duties(attestation_slot);
 
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
@@ -744,7 +659,8 @@ mod tests {
             blob_data_available: true,
         };
 
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data(
                 &expected_payload_attestation,
@@ -752,11 +668,12 @@ mod tests {
                 attestation_slot,
             );
 
-        let mock_ssz = harness
+        let mock_ssz = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let service = harness.service;
+        let service = test_harness.service;
         let (duties, attestation_data) = service
             .produce_payload_attestation_data(attestation_slot)
             .await
@@ -767,7 +684,8 @@ mod tests {
             .await
             .unwrap();
 
-        let messages = harness
+        let messages = test_harness
+            .harness
             .mock_beacon_node_1
             .payload_attestation_message
             .lock()
@@ -781,6 +699,101 @@ mod tests {
         );
         // mock_ssz is only hit once
         // this is to verify that a single call to the POST endpoint can publish multiple messages in one go
+        mock_ssz.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn failed_signer_does_not_block_siblings() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        // The unknown pubkey fails signing; listed first so a failure cannot mask the
+        // sibling's publish.
+        let duties = vec![
+            PtcDuty {
+                pubkey: PublicKeyBytes::empty(),
+                validator_index: 99,
+                slot: attestation_slot,
+            },
+            PtcDuty {
+                pubkey: test_harness.harness.pubkeys[0],
+                validator_index: 0,
+                slot: attestation_slot,
+            },
+        ];
+
+        test_harness
+            .service
+            .sign_and_publish(attestation_slot, duties, attestation_data(attestation_slot))
+            .await
+            .unwrap();
+
+        let messages = test_harness
+            .harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "the known validator should still publish"
+        );
+        mock_ssz.expect(1).assert();
+    }
+
+    /// A slot's duties must all be signed concurrently. With a serial per-duty loop this
+    /// deadlocks (the first signature cannot resolve until the others are requested) and
+    /// the test fails via timeout.
+    #[tokio::test]
+    async fn multi_duty_slot_signs_concurrently() {
+        let mut harness = ValidatorClientHarness::new(3).await;
+
+        let attestation_slot = Slot::new(1);
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        // No signature resolves until all three are requested, emulating an external signer.
+        let barrier = Arc::new(tokio::sync::Barrier::new(3));
+        let service = build_service(
+            &harness,
+            Arc::new(MockValidatorStore::with_sign_payload_attestation(
+                move |_, data| {
+                    let barrier = barrier.clone();
+                    async move {
+                        barrier.wait().await;
+                        Ok(PayloadAttestationMessage {
+                            validator_index: 0,
+                            data,
+                            signature: Signature::empty(),
+                        })
+                    }
+                },
+            )),
+        );
+        let duties = ptc_duties(&harness.pubkeys, attestation_slot);
+        let data = attestation_data(attestation_slot);
+
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            service.sign_and_publish(attestation_slot, duties, data),
+        )
+        .await
+        .expect("signing must not deadlock when signatures resolve only after all are requested")
+        .unwrap();
+
+        let messages = harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+        assert_eq!(messages.len(), 3, "all duties should publish");
         mock_ssz.expect(1).assert();
     }
 }

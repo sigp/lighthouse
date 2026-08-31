@@ -64,41 +64,6 @@ pub async fn handle_rpc<E: EthSpec>(
                 )),
             }
         }
-        ETH_GET_BLOCK_BY_HASH => {
-            let hash = params
-                .get(0)
-                .and_then(JsonValue::as_str)
-                .ok_or_else(|| "missing/invalid params[0] value".to_string())
-                .and_then(|s| {
-                    s.parse()
-                        .map_err(|e| format!("unable to parse hash: {:?}", e))
-                })
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-
-            // If we have a static response set, just return that.
-            if let Some(response) = *ctx.static_get_block_by_hash_response.lock() {
-                return Ok(serde_json::to_value(response).unwrap());
-            }
-
-            let full_tx = params
-                .get(1)
-                .and_then(JsonValue::as_bool)
-                .ok_or_else(|| "missing/invalid params[1] value".to_string())
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-            if full_tx {
-                Err((
-                    "full_tx support has been removed".to_string(),
-                    BAD_PARAMS_ERROR_CODE,
-                ))
-            } else {
-                Ok(serde_json::to_value(
-                    ctx.execution_block_generator
-                        .read()
-                        .execution_block_by_hash(hash),
-                )
-                .unwrap())
-            }
-        }
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
@@ -126,9 +91,12 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::Electra(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::Gloas(jep))
-                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V5 => {
+                    // TODO(heze):impl heze variant (probably new payload v6?)
+                    get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                        .map(|jep| JsonExecutionPayload::Gloas(jep))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
                 _ => unreachable!(),
             };
 
@@ -238,6 +206,14 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
+                ForkName::Heze => {
+                    if method != ENGINE_NEW_PAYLOAD_V5 {
+                        return Err((
+                            format!("{} called after Heze fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -309,6 +285,20 @@ pub async fn handle_rpc<E: EthSpec>(
             {
                 return Err((
                     format!("{} called after Gloas fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
+            // validate method called correctly according to heze fork time
+            if fork == ForkName::Heze
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3
+                    || method == ENGINE_GET_PAYLOAD_V4
+                    || method == ENGINE_GET_PAYLOAD_V5)
+            {
+                return Err((
+                    format!("{} called after Heze fork!", method),
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
@@ -473,6 +463,14 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
+                    ForkName::Heze => {
+                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
+                            return Err((
+                                format!("{} called after Heze fork! Use V4.", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
                     _ => unreachable!(),
                 };
             }
@@ -490,6 +488,50 @@ pub async fn handle_rpc<E: EthSpec>(
         }
         ENGINE_GET_CLIENT_VERSION_V1 => {
             Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
+        }
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1 => {
+            let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+
+            let mut response = vec![];
+            for block_hash in block_hashes {
+                let maybe_payload = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_payload_by_hash(block_hash);
+
+                match maybe_payload {
+                    Some(payload) => {
+                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
+                            transactions: payload
+                                .transactions()
+                                .iter()
+                                .map(|tx| {
+                                    types::Transaction::<E::MaxBytesPerTransaction>::new(
+                                        tx.to_vec(),
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                                .and_then(ssz_types::VariableList::new)
+                                .unwrap(),
+                            withdrawals: payload
+                                .withdrawals()
+                                .ok()
+                                .map(|withdrawals| {
+                                    ssz_types::VariableList::new(withdrawals.to_vec())
+                                })
+                                .transpose()
+                                .unwrap(),
+                        };
+                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
+                            payload_body.try_into().unwrap();
+                        response.push(Some(json_payload_body));
+                    }
+                    None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]
@@ -513,8 +555,25 @@ pub async fn handle_rpc<E: EthSpec>(
                 match maybe_payload {
                     Some(payload) => {
                         let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
-                            transactions: payload.transactions().clone(),
-                            withdrawals: payload.withdrawals().ok().cloned(),
+                            transactions: payload
+                                .transactions()
+                                .iter()
+                                .map(|tx| {
+                                    types::Transaction::<E::MaxBytesPerTransaction>::new(
+                                        tx.to_vec(),
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                                .and_then(ssz_types::VariableList::new)
+                                .unwrap(),
+                            withdrawals: payload
+                                .withdrawals()
+                                .ok()
+                                .map(|withdrawals| {
+                                    ssz_types::VariableList::new(withdrawals.to_vec())
+                                })
+                                .transpose()
+                                .unwrap(),
                         };
                         let json_payload_body: JsonExecutionPayloadBodyV1<E> =
                             payload_body.try_into().unwrap();

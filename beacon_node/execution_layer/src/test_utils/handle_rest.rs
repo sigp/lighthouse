@@ -219,6 +219,9 @@ fn decode_new_payload<E: EthSpec>(
         ForkName::Gloas => ExecutionPayload::Gloas(
             SszExecutionPayloadEnvelopeGloas::from_ssz_bytes(body)?.execution_payload,
         ),
+        ForkName::Heze => ExecutionPayload::Heze(
+            SszExecutionPayloadEnvelopeHeze::from_ssz_bytes(body)?.execution_payload,
+        ),
         ForkName::Base | ForkName::Altair => {
             return Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for new_payload envelope: {fork}"
@@ -273,6 +276,14 @@ fn decode_forkchoice_updated<E: EthSpec>(
             )
         }
         ForkName::Gloas => {
+            let update = SszForkchoiceUpdateAmsterdam::<E>::from_ssz_bytes(body)?;
+            let attributes = update.payload_attributes.first().cloned();
+            (
+                update.forkchoice_state,
+                attributes.map(PayloadAttributes::V4),
+            )
+        }
+        ForkName::Heze => {
             let update = SszForkchoiceUpdateAmsterdam::<E>::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
             (
@@ -359,8 +370,8 @@ fn encode_bodies_response<E: EthSpec>(
             Some(payload) => (
                 true,
                 ExecutionPayloadBodyV1 {
-                    transactions: payload.transactions().clone(),
-                    withdrawals: payload.withdrawals().ok().cloned(),
+                    transactions:  payload.transactions_bounded().ok().cloned().unwrap_or_default(),
+                    withdrawals: payload.withdrawals_bounded().ok().cloned(),
                 },
             ),
             None => (
@@ -405,6 +416,9 @@ fn encode_bodies_response<E: EthSpec>(
         }
         ForkName::Gloas => {
             return Err("amsterdam execution payload bodies are not yet supported".to_string());
+        }
+        ForkName::Heze => {
+            return Err("bogota execution payload bodies are not yet supported".to_string());
         }
         ForkName::Base | ForkName::Altair => {
             return Err(format!(

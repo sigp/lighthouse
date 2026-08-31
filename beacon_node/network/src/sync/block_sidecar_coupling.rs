@@ -207,6 +207,22 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return Ok(());
         };
+
+        // For Gloas, wait for the envelope response before requesting custody columns. Blocks
+        // with withheld payloads have no envelope or columns on the network, and the bid alone
+        // can't tell us which blocks those are. If the envelope peer lies by omission, the
+        // reveal-status check in `import_historical_block_batch` catches it.
+        let revealed_block_roots = match &self.payloads_request {
+            Some(ByRangeRequest::Active(_)) => return Ok(()),
+            Some(ByRangeRequest::Complete(envelopes)) => Some(
+                envelopes
+                    .iter()
+                    .map(|envelope| envelope.beacon_block_root())
+                    .collect::<HashSet<_>>(),
+            ),
+            None => None,
+        };
+
         let RangeBlockDataRequest::DataColumns(state @ DataColumnsRequest::NotStarted) =
             &mut self.block_data_request
         else {
@@ -219,6 +235,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             .iter()
             .filter(|block| block.num_expected_blobs() > 0)
             .map(|block| get_block_root(block))
+            .filter(|root| {
+                revealed_block_roots
+                    .as_ref()
+                    .is_none_or(|revealed| revealed.contains(root))
+            })
             .collect::<Vec<_>>();
 
         if block_roots.is_empty() {
@@ -524,9 +545,10 @@ mod tests {
     };
     use std::sync::Arc;
     use tracing::Span;
+    use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
-        MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
+        ForkName, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -617,13 +639,36 @@ mod tests {
         let mut u = types::test_utils::test_unstructured();
         (0..count)
             .map(|_| {
-                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                let (mut block, data_columns) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Gloas,
                     NumBlobs::Number(1),
                     &mut u,
                     spec,
                 )
                 .unwrap();
+                // Commit the (random) bid to the empty execution requests carried by
+                // `matching_envelope`, so the envelope passes `verify_envelope_consistency`.
+                if let Ok(bid) = block
+                    .message_mut()
+                    .body_mut()
+                    .signed_execution_payload_bid_mut()
+                {
+                    bid.message.execution_requests_root =
+                        ExecutionRequestsGloas::<E>::default().tree_hash_root();
+                }
+                // The bid mutation changed the block root; re-point the columns at the mutated
+                // block so column<->block pairing (by block root) still holds.
+                let new_root = block.canonical_root();
+                let data_columns = data_columns
+                    .into_iter()
+                    .map(|column| {
+                        let mut column = (*column).clone();
+                        if let types::DataColumnSidecar::Gloas(ref mut gloas_column) = column {
+                            gloas_column.beacon_block_root = new_root;
+                        }
+                        Arc::new(column)
+                    })
+                    .collect::<Vec<_>>();
                 let envelope = matching_envelope(&block);
                 (Arc::new(block), data_columns, envelope)
             })

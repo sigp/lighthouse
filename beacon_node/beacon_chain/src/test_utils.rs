@@ -51,7 +51,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
@@ -329,6 +329,28 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Create an ephemeral store initialized from an existing block and its post-state.
+    #[cfg(any(test, feature = "ef_tests"))]
+    pub fn initial_state_ephemeral_store(
+        mut self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<Checkpoint>,
+    ) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
+                .expect("should build test initial state")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
@@ -623,7 +645,14 @@ where
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
-        let chain_config = self.chain_config.unwrap_or_default();
+        let chain_config = self.chain_config.unwrap_or_else(|| {
+            // The mock EL produces synthetic execution block hashes, which cannot survive a real
+            // RLP block hash recompute. Tests that want the recompute pass an explicit config.
+            ChainConfig {
+                verify_envelope_payload_hash_in_backfill: false,
+                ..ChainConfig::default()
+            }
+        });
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
@@ -711,6 +740,10 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME
+            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(&spec);
 
@@ -721,6 +754,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),
@@ -1265,7 +1299,13 @@ where
                 None
             };
 
-            let (block, post_block_state, _consensus_block_value) = self
+            let (
+                block,
+                post_block_state,
+                _consensus_block_value,
+                _execution_payload_value,
+                _payload_contents,
+            ) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
@@ -1293,7 +1333,7 @@ where
                 .chain
                 .pending_payload_envelopes
                 .write()
-                .remove(slot)
+                .remove(signed_block.canonical_root())
                 .map(|envelope| {
                     let epoch = slot.epoch(E::slots_per_epoch());
                     let domain = self.spec.get_domain(
@@ -1305,7 +1345,7 @@ where
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
                     SignedExecutionPayloadEnvelope {
-                        message: envelope,
+                        message: Arc::unwrap_or_clone(envelope),
                         signature,
                     }
                 });
@@ -1569,6 +1609,12 @@ where
                     .set(aggregation_bit_index, true)
                     .unwrap();
                 Attestation::Electra(attn)
+            }
+            Attestation::Gloas(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Gloas(attn)
             }
             Attestation::Base(mut attn) => {
                 attn.aggregation_bits
@@ -1901,14 +1947,7 @@ where
                             )
                             .unwrap();
 
-                        match attestation {
-                            Attestation::Base(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                            Attestation::Electra(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                        }
+                        attestation.set_aggregation_bit(i, true).unwrap();
 
                         *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(
@@ -2508,7 +2547,14 @@ where
                 epoch: source1.unwrap_or(Epoch::new(0)),
             },
         };
-        let mut attestation_1 = if fork_name.electra_enabled() {
+        let mut attestation_1 = if fork_name.gloas_enabled() {
+            IndexedAttestation::Gloas(IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices),
+                data,
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            })
+        } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
                 data,
@@ -2528,45 +2574,26 @@ where
         attestation_2.data_mut().target.epoch = target2.unwrap_or(fork.epoch);
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -2600,7 +2627,26 @@ where
             },
         };
 
-        let (mut attestation_1, mut attestation_2) = if fork_name.electra_enabled() {
+        let (mut attestation_1, mut attestation_2) = if fork_name.gloas_enabled() {
+            let attestation_1 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_1),
+                data: data.clone(),
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            };
+
+            let attestation_2 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_2),
+                data,
+                signature: AggregateSignature::infinity(),
+                _phantom: std::marker::PhantomData,
+            };
+
+            (
+                IndexedAttestation::Gloas(attestation_1),
+                IndexedAttestation::Gloas(attestation_2),
+            )
+        } else if fork_name.electra_enabled() {
             let attestation_1 = IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
@@ -2640,45 +2686,26 @@ where
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -2832,7 +2859,7 @@ where
         epoch: Epoch,
     ) {
         let exit = self.make_voluntary_exit(validator_index, epoch);
-        block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+        block.body_mut().voluntary_exits_push(exit).unwrap();
     }
 
     /// Create a new block, apply `block_modifier` to it, sign it and return it.
@@ -4013,16 +4040,19 @@ where
                 .collect()
         });
 
-        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+        let mut verified_columns = vec![];
+        for sidecar in generate_data_column_sidecars_from_block(block, &self.spec)
             .into_iter()
             .filter(|c| custody_columns.contains(c.index()))
-            .map(|sidecar| {
-                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+        {
+            let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+            verified_columns.push(
                 self.chain
                     .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+                    .await
+                    .unwrap(),
+            );
+        }
 
         if !verified_columns.is_empty() {
             self.chain
@@ -4137,7 +4167,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body
                 .signed_execution_payload_bid
                 .message
-                .blob_kzg_commitments = bundle.commitments.clone();
+                .blob_kzg_commitments =
+                ProgressiveVariableList::from_iter(bundle.commitments.iter().cloned());
             return Ok((block, blob_sidecars));
         }
         _ => return Ok((block, blob_sidecars)),
@@ -4218,9 +4249,9 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
                     column, kzg_proofs, ..
                 } = sidecar;
                 // There's only one cell per column for a single blob
-                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let cell_bytes: Vec<u8> = column.iter().next().unwrap().clone().into();
                 let kzg_cell = cell_bytes.try_into().unwrap();
-                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                let kzg_proof = *kzg_proofs.iter().next().unwrap();
                 (kzg_cell, kzg_proof)
             })
             .collect::<(Vec<_>, Vec<_>)>();

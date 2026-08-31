@@ -725,11 +725,11 @@ pub async fn proposer_boost_re_org_test(
     let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
-            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
+            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, false, None, None)
             .await
             .unwrap();
         (
-            Arc::new(harness.sign_beacon_block(response.data, &state_b)),
+            Arc::new(harness.sign_beacon_block(response.into_block(), &state_b)),
             None,
         )
     };
@@ -831,11 +831,7 @@ pub async fn proposer_boost_re_org_test(
     } else {
         state_b.clone()
     };
-    let expected_withdrawals = if matches!(
-        expected_first_update_lookahead,
-        ExpectedFirstUpdateLookahead::BlockProduction
-    ) && expected_parent_payload_status == PayloadStatus::Empty
-    {
+    let expected_withdrawals = if expected_parent_payload_status == PayloadStatus::Empty {
         parent_state_advanced
             .payload_expected_withdrawals()
             .unwrap()

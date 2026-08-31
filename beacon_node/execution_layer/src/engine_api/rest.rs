@@ -10,14 +10,7 @@ use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3, JsonClientVersionV1};
 use crate::metrics;
-use crate::ssz_structures::{
-    JsonCapabilities, SszBlobsRequest, SszBlobsResponse, SszBodiesByHashRequest, SszBodiesResponse,
-    SszCapabilities, SszExecutionPayloadEnvelopeBellatrix, SszExecutionPayloadEnvelopeCapella,
-    SszExecutionPayloadEnvelopeDeneb, SszExecutionPayloadEnvelopeElectra,
-    SszExecutionPayloadEnvelopeFulu, SszExecutionPayloadEnvelopeGloas, SszForkchoiceUpdate,
-    SszForkchoiceUpdateAmsterdam, SszForkchoiceUpdatedResponse, SszGetPayloadResponse,
-    SszPayloadStatusV1,
-};
+use crate::ssz_structures::*;
 use bytes::Bytes;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use reqwest::{Client, Method, StatusCode};
@@ -356,6 +349,10 @@ impl HttpRestSsz {
                 ForkName::Gloas,
                 SszExecutionPayloadEnvelopeGloas::try_from(request)?.as_ssz_bytes(),
             ),
+            NewPayloadRequest::Heze(request) => (
+                ForkName::Heze,
+                SszExecutionPayloadEnvelopeHeze::try_from(request)?.as_ssz_bytes(),
+            )
         };
 
         let response = self
@@ -551,6 +548,7 @@ fn fork_to_header(fork: ForkName) -> Result<&'static str, Error> {
         ForkName::Electra => "prague",
         ForkName::Fulu => "osaka",
         ForkName::Gloas => "amsterdam",
+        ForkName::Heze => "bogota",
         ForkName::Base | ForkName::Altair => {
             return Err(Error::UnsupportedForkVariant(format!(
                 "no engine-api fork header for {fork}"
@@ -567,6 +565,7 @@ pub fn header_to_fork(header: &str) -> Option<ForkName> {
         "prague" => ForkName::Electra,
         "osaka" => ForkName::Fulu,
         "amsterdam" => ForkName::Gloas,
+        "bogota" => ForkName::Heze,
         _ => return None,
     })
 }
@@ -711,6 +710,7 @@ mod tests {
                 osaka_time: None,
                 amsterdam_time: None,
                 serve_rest_ssz: true,
+                heze_time: None
             };
             let server = MockServer::new_with_config(&runtime::Handle::current(), config, None);
             let url = SensitiveUrl::parse(&server.url()).unwrap();

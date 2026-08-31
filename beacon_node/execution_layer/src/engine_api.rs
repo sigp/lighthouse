@@ -20,8 +20,8 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
-    KzgProofs,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
+    ExecutionRequests, KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -36,7 +36,7 @@ pub mod transport;
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
     NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
-    NewPayloadRequestGloas,
+    NewPayloadRequestGloas, NewPayloadRequestHeze,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -66,7 +66,6 @@ pub enum Error {
     DeserializeWithdrawals(ssz_types::Error),
     DeserializeDepositRequests(ssz_types::Error),
     DeserializeWithdrawalRequests(ssz_types::Error),
-    BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
@@ -110,12 +109,6 @@ impl From<serde_json::Error> for Error {
 impl From<auth::Error> for Error {
     fn from(e: auth::Error) -> Self {
         Error::Auth(e)
-    }
-}
-
-impl From<builder_client::Error> for Error {
-    fn from(e: builder_client::Error) -> Self {
-        Error::BuilderApi(e)
     }
 }
 
@@ -339,7 +332,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -363,17 +356,19 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: ExecutionPayloadHeze<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     pub should_override_builder: bool,
     #[superstruct(
         only(Electra, Fulu),
         partial_getter(rename = "execution_requests_electra")
     )]
     pub requests: types::ExecutionRequestsElectra<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
     pub requests: types::ExecutionRequestsGloas<E>,
 }
 
@@ -449,6 +444,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             ),
             GetPayloadResponse::Gloas(inner) => (
                 ExecutionPayload::Gloas(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(ExecutionRequests::Gloas(inner.requests)),
+            ),
+            GetPayloadResponse::Heze(inner) => (
+                ExecutionPayload::Heze(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
                 Some(ExecutionRequests::Gloas(inner.requests)),

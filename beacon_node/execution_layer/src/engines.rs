@@ -118,7 +118,6 @@ struct PayloadIdCacheKey {
 pub enum EngineError {
     Offline,
     Api { error: EngineApiError },
-    BuilderApi { error: EngineApiError },
     Auth,
 }
 

@@ -1,7 +1,7 @@
 use crate::engine_api::{
     GetPayloadResponse, GetPayloadResponseBellatrix, GetPayloadResponseCapella,
     GetPayloadResponseDeneb, GetPayloadResponseElectra, GetPayloadResponseFulu,
-    GetPayloadResponseGloas, PayloadAttributes, PayloadId, PayloadStatusV1Status,
+    GetPayloadResponseGloas, GetPayloadResponseHeze, PayloadAttributes, PayloadId, PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1};
@@ -73,6 +73,15 @@ impl<E: EthSpec> CorePayload<E> {
             }
             ExecutionPayload::Gloas(execution_payload) => {
                 GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload,
+                    block_value,
+                    blobs_bundle,
+                    should_override_builder: false,
+                    requests: gloas_requests(requests),
+                })
+            }
+            ExecutionPayload::Heze(execution_payload) => {
+                GetPayloadResponse::Heze(GetPayloadResponseHeze {
                     execution_payload,
                     block_value,
                     blobs_bundle,

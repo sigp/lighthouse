@@ -1,6 +1,6 @@
+use crate::FeatureName;
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{FeatureName, type_name};
 use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use std::fs::{self, DirEntry};
@@ -19,6 +19,16 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    fn handler_path(&self, fork_or_feature_name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("consensus-spec-tests")
+            .join("tests")
+            .join(Self::config_name())
+            .join(fork_or_feature_name)
+            .join(Self::runner_name())
+            .join(self.handler_name())
+    }
+
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
@@ -35,6 +45,11 @@ pub trait Handler {
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
+            // TODO(heze): remove this skip once Heze spec test vectors are published in
+            // consensus-spec-tests.
+            if fork_name == ForkName::Heze {
+                continue;
+            }
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
             }
@@ -70,14 +85,7 @@ pub trait Handler {
 
     fn run_for_fork(&self, fork_name: ForkName) {
         let fork_name_str = fork_name.to_string();
-
-        let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("consensus-spec-tests")
-            .join("tests")
-            .join(Self::config_name())
-            .join(&fork_name_str)
-            .join(Self::runner_name())
-            .join(self.handler_name());
+        let handler_path = self.handler_path(&fork_name_str);
 
         // Iterate through test suites
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
@@ -112,14 +120,7 @@ pub trait Handler {
     fn run_for_feature(&self, feature_name: FeatureName) {
         let feature_name_str = feature_name.to_string();
         let fork_name = feature_name.fork_name();
-
-        let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("consensus-spec-tests")
-            .join("tests")
-            .join(Self::config_name())
-            .join(&feature_name_str)
-            .join(Self::runner_name())
-            .join(self.handler_name());
+        let handler_path = self.handler_path(&feature_name_str);
 
         // Iterate through test suites
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
@@ -309,6 +310,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Gloas])
     }
 
+    pub fn heze_only() -> Self {
+        Self::for_forks(vec![ForkName::Heze])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -329,12 +334,20 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
     }
 
+    pub fn electra_through_fulu() -> Self {
+        Self::for_forks(ForkName::list_all()[5..7].to_vec())
+    }
+
     pub fn fulu_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
     pub fn gloas_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[7..].to_vec())
+    }
+
+    pub fn heze_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[8..].to_vec())
     }
 
     pub fn pre_electra() -> Self {
@@ -781,8 +794,7 @@ impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once we have Gloas fast confirmation tests
-        vec![ForkName::Gloas]
+        vec![]
     }
 }
 
@@ -816,7 +828,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas optimistic sync tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1022,20 +1034,35 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
 pub struct GossipValidationHandler<E> {
     handler_name: &'static str,
+    supported_forks: Vec<ForkName>,
     _phantom: PhantomData<E>,
 }
 
 impl<E> GossipValidationHandler<E> {
-    pub const fn new(handler_name: &'static str) -> Self {
+    pub fn new(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, ForkName::list_all())
+    }
+
+    pub fn for_forks(handler_name: &'static str, supported_forks: Vec<ForkName>) -> Self {
         Self {
             handler_name,
+            supported_forks,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn latest_stable(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::latest_stable()])
     }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     type Case = cases::GossipValidation<E>;
+
+    fn use_rayon() -> bool {
+        // Some gossip validation tests use `block_on` which can cause panics with rayon.
+        false
+    }
 
     fn config_name() -> &'static str {
         E::name()
@@ -1047,6 +1074,15 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
 
     fn handler_name(&self) -> String {
         self.handler_name.into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        let fork_name_str = fork_name.to_string();
+        self.supported_forks.contains(&fork_name) && self.handler_path(&fork_name_str).exists()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1071,7 +1107,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1096,7 +1132,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1121,7 +1157,7 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1146,7 +1182,7 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1175,7 +1211,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG merkle proof tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1204,7 +1240,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1234,7 +1270,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas]
+        vec![ForkName::Gloas, ForkName::Heze]
     }
 }
 
@@ -1257,42 +1293,3 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
         O::handler_name()
     }
 }
-
-#[derive(Educe)]
-#[educe(Default)]
-pub struct SszGenericHandler<H>(PhantomData<H>);
-
-impl<H: TypeName> Handler for SszGenericHandler<H> {
-    type Case = cases::SszGeneric;
-
-    fn config_name() -> &'static str {
-        "general"
-    }
-
-    fn runner_name() -> &'static str {
-        "ssz_generic"
-    }
-
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // SSZ generic tests are genesis only
-        fork_name == ForkName::Base
-    }
-
-    fn handler_name(&self) -> String {
-        H::name().into()
-    }
-}
-
-// Supported SSZ generic handlers
-pub struct BasicVector;
-type_name!(BasicVector, "basic_vector");
-pub struct Bitlist;
-type_name!(Bitlist, "bitlist");
-pub struct Bitvector;
-type_name!(Bitvector, "bitvector");
-pub struct Boolean;
-type_name!(Boolean, "boolean");
-pub struct Uints;
-type_name!(Uints, "uints");
-pub struct Containers;
-type_name!(Containers, "containers");

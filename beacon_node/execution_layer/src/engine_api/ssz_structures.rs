@@ -16,7 +16,7 @@ use types::execution::{
 use types::{EthSpec, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze, ExecutionRequests,
     ForkName,
 };
 
@@ -97,7 +97,7 @@ type SszExecutionRequests<E> = VariableList<
 >;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
     map_into(ExecutionPayload),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
@@ -121,9 +121,11 @@ pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
     pub execution_payload: ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: ExecutionPayloadHeze<E>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: SszExecutionRequests<E>,
 }
 
@@ -193,6 +195,21 @@ impl<'block, E: EthSpec> TryFrom<NewPayloadRequestGloas<'block, E>>
 {
     type Error = ssz_types::Error;
     fn try_from(value: NewPayloadRequestGloas<'block, E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            execution_payload: value.execution_payload.clone(),
+            parent_beacon_block_root: value.parent_beacon_block_root,
+            execution_requests: execution_requests_to_ssz(ExecutionRequests::Gloas(
+                value.execution_requests.clone(),
+            ))?,
+        })
+    }
+}
+
+impl<'block, E: EthSpec> TryFrom<NewPayloadRequestHeze<'block, E>>
+    for SszExecutionPayloadEnvelopeHeze<E>
+{
+    type Error = ssz_types::Error;
+    fn try_from(value: NewPayloadRequestHeze<'block, E>) -> Result<Self, Self::Error> {
         Ok(Self {
             execution_payload: value.execution_payload.clone(),
             parent_beacon_block_root: value.parent_beacon_block_root,
@@ -352,11 +369,12 @@ where
     let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
         parse_execution_requests_ssz::<E>(ssz_requests)?;
     Ok(ExecutionRequestsGloas {
-        deposits,
-        withdrawals,
-        consolidations,
-        builder_deposits,
-        builder_exits,
+        deposits: deposits.iter().cloned().collect(),
+        withdrawals: withdrawals.iter().cloned().collect(),
+        consolidations: consolidations.iter().cloned().collect(),
+        builder_deposits: builder_deposits.iter().cloned().collect(),
+        builder_exits: builder_exits.iter().cloned().collect(),
+        _phantom: std::marker::PhantomData,
     })
 }
 
@@ -432,7 +450,7 @@ impl<E: EthSpec> TryFrom<PayloadStatusV1> for SszPayloadStatusV1<E> {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Debug, PartialEq, Encode, Decode),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -455,12 +473,14 @@ pub struct SszGetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: ExecutionPayloadHeze<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub requests: SszExecutionRequests<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     pub should_override_builder: bool,
 }
 
@@ -479,6 +499,7 @@ impl<E: EthSpec> SszGetPayloadResponse<E> {
             }
             ForkName::Fulu => SszGetPayloadResponseFulu::from_ssz_bytes(bytes).map(Self::Fulu),
             ForkName::Gloas => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            ForkName::Heze => SszGetPayloadResponseHeze::from_ssz_bytes(bytes).map(Self::Heze),
             ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for get_payload response: {fork}"
             ))),
@@ -531,6 +552,15 @@ impl<E: EthSpec> TryFrom<SszGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             SszGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    should_override_builder: response.should_override_builder,
+                    requests: execution_requests_gloas_from_ssz(response.requests)?,
+                }))
+            }
+            SszGetPayloadResponse::Heze(response) => {
+                Ok(GetPayloadResponse::Heze(GetPayloadResponseHeze {
                     execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
@@ -591,6 +621,17 @@ impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for SszGetPayloadResponse<E> {
             }
             GetPayloadResponse::Gloas(response) => {
                 Ok(SszGetPayloadResponse::Gloas(SszGetPayloadResponseGloas {
+                    execution_payload: response.execution_payload,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle,
+                    requests: execution_requests_to_ssz(ExecutionRequests::Gloas(
+                        response.requests,
+                    ))?,
+                    should_override_builder: response.should_override_builder,
+                }))
+            }
+            GetPayloadResponse::Heze(response) => {
+                Ok(SszGetPayloadResponse::Heze(SszGetPayloadResponseHeze {
                     execution_payload: response.execution_payload,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle,
@@ -824,7 +865,7 @@ impl SszBodiesByHashRequest {
 }
 
 /// SSZ `BodyEntry`. `V1` = Paris (Bellatrix), `V2` = Shanghai..Osaka (Capella..Fulu),
-/// `V3` = Amsterdam (Gloas) — the `body` variant tracks the fork's body schema.
+/// `V3` = Amsterdam (Gloas), Bogota (Heze) — the `body` variant tracks the fork's body schema.
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
@@ -876,7 +917,7 @@ impl<E: EthSpec> SszBodiesResponse<E> {
             ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                 SszBodiesResponseV2::from_ssz_bytes(bytes).map(Self::V2)
             }
-            ForkName::Gloas => SszBodiesResponseV3::from_ssz_bytes(bytes).map(Self::V3),
+            ForkName::Gloas | ForkName::Heze => SszBodiesResponseV3::from_ssz_bytes(bytes).map(Self::V3),
         }
     }
 
@@ -1051,6 +1092,7 @@ mod test {
     use super::*;
     use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Encode;
+    use ssz_types::ProgressiveVariableList;
     use types::{
         Address, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
         Hash256, MainnetEthSpec, WithdrawalRequest,
@@ -1121,21 +1163,20 @@ mod test {
     fn gloas_new_payload_envelope_folds_builder_requests() {
         let payload = ExecutionPayloadGloas::<E>::default();
         let requests = ExecutionRequestsGloas {
-            deposits: VariableList::new(vec![deposit_request()]).unwrap(),
-            withdrawals: VariableList::new(vec![withdrawal_request()]).unwrap(),
-            consolidations: VariableList::new(vec![consolidation_request()]).unwrap(),
-            builder_deposits: VariableList::new(vec![BuilderDepositRequest {
+            deposits: ProgressiveVariableList::new(vec![deposit_request()]),
+            withdrawals: ProgressiveVariableList::new(vec![withdrawal_request()]),
+            consolidations: ProgressiveVariableList::new(vec![consolidation_request()]),
+            builder_deposits: ProgressiveVariableList::new(vec![BuilderDepositRequest {
                 pubkey: PublicKeyBytes::empty(),
                 withdrawal_credentials: Hash256::repeat_byte(4),
                 amount: 34,
                 signature: SignatureBytes::empty(),
-            }])
-            .unwrap(),
-            builder_exits: VariableList::new(vec![BuilderExitRequest {
+            }]),
+            builder_exits: ProgressiveVariableList::new(vec![BuilderExitRequest {
                 source_address: Address::repeat_byte(5),
                 pubkey: PublicKeyBytes::empty(),
-            }])
-            .unwrap(),
+            }]),
+            _phantom: std::marker::PhantomData,
         };
         let parent_beacon_block_root = Hash256::repeat_byte(9);
 

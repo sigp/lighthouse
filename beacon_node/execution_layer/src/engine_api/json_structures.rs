@@ -11,13 +11,14 @@ use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::data::BlobsList;
 use types::execution::{
-    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
+    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
+    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType, WithdrawalRequests,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -54,7 +55,8 @@ impl JsonRpcCapabilities {
             ForkName::Deneb => self.new_payload_v3,
             ForkName::Electra | ForkName::Fulu => self.new_payload_v4,
             ForkName::Gloas => self.new_payload_v5,
-            ForkName::Base | ForkName::Altair => false,
+            // TODO(heze): add heze arm to appropriate new_payload version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
         }
     }
 
@@ -66,7 +68,8 @@ impl JsonRpcCapabilities {
             ForkName::Electra => self.get_payload_v4,
             ForkName::Fulu => self.get_payload_v5,
             ForkName::Gloas => self.get_payload_v6,
-            ForkName::Base | ForkName::Altair => false,
+            // TODO(heze): add heze arm to appropriate get_payload version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
         }
     }
 
@@ -76,7 +79,8 @@ impl JsonRpcCapabilities {
             ForkName::Capella => self.forkchoice_updated_v2,
             ForkName::Deneb | ForkName::Electra | ForkName::Fulu => self.forkchoice_updated_v3,
             ForkName::Gloas => self.forkchoice_updated_v4,
-            ForkName::Base | ForkName::Altair => false,
+            // TODO(heze): add heze arm to appropriate forkchoice_updated version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
         }
     }
 
@@ -198,7 +202,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -231,20 +235,32 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub base_fee_per_gas: Uint256,
 
     pub block_hash: ExecutionBlockHash,
+    #[superstruct(
+        only(Bellatrix, Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "transactions_bounded")
+    )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "transactions_progressive"))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    #[superstruct(
+        only(Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "withdrawals_bounded")
+    )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Gloas))]
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
+    pub block_access_list: BlockAccessList,
+    #[superstruct(only(Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
 }
@@ -389,7 +405,35 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_to_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -419,6 +463,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Gloas(payload) => {
                 Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
             }
+            ExecutionPayload::Heze(payload) => Ok(JsonExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -564,7 +609,35 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_from_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -594,6 +667,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Gloas(payload) => {
                 Ok(ExecutionPayload::Gloas(payload.try_into()?))
             }
+            JsonExecutionPayload::Heze(payload) => Ok(ExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -755,18 +829,21 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
             parse_execution_requests::<E>(value)?;
+        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
+        // re-type the parsed bounded lists.
         Ok(ExecutionRequestsGloas {
-            deposits,
-            withdrawals,
-            consolidations,
-            builder_deposits,
-            builder_exits,
+            deposits: deposits.iter().cloned().collect(),
+            withdrawals: withdrawals.iter().cloned().collect(),
+            consolidations: consolidations.iter().cloned().collect(),
+            builder_deposits: builder_deposits.iter().cloned().collect(),
+            builder_exits: builder_exits.iter().cloned().collect(),
+            _phantom: std::marker::PhantomData,
         })
     }
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
@@ -792,13 +869,15 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub execution_payload: JsonExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: JsonExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: JsonExecutionPayloadHeze<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: JsonExecutionRequests,
 }
 
@@ -847,6 +926,15 @@ impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for JsonGetPayloadResponse<E> {
             }
             GetPayloadResponse::Gloas(inner) => {
                 Ok(JsonGetPayloadResponse::Gloas(JsonGetPayloadResponseGloas {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Gloas(inner.requests).into(),
+                }))
+            }
+            GetPayloadResponse::Heze(inner ) => {
+                Ok(JsonGetPayloadResponse::Heze(JsonGetPayloadResponseHeze {
                     execution_payload: inner.execution_payload.try_into()?,
                     block_value: inner.block_value,
                     blobs_bundle: inner.blobs_bundle.into(),
@@ -914,6 +1002,19 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
+                    should_override_builder: response.should_override_builder,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests: {:?}", e)
+                    })?,
+                }))
+            }
+            JsonGetPayloadResponse::Heze(response) => {
+                Ok(GetPayloadResponse::Heze(GetPayloadResponseHeze {
                     execution_payload: response.execution_payload.try_into().map_err(|e| {
                         format!("Failed to convert json to execution payload: {:?}", e)
                     })?,
@@ -1435,6 +1536,10 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
+    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
+        ProgressiveVariableList::new(vec![x.clone()])
+    }
+
     /// Tests all error conditions except ssz decoding errors
     ///
     /// ***
@@ -1653,11 +1758,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
-                withdrawals: singleton_list(&withdrawal_request),
-                consolidations: singleton_list(&consolidation_request),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                deposits: singleton_progressive_list(&deposit_request),
+                withdrawals: singleton_progressive_list(&withdrawal_request),
+                consolidations: singleton_progressive_list(&consolidation_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1668,11 +1774,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
+                deposits: singleton_progressive_list(&deposit_request),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1690,8 +1797,9 @@ mod tests {
                 deposits: Default::default(),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 

@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
+    PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
@@ -92,6 +92,7 @@ pub struct MockExecutionConfig {
     pub osaka_time: Option<u64>,
     pub amsterdam_time: Option<u64>,
     pub serve_rest_ssz: bool,
+    pub heze_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -105,6 +106,7 @@ impl Default for MockExecutionConfig {
             osaka_time: None,
             amsterdam_time: None,
             serve_rest_ssz: false,
+            heze_time: None,
         }
     }
 }
@@ -126,6 +128,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
             None, // FIXME(gloas): should this be the default?
+            None, // FIXME(heze): should this be the default?
             None,
         )
     }
@@ -145,6 +148,7 @@ impl<E: EthSpec> MockServer<E> {
             osaka_time,
             amsterdam_time,
             serve_rest_ssz,
+            heze_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -154,6 +158,7 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             kzg,
         );
 
@@ -169,7 +174,6 @@ impl<E: EthSpec> MockServer<E> {
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
-            static_get_block_by_hash_response: <_>::default(),
             hook: <_>::default(),
             new_payload_statuses: <_>::default(),
             fcu_payload_statuses: <_>::default(),
@@ -231,6 +235,7 @@ impl<E: EthSpec> MockServer<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -244,6 +249,7 @@ impl<E: EthSpec> MockServer<E> {
                 osaka_time,
                 amsterdam_time,
                 serve_rest_ssz: false,
+                heze_time,
             },
             kzg,
         )
@@ -440,16 +446,6 @@ impl<E: EthSpec> MockServer<E> {
         self.set_forkchoice_updated_response(Self::invalid_terminal_block_status());
     }
 
-    /// This will make the node appear like it is syncing.
-    pub fn all_get_block_by_hash_requests_return_none(&self) {
-        *self.ctx.static_get_block_by_hash_response.lock() = Some(None);
-    }
-
-    /// The node will respond "naturally"; it will return blocks if they're known to it.
-    pub fn all_get_block_by_hash_requests_return_natural_value(&self) {
-        *self.ctx.static_get_block_by_hash_response.lock() = None;
-    }
-
     /// Disables any static payload responses so the execution block generator will do its own
     /// verification.
     pub fn full_payload_verification(&self) {
@@ -591,7 +587,6 @@ pub struct Context<E: EthSpec> {
     pub previous_forkchoice_request: Arc<Mutex<Option<CapturedForkchoiceRequest>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
-    pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
     pub hook: Arc<Mutex<Hook>>,
 
     // Canned responses by block hash.
