@@ -527,7 +527,7 @@ mod tests {
         .unwrap();
 
         let cache = OnboardBuildersCache::new(&fixture.spec).unwrap();
-        cache.seed_from_state(&fixture.pre_state, &fixture.spec);
+        cache.cache_relevant_from_state(&fixture.pre_state, &fixture.spec);
         let cached_post = upgrade_state_to_gloas(
             &mut fixture.pre_state.clone(),
             GloasVerificationContext::CachedVerification(&cache),

@@ -1181,13 +1181,13 @@ where
             let cache = onboarding_cache.clone();
             let spec = self.spec.clone();
             let head = head.clone();
-            // Using the rayon pool here since `seed_from_state` uses rayon threads to perform
-            // the signature verification in batches.
+            // Using the rayon pool here since `cache_relevant_from_state` uses rayon threads to
+            // perform the signature verification in batches.
             beacon_chain
                 .task_executor
                 .clone()
                 .spawn_blocking_with_rayon(
-                    move || cache.seed_from_state(&head.beacon_state, &spec),
+                    move || cache.cache_relevant_from_state(&head.beacon_state, &spec),
                     task_executor::RayonPoolType::LowPriority,
                     "initialize_builder_onboarding_cache",
                 );

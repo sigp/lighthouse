@@ -59,25 +59,24 @@ impl OnboardBuildersCache {
         }
     }
 
-    /// Initializes the cache with builder-related `pending_deposits` from the passed state.
+    /// Signature-verifies and caches builder-related `pending_deposits` from `state`.
     ///
-    /// Further block imports that result in additional deposits should be handled by the
-    /// [`Self::add_new_pending_deposits`] method.
+    /// Scans the full queue so deposits are not missed if async seeding has not finished yet
+    /// or a builder deposit arrives after an earlier validator deposit.
     #[instrument(skip_all)]
-    pub fn seed_from_state<E: EthSpec>(&self, state: &BeaconState<E>, spec: &ChainSpec) {
-        self.cache_relevant_from_state(state, spec);
-    }
+    pub fn cache_relevant_from_state<E: EthSpec>(&self, state: &BeaconState<E>, spec: &ChainSpec) {
+        let deposits = relevant_pending_deposits(state, spec);
+        if deposits.is_empty() {
+            return;
+        }
 
-    /// Signature-verifies and caches builder-related `pending_deposits` from `current_state`.
-    ///
-    /// Uses the full queue so deposits are not missed if seeding has not completed yet.
-    #[instrument(skip_all)]
-    pub fn add_new_pending_deposits<E: EthSpec>(
-        &self,
-        current_state: &BeaconState<E>,
-        spec: &ChainSpec,
-    ) {
-        self.cache_relevant_from_state(current_state, spec);
+        debug!(
+            pending_deposits_count = deposits.len(),
+            slot = %state.slot(),
+            "Caching builder-related pending deposits"
+        );
+
+        self.cache_pending_deposits(deposits, spec);
     }
 
     /// Takes a list of pending deposits, signature verifies them and caches the result.
@@ -133,22 +132,6 @@ impl OnboardBuildersCache {
         let key = deposit_data.tree_hash_root();
         self.cache.lock().get(&key).copied()
     }
-
-    /// Filters to builder-related pending deposits and caches their signature results.
-    fn cache_relevant_from_state<E: EthSpec>(&self, state: &BeaconState<E>, spec: &ChainSpec) {
-        let deposits = relevant_pending_deposits(state, spec);
-        if deposits.is_empty() {
-            return;
-        }
-
-        debug!(
-            pending_deposits_count = deposits.len(),
-            slot = %state.slot(),
-            "Caching builder-related pending deposits"
-        );
-
-        self.cache_pending_deposits(deposits, spec);
-    }
 }
 
 /// Check a pending deposit's signature via the cache, falling back to inline verification when
@@ -156,7 +139,7 @@ impl OnboardBuildersCache {
 ///
 /// On a cache miss the inline verification result is written back to the cache, so repeated
 /// checks of the same deposit (e.g. the `is_pending_validator` scans during builder onboarding)
-/// never verify the same signature twice, even if the cache was not seeded ahead of the fork.
+/// never verify the same signature twice, even if the cache was not populated ahead of the fork.
 pub fn is_valid_deposit_signature_cached(
     builder_onboarding_cache: Option<&OnboardBuildersCache>,
     deposit: &PendingDeposit,
@@ -446,7 +429,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.seed_from_state(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(cache.cached_is_valid_signature(&unrelated), None);
             assert_eq!(cache.cached_is_valid_signature(&invalid_unrelated), None);
@@ -464,7 +447,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.seed_from_state(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(
                 cache.cached_is_valid_signature(&builder_deposit),
@@ -485,7 +468,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.seed_from_state(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(
                 cache.cached_is_valid_signature(&validator_deposit),
@@ -509,7 +492,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.seed_from_state(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(
                 cache.cached_is_valid_signature(&invalid_validator),
@@ -528,7 +511,7 @@ mod tests {
             let state = fulu_state_at_slot(Slot::new(5), vec![invalid_builder.clone()], &spec);
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.seed_from_state(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(
                 cache.cached_is_valid_signature(&invalid_builder),
@@ -537,7 +520,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn add_new_caches_older_relevant_deposits() {
+        async fn caches_older_relevant_deposits_from_state() {
             let spec = fulu_spec_with_gloas_scheduled();
             let older_0 = deposit_at_slot(
                 make_valid_builder_deposit(&KEYPAIRS[0], &spec),
@@ -558,7 +541,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.add_new_pending_deposits(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(cache.cached_is_valid_signature(&older_0), Some(true));
             assert_eq!(cache.cached_is_valid_signature(&older_3), Some(true));
@@ -566,7 +549,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn add_new_caches_older_relevant_when_no_current_slot_deposits() {
+        async fn caches_older_relevant_deposits_without_current_slot_entries() {
             let spec = fulu_spec_with_gloas_scheduled();
             let deposits: Vec<_> = (0..3)
                 .map(|i| {
@@ -579,7 +562,7 @@ mod tests {
             let state = fulu_state_at_slot(Slot::new(5), deposits.clone(), &spec);
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.add_new_pending_deposits(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             for deposit in &deposits {
                 assert_eq!(cache.cached_is_valid_signature(deposit), Some(true));
@@ -587,7 +570,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn add_new_caches_older_validator_when_builder_arrives_later() {
+        async fn caches_older_validator_when_builder_arrives_later() {
             let spec = fulu_spec_with_gloas_scheduled();
             let older_validator =
                 deposit_at_slot(make_non_builder_deposit(&KEYPAIRS[0], &spec), Slot::new(1));
@@ -602,7 +585,7 @@ mod tests {
             );
 
             let cache = OnboardBuildersCache::new(&spec).unwrap();
-            cache.add_new_pending_deposits(&state, &spec);
+            cache.cache_relevant_from_state(&state, &spec);
 
             assert_eq!(
                 cache.cached_is_valid_signature(&older_validator),
