@@ -1538,7 +1538,7 @@ mod tests {
     /// of the unrealized-checkpoints bug fixed in sigp/lighthouse#9471).
     #[test]
     fn head_balance_source_rebuilt_after_intra_epoch_slashing() {
-        use state_processing::per_slot_processing;
+        use state_processing::{GloasVerificationContext, per_slot_processing};
         use types::MinimalEthSpec;
         type E = MinimalEthSpec;
 
@@ -1569,7 +1569,13 @@ mod tests {
         // rebuild the source regardless, masking the bug.
         let mid_epoch_slot = Slot::new(E::slots_per_epoch() + 4);
         while state.slot() < mid_epoch_slot {
-            per_slot_processing(&mut state, None, &spec).expect("should advance slot");
+            per_slot_processing(
+                &mut state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &spec,
+            )
+            .expect("should advance slot");
         }
         state
             .build_all_committee_caches(&spec)

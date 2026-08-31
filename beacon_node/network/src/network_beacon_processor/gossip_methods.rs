@@ -4243,6 +4243,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::ParentBlockStateUnknown { .. }
+                | PayloadBidError::ParentExecutionPayloadUnknown { .. }
+                | PayloadBidError::BidOutsideParentProposerLookahead { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::InvalidFeeRecipient

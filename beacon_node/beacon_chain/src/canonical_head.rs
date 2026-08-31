@@ -62,6 +62,7 @@ use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::complete_state_advance;
 use std::ops::{Deref, DerefMut};
 use std::panic::Location;
@@ -971,6 +972,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &mut fcr,
                         &fork_choice_read_lock,
                         &self.store,
+                        self.builder_onboarding_cache.as_deref(),
                         current_slot,
                         new_view.head_block_root,
                         &head_state,
@@ -1265,6 +1267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let head_state = match Self::get_pulled_up_head_state(
             &self.store,
+            self.builder_onboarding_cache.as_deref(),
             current_slot,
             head_root,
             head_state_root,
@@ -1301,6 +1304,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The current head state advanced to the current wall-clock epoch boundary with caches built.
     fn get_pulled_up_head_state(
         store: &BeaconStore<T>,
+        builder_onboarding_cache: Option<&OnboardBuildersCache>,
         current_slot: Slot,
         head_root: Hash256,
         head_state_root: Hash256,
@@ -1313,16 +1317,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         if head_state.current_epoch() < current_epoch {
             let epoch_start = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            complete_state_advance(&mut head_state, Some(state_root), epoch_start, &store.spec)?;
+            complete_state_advance(
+                &mut head_state,
+                Some(state_root),
+                epoch_start,
+                builder_onboarding_cache,
+                &store.spec,
+            )?;
         }
         head_state.build_all_caches(&store.spec)?;
         Ok(head_state)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_fcr(
         fcr: &mut FastConfirmationRule,
         fork_choice: &BeaconForkChoice<T>,
         store: &BeaconStore<T>,
+        builder_onboarding_cache: Option<&OnboardBuildersCache>,
         current_slot: Slot,
         head_root: Hash256,
         head_state: &BeaconState<T::EthSpec>,
@@ -1340,7 +1352,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Load the checkpoint state if it will be required.
         let checkpoint_state = fcr
             .checkpoint_state_needed::<T::EthSpec>(current_slot)
-            .map(|checkpoint| Self::load_fcr_checkpoint_state(store, checkpoint))
+            .map(|checkpoint| {
+                Self::load_fcr_checkpoint_state(store, builder_onboarding_cache, checkpoint)
+            })
             .transpose()?;
 
         let old_update_slot = fcr.last_update_slot();
@@ -1404,6 +1418,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             Some(Self::load_fcr_checkpoint_state(
                 store,
+                None,
                 finalized_checkpoint,
             )?)
         };
@@ -1427,6 +1442,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// from this state.
     fn load_fcr_checkpoint_state(
         store: &BeaconStore<T>,
+        builder_onboarding_cache: Option<&OnboardBuildersCache>,
         checkpoint: Checkpoint,
     ) -> Result<BeaconState<T::EthSpec>, FastConfirmationError> {
         let block = store
@@ -1444,12 +1460,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 FastConfirmationError::UnableToObtainCheckpointState("not found".to_owned())
             })?;
         if state.slot() < target_slot {
-            complete_state_advance(&mut state, Some(state_root), target_slot, &store.spec)
-                .map_err(|e| {
-                    FastConfirmationError::UnableToObtainCheckpointState(format!(
-                        "Error advancing checkpoint state: {e:?}"
-                    ))
-                })?;
+            complete_state_advance(
+                &mut state,
+                Some(state_root),
+                target_slot,
+                builder_onboarding_cache,
+                &store.spec,
+            )
+            .map_err(|e| {
+                FastConfirmationError::UnableToObtainCheckpointState(format!(
+                    "Error advancing checkpoint state: {e:?}"
+                ))
+            })?;
         }
         Ok(state)
     }
