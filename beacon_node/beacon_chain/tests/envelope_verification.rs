@@ -3,6 +3,7 @@ use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource}
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
+use futures::FutureExt;
 use std::sync::Arc;
 use types::{
     Address, BlockImportSource, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot,
@@ -100,7 +101,7 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
 }
 
 #[tokio::test]
-async fn lookup_accepts_gloas_envelope_after_restart() {
+async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
     if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
         return;
     }
@@ -157,25 +158,30 @@ async fn lookup_accepts_gloas_envelope_after_restart() {
         )
         .await
         .expect("envelope should verify");
-    resumed
-        .chain
-        .process_execution_payload_envelope(
-            block_root,
-            verified_envelope,
-            NotifyExecutionLayer::Yes,
-            BlockImportSource::Lookup,
-            || Ok(()),
-        )
-        .await
-        .expect("envelope should be accepted after restart");
+    let process_envelope = resumed.chain.process_execution_payload_envelope(
+        block_root,
+        verified_envelope,
+        NotifyExecutionLayer::Yes,
+        BlockImportSource::Lookup,
+        || Ok(()),
+    );
+    tokio::pin!(process_envelope);
+
+    assert!(
+        process_envelope.as_mut().now_or_never().is_none(),
+        "envelope processing should wait for the execution layer"
+    );
     assert!(
         resumed
             .chain
             .pending_payload_cache
             .get_bid(&block_root)
             .is_some(),
-        "envelope processing should restore the pending bid cache"
+        "envelope processing should restore the bid before execution-layer verification"
     );
+    process_envelope
+        .await
+        .expect("envelope should be accepted after restart");
 }
 
 /// An envelope whose `execution_requests` don't hash to the bid's committed
