@@ -58,6 +58,7 @@ use crate::observed_attesters::{
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::observed_execution_payloads::ObservedExecutionPayloads;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
@@ -65,6 +66,7 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -121,7 +123,9 @@ use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
+    VerifyBlockRoot, VerifyOperation,
+    builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
@@ -439,6 +443,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of execution proofs seen over the gossip network.
     pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
+    /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
+    pub observed_execution_payloads: ObservedExecutionPayloads,
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
@@ -492,6 +498,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
+    /// A cache used to track the already seen verified payload envelopes.
+    pub observed_payload_envelopes: ObservedPayloadEnvelopes,
     /// A cache used to produce light_client server messages
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
@@ -515,6 +523,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub pending_payload_cache: Arc<PendingPayloadCache<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
+    /// Pre-verifies pending deposit signatures ahead of the Gloas fork transition.
+    /// Only present when gloas is scheduled and the chain had not yet transitioned to gloas
+    /// at startup, so nodes started post-fork skip the cache's allocation entirely.
+    pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
@@ -1520,7 +1532,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 while state.slot() < slot {
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
+                    match per_slot_processing(
+                        &mut state,
+                        skip_state_root,
+                        GloasVerificationContext::from_cache(
+                            self.builder_onboarding_cache.as_deref(),
+                        ),
+                        &self.spec,
+                    ) {
                         Ok(_) => (),
                         Err(e) => {
                             warn!(
@@ -2126,6 +2145,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &mut state,
                         Some(advanced_state_root),
                         request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                        self.builder_onboarding_cache.as_deref(),
                         &self.spec,
                     )
                     .map_err(Error::StateAdvanceError)?;
@@ -4635,6 +4655,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
 
+        // Keep pre-Gloas payloads available across a live transition to Gloas.
+        if self.spec.is_gloas_scheduled()
+            && !block.fork_name_unchecked().gloas_enabled()
+            && let Ok(payload) = block.body().execution_payload()
+            && payload.block_hash() != ExecutionBlockHash::zero()
+        {
+            self.observed_execution_payloads
+                .insert(payload.block_hash(), payload.gas_limit());
+        }
+
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
         let block_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);
@@ -4668,6 +4698,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_status,
             current_slot,
         );
+
+        // Pre-verify the signatures of any deposits this block added to the `pending_deposits`
+        // queue, so that builder onboarding at the gloas fork transition is a cache lookup.
+        // Post-gloas the fork transition has already happened and the cache is no longer needed.
+        if !state.fork_name_unchecked().gloas_enabled()
+            && let Some(builder_onboarding_cache) = &self.builder_onboarding_cache
+        {
+            let cache = builder_onboarding_cache.clone();
+            let spec = self.spec.clone();
+            // Using the rayon pool here since `add_new_pending_deposits` uses rayon threads to
+            // perform the signature verification in batches. We have until the fork transition
+            // for the cache to be populated, so use the low priority pool.
+            self.task_executor.clone().spawn_blocking_with_rayon(
+                move || cache.add_new_pending_deposits::<T::EthSpec>(&state, &spec),
+                RayonPoolType::LowPriority,
+                "pre_verify_pending_deposits",
+            );
+        }
 
         Ok(block_root)
     }
@@ -5279,6 +5327,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut advanced_state,
             Some(unadvanced_state_root),
             proposal_slot,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )?;
 
@@ -5696,7 +5745,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
 
         // Ensure the state has performed a complete transition into the required slot.
-        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+        complete_state_advance(
+            &mut state,
+            state_root_opt,
+            produce_at_slot,
+            self.builder_onboarding_cache.as_deref(),
+            &self.spec,
+        )?;
 
         drop(slot_timer);
 
@@ -7188,6 +7243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposal_epoch,
             accessor,
             state_provider,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )
     }
@@ -7233,6 +7289,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.canonical_head,
             &self.shuffling_cache,
             &self.store,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
             head_block_root,
             shuffling_epoch,
