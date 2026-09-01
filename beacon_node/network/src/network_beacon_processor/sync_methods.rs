@@ -1,4 +1,4 @@
-use crate::metrics::{self, EnvelopeSource, register_process_result_metrics};
+use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
@@ -11,7 +11,9 @@ use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
+use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer,
@@ -199,14 +201,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                if let Ok(header) = signed_beacon_block.as_ref().try_into() {
+                if let Some(header_or_bid) =
+                    PartialHeaderOrBid::try_from_block(signed_beacon_block.as_ref())
+                {
                     let publish_blobs = false;
                     self.fetch_engine_blobs_and_publish_full(
-                        Arc::new(header),
+                        header_or_bid,
                         block_root,
                         publish_blobs,
                     )
                     .await;
+                } else {
+                    error!(
+                        ?block_root,
+                        slot = %signed_beacon_block.slot(),
+                        "Lookup block is missing components but predates blobs",
+                    )
                 }
             }
             _ => {}
@@ -318,7 +328,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = match self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
             .await
         {
             Ok(verified) => {

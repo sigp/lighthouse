@@ -34,6 +34,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -57,6 +58,7 @@ use crate::observed_attesters::{
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::observed_execution_payloads::ObservedExecutionPayloads;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
@@ -64,6 +66,7 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -111,6 +114,7 @@ use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
 use parking_lot::{Mutex, RwLock};
+use proof_engine::ProofEngine;
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
@@ -119,7 +123,9 @@ use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
+    VerifyBlockRoot, VerifyOperation,
+    builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
@@ -435,6 +441,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
+    /// Maintains a record of execution proofs seen over the gossip network.
+    pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
+    /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
+    pub observed_execution_payloads: ObservedExecutionPayloads,
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
@@ -450,6 +460,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
+    /// Client for the EIP-8025 proof engine, if one is configured.
+    pub proof_engine: Option<Arc<ProofEngine>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -486,6 +498,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
+    /// A cache used to track the already seen verified payload envelopes.
+    pub observed_payload_envelopes: ObservedPayloadEnvelopes,
     /// A cache used to produce light_client server messages
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
@@ -509,6 +523,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub pending_payload_cache: Arc<PendingPayloadCache<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
+    /// Pre-verifies pending deposit signatures ahead of the Gloas fork transition.
+    /// Only present when gloas is scheduled and the chain had not yet transitioned to gloas
+    /// at startup, so nodes started post-fork skip the cache's allocation entirely.
+    pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
@@ -547,6 +565,19 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
     pub fn is_blinded(&self) -> bool {
         matches!(self, BeaconBlockResponseWrapper::Blinded(_))
     }
+}
+
+fn gloas_parent_payload_status(
+    parent_bid_block_hash: Option<ExecutionBlockHash>,
+    head_hash: Option<ExecutionBlockHash>,
+) -> Option<fork_choice::PayloadStatus> {
+    parent_bid_block_hash.map(|block_hash| {
+        if block_hash != ExecutionBlockHash::default() && head_hash == Some(block_hash) {
+            fork_choice::PayloadStatus::Full
+        } else {
+            fork_choice::PayloadStatus::Empty
+        }
+    })
 }
 
 /// The components produced when the local beacon node creates a new block to extend the chain
@@ -1501,7 +1532,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 while state.slot() < slot {
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
+                    match per_slot_processing(
+                        &mut state,
+                        skip_state_root,
+                        GloasVerificationContext::from_cache(
+                            self.builder_onboarding_cache.as_deref(),
+                        ),
+                        &self.spec,
+                    ) {
                         Ok(_) => (),
                         Err(e) => {
                             warn!(
@@ -2107,6 +2145,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &mut state,
                         Some(advanced_state_root),
                         request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                        self.builder_onboarding_cache.as_deref(),
                         &self.spec,
                     )
                     .map_err(Error::StateAdvanceError)?;
@@ -2451,23 +2490,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    pub fn verify_partial_data_column_sidecar_for_gossip(
+    pub async fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> PartialColumnVerificationResult<T::EthSpec> {
-        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
-        let _timer =
-            metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        let ret = validate_partial_data_column_sidecar_for_gossip(
-            data_column_sidecar,
-            self,
-            seen_timestamp,
+        let chain = self.clone();
+        // Verification may hit the disk (Gloas bid lookup) and performs KZG verification, so it
+        // must not run directly on the async runtime.
+        let handle = self.task_executor.clone().spawn_blocking_handle(
+            move || {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+                let _timer = metrics::start_timer(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES,
+                );
+                let ret = validate_partial_data_column_sidecar_for_gossip(
+                    data_column_sidecar,
+                    &chain,
+                    seen_timestamp,
+                );
+                if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+                    metrics::inc_counter(
+                        &metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
+                    );
+                }
+                ret
+            },
+            "gossip_partial_data_column_verification_handle",
         );
-        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
-            metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        }
-        ret
+        let Some(handle) = handle else {
+            return PartialColumnVerificationResult::Err(BeaconChainError::RuntimeShutdown.into());
+        };
+        handle.await.unwrap_or_else(|err| {
+            PartialColumnVerificationResult::Err(BeaconChainError::TokioJoin(err).into())
+        })
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
@@ -3380,29 +3436,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .await
     }
 
-    /// Process a gossip-verified partial data column by attempting to merge it in the assembler.
-    /// Returns the merge result which indicates if a column was completed.
+    /// Process a gossip-verified partial data column by attempting to merge it into the appropriate
+    /// store for its fork (the Fulu assembler, or the Gloas pending payload cache). Returns the
+    /// merge result, which indicates whether any column was completed.
+    ///
+    /// `verified_header` must be `Some` for Fulu partials (the assembler needs it) and `None`
+    /// for Gloas partials.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
         slot: Slot,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
         let block_root = verified_partial.block_root();
-        let partial = verified_partial.as_data_column();
-        let index_str = partial.index.to_string();
+        let column_index = verified_partial.index();
+        let index_str = column_index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
-            partial.sidecar.column.len() as u64,
+            verified_partial.sidecar().column().len() as u64,
         );
 
         // Check if we have custody of this column
         let sampling_columns = self
             .custody_context
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        let verified_partial = if sampling_columns.contains(&partial.index) {
+        let verified_partial = if sampling_columns.contains(&column_index) {
             KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
         } else {
             return Ok(None);
@@ -3412,19 +3472,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
-            // Partial messages are apparently not activated
-            return Ok(None);
-        };
+        let (merge_result, gloas_availability) = match verified_partial {
+            KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
+                // Fulu: merge via the partial assembler.
+                let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+                    // Partial messages are apparently not activated
+                    return Ok(None);
+                };
+                let Some(header) = verified_header else {
+                    return Err(BlockError::InternalError(
+                        "Fulu partial data column received without a header".to_string(),
+                    ));
+                };
 
-        // Merge the partial into the assembler
-        let merge_result = assembler
-            .merge_partials(
-                block_root,
-                vec![verified_partial],
-                verified_header.into_header(),
-            )
-            .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
+                let merge_result = assembler
+                    .merge_partials(block_root, vec![verified_partial], header.into_header())
+                    .ok_or_else(|| {
+                        BlockError::InternalError("No assembly found for block".to_string())
+                    })?;
+                (merge_result, None)
+            }
+            KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
+                // Gloas: merge directly into the pending payload cache.
+                let (availability, merge_result) = self
+                    .pending_payload_cache
+                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .map_err(BlockError::from)?;
+                (merge_result, Some(availability))
+            }
+        };
 
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
@@ -3432,7 +3508,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             merge_result.added_cells as u64,
         );
 
-        let availability = if !merge_result.full_columns.is_empty() {
+        if !merge_result.full_columns.is_empty() {
             metrics::inc_counter_vec_by(
                 &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
                 &[index_str.as_str()],
@@ -3446,29 +3522,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .iter()
                     .map(|column| column.as_data_column()),
             );
+        }
 
-            if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled()
-            {
-                let availability = self
-                    .pending_payload_cache
-                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
-                    .map_err(BlockError::from)?;
-                self.process_payload_envelope_availability(slot, availability, || Ok(()))
-                    .await?
-            } else {
-                let availability = self
-                    .data_availability_checker
-                    .put_kzg_verified_custody_data_columns(
-                        block_root,
-                        merge_result.full_columns.clone(),
-                    )
-                    .map_err(BlockError::from)?;
-                self.process_availability(slot, availability, || Ok(()))
-                    .await?
-            }
+        let availability = if let Some(availability) = gloas_availability {
+            self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await?
+        } else if !merge_result.full_columns.is_empty() {
+            // The above branch already handles gloas availability, so we only care about Fulu here.
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(
+                    block_root,
+                    merge_result.full_columns.clone(),
+                )
+                .map_err(BlockError::from)?;
+            self.process_availability(slot, availability, || Ok(()))
+                .await?
         } else {
             AvailabilityProcessingStatus::MissingComponents(slot, block_root)
         };
@@ -3514,7 +3583,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
-    pub async fn process_engine_blobs(
+    pub async fn process_engine_blobs_fulu(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
@@ -4586,6 +4655,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
 
+        // Keep pre-Gloas payloads available across a live transition to Gloas.
+        if self.spec.is_gloas_scheduled()
+            && !block.fork_name_unchecked().gloas_enabled()
+            && let Ok(payload) = block.body().execution_payload()
+            && payload.block_hash() != ExecutionBlockHash::zero()
+        {
+            self.observed_execution_payloads
+                .insert(payload.block_hash(), payload.gas_limit());
+        }
+
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
         let block_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);
@@ -4619,6 +4698,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_status,
             current_slot,
         );
+
+        // Pre-verify the signatures of any deposits this block added to the `pending_deposits`
+        // queue, so that builder onboarding at the gloas fork transition is a cache lookup.
+        // Post-gloas the fork transition has already happened and the cache is no longer needed.
+        if !state.fork_name_unchecked().gloas_enabled()
+            && let Some(builder_onboarding_cache) = &self.builder_onboarding_cache
+        {
+            let cache = builder_onboarding_cache.clone();
+            let spec = self.spec.clone();
+            // Using the rayon pool here since `add_new_pending_deposits` uses rayon threads to
+            // perform the signature verification in batches. We have until the fork transition
+            // for the cache to be populated, so use the low priority pool.
+            self.task_executor.clone().spawn_blocking_with_rayon(
+                move || cache.add_new_pending_deposits::<T::EthSpec>(&state, &spec),
+                RayonPoolType::LowPriority,
+                "pre_verify_pending_deposits",
+            );
+        }
 
         Ok(block_root)
     }
@@ -5168,7 +5265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }))
     }
 
-    pub fn get_expected_withdrawals(
+    pub fn compute_withdrawals_for_payload_attributes(
         &self,
         forkchoice_update_params: &ForkchoiceUpdateParameters,
         proposal_slot: Slot,
@@ -5202,14 +5299,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
-        let parent_payload_status = if let Some(block_hash) = parent_bid_block_hash
-            && block_hash != ExecutionBlockHash::default()
-            && forkchoice_update_params.head_hash == Some(block_hash)
-        {
-            fork_choice::PayloadStatus::Full
-        } else {
-            fork_choice::PayloadStatus::Empty
-        };
+        let parent_payload_status =
+            gloas_parent_payload_status(parent_bid_block_hash, forkchoice_update_params.head_hash);
+
+        if parent_payload_status == Some(fork_choice::PayloadStatus::Empty) {
+            // The state has already deducted these withdrawals, but they remain pending for the
+            // execution layer after an empty parent.
+            return unadvanced_state
+                .payload_expected_withdrawals()?
+                .to_vec()
+                .try_into()
+                .map_err(Error::SszTypesError);
+        }
 
         // Advance the state using the partial method.
         // TODO(gloas): we might want to optimise this further by using:
@@ -5226,12 +5327,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut advanced_state,
             Some(unadvanced_state_root),
             proposal_slot,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )?;
 
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
-        if parent_payload_status == fork_choice::PayloadStatus::Full {
+        if parent_payload_status == Some(fork_choice::PayloadStatus::Full) {
             let envelope = if parent_block_root == head_block_root {
                 cached_head.snapshot.execution_envelope.clone()
             } else {
@@ -5484,7 +5586,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         block_delays
             .observed
-            .is_some_and(|delay| delay >= self.spec.get_unaggregated_attestation_due())
+            .is_some_and(|delay| delay >= self.spec.get_attestation_due::<T::EthSpec>(slot))
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -5643,7 +5745,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
 
         // Ensure the state has performed a complete transition into the required slot.
-        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+        complete_state_advance(
+            &mut state,
+            state_root_opt,
+            produce_at_slot,
+            self.builder_onboarding_cache.as_deref(),
+            &self.spec,
+        )?;
 
         drop(slot_timer);
 
@@ -5894,18 +6002,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let fork_name = state.fork_name_unchecked();
         let mut attester_slashings_base = Vec::new();
         let mut attester_slashings_electra = Vec::new();
         for slashing in attester_slashings {
-            match slashing {
-                AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
-                AttesterSlashing::Electra(slashing) => attester_slashings_electra.push(slashing),
-                // Gloas-typed slashings cannot be included in pre-Gloas blocks, and Gloas
-                // blocks are produced via `complete_partial_beacon_block_gloas`.
-                AttesterSlashing::Gloas(_) => {
-                    return Err(BlockProductionError::InvalidBlockVariant(
-                        "Gloas attester slashing in pre-Gloas block production".to_owned(),
-                    ));
+            if fork_name.electra_enabled() {
+                // Convert Base and Gloas slashings into the Electra type. The SSZ bytes are
+                // the same, only the hash tree root differs.
+                let (attestation_1, attestation_2) = match slashing {
+                    AttesterSlashing::Base(slashing) => (
+                        IndexedAttestation::Base(slashing.attestation_1),
+                        IndexedAttestation::Base(slashing.attestation_2),
+                    ),
+                    AttesterSlashing::Electra(slashing) => {
+                        attester_slashings_electra.push(slashing);
+                        continue;
+                    }
+                    AttesterSlashing::Gloas(slashing) => (
+                        IndexedAttestation::Gloas(slashing.attestation_1),
+                        IndexedAttestation::Gloas(slashing.attestation_2),
+                    ),
+                };
+                match (attestation_1.to_electra(), attestation_2.to_electra()) {
+                    (Ok(attestation_1), Ok(attestation_2)) => {
+                        attester_slashings_electra.push(AttesterSlashingElectra {
+                            attestation_1,
+                            attestation_2,
+                        })
+                    }
+                    _ => warn!(
+                        block_slot = %slot,
+                        "Dropping attester slashing that exceeds the Electra size limits"
+                    ),
+                }
+            } else {
+                match slashing {
+                    AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
+                    // Post-Electra slashings cannot be included in pre-Electra blocks.
+                    AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) => warn!(
+                        block_slot = %slot,
+                        "Dropping post-Electra attester slashing in pre-Electra block production"
+                    ),
                 }
             }
         }
@@ -6557,7 +6694,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
-                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    move || {
+                        chain.compute_withdrawals_for_payload_attributes(
+                            &forkchoice_update_params,
+                            prepare_slot,
+                        )
+                    },
                     "prepare_beacon_proposer_withdrawals",
                 )
                 .await?
@@ -7101,6 +7243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposal_epoch,
             accessor,
             state_provider,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )
     }
@@ -7146,6 +7289,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.canonical_head,
             &self.shuffling_cache,
             &self.store,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
             head_block_root,
             shuffling_epoch,
@@ -7727,5 +7871,19 @@ impl ChainSegmentResult {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_hash_gloas_bid_is_an_empty_parent() {
+        assert_eq!(
+            gloas_parent_payload_status(Some(ExecutionBlockHash::default()), None),
+            Some(fork_choice::PayloadStatus::Empty)
+        );
+        assert_eq!(gloas_parent_payload_status(None, None), None);
     }
 }
