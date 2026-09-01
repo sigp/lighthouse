@@ -468,7 +468,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
 
     /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant.
     fn max_signed_inclusion_list_size() -> usize {
-        8348
+        41112
     }
 
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
