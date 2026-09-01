@@ -653,6 +653,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_blobs_follow_commitment_order_post_gloas() {
+        let harness = gloas_supernode_harness();
+        harness.execution_block_generator().set_min_blob_count(2);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let (_, (block, _), _) = harness
+            .add_block_at_slot(slot, harness.get_current_state())
+            .await
+            .expect("Gloas block should import");
+
+        assert_eq!(block.fork_name_unchecked(), ForkName::Gloas);
+        assert!(block.num_expected_blobs() >= 2);
+
+        // The unfiltered response is in commitment order
+        let all_blobs_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: None,
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be retrievable");
+        assert_eq!(all_blobs_response.data.len(), block.num_expected_blobs());
+
+        // Blobs must be returned in the order of their KZG commitments in the block,
+        // regardless of the order of the requested versioned hashes
+        let reversed_versioned_hashes = block
+            .message()
+            .blob_kzg_commitments()
+            .expect("Gloas block should have blob KZG commitments")
+            .iter()
+            .rev()
+            .map(|commitment| commitment.calculate_versioned_hash())
+            .collect::<Vec<_>>();
+        let reversed_request_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: Some(reversed_versioned_hashes),
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be retrievable with reversed versioned hashes");
+
+        assert_eq!(
+            reversed_request_response.data.len(),
+            all_blobs_response.data.len()
+        );
+        for (index, (returned, expected)) in reversed_request_response
+            .data
+            .iter()
+            .zip(&all_blobs_response.data)
+            .enumerate()
+        {
+            assert_eq!(
+                returned.blob, expected.blob,
+                "blob at position {index} does not follow commitment order"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn root_uses_early_attester_cache_for_unpersisted_block() {
         let Some(fork_name) = fork_name_from_env().filter(|fork_name| fork_name.fulu_enabled())
         else {

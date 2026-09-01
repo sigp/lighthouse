@@ -2344,7 +2344,6 @@ impl ApiTester {
 
         let versioned_hashes: Vec<Hash256> = block
             .message()
-            .body()
             .blob_kzg_commitments()
             .unwrap()
             .iter()
