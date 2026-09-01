@@ -353,23 +353,34 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                         )));
                     }
 
-                    let payload_attestation_data = chain
-                        .produce_payload_attestation_data(slot)
-                        .map_err(|e| match e {
-                            BeaconChainError::NoBlockForSlot(_) => {
-                                warp_utils::reject::block_not_found(format!(
-                                    "No block received for slot {slot}"
-                                ))
+                    let payload_attestation_data =
+                        match chain.produce_payload_attestation_data(slot) {
+                            Ok(data) => data,
+                            // Per beacon-APIs #612 an empty slot is an expected condition rather
+                            // than an error: return 204 so that the validator client can skip
+                            // attesting without treating the response as a failure.
+                            Err(BeaconChainError::NoBlockForSlot(_)) => {
+                                return Builder::new()
+                                    .status(204)
+                                    .body(Vec::<u8>::new())
+                                    .map(|res| res.into_response())
+                                    .map_err(|e| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "Failed to build empty response: {e}"
+                                        ))
+                                    });
                             }
-                            BeaconChainError::InvalidSlot(_) => {
-                                warp_utils::reject::custom_bad_request(format!(
+                            Err(e @ BeaconChainError::InvalidSlot(_)) => {
+                                return Err(warp_utils::reject::custom_bad_request(format!(
                                     "Unable to produce payload attestation data: {e:?}"
-                                ))
+                                )));
                             }
-                            _ => warp_utils::reject::custom_server_error(format!(
-                                "Unable to produce payload attestation data: {e:?}"
-                            )),
-                        })?;
+                            Err(e) => {
+                                return Err(warp_utils::reject::custom_server_error(format!(
+                                    "Unable to produce payload attestation data: {e:?}"
+                                )));
+                            }
+                        };
 
                     match accept_header {
                         Some(Accept::Ssz) => Builder::new()
