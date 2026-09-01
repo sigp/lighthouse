@@ -159,7 +159,7 @@ impl OnboardBuildersCache {
 /// no cache is available or the deposit is missing from it.
 ///
 /// On a cache miss the inline verification result is written back to the cache, so repeated
-/// checks of the same deposit (e.g. the `is_pending_validator` scans during builder onboarding)
+/// checks of the same deposit (e.g. the pending-validator checks during builder onboarding)
 /// never verify the same signature twice, even if the cache was not seeded ahead of the fork.
 pub fn is_valid_deposit_signature_cached(
     builder_onboarding_cache: Option<&OnboardBuildersCache>,
