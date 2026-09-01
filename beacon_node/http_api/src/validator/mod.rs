@@ -6,13 +6,14 @@ use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
-use crate::version::{V1, V2, V3, unsupported_version_rejection};
+use crate::version::{V1, V2, V3, V4, add_ssz_content_type_header, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
 use eth2::CONSENSUS_VERSION_HEADER;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
@@ -23,7 +24,7 @@ use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
 use reqwest::StatusCode;
 use slot_clock::SlotClock;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
@@ -33,7 +34,7 @@ use types::{
     SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
     SyncContributionData, ValidatorSubscription,
 };
-use warp::{Filter, Rejection, Reply};
+use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
@@ -223,12 +224,14 @@ pub fn get_validator_aggregate_attestation<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(warp::header::optional::<Accept>("accept"))
         .then(
             |endpoint_version: EndpointVersion,
              query: ValidatorAggregateAttestationQuery,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<Accept>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
                     crate::aggregate_attestation::get_aggregate_attestation(
@@ -237,6 +240,7 @@ pub fn get_validator_aggregate_attestation<T: BeaconChainTypes>(
                         query.committee_index,
                         endpoint_version,
                         chain,
+                        accept_header,
                     )
                 })
             },
@@ -259,12 +263,14 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(warp::header::optional::<Accept>("accept"))
         .then(
             |query: ValidatorAttestationDataQuery,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<Accept>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
 
                     let current_slot = chain.slot().map_err(warp_utils::reject::unhandled_error)?;
@@ -279,11 +285,27 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
 
                     // Always use committee_index 0 regardless of the query parameter, since
                     // attestation data does not depend on the committee index post-Electra.
-                    chain
+
+                    // capture the attestation data first
+                    let attestation_data = chain
                         .produce_unaggregated_attestation(query.slot, 0)
                         .map(|attestation| attestation.data().clone())
-                        .map(GenericResponse::from)
-                        .map_err(warp_utils::reject::unhandled_error)
+                        .map_err(warp_utils::reject::unhandled_error)?;
+
+                    match accept_header {
+                        Some(Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(attestation_data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&GenericResponse::from(attestation_data))
+                            .into_response()),
+                    }
                 })
             },
         )
@@ -299,7 +321,6 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
     use ssz::Encode;
-    use warp::http::Response;
 
     eth_v1
         .and(warp::path("validator"))
@@ -351,12 +372,12 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                         })?;
 
                     match accept_header {
-                        Some(Accept::Ssz) => Response::builder()
+                        Some(Accept::Ssz) => Builder::new()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .header("Eth-Consensus-Version", fork_name.to_string())
-                            .body(payload_attestation_data.as_ssz_bytes().into())
-                            .map(|res: Response<warp::hyper::Body>| res)
+                            .body(payload_attestation_data.as_ssz_bytes())
+                            .map(|res| res.into_response())
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "Failed to build SSZ response: {e}"
@@ -368,19 +389,16 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                                 metadata: EmptyMetadata {},
                                 data: payload_attestation_data,
                             };
-                            Response::builder()
+                            Builder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
                                 .header("Eth-Consensus-Version", fork_name.to_string())
-                                .body(
-                                    serde_json::to_string(&json_response)
-                                        .map_err(|e| {
-                                            warp_utils::reject::custom_server_error(format!(
-                                                "Failed to serialize response: {e}"
-                                            ))
-                                        })?
-                                        .into(),
-                                )
+                                .body(serde_json::to_string(&json_response).map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to serialize response: {e}"
+                                    ))
+                                })?)
+                                .map(|res| res.into_response())
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "Failed to build JSON response: {e}"
@@ -465,9 +483,7 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
 
                     not_synced_filter?;
 
-                    // Use V4 block production for Gloas fork
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
-                    if fork_name.gloas_enabled() {
+                    if endpoint_version == V4 {
                         produce_block_v4(accept_header, chain, slot, query).await
                     } else if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
@@ -668,25 +684,14 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .unzip();
 
                         // Update the prepare beacon proposer cache based on this request.
+                        // This data will get picked up by the next scheduled run of
+                        // `prepare_beacon_proposer`.
                         execution_layer
                             .update_proposer_preparation(
                                 current_epoch,
                                 preparation_data.iter().map(|(data, limit)| (data, limit)),
                             )
                             .await;
-
-                        // Call prepare beacon proposer blocking with the latest update in order to make
-                        // sure we have a local payload to fall back to in the event of the blinded block
-                        // flow failing.
-                        chain
-                            .prepare_beacon_proposer(current_slot)
-                            .await
-                            .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "error updating proposer preparations: {:?}",
-                                    e
-                                ))
-                            })?;
 
                         info!(
                             count = filtered_registration_data.len(),
@@ -855,9 +860,8 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         let current_slot =
                             chain.slot().map_err(warp_utils::reject::unhandled_error)?;
                         if let Some(cgc_change) = chain
-                            .data_availability_checker
-                            .custody_context()
-                            .register_validators(validators_and_balances, current_slot, &chain.spec)
+                            .custody_context
+                            .register_validators(validators_and_balances, current_slot)
                         {
                             chain.update_data_column_custody_info(Some(
                                 cgc_change
@@ -1003,19 +1007,44 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
+        .and(warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(network_tx_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
+            // The header (or, failing that, the fork at the current wall-clock slot) decides
+            // which attestation variant to deserialize: from Gloas onwards (EIP-7688) the
+            // variants are structurally identical in JSON but merkleize differently, so untagged
+            // deserialization cannot distinguish them.
             |_endpoint_version: EndpointVersion,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+             aggregates_json: serde_json::Value,
+             consensus_version: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
+                    let fork_name = match consensus_version {
+                        Some(fork_name) => fork_name,
+                        None => chain
+                            .slot_clock
+                            .now()
+                            .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "unable to read slot clock".to_string(),
+                                )
+                            })?,
+                    };
+                    let aggregates = Vec::<SignedAggregateAndProof<T::EthSpec>>::context_deserialize(
+                        &aggregates_json,
+                        fork_name,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "invalid aggregate and proofs: {e:?}"
+                        ))
+                    })?;
                     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());

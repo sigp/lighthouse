@@ -29,14 +29,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect()
         };
 
-        let custody_context = self.data_availability_checker.custody_context();
+        let custody_context = self.custody_context.clone();
 
         let ctx = InvariantContext {
             fork_choice_blocks,
             state_cache_roots: self.store.state_cache.lock().state_roots(),
-            custody_columns: custody_context
-                .custody_columns_for_epoch(None, &self.spec)
-                .to_vec(),
+            custody_columns: custody_context.custody_columns_for_epoch(None).to_vec(),
             pubkey_cache_pubkeys: {
                 let cache = self.validator_pubkey_cache.read();
                 (0..cache.len())

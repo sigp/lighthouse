@@ -77,6 +77,16 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec.gloas_fork_epoch = Some(metadata.fork_epoch);
             }
+            ForkName::Heze => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = Some(Epoch::new(0));
+                spec.gloas_fork_epoch = Some(Epoch::new(0));
+                spec.heze_fork_epoch = Some(metadata.fork_epoch);
+            }
         }
 
         // Load blocks
@@ -122,7 +132,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
             .iter()
             .try_for_each(|block| {
                 // Advance to block slot.
-                complete_state_advance(&mut state, None, block.slot(), spec)
+                complete_state_advance(&mut state, None, block.slot(), None, spec)
                     .map_err(|e| format!("Failed to advance: {:?}", e))?;
 
                 // Apply block.

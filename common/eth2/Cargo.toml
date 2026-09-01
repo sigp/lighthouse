@@ -12,6 +12,7 @@ network = ["libp2p-identity", "enr", "multiaddr"]
 
 [dependencies]
 bls = { workspace = true }
+builder_types = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eip_3076 = { workspace = true, optional = true }
@@ -20,6 +21,7 @@ eth2_keystore = { workspace = true, optional = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fork_choice = { workspace = true }
 futures = { workspace = true, optional = true }
 futures-util = { version = "0.3.8", optional = true }
 libp2p-identity = { version = "0.2", features = ["peerid"], optional = true }
@@ -39,5 +41,6 @@ zeroize = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
+builder_types = { workspace = true, features = ["arbitrary"] }
 tokio = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }

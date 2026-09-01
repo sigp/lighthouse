@@ -1,5 +1,6 @@
 use arbitrary::Arbitrary;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
     ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
@@ -43,7 +44,10 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let mut random_sidecar = DataColumnSidecarGloas::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.slot = slot;
-            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            random_sidecar.index = harness
+                .chain
+                .custody_context
+                .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
             let mut bid = SignedExecutionPayloadBid::<E>::empty();
@@ -58,7 +62,10 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.signed_block_header.message.slot = slot;
-            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            random_sidecar.index = harness
+                .chain
+                .custody_context
+                .sampling_columns_for_epoch(epoch)[0];
             DataColumnSidecar::Fulu(random_sidecar)
         }
     };
@@ -268,7 +275,7 @@ async fn execution_payload_envelope_events() {
     // Stage 1: gossip verification fires execution_payload_gossip only.
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope))
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
         .await
         .expect("envelope gossip verification should succeed");
 
@@ -434,9 +441,19 @@ async fn proposer_preferences_event_on_gossip_verification() {
         .get(lookahead_index)
         .expect("lookahead index should be in range");
 
+    // The dependent root must be the proposer shuffling decision block for the proposal epoch, so
+    // gossip verification can resolve the proposer shuffling from it.
+    let dependent_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            head.head_block_root(),
+            &harness.spec,
+        )
+        .expect("should compute proposer shuffling decision root");
+
     // Build and sign proposer preferences for the proposer of `proposal_slot`.
     let preferences = ProposerPreferences {
-        dependent_root: Hash256::ZERO,
+        dependent_root,
         proposal_slot,
         validator_index,
         fee_recipient: Address::repeat_byte(0xaa),

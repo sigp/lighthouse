@@ -37,6 +37,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         initialize_epoch_cache(state, &self.spec)?;
 
+        // [New in Gloas:EIP7732] Since payload processing is deferred to the next block, the
+        // state doesn't have the parent's payload availability bit set yet. Set it here (if the
+        // payload is available) so that the head vote check on attestations matches block processing.
+        if state.fork_name_unchecked().gloas_enabled() {
+            let parent_bid = state.latest_execution_payload_bid()?;
+            let bid_parent_block_hash = block
+                .body()
+                .signed_execution_payload_bid()?
+                .message
+                .parent_block_hash;
+            if bid_parent_block_hash == parent_bid.block_hash {
+                let availability_index = parent_bid
+                    .slot
+                    .as_usize()
+                    .safe_rem(T::EthSpec::slots_per_historical_root())?;
+                state
+                    .execution_payload_availability_mut()?
+                    .set(availability_index, true)?;
+            }
+        }
+
         self.compute_beacon_block_reward_with_cache(block, state)
     }
 
@@ -82,7 +103,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
+            self.compute_beacon_block_attestation_reward_altair_and_later(block, state)
                 .map_err(|e| {
                     error!(
                         error = ?e,
@@ -249,7 +270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_altair_deneb<
+    fn compute_beacon_block_attestation_reward_altair_and_later<
         Payload: AbstractExecPayload<T::EthSpec>,
     >(
         &self,
@@ -263,16 +284,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
 
-        let mut current_epoch_participation = state.current_epoch_participation()?.clone();
-        let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
+        let mut current_epoch_participation = state.current_epoch_participation()?.to_owned_list();
+        let mut previous_epoch_participation =
+            state.previous_epoch_participation()?.to_owned_list();
+
+        let parent_slot = state
+            .latest_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.slot);
 
         for attestation in block.body().attestations() {
             let data = attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
                 state,
                 data,
+                parent_slot,
                 inclusion_delay,
                 &self.spec,
             )?;
@@ -289,7 +318,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     };
 
                     let validator_participation = epoch_participation
-                        .get_mut(index)
+                        .as_mut()
+                        .into_get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if participation_flag_indices.contains(&flag_index)

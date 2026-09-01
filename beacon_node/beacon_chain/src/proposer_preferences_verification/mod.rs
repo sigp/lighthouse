@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use types::{BeaconStateError, Epoch, Slot};
+use types::{BeaconStateError, Epoch, Hash256, Slot};
 
 use crate::BeaconChainError;
 
@@ -38,6 +38,8 @@ pub enum ProposerPreferencesError {
     },
     /// The slot clock cannot be read.
     UnableToReadSlot,
+    /// The block with root `dependent_root` has not been seen.
+    DependentRootUnknown { dependent_root: Hash256 },
     /// A valid message from this validator for this slot has already been seen.
     AlreadySeen {
         validator_index: u64,
@@ -45,6 +47,18 @@ pub enum ProposerPreferencesError {
     },
     /// The signature is invalid.
     BadSignature,
+
+    /// The block with root `dependent_root` is not before the start of the lookahead epoch.
+    DependentRootTooRecent {
+        dependent_root: Hash256,
+        block_slot: Slot,
+        epoch_start_slot: Slot,
+    },
+
+    /// The block with root `dependent_root` is not a possible dependent block
+    /// for the given epoch.
+    InvalidDependentRoot { dependent_root: Hash256 },
+
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error

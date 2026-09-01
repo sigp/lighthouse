@@ -1,5 +1,10 @@
+use crate::beacon_chain::BeaconChainTypes;
+use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::data_column_verification::{
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
+};
+use crate::partial_data_column_assembler::{PartialMergeResult, UpdatedPartials};
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::AvailableExecutedEnvelope;
@@ -23,12 +28,23 @@ pub struct PendingComponents<E: EthSpec> {
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
+    /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
+    /// returned anything. Until then, republished partials request no cells, because the EL
+    /// may supply them for free.
+    pub local_fetch_settled: bool,
     pub(crate) span: Span,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-    pub fn num_blobs_expected(&self) -> usize {
-        self.bid.message.blob_kzg_commitments.len()
+    pub fn num_columns_required<T>(&self, custody_context: &CustodyContext<T>) -> usize
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        if custody_context.data_columns_required_for_bid(&self.bid) {
+            custody_context.num_of_data_columns_to_sample(self.bid.epoch())
+        } else {
+            0
+        }
     }
 
     /// Returns columns that have all cells present.
@@ -54,12 +70,30 @@ impl<E: EthSpec> PendingComponents<E> {
             .collect()
     }
 
+    /// Returns all partial (complete and incomplete) columns currently in the cache, suitable for
+    /// re-publishing.
+    pub(crate) fn get_cached_partial_data_columns(
+        &self,
+    ) -> Vec<KzgVerifiedCustodyPartialDataColumnGloas<E>> {
+        let block_root = self.block_root;
+        let slot = self.bid.message.slot;
+        self.verified_data_columns
+            .iter()
+            .filter_map(|(idx, col)| {
+                let partial = col.to_partial(*idx, slot, block_root)?;
+                Some(KzgVerifiedCustodyPartialDataColumnGloas::from_cached(
+                    Arc::new(partial),
+                ))
+            })
+            .collect()
+    }
+
     /// Merges a given set of data columns into the cache.
     pub(crate) fn merge_data_columns(
         &mut self,
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
     ) {
-        let num_blobs_expected = self.num_blobs_expected();
+        let num_blobs_expected = self.bid.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
             // The Vec-backed `PendingColumn` keys cells by index, so we have to allocate up to
@@ -80,7 +114,88 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    // TODO(gloas): merge partial columns
+    /// Merges a given set of partial data columns into the cache.
+    pub(crate) fn merge_partial_data_columns(
+        &mut self,
+        kzg_verified_partial_data_columns: &[KzgVerifiedCustodyPartialDataColumnGloas<E>],
+    ) -> PartialColumnsMergeOutcome {
+        let mut outcome = PartialColumnsMergeOutcome::default();
+        for partial in kzg_verified_partial_data_columns {
+            let col_index = partial.index();
+            let sidecar = partial.sidecar();
+
+            let col = self
+                .verified_data_columns
+                .entry(col_index)
+                .or_insert_with(|| PendingColumn::new_with_capacity(self.bid.num_blobs_expected()));
+
+            if col.is_complete() {
+                // Nothing to do.
+                continue;
+            }
+
+            let mut inserted_cells = 0;
+            for (blob_idx, cell, proof) in sidecar.present_cells() {
+                if col.insert(blob_idx, cell, proof) {
+                    inserted_cells += 1;
+                }
+            }
+
+            if inserted_cells > 0 {
+                outcome.added_cells += inserted_cells;
+                outcome.updated.push(col_index);
+            }
+
+            if col.is_complete() {
+                outcome.newly_complete.push(col_index);
+            }
+        }
+        outcome
+    }
+
+    /// Builds the publish list named by a merge outcome.
+    ///
+    /// This is separate from `merge_partial_data_columns` because it clones every cell. The merge
+    /// runs under the write lock. This runs after the downgrade, under a read guard.
+    pub(crate) fn to_partial_merge_result(
+        &self,
+        outcome: PartialColumnsMergeOutcome,
+        disable_get_blobs: bool,
+    ) -> PartialMergeResult<E> {
+        let slot = self.bid.message.slot;
+
+        let full_columns = outcome
+            .newly_complete
+            .into_iter()
+            .filter_map(|col_idx| {
+                let data = self.verified_data_columns.get(&col_idx)?.to_full_sidecar(
+                    col_idx,
+                    slot,
+                    self.block_root,
+                )?;
+                Some(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::from_execution_verified(data),
+                ))
+            })
+            .collect();
+
+        let updated_partials = outcome
+            .updated
+            .into_iter()
+            .filter_map(|col_idx| {
+                self.verified_data_columns
+                    .get(&col_idx)?
+                    .to_partial(col_idx, slot, self.block_root)
+            })
+            .collect();
+
+        PartialMergeResult {
+            added_cells: outcome.added_cells,
+            local_fetch_settled: self.local_fetch_settled || disable_get_blobs,
+            full_columns,
+            updated_partials: UpdatedPartials::Gloas(updated_partials),
+        }
+    }
 
     /// Inserts an executed payload envelope into the cache.
     pub fn insert_executed_payload_envelope(
@@ -94,11 +209,20 @@ impl<E: EthSpec> PendingComponents<E> {
         self.get_cached_data_columns().len()
     }
 
+    /// Returns whether our custody requirement for this block's data columns has been
+    /// fulfilled, independent of whether the payload envelope itself has been received.
+    pub fn is_blob_data_available(&self, num_expected_columns: usize) -> bool {
+        self.num_completed_columns() >= num_expected_columns
+    }
+
     /// Returns `Some` if the envelope and all required data columns have been received.
-    pub fn make_available(
+    pub fn make_available<T>(
         &self,
-        num_expected_columns: usize,
-    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError> {
+        custody_context: &CustodyContext<T>,
+    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         // Check if the payload has been received and executed
         let Some(envelope) = &self.envelope else {
             return Ok(None);
@@ -110,17 +234,24 @@ impl<E: EthSpec> PendingComponents<E> {
             payload_verification_outcome,
         } = envelope;
 
-        let columns = if self.num_blobs_expected() == 0 {
-            self.span.in_scope(|| {
-                debug!("Bid has no blobs, data is available");
-            });
+        let num_columns_required = self.num_columns_required(custody_context);
+        let columns = if num_columns_required == 0 {
+            if self.bid.num_blobs_expected() == 0 {
+                self.span.in_scope(|| {
+                    debug!("Bid has no blobs, data is available");
+                });
+            } else {
+                self.span.in_scope(|| {
+                    debug!("No data columns required for this epoch");
+                });
+            }
             vec![]
         } else {
             let columns = self.get_cached_data_columns();
-            match columns.len().cmp(&num_expected_columns) {
+            match columns.len().cmp(&num_columns_required) {
                 Ordering::Greater => {
                     return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many columns: got {} expected {num_expected_columns}",
+                        "too many columns: got {} expected {num_columns_required}",
                         columns.len()
                     )));
                 }
@@ -137,7 +268,8 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope = AvailableEnvelope::new(envelope.clone(), columns);
+        let available_envelope =
+            AvailableEnvelope::new(envelope.clone(), columns, &self.bid, custody_context)?;
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
@@ -156,18 +288,34 @@ impl<E: EthSpec> PendingComponents<E> {
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
+            local_fetch_settled: false,
             span,
         }
     }
 
-    pub fn status_str(&self, num_expected_columns: usize) -> String {
+    pub fn status_str<T>(&self, custody_context: &CustodyContext<T>) -> String
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        let num_columns_required = self.num_columns_required(custody_context);
         format!(
             "envelope {}, data_columns {}/{}",
             self.envelope.is_some(),
             self.num_completed_columns(),
-            num_expected_columns
+            num_columns_required
         )
     }
+}
+
+/// Outcome of merging partial data columns into the cache.
+#[derive(Default)]
+pub(crate) struct PartialColumnsMergeOutcome {
+    /// Number of cells newly inserted by the merge (cells already present don't count).
+    pub added_cells: usize,
+    /// Indices of columns that gained at least one new cell.
+    pub updated: Vec<ColumnIndex>,
+    /// Indices of columns that became fully populated as a result of the merge.
+    pub newly_complete: Vec<ColumnIndex>,
 }
 
 // This enum is only used internally within the crate in the reconstruction function to improve

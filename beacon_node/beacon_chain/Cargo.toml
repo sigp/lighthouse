@@ -16,6 +16,7 @@ participation_metrics = []
 fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+ef_tests = ["fork_choice/test-utils"]
 arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
@@ -31,6 +32,7 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
+fast_confirmation = { workspace = true }
 fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
@@ -49,6 +51,7 @@ once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+proof_engine = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }

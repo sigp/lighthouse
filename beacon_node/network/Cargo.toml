@@ -26,7 +26,7 @@ fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-igd-next = { version = "0.16", features = ["aio_tokio"] }
+igd-next = { version = "0.17", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
 logging = { workspace = true }
@@ -64,4 +64,5 @@ rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"
 rand_chacha_03 = { package = "rand_chacha", version = "0.3.1" }
 serde_json = { workspace = true }
+tree_hash = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }

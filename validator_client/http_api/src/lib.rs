@@ -9,23 +9,18 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-pub use api_secret::PK_FILENAME;
-
-use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
-
-use create_signed_voluntary_exit::create_signed_voluntary_exit;
-use graffiti_file::{GraffitiFile, determine_graffiti};
-use lighthouse_validator_store::LighthouseValidatorStore;
-use validator_store::ValidatorStore;
+pub use api_secret::{ApiSecret, PK_FILENAME};
 
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
-pub use api_secret::ApiSecret;
+use axum::Router;
+use axum_utils::server::Server;
 use beacon_node_fallback::CandidateInfo;
 use bls::{PublicKey, PublicKeyBytes};
 use core::convert::Infallible;
+use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
@@ -37,7 +32,10 @@ use eth2::lighthouse_vc::{
         UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
+use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
+use graffiti_file::{GraffitiFile, determine_graffiti};
 use health_metrics::observe::Observe;
+use lighthouse_validator_store::LighthouseValidatorStore;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use logging::crit;
@@ -54,24 +52,25 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use validator_services::block_service::BlockService;
+use validator_store::ValidatorStore;
 use warp::{Filter, reply::Response, sse::Event};
 use warp_utils::reject::convert_rejection;
 use warp_utils::task::blocking_json_task;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Warp(warp::Error),
+    #[error("Builder error: {0}")]
+    Builder(#[from] axum_utils::server::BuilderError),
+    #[error("Server error: {0}")]
+    Server(#[from] axum_utils::server::ServerError),
+    #[error("Warp error: {0}")]
+    Warp(#[from] warp::Error),
+    #[error("{0}")]
     Other(String),
-}
-
-impl From<warp::Error> for Error {
-    fn from(e: warp::Error) -> Self {
-        Error::Warp(e)
-    }
 }
 
 impl From<String> for Error {
@@ -148,7 +147,7 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     ctx: Arc<Context<T, E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
@@ -858,19 +857,23 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             move |request: UpdateCandidatesRequest,
                   block_service: BlockService<LighthouseValidatorStore<T, E>, T>| async move {
-                async fn parse_urls(urls: &[String]) -> Result<Vec<SensitiveUrl>, Response> {
+                // The error is the fully built HTTP response, which is large; box it to keep
+                // the `Result` small (`clippy::result_large_err`).
+                async fn parse_urls(urls: &[String]) -> Result<Vec<SensitiveUrl>, Box<Response>> {
                     match urls
                         .iter()
                         .map(|url| SensitiveUrl::parse(url).map_err(|e| e.to_string()))
                         .collect()
                     {
                         Ok(sensitive_urls) => Ok(sensitive_urls),
-                        Err(_) => Err(convert_rejection::<Infallible>(Err(
-                            warp_utils::reject::custom_bad_request(
-                                "one or more urls could not be parsed".to_string(),
-                            ),
-                        ))
-                        .await),
+                        Err(_) => Err(Box::new(
+                            convert_rejection::<Infallible>(Err(
+                                warp_utils::reject::custom_bad_request(
+                                    "one or more urls could not be parsed".to_string(),
+                                ),
+                            ))
+                            .await,
+                        )),
                     }
                 }
 
@@ -890,7 +893,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             }
                         }
                     }
-                    Err(e) => return e,
+                    Err(e) => return *e,
                 };
 
                 let response: UpdateCandidatesResponse = UpdateCandidatesResponse {
@@ -1399,20 +1402,33 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        .with(cors_builder.build());
+        .with(cors_builder.build())
+        .boxed();
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddr::new(config.listen_addr, config.listen_port),
-        async {
-            shutdown.await;
-        },
-    )?;
+    let axum_router = Router::new().fallback_service(warp::service(routes));
+
+    let address = SocketAddr::new(config.listen_addr, config.listen_port);
+
+    let server = Server::builder(axum_router, address).build().await?;
+
+    let (address, server) = server.serve_with_shutdown(shutdown).await?;
 
     info!(
-        listen_address = listening_socket.to_string(),
+        listen_address = %address,
         ?api_token_path,
         "HTTP API started"
     );
 
-    Ok((listening_socket, server))
+    let server_future = async move {
+        match server.await {
+            Ok(()) => {
+                info!("HTTP API server stopped");
+            }
+            Err(e) => {
+                error!(error = ?e, "HTTP API server error");
+            }
+        }
+    };
+
+    Ok((address, server_future))
 }
