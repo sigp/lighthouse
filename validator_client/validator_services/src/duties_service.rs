@@ -1463,18 +1463,19 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 duties
             };
 
+            let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
+
             let timer = validator_metrics::start_timer_vec(
                 &validator_metrics::DUTIES_SERVICE_TIMES,
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
-            // For distributed case that uses the selections_endpoint, call the endpoint
-            // and drain all remaining duties BEFORE the batch_size check. This ensures
-            // selection proofs are stored in the attesters map early enough for
-            // beacon committee subscriptions to include the correct is_aggregator value.
+            // for distributed case that uses the selections_endpoint
             if duties_service.selection_proof_config.selections_endpoint {
+                // Using lookahead_slot to determine if it is the first slot of an epoch
                 let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
 
+                // Call the selection endpoint only at the first slot of an epoch or when it errors
                 if is_lookahead_slot_epoch_start || call_selection_endpoint {
                     let beacon_committee_selections =
                         make_beacon_committee_selection(&duties_service, &duties).await;
@@ -1510,10 +1511,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                             .or_default()
                             .extend(attester_data);
                     }
-                }
+                
             }
-
-            let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
             if batch_size == 0 {
                 continue;
@@ -1521,7 +1520,6 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             // for distributed case that uses the selections_endpoint
             if duties_service.selection_proof_config.selections_endpoint {
-
                 for duty in relevant_duties.into_values().flatten() {
                     let key = (duty.validator_index, duty.slot);
 
