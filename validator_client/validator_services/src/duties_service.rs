@@ -1465,6 +1465,10 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
+            if batch_size == 0 && !duties_service.selection_proof_config.selections_endpoint {
+                continue;
+            }
+
             let timer = validator_metrics::start_timer_vec(
                 &validator_metrics::DUTIES_SERVICE_TIMES,
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
@@ -1511,15 +1515,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                             .or_default()
                             .extend(attester_data);
                     }
-                
-            }
+                }
 
-            if batch_size == 0 {
-                continue;
-            }
-
-            // for distributed case that uses the selections_endpoint
-            if duties_service.selection_proof_config.selections_endpoint {
                 for duty in relevant_duties.into_values().flatten() {
                     let key = (duty.validator_index, duty.slot);
 
