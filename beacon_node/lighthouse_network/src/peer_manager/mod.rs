@@ -848,29 +848,22 @@ impl<E: EthSpec> PeerManager<E> {
     /* Internal functions */
 
     /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
-    fn inject_connect_ingoing(
-        &mut self,
-        peer_id: &PeerId,
-        multiaddr: Multiaddr,
-        enr: Option<Enr>,
-    ) -> bool {
-        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
+    fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
+        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr);
     }
 
     /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
     fn inject_connect_outgoing(
         &mut self,
         peer_id: &PeerId,
         multiaddr: Multiaddr,
         enr: Option<Enr>,
-    ) -> bool {
+    ) {
         self.inject_peer_connection(
             peer_id,
             ConnectingType::OutgoingConnected { multiaddr },
             enr,
-        )
+        );
     }
 
     /// Updates the state of the peer as disconnected.
@@ -903,14 +896,12 @@ impl<E: EthSpec> PeerManager<E> {
     /// dialed or connecting to us.
     ///
     /// This is called by `connect_ingoing` and `connect_outgoing`.
-    ///
-    /// Informs if the peer was accepted in to the db or not.
     fn inject_peer_connection(
         &mut self,
         peer_id: &PeerId,
         connection: ConnectingType,
         enr: Option<Enr>,
-    ) -> bool {
+    ) {
         {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.ban_status(peer_id).is_some() {
@@ -921,7 +912,7 @@ impl<E: EthSpec> PeerManager<E> {
             match connection {
                 ConnectingType::Dialing => {
                     peerdb.dialing_peer(peer_id, enr);
-                    return true;
+                    return;
                 }
                 ConnectingType::IngoingConnected { multiaddr } => {
                     peerdb.connect_ingoing(peer_id, multiaddr, enr);
@@ -938,8 +929,6 @@ impl<E: EthSpec> PeerManager<E> {
 
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
-
-        true
     }
 
     // Gracefully disconnects a peer without banning them.
