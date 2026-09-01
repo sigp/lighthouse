@@ -87,7 +87,7 @@ Options:
       --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
           both are available. Enabled by default; set to "false" to disable.
-          [default: true]
+          [default: false]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
