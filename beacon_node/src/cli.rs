@@ -395,7 +395,7 @@ pub fn cli_app() -> Command {
                 .num_args(0..=1)
                 .default_value("false")
                 .default_missing_value("true")
-                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Disabled by default; set to \"true\" to enable.")
                 .display_order(0)
         )
         .arg(

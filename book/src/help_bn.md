@@ -86,7 +86,7 @@ Options:
           both IPv4 and IPv6. Defaults to `port6`
       --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available. Enabled by default; set to "false" to disable.
+          both are available. Disabled by default; set to "true" to enable.
           [default: false]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
