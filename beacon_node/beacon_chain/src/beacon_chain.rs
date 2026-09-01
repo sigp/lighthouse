@@ -37,6 +37,7 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
+use crate::inclusion_list_store::{DependentRoot, InclusionListCommittee, InclusionListStore};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -122,6 +123,7 @@ use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
     VerifyBlockRoot, VerifyOperation,
@@ -448,6 +450,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
+    /// Inclusion lists received over gossip for recent slots.
+    pub inclusion_list_store: RwLock<InclusionListStore<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -7178,6 +7182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.gossip_verified_payload_bid_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
             self.pending_payload_envelopes.write().prune(slot);
+            self.inclusion_list_store.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
@@ -7295,6 +7300,86 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             shuffling_epoch,
             map_fn,
         )
+    }
+
+    /// The ordered inclusion list committee for `slot`, and the dependent root that keys it.
+    ///
+    /// `block_root` must not be from a later epoch than `slot`, since `with_committee_cache` cannot
+    /// resolve a shuffling earlier than its own block's epoch.
+    pub fn inclusion_list_committee(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+    ) -> Result<(InclusionListCommittee<T::EthSpec>, DependentRoot), Error> {
+        let shuffling_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let committee_size = T::EthSpec::inclusion_list_committee_size();
+
+        self.with_committee_cache(
+            block_root,
+            shuffling_epoch,
+            |cached_shuffling, dependent_root| {
+                let committee = cached_shuffling
+                    .committee_cache
+                    .get_inclusion_list_committee_at_slot(slot, committee_size)?
+                    .into_iter()
+                    .map(|index| index as u64)
+                    .collect::<Vec<_>>();
+
+                Ok((FixedVector::new(committee)?, dependent_root))
+            },
+        )
+    }
+
+    /// The deduplicated transactions from the inclusion lists stored for `slot`.
+    pub fn get_inclusion_list_transactions(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+        only_timely: bool,
+    ) -> Result<Vec<ProgressiveVariableList<u8>>, Error> {
+        let (_, dependent_root) = self.inclusion_list_committee(block_root, slot)?;
+
+        Ok(self
+            .inclusion_list_store
+            .read()
+            .get_inclusion_list_transactions(slot, dependent_root, only_timely))
+    }
+
+    /// The inclusion list committee bits for `slot` as observed by this node.
+    pub fn get_inclusion_list_bits(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+        only_timely: bool,
+    ) -> Result<BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>, Error> {
+        let (il_committee, dependent_root) = self.inclusion_list_committee(block_root, slot)?;
+
+        self.inclusion_list_store
+            .read()
+            .get_inclusion_list_bits(slot, dependent_root, &il_committee, only_timely)
+            .map_err(Into::into)
+    }
+
+    /// Whether `bits` covers every inclusion list this node observed for `slot`.
+    pub fn is_inclusion_list_bits_inclusive(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+        bits: &BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>,
+        only_timely: bool,
+    ) -> Result<bool, Error> {
+        let (il_committee, dependent_root) = self.inclusion_list_committee(block_root, slot)?;
+
+        self.inclusion_list_store
+            .read()
+            .is_inclusion_list_bits_inclusive(
+                slot,
+                dependent_root,
+                &il_committee,
+                bits,
+                only_timely,
+            )
+            .map_err(Into::into)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

@@ -8,6 +8,7 @@ use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
+use crate::inclusion_list_store::InclusionListStore;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -1031,6 +1032,7 @@ where
             observed_execution_proofs: <_>::default(),
             observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
+            inclusion_list_store: RwLock::new(InclusionListStore::new(&self.spec)),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),

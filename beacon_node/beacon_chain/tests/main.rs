@@ -5,6 +5,7 @@ mod block_verification;
 mod column_verification;
 mod envelope_verification;
 mod events;
+mod inclusion_list_store;
 mod op_verification;
 mod payload_invalidation;
 mod prepare_payload;
