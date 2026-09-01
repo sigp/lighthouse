@@ -1463,6 +1463,11 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 duties
             };
 
+            let timer = validator_metrics::start_timer_vec(
+                &validator_metrics::DUTIES_SERVICE_TIMES,
+                &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
+            );
+
             // For distributed case that uses the selections_endpoint, call the endpoint
             // and drain all remaining duties BEFORE the batch_size check. This ensures
             // selection proofs are stored in the attesters map early enough for
@@ -1513,11 +1518,6 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
             if batch_size == 0 {
                 continue;
             }
-
-            let timer = validator_metrics::start_timer_vec(
-                &validator_metrics::DUTIES_SERVICE_TIMES,
-                &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
-            );
 
             // for distributed case that uses the selections_endpoint
             if duties_service.selection_proof_config.selections_endpoint {
