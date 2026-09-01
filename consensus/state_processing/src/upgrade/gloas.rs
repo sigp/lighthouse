@@ -1,4 +1,5 @@
 use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signature_cached};
+use crate::per_block_processing::process_operations::is_pending_validator;
 use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
@@ -288,17 +289,15 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
                     || unchecked_pending_validators
                         .remove(&deposit.pubkey)
                         .is_some_and(|deposits| {
-                            deposits.iter().any(|pending_deposit| {
-                                is_valid_deposit_signature_cached(
-                                    builder_onboarding_cache,
-                                    pending_deposit,
-                                    spec,
-                                )
-                            })
-                        })
-                        .then(|| valid_pending_validators.insert(deposit.pubkey))
-                        .is_some();
+                            is_pending_validator(
+                                deposits,
+                                &deposit.pubkey,
+                                builder_onboarding_cache,
+                                spec,
+                            )
+                        });
                 if is_pending_validator {
+                    valid_pending_validators.insert(deposit.pubkey);
                     pending_deposits.push(deposit.clone());
                     continue;
                 }
