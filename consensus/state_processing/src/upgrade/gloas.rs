@@ -4,7 +4,10 @@ use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
 use std::marker::PhantomData;
-use std::{collections::HashMap, mem};
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
@@ -216,92 +219,6 @@ fn initialize_ptc_window<E: EthSpec>(
     Ok(())
 }
 
-/// The retained deposits for one pubkey, plus how far their signatures have been checked.
-#[derive(Default)]
-struct PendingValidatorEntry<'a> {
-    deposits: Vec<&'a PendingDeposit>,
-    /// Number of leading `deposits` whose signatures have already been checked.
-    checked: usize,
-    /// Whether any checked deposit carried a valid signature.
-    has_valid_signature: bool,
-}
-
-/// The pending deposits retained in the queue so far during builder onboarding, in queue order,
-/// together with a per-pubkey view for answering `is_pending_validator`.
-///
-/// The spec's `is_pending_validator` scans the whole retained queue for every builder-credential
-/// deposit, which is quadratic in the (unbounded) size of `pending_deposits`. Two things make
-/// this cheap without changing the result:
-///
-/// - Only deposits with a matching pubkey can make a pubkey pending, so each check only inspects
-///   the retained deposits for that pubkey.
-/// - The retained queue only ever grows, so the outcome for the deposits already checked cannot
-///   change. Each pubkey entry remembers how far it has been checked and whether a valid
-///   signature was found, so every retained deposit's signature is checked at most once, however
-///   many builder-credential deposits for the same pubkey follow it.
-#[derive(Default)]
-struct RetainedDeposits<'a> {
-    /// The retained deposits in queue order, as written back to the state.
-    deposits: Vec<&'a PendingDeposit>,
-    by_pubkey: HashMap<PublicKeyBytes, PendingValidatorEntry<'a>>,
-}
-
-impl<'a> RetainedDeposits<'a> {
-    /// Keep `deposit` in the pending queue.
-    fn push(&mut self, deposit: &'a PendingDeposit) {
-        self.deposits.push(deposit);
-        self.by_pubkey
-            .entry(deposit.pubkey)
-            .or_default()
-            .deposits
-            .push(deposit);
-    }
-
-    fn len(&self) -> usize {
-        self.deposits.len()
-    }
-
-    /// The retained deposits in queue order.
-    fn into_deposits(self) -> impl Iterator<Item = PendingDeposit> + 'a {
-        self.deposits.into_iter().cloned()
-    }
-
-    /// Equivalent to `is_pending_validator` over the full retained queue: whether any retained
-    /// deposit for `pubkey` has a valid signature.
-    fn is_pending_validator(
-        &mut self,
-        pubkey: &PublicKeyBytes,
-        builder_onboarding_cache: Option<&OnboardBuildersCache>,
-        spec: &ChainSpec,
-    ) -> bool {
-        self.is_pending_validator_with(pubkey, |deposit| {
-            is_valid_deposit_signature_cached(builder_onboarding_cache, deposit, spec)
-        })
-    }
-
-    /// `is_pending_validator` with an injectable signature check. Deposits already checked by a
-    /// previous call are not checked again.
-    fn is_pending_validator_with(
-        &mut self,
-        pubkey: &PublicKeyBytes,
-        mut is_valid_signature: impl FnMut(&PendingDeposit) -> bool,
-    ) -> bool {
-        let Some(entry) = self.by_pubkey.get_mut(pubkey) else {
-            return false;
-        };
-        if !entry.has_valid_signature {
-            for deposit in entry.deposits.iter().skip(entry.checked) {
-                entry.checked = entry.checked.saturating_add(1);
-                if is_valid_signature(deposit) {
-                    entry.has_valid_signature = true;
-                    break;
-                }
-            }
-        }
-        entry.has_valid_signature
-    }
-}
-
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.
 ///
 /// The `pending_deposits` queue is unbounded, so this function avoids doing expensive work
@@ -309,9 +226,11 @@ impl<'a> RetainedDeposits<'a> {
 ///
 /// - Signature verification results are looked up in the `builder_onboarding_cache` (populated
 ///   ahead of the fork), falling back to inline verification on cache miss.
-/// - The `is_pending_validator` check only scans retained deposits with a matching pubkey and
-///   checks each retained deposit's signature at most once (via `RetainedDeposits`), rather
-///   than rescanning the whole retained queue per builder deposit, which is quadratic.
+/// - The spec's `is_pending_validator` rescans every retained deposit per builder-credential
+///   deposit, which is quadratic in the queue. Instead, retained new-validator deposits are
+///   grouped by pubkey and their signatures are checked lazily, the first time a builder
+///   deposit asks about that pubkey, and never again: invalid ones are discarded and a valid
+///   one settles the pubkey for the rest of the loop.
 /// - The builder registry is accumulated in a local `Vec` and written to the state once at the
 ///   end. This is a deviation from the spec, which calls `add_builder_to_registry` per deposit:
 ///   scanning the registry for a reusable index on every insertion (quadratic overall) and
@@ -332,7 +251,12 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     // Clone pending deposits to avoid borrow conflicts when mutating state.
     let current_pending_deposits = state.pending_deposits()?.to_vec();
 
-    let mut retained_deposits = RetainedDeposits::default();
+    let mut pending_deposits: Vec<PendingDeposit> = Vec::new();
+    // Retained deposits for new validators whose signatures have not been checked yet, by pubkey.
+    let mut unchecked_pending_validators: HashMap<PublicKeyBytes, Vec<&PendingDeposit>> =
+        HashMap::new();
+    // Pubkeys known to have a valid pending deposit for a new validator.
+    let mut valid_pending_validators: HashSet<PublicKeyBytes> = HashSet::new();
 
     let mut builders: Vec<Builder> = Vec::new();
     let mut builder_pubkey_to_index: HashMap<PublicKeyBytes, u64> = HashMap::new();
@@ -340,7 +264,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
         if state.get_validator_index(&deposit.pubkey)?.is_some() {
-            retained_deposits.push(deposit);
+            pending_deposits.push(deposit.clone());
             continue;
         }
 
@@ -348,18 +272,34 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             None => {
                 // Deposits without builder withdrawal credentials are for new validators.
                 if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
-                    retained_deposits.push(deposit);
+                    pending_deposits.push(deposit.clone());
+                    unchecked_pending_validators
+                        .entry(deposit.pubkey)
+                        .or_default()
+                        .push(deposit);
                     continue;
                 }
 
                 // If there is a valid pending deposit for a new validator with this pubkey,
                 // keep this deposit in the pending queue to be applied to that validator later.
-                if retained_deposits.is_pending_validator(
-                    &deposit.pubkey,
-                    builder_onboarding_cache,
-                    spec,
-                ) {
-                    retained_deposits.push(deposit);
+                // Only deposits not yet checked are checked; the bucket is removed so invalid
+                // ones are never re-checked, and a valid one settles the pubkey for good.
+                let is_pending_validator = valid_pending_validators.contains(&deposit.pubkey)
+                    || unchecked_pending_validators
+                        .remove(&deposit.pubkey)
+                        .is_some_and(|deposits| {
+                            deposits.iter().any(|pending_deposit| {
+                                is_valid_deposit_signature_cached(
+                                    builder_onboarding_cache,
+                                    pending_deposit,
+                                    spec,
+                                )
+                            })
+                        })
+                        .then(|| valid_pending_validators.insert(deposit.pubkey))
+                        .is_some();
+                if is_pending_validator {
+                    pending_deposits.push(deposit.clone());
                     continue;
                 }
 
@@ -390,12 +330,12 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     debug!(
         deposits_processed = current_pending_deposits.len(),
         builders_onboarded = builders.len(),
-        deposits_retained = retained_deposits.len(),
+        deposits_retained = pending_deposits.len(),
         "Onboarded builders at the gloas fork transition"
     );
 
     *state.builders_mut()? = ProgressiveList::try_from_iter(builders)?;
-    state.set_pending_deposits_from_iter(retained_deposits.into_deposits())?;
+    state.set_pending_deposits_from_iter(pending_deposits)?;
 
     Ok(())
 }
@@ -464,6 +404,12 @@ mod tests {
         builder_topup_deposit: PendingDeposit,
         /// The deposits expected to remain in the queue after onboarding, in order.
         expected_retained: Vec<PendingDeposit>,
+        /// A valid new-validator deposit whose pubkey a later builder deposit asks about.
+        shadowing_validator_deposit: PendingDeposit,
+        /// An invalid new-validator deposit whose pubkey a later builder deposit asks about.
+        retried_invalid_validator_deposit: PendingDeposit,
+        /// An invalid new-validator deposit whose pubkey no builder deposit asks about.
+        invalid_validator_deposit: PendingDeposit,
     }
 
     fn onboarding_fixture() -> OnboardingFixture {
@@ -591,13 +537,16 @@ mod tests {
             builder_topup_deposit,
             expected_retained: vec![
                 existing_validator_deposit,
-                shadowing_validator_deposit,
+                shadowing_validator_deposit.clone(),
                 shadowed_builder_deposit,
-                invalid_validator_deposit,
-                retried_invalid_validator_deposit,
+                invalid_validator_deposit.clone(),
+                retried_invalid_validator_deposit.clone(),
                 retried_valid_validator_deposit,
                 retried_shadowed_builder_deposit,
             ],
+            shadowing_validator_deposit,
+            retried_invalid_validator_deposit,
+            invalid_validator_deposit,
         }
     }
 
@@ -684,6 +633,21 @@ mod tests {
             cache.cached_is_valid_signature(&fixture.builder_deposit),
             Some(true)
         );
+
+        // Pending validator checks are lazy: only deposits whose pubkey a builder deposit asked
+        // about were verified, and a new-validator deposit nobody asked about was not.
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.shadowing_validator_deposit),
+            Some(true)
+        );
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.retried_invalid_validator_deposit),
+            Some(false)
+        );
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.invalid_validator_deposit),
+            None
+        );
     }
 
     /// Onboarding on a state that already has builders must fail rather than silently wipe the
@@ -705,99 +669,5 @@ mod tests {
             onboard_builders_from_pending_deposits(&mut post, None, &fixture.spec),
             Err(Error::BuilderRegistryNotEmpty)
         );
-    }
-
-    /// `RetainedDeposits` must only report a pending validator for pubkeys with a retained deposit
-    /// carrying a valid signature, regardless of how many other deposits are retained.
-    #[test]
-    fn retained_deposits_matches_linear_scan_semantics() {
-        let spec = E::default_spec();
-        let keypairs = generate_deterministic_keypairs(3);
-
-        let valid = make_deposit(
-            &keypairs[0],
-            eth1_credentials(),
-            32_000_000_000,
-            true,
-            &spec,
-        );
-        let invalid = make_deposit(
-            &keypairs[1],
-            eth1_credentials(),
-            32_000_000_000,
-            false,
-            &spec,
-        );
-
-        let mut retained = RetainedDeposits::default();
-
-        // Nothing retained yet: no pubkey is pending.
-        assert!(!retained.is_pending_validator(&valid.pubkey, None, &spec));
-
-        retained.push(&valid);
-        retained.push(&invalid);
-
-        assert!(retained.is_pending_validator(&valid.pubkey, None, &spec));
-        assert!(!retained.is_pending_validator(&invalid.pubkey, None, &spec));
-        assert!(!retained.is_pending_validator(&keypairs[2].pk.compress(), None, &spec));
-    }
-
-    /// A pubkey with several retained deposits is pending if *any* of them has a valid
-    /// signature, even when an earlier one is invalid.
-    #[test]
-    fn retained_deposits_considers_every_deposit_for_a_pubkey() {
-        let spec = E::default_spec();
-        let keypair = &generate_deterministic_keypairs(1)[0];
-
-        let invalid = make_deposit(keypair, eth1_credentials(), 32_000_000_000, false, &spec);
-        let valid = make_deposit(keypair, eth1_credentials(), 32_000_000_000, true, &spec);
-
-        let mut retained = RetainedDeposits::default();
-        retained.push(&invalid);
-        assert!(!retained.is_pending_validator(&keypair.pk.compress(), None, &spec));
-
-        retained.push(&valid);
-        assert!(retained.is_pending_validator(&keypair.pk.compress(), None, &spec));
-    }
-
-    /// Each retained deposit's signature must be checked at most once across every query for
-    /// its pubkey: repeated builder deposits for one pubkey must not rescan the same retained
-    /// deposits (the quadratic case), and once a valid deposit is found nothing more is checked.
-    #[test]
-    fn retained_deposits_checks_each_signature_at_most_once() {
-        let spec = E::default_spec();
-        let keypair = &generate_deterministic_keypairs(1)[0];
-        let pubkey = keypair.pk.compress();
-
-        let invalid_a = make_deposit(keypair, eth1_credentials(), 32_000_000_000, false, &spec);
-        let invalid_b = make_deposit(keypair, eth1_credentials(), 33_000_000_000, false, &spec);
-        let valid = make_deposit(keypair, eth1_credentials(), 32_000_000_000, true, &spec);
-
-        let checks = std::cell::Cell::new(0usize);
-        let mut counting_check = |deposit: &PendingDeposit| {
-            checks.set(checks.get() + 1);
-            is_valid_deposit_signature_cached(None, deposit, &spec)
-        };
-
-        let mut retained = RetainedDeposits::default();
-        retained.push(&invalid_a);
-        retained.push(&invalid_b);
-
-        assert!(!retained.is_pending_validator_with(&pubkey, &mut counting_check));
-        assert_eq!(checks.get(), 2);
-
-        // Querying again must not re-check the deposits already known to be invalid.
-        assert!(!retained.is_pending_validator_with(&pubkey, &mut counting_check));
-        assert_eq!(checks.get(), 2);
-
-        // A newly retained deposit is checked exactly once.
-        retained.push(&valid);
-        assert!(retained.is_pending_validator_with(&pubkey, &mut counting_check));
-        assert_eq!(checks.get(), 3);
-
-        // Once a valid deposit is known, later retained deposits are never checked.
-        retained.push(&invalid_a);
-        assert!(retained.is_pending_validator_with(&pubkey, &mut counting_check));
-        assert_eq!(checks.get(), 3);
     }
 }
