@@ -202,7 +202,7 @@ fn default_true() -> bool {
 // Lighthouses `fork_choice::on_block` rejects invalid blocks in only four cases, `ParentUnknown`,
 // `FutureSlot`, `WouldRevertFinalizedSlot`, and `NotFinalizedDescendant`. All other error variants
 // are caught further upstream in block verification. The spec's `on_block` rejects invalid blocks
-// in all cases. This helper here is to help indicate which errors are caught in Lighthouse's
+// in all cases. This helper exists to indicate which errors are caught in Lighthouse's
 // fork choice implementation.
 fn block_rejection_is_fork_choice_level(error: &beacon_chain::BlockError) -> bool {
     use beacon_chain::BlockError::*;
