@@ -210,6 +210,12 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
 
+# Run the tests in the `fork_choice` crate for all known forks.
+test-fork-choice: $(patsubst %,test-fork-choice-%,$(RECENT_FORKS))
+
+test-fork-choice-%:
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env,$(TEST_FEATURES)" -p fork_choice --no-fail-fast
+
 # Run the tests in the `http_api` crate for recent forks.
 test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
