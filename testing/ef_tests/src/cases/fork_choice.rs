@@ -830,7 +830,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
-        // Re-feeding a known block is a no-op success, like the spec's `on_block`.
+        // If the block has already been imported, we treat is as a no-op success.
         if self.imported_blocks.borrow().contains(&block_root) {
             return Ok(());
         }
@@ -912,7 +912,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
-        // Re-feeding a known block is a no-op success, like the spec's `on_block`.
+        // If the block has already been imported, we treat is as a no-op success.
         if self.imported_blocks.borrow().contains(&block_root) {
             return Ok(());
         }
