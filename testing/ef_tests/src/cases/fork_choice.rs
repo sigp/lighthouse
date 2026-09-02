@@ -1,14 +1,12 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
-    AttestationFromBlock, ForkChoiceStore, PayloadStatus as FcPayloadStatus,
-    PayloadVerificationStatus, ProposerHeadError,
+    AttestationFromBlock, ForkChoiceStore, PayloadStatus as FcPayloadStatus, ProposerHeadError,
 };
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
     attestation_verification::VerifiedAttestation,
@@ -197,45 +195,6 @@ pub enum Step<
 
 fn default_true() -> bool {
     true
-}
-
-// Lighthouses `fork_choice::on_block` rejects invalid blocks in only four cases, `ParentUnknown`,
-// `FutureSlot`, `WouldRevertFinalizedSlot`, and `NotFinalizedDescendant`. All other error variants
-// are caught further upstream in block verification. The spec's `on_block` rejects invalid blocks
-// in all cases. This helper exists to indicate which errors are caught in Lighthouse's
-// fork choice implementation.
-fn block_rejection_is_fork_choice_level(error: &beacon_chain::BlockError) -> bool {
-    use beacon_chain::BlockError::*;
-    match error {
-        ParentUnknown { .. }
-        | FutureSlot { .. }
-        | WouldRevertFinalizedSlot { .. }
-        | NotFinalizedDescendant { .. } => true,
-        StateRootMismatch { .. }
-        | GenesisBlock
-        | DuplicateFullyImported(_)
-        | DuplicateImportStatusUnknown(_)
-        | BlockSlotLimitReached
-        | IncorrectBlockProposer { .. }
-        | UnknownValidator(_)
-        | InvalidSignature(_)
-        | BlockIsNotLaterThanParent { .. }
-        | NonLinearParentRoots
-        | NonLinearSlots
-        | PerBlockProcessingError(_)
-        | BeaconChainError(_)
-        | WeakSubjectivityConflict
-        | InconsistentFork(_)
-        | ExecutionPayloadError(_)
-        | ParentExecutionPayloadInvalid { .. }
-        | KnownInvalidExecutionPayload(_)
-        | Slashable
-        | AvailabilityCheck(_)
-        | InternalError(_)
-        | InvalidBlobCount { .. }
-        | BidParentRootMismatch { .. }
-        | EnvelopeError(_) => false,
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -890,16 +849,6 @@ impl<E: EthSpec> Tester<E> {
             )));
         }
 
-        if !valid
-            && columns.is_none()
-            && result
-                .as_ref()
-                .err()
-                .is_some_and(block_rejection_is_fork_choice_level)
-        {
-            self.apply_invalid_block(&block)?;
-        }
-
         Ok(())
     }
 
@@ -1010,16 +959,6 @@ impl<E: EthSpec> Tester<E> {
             )));
         }
 
-        if !valid
-            && blobs.is_none()
-            && result
-                .as_ref()
-                .err()
-                .is_some_and(block_rejection_is_fork_choice_level)
-        {
-            self.apply_invalid_block(&block)?;
-        }
-
         Ok(())
     }
 
@@ -1094,76 +1033,6 @@ impl<E: EthSpec> Tester<E> {
                 )
             }
         }
-    }
-
-    // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
-    // that the block is being rejected by `on_block`, not just some upstream block processing
-    // function. When data columns or blobs exist, we don't do this.
-    fn apply_invalid_block(&self, block: &Arc<SignedBeaconBlock<E>>) -> Result<(), Error> {
-        let block_root = block.canonical_root();
-        // A missing parent block whilst `valid == false` means the test should pass.
-        if let Some(parent_block) = self
-            .harness
-            .chain
-            .get_blinded_block(&block.parent_root())
-            .unwrap()
-        {
-            let parent_state_root = parent_block.state_root();
-
-            let mut state = self
-                .harness
-                .chain
-                .get_state(
-                    &parent_state_root,
-                    Some(parent_block.slot()),
-                    CACHE_STATE_IN_TESTS,
-                )
-                .unwrap()
-                .unwrap();
-
-            complete_state_advance(
-                &mut state,
-                Some(parent_state_root),
-                block.slot(),
-                None,
-                &self.harness.chain.spec,
-            )
-            .unwrap();
-
-            let block_delay = self
-                .harness
-                .chain
-                .slot_clock
-                .seconds_from_current_slot_start()
-                .unwrap();
-
-            // FIXME(sproul): this whole concept is a bit ill-conceived, the blocks just get
-            // rejected here due to passing payload status irrelevant, which is not a real codepath
-            // that should be reached
-            let result = self
-                .harness
-                .chain
-                .canonical_head
-                .fork_choice_write_lock()
-                .on_block(
-                    self.harness.chain.slot().unwrap(),
-                    block.message(),
-                    block_root,
-                    block_delay,
-                    &state,
-                    PayloadVerificationStatus::Irrelevant,
-                    &self.harness.chain.spec,
-                );
-
-            if result.is_ok() {
-                return Err(Error::DidntFail(format!(
-                    "block with root {} should fail on_block",
-                    block_root,
-                )));
-            }
-        }
-
-        Ok(())
     }
 
     pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
