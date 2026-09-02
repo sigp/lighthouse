@@ -270,6 +270,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: None,
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -285,6 +286,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Syncing,
             latest_valid_hash: None,
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -300,6 +302,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Invalid,
             latest_valid_hash: Some(latest_valid_hash),
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -317,6 +320,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::InvalidBlockHash,
             latest_valid_hash: None,
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -332,6 +336,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Invalid,
             latest_valid_hash: Some(ExecutionBlockHash::zero()),
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 

@@ -692,6 +692,7 @@ impl<E: EthSpec> GossipTester<E> {
                     status: PayloadStatusV1Status::Valid,
                     latest_valid_hash: Some(block_hash),
                     validation_error: None,
+                    inclusion_list_satisfied: None,
                 },
             );
         }

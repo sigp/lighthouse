@@ -119,6 +119,8 @@ pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
+    /// [New in Heze:EIP-7805] Only populated from `engine_forkchoiceUpdatedV5` onwards.
+    pub inclusion_list_satisfied: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]

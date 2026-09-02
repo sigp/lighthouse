@@ -1178,7 +1178,7 @@ impl HttpJsonRpc {
             null
         ]);
 
-        let response: JsonForkchoiceUpdatedV1Response = self
+        let response: JsonForkchoiceUpdatedV2Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V5,
                 params,
@@ -1933,6 +1933,48 @@ mod test {
                     null]
                 }),
             )
+            .await
+            .with_preloaded_responses(
+                // engine_forkchoiceUpdatedV5 response validation
+                vec![json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "result": {
+                        "payloadStatus": {
+                            "status": "VALID",
+                            "latestValidHash": HASH_01,
+                            "validationError": null,
+                            "inclusionListSatisfied": true,
+                        },
+                        "payloadId": "0xa247243752eb10b4"
+                    }
+                })],
+                |client| async move {
+                    let response = client
+                        .forkchoice_updated_v5(
+                            ForkchoiceState {
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
+                            },
+                            payload_attributes(),
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        response,
+                        ForkchoiceUpdatedResponse {
+                            payload_status: PayloadStatusV1 {
+                                status: PayloadStatusV1Status::Valid,
+                                latest_valid_hash: Some(ExecutionBlockHash::repeat_byte(1)),
+                                validation_error: None,
+                                inclusion_list_satisfied: Some(true),
+                            },
+                            payload_id: Some(str_to_payload_id("0xa247243752eb10b4")),
+                        }
+                    );
+                },
+            )
             .await;
 
         Tester::new(false)
@@ -2187,6 +2229,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id:
                             Some(str_to_payload_id("0xa247243752eb10b4")),
@@ -2326,6 +2369,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         }
                     );
                 },
@@ -2389,6 +2433,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id: None,
                     });
