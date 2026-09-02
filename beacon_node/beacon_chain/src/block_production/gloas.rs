@@ -39,6 +39,7 @@ use types::{
     Withdrawals,
 };
 
+use crate::payload_bid_verification::payload_bid_cache::BidParent;
 use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
@@ -227,6 +228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         randao_reveal,
                         graffiti,
                         &parent_execution_requests_ref,
+                        should_build_on_full,
                     )
                 },
                 "produce_partial_beacon_block_gloas",
@@ -288,6 +290,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         graffiti: Graffiti,
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
+        should_build_on_full: bool,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -301,7 +304,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
 
         // Ensure the state has performed a complete transition into the required slot.
-        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+        complete_state_advance(
+            &mut state,
+            state_root_opt,
+            produce_at_slot,
+            self.builder_onboarding_cache.as_deref(),
+            &self.spec,
+        )?;
 
         drop(slot_timer);
 
@@ -372,6 +381,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Epoch cache and total balance cache are required for op pool packing.
             state.build_total_active_balance_cache(&self.spec)?;
             initialize_epoch_cache(&mut state, &self.spec)?;
+
+            // [New in Gloas:EIP7732] Since payload processing is deferred to the next block, the
+            // state doesn't have the parent's payload availability bit set yet. Set it here (if
+            // building on the parent's payload) so that attestation packing scores head votes like
+            // block processing does.
+            if should_build_on_full {
+                let parent_slot = state.latest_execution_payload_bid()?.slot;
+                let availability_index =
+                    parent_slot.as_usize() % T::EthSpec::slots_per_historical_root();
+                state
+                    .execution_payload_availability_mut()?
+                    .set(availability_index, true)?;
+            }
 
             let mut prev_filter_cache = HashMap::new();
             let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
@@ -924,8 +946,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> WinningBid<T::EthSpec> {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
             local_signed_bid.message.slot,
-            local_signed_bid.message.parent_block_hash,
-            local_signed_bid.message.parent_block_root,
+            BidParent::from_bid(&local_signed_bid.message),
         );
         select_payload_bid_pure(
             local_signed_bid,

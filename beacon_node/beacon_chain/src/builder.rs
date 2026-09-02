@@ -12,7 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::PendingPayloadCache;
+use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -36,8 +36,9 @@ use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::genesis::genesis_block;
-use state_processing::per_slot_processing;
+use state_processing::{GloasVerificationContext, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -423,8 +424,13 @@ where
                 "Advancing checkpoint state to boundary"
             );
             while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, &self.spec)
-                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
+                per_slot_processing(
+                    &mut weak_subj_state,
+                    None,
+                    GloasVerificationContext::FullVerification,
+                    &self.spec,
+                )
+                .map_err(|e| format!("Error advancing state: {e:?}"))?;
             }
         }
 
@@ -912,6 +918,10 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
+        let head_is_pre_gloas = !head_snapshot
+            .beacon_state
+            .fork_name_unchecked()
+            .gloas_enabled();
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
@@ -933,9 +943,8 @@ where
             let backfill_epoch_range = if cfg!(feature = "test_backfill") {
                 3
             } else {
-                (self.spec.min_validator_withdrawability_delay + self.spec.churn_limit_quotient)
-                    .as_u64()
-                    / 2
+                self.spec.min_validator_withdrawability_delay.as_u64()
+                    + self.spec.churn_limit_quotient / 2
             };
 
             match slot_clock.now() {
@@ -986,6 +995,13 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        // Without a proof engine we can't verify proofs, so we don't require them.
+        let required_execution_proofs = if self.proof_engine.is_some() {
+            REQUIRED_EXECUTION_PROOFS
+        } else {
+            0
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1020,6 +1036,7 @@ where
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_execution_proofs: <_>::default(),
+            observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -1074,15 +1091,25 @@ where
                     self.kzg.clone(),
                     custody_context,
                     disable_get_blobs,
+                    required_execution_proofs,
                     self.spec.clone(),
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
+            builder_onboarding_cache: head_is_pre_gloas
+                .then(|| OnboardBuildersCache::new(&self.spec))
+                .flatten()
+                .map(Arc::new),
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
             gossip_verified_proposer_preferences_cache: <_>::default(),
+            observed_payload_envelopes: <_>::default(),
         };
+
+        beacon_chain
+            .initialize_observed_execution_payloads()
+            .map_err(|e| format!("Unable to restore execution payload gas limits: {e:?}"))?;
 
         let head = beacon_chain.head_snapshot();
 
@@ -1153,6 +1180,25 @@ where
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
+        }
+
+        // Seed the builder onboarding cache in the background from the current head state, so
+        // that builder onboarding at the gloas fork transition is a cache lookup. The cache is
+        // only present when the head was still pre-gloas at startup.
+        if let Some(onboarding_cache) = &beacon_chain.builder_onboarding_cache {
+            let cache = onboarding_cache.clone();
+            let spec = self.spec.clone();
+            let head = head.clone();
+            // Using the rayon pool here since `seed_from_state` uses rayon threads to perform
+            // the signature verification in batches.
+            beacon_chain
+                .task_executor
+                .clone()
+                .spawn_blocking_with_rayon(
+                    move || cache.seed_from_state(&head.beacon_state, &spec),
+                    task_executor::RayonPoolType::LowPriority,
+                    "initialize_builder_onboarding_cache",
+                );
         }
 
         Ok(beacon_chain)
@@ -1254,8 +1300,13 @@ where
         let mut fork_choice_state = initial_state.clone();
         if fork_choice_state.slot() < fork_choice_slot {
             while fork_choice_state.slot() < fork_choice_slot {
-                per_slot_processing(&mut fork_choice_state, None, &self.spec)
-                    .map_err(|e| format!("Error advancing fork choice state: {e:?}"))?;
+                per_slot_processing(
+                    &mut fork_choice_state,
+                    None,
+                    GloasVerificationContext::FullVerification,
+                    &self.spec,
+                )
+                .map_err(|e| format!("Error advancing fork choice state: {e:?}"))?;
             }
         } else {
             // Some tests use a post-initial state that is already beyond the finalized checkpoint

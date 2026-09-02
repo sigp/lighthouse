@@ -76,7 +76,11 @@ pub async fn gossip_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -140,7 +144,11 @@ pub async fn gossip_partial_pass() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 }
@@ -180,6 +188,7 @@ pub async fn gossip_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -228,7 +237,7 @@ pub async fn gossip_full_pass_ssz() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_contents, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_contents, validation_level, None)
         .await;
 
     assert!(response.is_ok());
@@ -277,7 +286,11 @@ pub async fn consensus_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -339,7 +352,11 @@ pub async fn consensus_gossip() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -463,6 +480,7 @@ pub async fn consensus_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -514,7 +532,11 @@ pub async fn equivocation_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -587,7 +609,8 @@ pub async fn equivocation_consensus_early_equivocation() {
             .client
             .post_beacon_blocks_v2_ssz(
                 &PublishBlockRequest::new(block_a.clone(), blobs_a),
-                validation_level
+                validation_level,
+                None
             )
             .await
             .is_ok()
@@ -605,6 +628,7 @@ pub async fn equivocation_consensus_early_equivocation() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_b.clone(), blobs_b),
             validation_level,
+            None,
         )
         .await;
     assert!(response.is_err());
@@ -656,7 +680,11 @@ pub async fn equivocation_gossip() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -786,6 +814,7 @@ pub async fn equivocation_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -1631,6 +1660,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
+            None,
         )
         .await;
 
@@ -1716,6 +1746,7 @@ pub async fn block_seen_on_gossip_with_columns() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
+            None,
         )
         .await;
 
@@ -1787,6 +1818,7 @@ pub async fn columns_seen_on_gossip_without_block() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs))),
             validation_level,
+            None,
         )
         .await;
 
@@ -1861,6 +1893,7 @@ async fn columns_seen_on_gossip_without_block_and_no_http_columns() {
                 Some((Default::default(), Default::default())),
             ),
             validation_level,
+            None,
         )
         .await;
 
@@ -1931,6 +1964,7 @@ async fn slashable_columns_seen_on_gossip_cause_failure() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_a.clone(), Some((kzg_proofs_a, blobs_a))),
             validation_level,
+            None,
         )
         .await;
 
@@ -2001,7 +2035,7 @@ pub async fn duplicate_block_status_code() {
     let block_request = PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs)));
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level, None)
         .await;
 
     // This should result in the block being fully imported.
@@ -2016,7 +2050,7 @@ pub async fn duplicate_block_status_code() {
     // Post again.
     let duplicate_response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level, None)
         .await;
     let err = duplicate_response.unwrap_err();
     assert_eq!(err.status().unwrap(), duplicate_block_status_code);

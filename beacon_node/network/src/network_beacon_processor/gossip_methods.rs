@@ -1,5 +1,5 @@
 use crate::{
-    metrics::{self, EnvelopeSource, register_process_result_metrics},
+    metrics::{self, register_process_result_metrics},
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
@@ -15,7 +15,7 @@ use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
-    EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+    EnvelopeError, EnvelopeSource, gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
@@ -1622,7 +1622,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
-                if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
+                if block_delay
+                    >= self
+                        .chain
+                        .spec
+                        .get_attestation_due::<T::EthSpec>(block.slot())
+                {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?verified_block.block_root,
@@ -3811,7 +3816,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone())
+            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
             .await;
 
         let verified_envelope = match verification_result {
@@ -3891,7 +3896,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let inner_self = self.clone();
                         let chain = self.chain.clone();
                         let process_fn = Box::pin(async move {
-                            match chain.verify_envelope_for_gossip(envelope).await {
+                            match chain
+                                .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+                                .await
+                            {
                                 Ok(verified_envelope) => {
                                     let envelope_slot = verified_envelope.signed_envelope.slot();
                                     inner_self.propagate_envelope_if_timely(
@@ -3940,6 +3948,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::EnvelopeAlreadySeen { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
@@ -4158,6 +4167,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // This may be the proof the block's envelope was waiting on.
+                match self
+                    .chain
+                    .check_execution_proof_availability_and_import(verified)
+                    .await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
+                        info!(
+                            ?block_root,
+                            %slot,
+                            "Execution payload envelope imported after execution proof"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                        // The payload envelope is imported (`is_payload_received` is now true);
+                        // release any attestations awaiting this block's payload.
+                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
+                    }
+                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
+                    Err(error) => {
+                        debug!(
+                            %beacon_block_root,
+                            proof_type,
+                            ?error,
+                            "Could not cache execution proof"
+                        );
+                    }
+                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4233,7 +4270,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
-                | PayloadBidError::ParentBlockRootNotCanonical { .. }
+                | PayloadBidError::ParentExecutionPayloadUnknown { .. }
+                | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
@@ -4275,13 +4313,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
                 | ProposerPreferencesError::UnableToReadSlot
-                | ProposerPreferencesError::DependentRootUnknown { .. },
+                | ProposerPreferencesError::DependentRootUnknown { .. }
+                | ProposerPreferencesError::InvalidDependentRoot { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(
                 ProposerPreferencesError::InvalidProposalSlot { .. }
-                | ProposerPreferencesError::BadSignature,
+                | ProposerPreferencesError::BadSignature
+                | ProposerPreferencesError::DependentRootTooRecent { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(

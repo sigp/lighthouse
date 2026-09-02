@@ -11,6 +11,7 @@ use crate::{
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::{Mutex, RwLock};
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use tracing::debug;
 use types::{ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPreferences, Slot};
 
@@ -48,6 +49,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub store: &'a BeaconStore<T>,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub genesis_validators_root: Hash256,
 }
 
@@ -86,8 +88,42 @@ impl GossipVerifiedProposerPreferences {
             ctx.spec,
         )?;
 
-        // Resolve the proposer for `proposal_slot` via the proposer shuffling cache.
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let lookahead_epoch = proposal_epoch.saturating_sub(ctx.spec.min_seed_lookahead);
+        let head_block_root = ctx.canonical_head.cached_head().head_block_root();
+        let fork_choice_read = ctx.canonical_head.fork_choice_read_lock();
+
+        let dependent_block = fork_choice_read
+            .get_block(&dependent_root)
+            .ok_or(ProposerPreferencesError::DependentRootUnknown { dependent_root })?;
+
+        // Ensure the dependent root block is before the start of the lookahead epoch.
+        // Skip this check for gloas at genesis/epoch 1.
+        if dependent_block.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            && dependent_block.slot != 0
+        {
+            return Err(ProposerPreferencesError::DependentRootTooRecent {
+                dependent_root,
+                block_slot: dependent_block.slot,
+                epoch_start_slot: lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            });
+        }
+
+        // Look for at least one child that crosses the epoch boundary directly after `dependent_block`.
+        let has_qualifying_child = fork_choice_read
+            .get_children(&dependent_root)
+            .iter()
+            .any(|child| child.slot >= lookahead_epoch.start_slot(T::EthSpec::slots_per_epoch()));
+
+        // Head is exempt from this check, it may eventually have a child that crosses the epoch boundary.
+        if !has_qualifying_child && dependent_root != head_block_root {
+            return Err(ProposerPreferencesError::InvalidDependentRoot { dependent_root });
+        }
+
+        drop(fork_choice_read);
+
+        // Resolve the proposer for `proposal_slot` via the proposer shuffling cache.
         let proposer = with_proposer_cache(
             ctx.beacon_proposer_cache,
             dependent_root,
@@ -123,6 +159,7 @@ impl GossipVerifiedProposerPreferences {
 
                 Ok::<_, ProposerPreferencesError>((state_root, state))
             },
+            ctx.builder_onboarding_cache,
             ctx.spec,
         )?;
 
@@ -175,6 +212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             store: &self.store,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             genesis_validators_root: self.genesis_validators_root,
         }
     }

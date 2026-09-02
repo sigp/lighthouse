@@ -30,7 +30,8 @@ pub use verify_attestation::{
 };
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
-    get_existing_validator_index, is_valid_deposit_signature, verify_deposit_merkle_proof,
+    get_existing_validator_index, is_valid_deposit_signature, is_valid_deposit_signature_batch,
+    verify_deposit_merkle_proof,
 };
 pub use verify_exit::verify_exit;
 pub use withdrawals::get_expected_withdrawals;
@@ -185,6 +186,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
+    let mut parent_slot = None;
     // The call to the `process_execution_payload` must happen before the call to the
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
@@ -193,6 +195,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             let signed_bid = block.body().signed_execution_payload_bid()?;
+            parent_slot = Some(state.latest_execution_payload_bid()?.slot);
             process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
@@ -208,7 +211,14 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), verify_signatures, ctxt, spec)?;
+    process_operations(
+        state,
+        block.body(),
+        verify_signatures,
+        parent_slot,
+        ctxt,
+        spec,
+    )?;
 
     if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
