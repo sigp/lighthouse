@@ -406,25 +406,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // TODO(alpha.12): remove once fast confirmation matches the v1.7.0-alpha.12 spec. These
-        // cases are new in alpha.12 and test behaviour that is not implemented yet.
-        const IGNORED_FAST_CONFIRMATION_CASES: &[&str] = &[
-            "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
-            "is_one_confirmed_passes_with_empty_slot_and_attester_in_two_consecutive_slots_2",
-            "fcr_no_restart_if_head_gu_is_stale",
-            // This case runs past a sync committee period boundary. The vectors contain a real
-            // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
-            // infinity pubkey, so the state roots cannot match.
-            "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
-        ];
         // Lighthouse permits epoch-boundary proposer re-orgs on all forks. The proposer lookahead
         // introduced in Fulu makes this consistent with the specification from Fulu onward.
         // See: https://github.com/ethereum/consensus-specs/pull/5547
         const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
 
-        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
-            || (!fork_name.fulu_enabled()
-                && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
+        if !fork_name.fulu_enabled() && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str())
         {
             return Err(Error::SkippedKnownFailure);
         }
