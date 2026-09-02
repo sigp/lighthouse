@@ -702,9 +702,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 struct Tester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     spec: Arc<ChainSpec>,
-    /// Roots of successfully imported blocks. Spec `on_block` returns early for known blocks,
-    /// but Lighthouse prunes finalized and abandoned blocks, so the store can't answer
-    /// "was this block ever imported".
+    /// Roots of every block this test has imported.
+    ///
+    /// Lighthouse returns an error for blocks that have already been imported. The spec
+    /// treats these as a no-op. We can't use fork choice to tell if a block has already
+    /// been imported, because finalized & abandoned blocks get pruned. We can't use the
+    /// on-disk store because abandoned blocks are pruned as well. So instead we keep track
+    /// of those blocks here.
     imported_blocks: RefCell<HashSet<Hash256>>,
 }
 
@@ -801,16 +805,6 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.harness.chain.canonical_head.cached_head())
     }
 
-    fn refresh_head_for_current_slot_block(&self, block_slot: Slot) -> Result<(), Error> {
-        let current_slot = self.harness.chain.slot().map_err(|e| {
-            Error::InternalError(format!("reading current slot failed with {:?}", e))
-        })?;
-        if block_slot == current_slot {
-            self.find_head()?;
-        }
-        Ok(())
-    }
-
     pub fn set_tick(&self, tick: u64) {
         self.harness
             .chain
@@ -868,7 +862,14 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
-        self.refresh_head_for_current_slot_block(block.slot())?;
+        
+        // Lighthouse's `on_block` adds proposer boost by comparing the block's dependent root
+        // against the cached fork choice view, instead of recomputing it. In production code paths
+        // the cache is fresh as long as the fork choice clock is current. The test runners
+        // manually set the fork choice clock without recomputing fork choice, so we manually recompute
+        // here.
+        self.find_head()?;
+
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
@@ -980,7 +981,14 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
-        self.refresh_head_for_current_slot_block(block.slot())?;
+
+        // Lighthouse's `on_block` adds proposer boost by comparing the block's dependent root
+        // against the cached fork choice view, instead of recomputing it. In production code paths
+        // the cache is fresh as long as the fork choice clock is current. The test runners
+        // manually set the fork choice clock without recomputing fork choice, so we manually recompute
+        // here.
+        self.find_head()?;
+        
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
