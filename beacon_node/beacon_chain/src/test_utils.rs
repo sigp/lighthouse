@@ -4217,6 +4217,10 @@ fn blob_cells_and_proofs_from_fixture(
     num_blobs: usize,
 ) -> Vec<CellsAndKzgProofs> {
     let num_fixture_blobs = cells.first().map(|column| column.len()).unwrap_or(0);
+    assert!(
+        num_fixture_blobs > 0,
+        "column sidecar fixture must contain at least one blob's cells"
+    );
 
     (0..num_blobs)
         .map(|i| {
