@@ -6,7 +6,6 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -1047,29 +1046,6 @@ fn process_builder_exit_request<E: EthSpec>(
     initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
-}
-
-/// Check if there is a pending deposit for a new validator with the given pubkey.
-// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
-// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-pub fn is_pending_validator<'a>(
-    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
-    pubkey: &PublicKeyBytes,
-    spec: &ChainSpec,
-) -> bool {
-    pending_deposits.into_iter().any(|deposit| {
-        deposit.pubkey == *pubkey
-            && is_valid_deposit_signature(
-                &DepositData {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    amount: deposit.amount,
-                    signature: deposit.signature.clone(),
-                },
-                spec,
-            )
-            .is_ok()
-    })
 }
 
 // Make sure to build the pubkey cache before calling this function
