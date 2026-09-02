@@ -757,15 +757,10 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_inclusion_list_v1(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<ProgressiveTransactions, Error> {
-        let params = json!([block_hash]);
-
+    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
         self.rpc_request::<JsonInclusionListV1>(
             ENGINE_GET_INCLUSION_LIST_V1,
-            params,
+            json!([]),
             ENGINE_GET_INCLUSION_LIST_TIMEOUT * self.execution_timeout_multiplier,
         )
         .await
@@ -1855,25 +1850,19 @@ mod test {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client
-                        .get_inclusion_list_v1(ExecutionBlockHash::repeat_byte(1))
-                        .await;
+                    let _ = client.get_inclusion_list_v1().await;
                 },
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
                     "method": ENGINE_GET_INCLUSION_LIST_V1,
-                    "params": [HASH_01]
+                    "params": []
                 }),
             )
             .await;
 
         Tester::new(false)
-            .assert_auth_failure(|client| async move {
-                client
-                    .get_inclusion_list_v1(ExecutionBlockHash::repeat_byte(1))
-                    .await
-            })
+            .assert_auth_failure(|client| async move { client.get_inclusion_list_v1().await })
             .await;
     }
 

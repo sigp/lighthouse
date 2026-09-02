@@ -495,14 +495,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.next_execution_requests = Some(requests);
     }
 
-    /// Return the configured inclusion list transactions for the provided block.
-    pub fn get_inclusion_list(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Option<ProgressiveTransactions> {
-        self.blocks
-            .contains_key(&block_hash)
-            .then(|| self.inclusion_list.clone())
+    /// Return the configured inclusion list transactions
+    pub fn get_inclusion_list(&self) -> ProgressiveTransactions {
+        self.inclusion_list.clone()
     }
 
     /// Set the transactions returned by `getInclusionList`.

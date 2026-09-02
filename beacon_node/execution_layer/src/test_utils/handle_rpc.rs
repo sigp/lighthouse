@@ -529,18 +529,7 @@ pub async fn handle_rpc<E: EthSpec>(
             Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_GET_INCLUSION_LIST_V1 => {
-            let block_hash = get_param::<ExecutionBlockHash>(params, 0)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-            let transactions = ctx
-                .execution_block_generator
-                .read()
-                .get_inclusion_list(block_hash)
-                .ok_or_else(|| {
-                    (
-                        format!("no block for hash {:?}", block_hash),
-                        UNKNOWN_PAYLOAD_ERROR_CODE,
-                    )
-                })?;
+            let transactions = ctx.execution_block_generator.read().get_inclusion_list();
 
             Ok(serde_json::to_value(JsonInclusionListV1(transactions)).unwrap())
         }
