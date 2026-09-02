@@ -510,30 +510,35 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 Step::Attestation { attestation, valid } => {
                     let result = tester.process_attestation(attestation);
                     // Compliance tests use `valid: false` to indicate the attestation is
-                    // intentionally malformed and should be rejected. In that case, an error
-                    // here is the expected outcome.
+                    // should be rejected. In that case, an error here is the expected outcome.
                     match valid {
                         Some(false) => {
                             if result.is_ok() {
-                                // We allow acceptance of future slot attestations which the spec
-                                // deems invalid (we just queue them).
-                                //
-                                // TODO(fc-compliance): tighten this by asserting the accepted
-                                // attestation did not affect fork choice weights, rather than
-                                // blanket-allowing any future-slot acceptance.
-                                let current_slot = tester
-                                    .harness
-                                    .chain
-                                    .canonical_head
-                                    .fork_choice_read_lock()
-                                    .fc_store()
-                                    .get_current_slot();
-                                let future_attestation = attestation.data().slot >= current_slot;
-                                if !future_attestation {
-                                    return Err(Error::DidntFail(
-                                        "attestation marked valid=false should have been rejected"
-                                            .into(),
-                                    ));
+                                // The spec's `on_attestation` rejects attestations from future slots.
+                                // Lighthouse doesn't reject these, instead we queue them for later processing.
+                                // So `process_attestation` returns `Ok` for future slot attestations, while
+                                // the test vectors expect a failure. If the attestation is for a future slot
+                                // and has been queued for processing, then we consider this test to have passed.
+                                let data = attestation.data();
+                                let fork_choice =
+                                    tester.harness.chain.canonical_head.fork_choice_read_lock();
+                                let future_attestation =
+                                    data.slot >= fork_choice.fc_store().get_current_slot();
+                                let queued = fork_choice
+                                    .queued_attestations()
+                                    .get(&data.slot)
+                                    .is_some_and(|queued| {
+                                        queued.iter().any(|a| {
+                                            a.block_root == data.beacon_block_root
+                                                && a.target_epoch == data.target.epoch
+                                        })
+                                    });
+                                drop(fork_choice);
+
+                                if !(future_attestation && queued) {
+                                    return Err(Error::DidntFail(format!(
+                                        "attestation marked valid=false was accepted; is_future_slot={future_attestation}, queued={queued}"
+                                    )));
                                 }
                             }
                         }
