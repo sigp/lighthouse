@@ -181,7 +181,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /*
      * Inclusion lists (heze+)
      */
-    /// The transactions returned by `getInclusionList` for any known block.
+    /// The transactions returned by `getInclusionList`.
     inclusion_list: ProgressiveTransactions,
 }
 
