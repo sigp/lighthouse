@@ -862,7 +862,7 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
-        
+
         // Lighthouse's `on_block` adds proposer boost by comparing the block's dependent root
         // against the cached fork choice view, instead of recomputing it. In production code paths
         // the cache is fresh as long as the fork choice clock is current. The test runners
@@ -988,7 +988,7 @@ impl<E: EthSpec> Tester<E> {
         // manually set the fork choice clock without recomputing fork choice, so we manually recompute
         // here.
         self.find_head()?;
-        
+
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
