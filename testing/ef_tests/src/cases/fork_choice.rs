@@ -160,14 +160,14 @@ pub enum Step<
     Attestation {
         attestation: TAttestation,
         // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
-        // invalid payload-present index). `None` (pre-Gloas tests) is treated as valid.
-        #[serde(default)]
-        valid: Option<bool>,
+        // invalid payload-present index). Defaults to `true` for the tests that omit it.
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
-        #[serde(default)]
-        valid: Option<bool>,
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     PowBlock {
         pow_block: TPowBlock,
@@ -509,40 +509,35 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 )?,
                 Step::Attestation { attestation, valid } => {
                     let result = tester.process_attestation(attestation);
-                    // Compliance tests use `valid: false` to indicate the attestation is
-                    // should be rejected. In that case, an error here is the expected outcome.
-                    match valid {
-                        Some(false) => {
-                            if result.is_ok() {
-                                // The spec's `on_attestation` rejects attestations from future slots.
-                                // Lighthouse doesn't reject these, instead we queue them for later processing.
-                                // So `process_attestation` returns `Ok` for future slot attestations, while
-                                // the test vectors expect a failure. If the attestation is for a future slot
-                                // and has been queued for processing, then we consider this test to have passed.
-                                let data = attestation.data();
-                                let fork_choice =
-                                    tester.harness.chain.canonical_head.fork_choice_read_lock();
-                                let future_attestation =
-                                    data.slot >= fork_choice.fc_store().get_current_slot();
-                                let queued = fork_choice
-                                    .queued_attestations()
-                                    .get(&data.slot)
-                                    .is_some_and(|queued| {
-                                        queued.iter().any(|a| {
-                                            a.block_root == data.beacon_block_root
-                                                && a.target_epoch == data.target.epoch
-                                        })
-                                    });
-                                drop(fork_choice);
+                    if *valid {
+                        result?
+                    } else if result.is_ok() {
+                        // The spec's `on_attestation` rejects attestations from future slots.
+                        // Lighthouse doesn't reject these, instead we queue them for later processing.
+                        // So `process_attestation` returns `Ok` for future slot attestations, while
+                        // the test vectors expect a failure. If the attestation is for a future slot
+                        // and has been queued for processing, then we consider this test to have passed.
+                        let data = attestation.data();
+                        let fork_choice =
+                            tester.harness.chain.canonical_head.fork_choice_read_lock();
+                        let future_attestation =
+                            data.slot >= fork_choice.fc_store().get_current_slot();
+                        let queued = fork_choice
+                            .queued_attestations()
+                            .get(&data.slot)
+                            .is_some_and(|queued| {
+                                queued.iter().any(|a| {
+                                    a.block_root == data.beacon_block_root
+                                        && a.target_epoch == data.target.epoch
+                                })
+                            });
+                        drop(fork_choice);
 
-                                if !(future_attestation && queued) {
-                                    return Err(Error::DidntFail(format!(
-                                        "attestation marked valid=false was accepted; is_future_slot={future_attestation}, queued={queued}"
-                                    )));
-                                }
-                            }
+                        if !(future_attestation && queued) {
+                            return Err(Error::DidntFail(format!(
+                                "attestation marked valid=false was accepted; is_future_slot={future_attestation}, queued={queued}"
+                            )));
                         }
-                        Some(true) | None => result?,
                     }
                 }
                 Step::AttesterSlashing {
@@ -550,16 +545,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     valid,
                 } => {
                     let result = tester.process_attester_slashing(attester_slashing.to_ref());
-                    match valid {
-                        Some(false) => {
-                            if result.is_ok() {
-                                return Err(Error::DidntFail(
-                                    "attester slashing marked valid=false should have been rejected"
-                                        .into(),
-                                ));
-                            }
-                        }
-                        Some(true) | None => result?,
+                    if *valid {
+                        result?
+                    } else if result.is_ok() {
+                        return Err(Error::DidntFail(
+                            "attester slashing marked valid=false should have been rejected".into(),
+                        ));
                     }
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
@@ -1056,6 +1047,7 @@ impl<E: EthSpec> Tester<E> {
             &mut target_state,
             Some(target_block.state_root),
             target_epoch_start_slot,
+            None,
             &self.harness.chain.spec,
         )
         .map_err(|e| {
