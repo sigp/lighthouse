@@ -9982,6 +9982,7 @@ dependencies = [
  "parking_lot",
  "reqwest",
  "safe_arith",
+ "serde",
  "slot_clock",
  "task_executor",
  "tokio",

@@ -15,6 +15,7 @@ logging = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
 safe_arith = { workspace = true }
+serde = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
