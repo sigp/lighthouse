@@ -108,12 +108,7 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    let default_partial_columns_enabled = spec
-        .config_name
-        .as_ref()
-        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
-    let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
-        .unwrap_or(default_partial_columns_enabled);
+    let enable_partial_columns = parse_required::<bool>(cli_args, "enable-partial-columns")?;
 
     if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
