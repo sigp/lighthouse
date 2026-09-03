@@ -29,7 +29,9 @@ use crate::{
     observed_execution_payloads::ObservedExecutionPayloads,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
+        gossip_verified_bid::{
+            GossipVerificationContext, GossipVerifiedPayloadBid, verify_bid_state_conditions,
+        },
         payload_bid_cache::{BidParent, GossipVerifiedPayloadBidCache},
     },
     proposer_preferences_verification::{
@@ -391,7 +393,7 @@ fn builder_already_seen_for_slot() {
     let verified = GossipVerifiedPayloadBid {
         signed_bid: bid.clone(),
     };
-    ctx.bid_cache.insert_seen_builder_bid(&verified);
+    ctx.bid_cache.observe_bid(verified);
 
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
@@ -457,7 +459,7 @@ fn bid_value_below_cached() {
     let high_bid = GossipVerifiedPayloadBid {
         signed_bid: ctx.make_signed_bid(slot, 99, Address::ZERO, 30_000_000, 500, Hash256::ZERO),
     };
-    ctx.bid_cache.insert_highest_bid(high_bid);
+    ctx.bid_cache.observe_bid(high_bid);
 
     let low_bid = ctx.make_signed_bid(slot, 1, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
     let result = GossipVerifiedPayloadBid::new(low_bid, &gossip);
@@ -675,6 +677,44 @@ fn builder_cant_cover_bid() {
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
+        Err(PayloadBidError::BuilderCantCoverBid { .. })
+    ));
+}
+
+// Regression guard for stale gossip bids: `verify_bid_state_conditions` is what bid selection
+// re-runs against the production state so a gossip bid whose builder can no longer cover it is
+// dropped, rather than winning selection and failing the whole block at `per_block_processing`. A
+// coverable bid passes; the same bid at an uncoverable value is rejected.
+#[test]
+fn bid_state_conditions_reject_uncoverable_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = Slot::new(1);
+    let head = ctx.canonical_head.cached_head();
+    let state = &head.snapshot.beacon_state;
+
+    let coverable = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        100,
+        ctx.genesis_block_root,
+    );
+    assert!(verify_bid_state_conditions(&coverable.message, state, &ctx.spec).is_ok());
+
+    let uncoverable = ctx.make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        u64::MAX,
+        ctx.genesis_block_root,
+    );
+    assert!(matches!(
+        verify_bid_state_conditions(&uncoverable.message, state, &ctx.spec),
         Err(PayloadBidError::BuilderCantCoverBid { .. })
     ));
 }
@@ -942,7 +982,7 @@ fn bid_equal_to_cached_value_rejected() {
             ctx.genesis_block_root,
         ),
     };
-    ctx.bid_cache.insert_highest_bid(high_bid);
+    ctx.bid_cache.observe_bid(high_bid);
 
     // Submit a bid with exactly the same value — should be rejected.
     let equal_bid = ctx.make_signed_bid(
