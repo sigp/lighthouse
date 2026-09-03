@@ -173,6 +173,57 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
+    pub fn new_with_empty_finalized_header(
+	    attested_block: &SignedBlindedBeaconBlock<E>,
+	    finality_branch: Vec<Hash256>,
+	    sync_aggregate: SyncAggregate<E>,
+	    signature_slot: Slot,
+	    chain_spec: &ChainSpec,
+	) -> Result<Self, LightClientError> {
+	    let finality_update = match attested_block
+	        .fork_name(chain_spec)
+	        .map_err(|_| LightClientError::InconsistentFork)?
+	    {
+	        ForkName::Altair | ForkName::Bellatrix => {
+        	    Self::Altair(LightClientFinalityUpdateAltair {
+        	        attested_header: LightClientHeaderAltair::block_to_light_client_header(
+        	            attested_block,
+        	        )?,
+        	        finalized_header: LightClientHeaderAltair::default(),
+        	        finality_branch: finality_branch
+        	            .try_into()
+        	            .map_err(LightClientError::SszTypesError)?,
+        	        sync_aggregate,
+        	        signature_slot,
+        	    })
+	        }
+	        ForkName::Capella => Self::Capella(LightClientFinalityUpdateCapella {
+	            attested_header: LightClientHeaderCapella::block_to_light_client_header(
+	                attested_block,
+	            )?,
+	            finalized_header: LightClientHeaderCapella::default(),
+	            finality_branch: finality_branch
+	                .try_into()
+	                .map_err(LightClientError::SszTypesError)?,
+	            sync_aggregate,
+	            signature_slot,
+	        }),
+	        ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb {
+	            attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+	                attested_block,
+	            )?,
+	            finalized_header: LightClientHeaderDeneb::default(),
+	            finality_branch: finality_branch
+	                .try_into()
+	                .map_err(LightClientError::SszTypesError)?,
+	            sync_aggregate,
+	            signature_slot,
+	        }),
+	        _ => return Err(LightClientError::InconsistentFork),
+	    };
+	    Ok(finality_update)
+    }
+
     pub fn map_with_fork_name<F, R>(&self, func: F) -> R
     where
         F: Fn(ForkName) -> R,
@@ -206,6 +257,14 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             inner.finalized_header.beacon.canonical_root()
         })
     }
+    pub fn get_finalized_header_slot<'a>(&'a self) -> Slot {
+    	map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.finalized_header.beacon.slot
+        })
+    }
+
+
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
@@ -251,18 +310,25 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
 
     // Implements spec prioritization rules:
     // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
-    //
     // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
-    pub fn is_latest(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
-        let prev_slot = self.get_attested_header_slot();
-        if attested_slot > prev_slot {
-            true
-        } else {
-            attested_slot == prev_slot && signature_slot > self.signature_slot()
-        }
-    }
-}
+    pub fn is_latest(&self, new_finalized_slot: Slot,new_has_supermajority:bool, new_participants:usize, signature_slot: Slot) -> bool {
+        let prev_finalized_slot = self.get_finalized_header_slot();
+	if new_finalized_slot != prev_finalized_slot{
+            return new_finalized_slot > prev_finalized_slot;
+	}
 
+       	let max_participants = self.sync_aggregate().sync_committee_bits.len();
+        let prev_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
+        let prev_has_supermajority = prev_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
+        if new_has_supermajority != prev_has_supermajority {
+            return new_has_supermajority;
+        }
+	if !new_has_supermajority && new_participants != prev_participants {
+            return new_participants > prev_participants
+	}
+        signature_slot > self.signature_slot()       	
+}
+}
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientFinalityUpdate<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
