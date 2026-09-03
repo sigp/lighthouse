@@ -330,9 +330,9 @@ mod tests {
     //
     // Four invariants:
     //
-    // 1. The validators the inclusion list store reports for `(slot, dependent_root)` are
+    // 1. The validators the inclusion list store returns for `(slot, dependent_root)` are
     //    those with a stored inclusion list that are not equivocating. An equivocator's
-    //    committee bit is unset and their inclusion list is not served, and everyone else's is.
+    //    committee bit is unset and their inclusion list is not served.
     //
     // 2. `get_inclusion_list_transactions` is the deduplicated union (by tree hash) of the
     //    transactions in the stored lists of non-equivocating validators.
