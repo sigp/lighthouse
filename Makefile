@@ -107,7 +107,7 @@ LOCALE_VAL = C
 TZ_VAL = UTC
 
 # Features for reproducible builds
-FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed
+FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed,portable
 
 # Derive the architecture-specific library path from RUST_TARGET
 JEMALLOC_LIB_ARCH = $(word 1,$(subst -, ,$(RUST_TARGET)))
@@ -359,6 +359,55 @@ clean:
 	cargo clean
 	make -C $(EF_TESTS) clean
 	make -C $(STATE_TRANSITION_VECTORS) clean
+
+.PHONY: deb-cargo
+deb-cargo: build-reproducible ## Build .deb package using cargo-deb with reproducible settings
+	@echo "Building .deb package with cargo-deb..."
+	cargo install cargo-deb@3.6.0 --locked
+	cd lighthouse && \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
+	CARGO_INCREMENTAL=$(CARGO_INCREMENTAL_VAL) \
+	LC_ALL=$(LOCALE_VAL) \
+	TZ=$(TZ_VAL) \
+	cargo deb --target $(RUST_TARGET) --no-build --no-dbgsym --no-strip
+	
+	@echo "Package built successfully!"
+	@find target/$(RUST_TARGET)/debian -name "*.deb" -exec ls -la {} \;
+
+
+.PHONY: deb-cargo-x86_64
+deb-cargo-x86_64: ## Build .deb for specific architectures
+	$(MAKE) deb-cargo RUST_TARGET=x86_64-unknown-linux-gnu
+
+.PHONY: deb-cargo-aarch64
+deb-cargo-aarch64:
+	$(MAKE) deb-cargo RUST_TARGET=aarch64-unknown-linux-gnu
+
+.PHONY: deb-cargo-all
+deb-cargo-all: deb-cargo-x86_64 deb-cargo-aarch64
+
+.PHONY: clean-deb
+clean-deb: ## Clean up debian packaging artifacts
+	@echo "Cleaning up debian packaging artifacts..."
+	rm -f lighthouse_*.deb lighthouse-deb-*.deb *-diff.txt
+	rm -rf target/*/debian/
+
+
+.PHONY: help-deb
+help-deb: ## Show help for debian packaging
+	@echo "Clean Debian Packaging Targets:"
+	@echo "  deb-cargo              - Build .deb package with cargo-deb"
+	@echo "  deb-cargo-x86_64       - Build x86_64 .deb package"
+	@echo "  deb-cargo-aarch64      - Build aarch64 .deb package"
+	@echo "  deb-cargo-all          - Build all architectures"
+	@echo "  clean-deb              - Clean up packaging artifacts"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  - lighthouse/debian/lighthouse.service file"
+	@echo "  - README.md file in current directory"
+	@echo ""
+	@echo "Quick start:"
+	@echo "  make deb-cargo         - Build .deb for current RUST_TARGET"
 
 # Installs git hooks from .githooks/ directory
 install-hooks:
