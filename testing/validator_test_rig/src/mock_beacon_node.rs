@@ -1,4 +1,4 @@
-use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
+use eth2::types::{GenericResponse, PublishBlockRequest, RootData, SyncingData};
 use eth2::{BLOB_DATA_INCLUDED_HEADER, BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
-    PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    BeaconBlock, ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    Hash256, PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, SyncCommitteeMessage, SyncDuty,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -24,6 +24,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
     pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
+    pub sync_committee_messages: Arc<Mutex<Vec<SyncCommitteeMessage>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -42,6 +43,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
             execution_payload_envelope: Arc::new(Mutex::new(Vec::new())),
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
+            sync_committee_messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -100,6 +102,66 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body(serde_json::to_string(&data).unwrap())
             .create();
+    }
+
+    /// Mocks `POST /eth/v1/validator/duties/sync/{epoch}`
+    pub fn mock_sync_duties(&mut self, epoch: Epoch, duties: Vec<SyncDuty>) -> Mock {
+        let path_pattern = Regex::new(&format!(
+            r"^/eth/v1/validator/duties/sync/{}$",
+            epoch.as_u64()
+        ))
+        .unwrap();
+        let response =
+            GenericResponse::from(duties).add_execution_optimistic_finalized(false, false);
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&response).unwrap())
+            .create()
+    }
+
+    /// Mocks `GET /eth/v1/beacon/blocks/head/root`
+    pub fn mock_get_head_block_root(&mut self, root: Hash256) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/blocks/head/root$").unwrap();
+        let response = GenericResponse::from(RootData { root })
+            .add_execution_optimistic_finalized(false, false);
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&response).unwrap())
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/beacon/pool/sync_committees`
+    pub fn mock_post_sync_committee_messages(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/sync_committees$").unwrap();
+        let sync_committee_messages = Arc::clone(&self.sync_committee_messages);
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let messages: Vec<SyncCommitteeMessage> = serde_json::from_slice(body)
+                    .expect("Failed to deserialize sync committee messages");
+                sync_committee_messages.lock().unwrap().extend(messages);
+                vec![]
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/sync_committee_subscriptions`
+    pub fn mock_sync_committee_subscriptions(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/sync_committee_subscriptions$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .create()
     }
 
     /// Mocks `GET /eth/v4/validator/blocks/{slot}`

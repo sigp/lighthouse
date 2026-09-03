@@ -4,19 +4,75 @@ use futures::StreamExt;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::sync::{RwLock, broadcast};
+use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use types::EthSpec;
 
 type CacheHashMap = HashMap<usize, SseHead>;
 
-// This is used to send the index derived from `CandidateBeaconNode` to the
-// `AttestationService` for further processing
-#[derive(Debug)]
+// This is used to send the index derived from `CandidateBeaconNode` to validator services.
+#[derive(Clone, Debug)]
 pub struct HeadEvent {
     pub beacon_node_index: usize,
     pub slot: types::Slot,
     pub beacon_block_root: Hash256,
+}
+
+async fn poll_for_current_slot_head<T: SlotClock>(
+    receiver: &mut broadcast::Receiver<HeadEvent>,
+    slot_clock: &T,
+) -> Option<HeadEvent> {
+    loop {
+        match receiver.recv().await {
+            Ok(head_event) => {
+                // A clock read only fails pre-genesis (services start after the genesis
+                // wait) or when the system clock is broken, so treat it like a closed
+                // channel and disable head monitoring.
+                let Some(current_slot) = slot_clock.now() else {
+                    warn!("Failed to read slot clock while polling head events");
+                    return None;
+                };
+                if head_event.slot == current_slot {
+                    return Some(head_event);
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                warn!(skipped, "Head monitor channel lagged");
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                warn!("Head monitor channel closed unexpectedly");
+                return None;
+            }
+        }
+    }
+}
+
+/// Wait for a head event for the current slot, or until `deadline` has elapsed.
+///
+/// Returns `None` when the deadline fires. If the head event channel closes, head monitoring
+/// is disabled by clearing `head_monitor_rx` and the deadline is awaited as usual.
+pub async fn head_event_or_deadline<T: SlotClock>(
+    head_monitor_rx: &mut Option<broadcast::Receiver<HeadEvent>>,
+    slot_clock: &T,
+    deadline: Duration,
+) -> Option<HeadEvent> {
+    let deadline = sleep(deadline);
+    tokio::pin!(deadline);
+    if let Some(receiver) = head_monitor_rx {
+        tokio::select! {
+            _ = &mut deadline => return None,
+            event = poll_for_current_slot_head(receiver, slot_clock) => {
+                if event.is_some() {
+                    return event;
+                }
+                *head_monitor_rx = None;
+            },
+        }
+    }
+    deadline.await;
+    None
 }
 
 /// Cache to maintain the latest head received from each of the beacon nodes
@@ -68,16 +124,7 @@ impl Default for BeaconHeadCache {
     }
 }
 
-// Runs a non-terminating loop to update the `BeaconHeadCache` with the latest head received
-// from the candidate beacon_nodes. This is an attempt to stream events to beacon nodes and
-// potential start attestation duties earlier as soon as latest head is receive from any of the
-// beacon node in contrast to attest at the 1/3rd mark in the slot.
-//
-//
-// The cache and the candidate BNs list are refresh/purged to avoid dangling reference conditions
-// that arise due to `update_candidates_list`.
-//
-// Starts the service to perpetually stream head events from connected beacon_nodes
+// Updates the head cache and streams the latest non-optimistic head events from connected BNs.
 pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'static>(
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), String> {
@@ -167,7 +214,6 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                         slot: head.slot,
                         beacon_block_root: head.block,
                     })
-                    .await
                     .is_err()
                 {
                     return Err("Head monitoring service channel closed".into());
@@ -195,6 +241,8 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 mod tests {
     use super::*;
     use bls::FixedBytesExtended;
+    use slot_clock::ManualSlotClock;
+    use std::time::Duration;
     use types::{Hash256, Slot};
 
     fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
@@ -311,6 +359,79 @@ mod tests {
         assert_eq!(event.beacon_node_index, 42);
         assert_eq!(event.slot, Slot::new(123));
         assert_eq!(event.beacon_block_root, block_root);
+    }
+
+    fn head_event(slot: u64, block_root: u64) -> HeadEvent {
+        HeadEvent {
+            beacon_node_index: 0,
+            slot: Slot::new(slot),
+            beacon_block_root: Hash256::from_low_u64_be(block_root),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ignores_stale_head_events() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        slot_clock.set_slot(2);
+        let (sender, mut receiver) = broadcast::channel(2);
+
+        sender.send(head_event(1, 1)).unwrap();
+        sender.send(head_event(2, 2)).unwrap();
+
+        let event = poll_for_current_slot_head(&mut receiver, &slot_clock)
+            .await
+            .unwrap();
+        assert_eq!(event.beacon_block_root, Hash256::from_low_u64_be(2));
+    }
+
+    #[tokio::test]
+    async fn test_recovers_from_lagged_head_events() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        slot_clock.set_slot(2);
+        let (sender, mut receiver) = broadcast::channel(1);
+
+        sender.send(head_event(1, 1)).unwrap();
+        sender.send(head_event(2, 2)).unwrap();
+
+        let event = poll_for_current_slot_head(&mut receiver, &slot_clock)
+            .await
+            .unwrap();
+        assert_eq!(event.beacon_block_root, Hash256::from_low_u64_be(2));
+    }
+
+    #[tokio::test]
+    async fn test_clock_read_failure_is_terminal() {
+        let slot_clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(12),
+        );
+        // A time before genesis makes clock reads fail.
+        slot_clock.set_current_time(Duration::from_secs(5));
+        let (sender, mut receiver) = broadcast::channel(1);
+        sender.send(head_event(0, 1)).unwrap();
+
+        assert!(
+            poll_for_current_slot_head(&mut receiver, &slot_clock)
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_returns_when_head_event_channel_closes() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        let (sender, mut receiver) = broadcast::channel(1);
+        drop(sender);
+
+        assert!(
+            poll_for_current_slot_head(&mut receiver, &slot_clock)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
