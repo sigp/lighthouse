@@ -2186,33 +2186,27 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         post_validator_il_duties(duties_service, epoch, initial_indices_to_request).await?;
     let dependent_root = response.dependent_root;
 
-    // Check if we need to update duties for this epoch and collect validators to update.
+    // Check if we need to update duties for this epoch.
     // We update if we have no epoch data OR if the dependent_root changed.
-    let validators_to_update = {
+    let needs_update = {
         // Avoid holding the read-lock for any longer than required.
         let il_duties = duties_service.il_duties.read();
-        let needs_update = il_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
+        il_duties.get(&epoch).is_none_or(|(prior_root, _)| {
             // Update if dependent_root changed
             *prior_root != dependent_root
-        });
-
-        if needs_update {
-            local_pubkeys.iter().collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        }
+        })
     };
 
-    if validators_to_update.is_empty() {
+    if !needs_update {
         // No validators have conflicting (epoch, dependent_root) values for this epoch.
         return Ok(());
     }
 
     // Make a request for all indices that require updating which we have not already made a request for.
-    let indices_to_request = validators_to_update
+    let indices_to_request = local_indices
         .iter()
-        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
         .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
+        .copied()
         .collect::<Vec<_>>();
 
     // Filter the initial duties by their relevance so that we don't hit warnings about
@@ -2220,7 +2214,7 @@ async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     let new_initial_duties = response
         .data
         .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+        .filter(|duty| local_pubkeys.contains(&duty.pubkey));
 
     let mut new_duties = if !indices_to_request.is_empty() {
         post_validator_il_duties(duties_service, epoch, indices_to_request.as_slice())
