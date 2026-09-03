@@ -3,7 +3,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use serde::Serialize;
 use std::sync::Arc;
 use store::invariants::InvariantCheckResult;
-use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
+use store::{AnchorInfo, DataInfo, Split, StoreConfig};
 
 #[derive(Debug, Serialize)]
 pub struct DatabaseInfo {
@@ -11,7 +11,7 @@ pub struct DatabaseInfo {
     pub config: StoreConfig,
     pub split: Split,
     pub anchor: AnchorInfo,
-    pub blob_info: BlobInfo,
+    pub data_info: DataInfo,
 }
 
 pub fn info<T: BeaconChainTypes>(
@@ -21,14 +21,14 @@ pub fn info<T: BeaconChainTypes>(
     let split = store.get_split_info();
     let config = store.get_config().clone();
     let anchor = store.get_anchor_info();
-    let blob_info = store.get_blob_info();
+    let data_info = store.get_data_info();
 
     Ok(DatabaseInfo {
         schema_version: CURRENT_SCHEMA_VERSION.as_u64(),
         config,
         split,
         anchor,
-        blob_info,
+        data_info,
     })
 }
 

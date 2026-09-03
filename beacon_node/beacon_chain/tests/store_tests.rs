@@ -46,14 +46,18 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
-use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
+use store::metadata::{
+    BLOB_INFO_KEY, BlobInfo, CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY, DATA_INFO_KEY,
+    DataColumnInfo, DataInfo, OLDEST_SUPPORTED_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN,
+    SchemaVersion,
+};
 use store::{
-    BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
+    DBColumn, HotColdDB, StoreConfig, StoreOp,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
 };
+use store::{ItemStore, KeyValueStore};
 use tempfile::{TempDir, tempdir};
 use tracing::info;
 use types::test_utils::test_arbitrary_instance;
@@ -4404,7 +4408,13 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = SchemaVersion(29);
+    // Downgrading below v29 is only possible before the Gloas fork: the v28 fork choice format
+    // cannot represent Gloas proto nodes.
+    let min_version = if spec.gloas_fork_epoch.is_some() {
+        SchemaVersion(29)
+    } else {
+        OLDEST_SUPPORTED_SCHEMA_VERSION
+    };
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -4450,10 +4460,15 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     );
     check_iterators_from_slot(&harness, chain_dump_start_slot);
 
-    // Check that downgrading beyond the minimum version fails (bound is *tight*).
-    let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
-    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version_sub_1)
-        .expect_err("should not downgrade below minimum version");
+    // Check that downgrading below the oldest supported version fails (bound is *tight*).
+    let below_oldest = SchemaVersion(
+        OLDEST_SUPPORTED_SCHEMA_VERSION
+            .as_u64()
+            .checked_sub(1)
+            .unwrap(),
+    );
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, below_oldest)
+        .expect_err("should not downgrade below the oldest supported version");
 }
 
 // Schema upgrade/downgrade on an archive node where the optimised migration does apply due
@@ -4605,6 +4620,147 @@ async fn light_client_update_schema_v30_migration() {
     }
 }
 
+#[tokio::test]
+async fn data_info_schema_v31_migration() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let fulu_fork_epoch = Epoch::new(4);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let db_path = tempdir().unwrap();
+    let mut store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    // Turn the store's on-disk layout into a pre-v31 one (legacy blob/data column markers,
+    // schema v30, and optionally a stray unified marker) and reopen it. `get_store_generic`
+    // opens with a no-op migration callback, exactly like the database manager, so the reopened
+    // store's in-memory marker is the value `open()` establishes without running the migration.
+    let reopen_at_v30 = |store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
+                         blob_slot: Slot,
+                         column_slot: Slot,
+                         data_slot: Option<Slot>| {
+        store
+            .hot_db
+            .put(
+                &BLOB_INFO_KEY,
+                &BlobInfo {
+                    oldest_blob_slot: Some(blob_slot),
+                    blobs_db: true,
+                },
+            )
+            .unwrap();
+        store
+            .hot_db
+            .put(
+                &DATA_COLUMN_INFO_KEY,
+                &DataColumnInfo {
+                    oldest_data_column_slot: Some(column_slot),
+                },
+            )
+            .unwrap();
+        match data_slot {
+            Some(oldest_data_slot) => store
+                .hot_db
+                .put(&DATA_INFO_KEY, &DataInfo { oldest_data_slot })
+                .unwrap(),
+            None => store.hot_db.delete::<DataInfo>(&DATA_INFO_KEY).unwrap(),
+        }
+        store.store_schema_version(SchemaVersion(30)).unwrap();
+        drop(store);
+        get_store_generic(&db_path, StoreConfig::default(), spec.clone())
+    };
+
+    // Upgrade the store to v31 and check that the given marker was persisted and the legacy
+    // keys removed.
+    let upgrade_to_v31 = |store: &Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
+                          expected_data_slot: Slot| {
+        migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(31))
+            .expect("schema upgrade to v31 should succeed");
+        assert_eq!(
+            store
+                .hot_db
+                .get::<DataInfo>(&DATA_INFO_KEY)
+                .unwrap()
+                .unwrap()
+                .oldest_data_slot,
+            expected_data_slot
+        );
+        assert!(
+            store
+                .hot_db
+                .get::<BlobInfo>(&BLOB_INFO_KEY)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .hot_db
+                .get::<DataColumnInfo>(&DATA_COLUMN_INFO_KEY)
+                .unwrap()
+                .is_none()
+        );
+    };
+
+    // Case 1: node retaining pre-Fulu blobs (e.g. blob pruning disabled). The blob marker is the
+    // true low-water mark and must win the merge.
+    let blob_slot = Slot::new(8);
+    assert!(blob_slot < fulu_fork_slot);
+    store = reopen_at_v30(store, blob_slot, fulu_fork_slot, None);
+    // Without migrating, the in-memory marker stays at the uninitialized default. This is why
+    // `lighthouse db prune-blobs` refuses to run on pre-v31 schemas.
+    assert_eq!(store.get_data_info().oldest_data_slot, Slot::new(0));
+    upgrade_to_v31(&store, blob_slot);
+    assert_eq!(store.get_data_info().oldest_data_slot, blob_slot);
+
+    // Downgrade splits the marker at the Fulu fork boundary.
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(31), SchemaVersion(30))
+        .expect("schema downgrade to v30 should succeed");
+    assert_eq!(
+        store
+            .hot_db
+            .get::<BlobInfo>(&BLOB_INFO_KEY)
+            .unwrap()
+            .unwrap()
+            .oldest_blob_slot,
+        Some(blob_slot)
+    );
+    assert_eq!(
+        store
+            .hot_db
+            .get::<DataColumnInfo>(&DATA_COLUMN_INFO_KEY)
+            .unwrap()
+            .unwrap()
+            .oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
+
+    // Case 2: pruned node whose legacy blob marker froze at a post-Fulu slot (no blobs exist).
+    // The data column marker is the true low-water mark and must win the merge.
+    let stale_blob_slot = fulu_fork_slot + 16;
+    let column_slot = fulu_fork_slot + 24;
+    store = reopen_at_v30(store, stale_blob_slot, column_slot, None);
+    assert_eq!(store.get_data_info().oldest_data_slot, Slot::new(0));
+    upgrade_to_v31(&store, column_slot);
+
+    // Case 3: pruned node whose final blob prune crossed the Fulu fork, advancing the blob
+    // marker past the fork while leaving the data column marker stale at the fork slot (the
+    // pre-v31 pruner only updated the blob marker in this case, despite deleting the columns
+    // too). The blob marker is the true low-water mark and must win the merge.
+    let advanced_blob_slot = fulu_fork_slot + 16;
+    store = reopen_at_v30(store, advanced_blob_slot, fulu_fork_slot, None);
+    assert_eq!(store.get_data_info().oldest_data_slot, Slot::new(0));
+    upgrade_to_v31(&store, advanced_blob_slot);
+
+    // Case 4: pre-v31 database that unexpectedly contains a unified marker. This cannot arise
+    // in practice: the beacon node always migrates on startup, and `lighthouse db prune-blobs`
+    // (the only other writer) refuses to run on pre-v31 schemas. The migration therefore
+    // assumes no unified marker exists and re-derives it from the legacy keys.
+    let stray_data_slot = fulu_fork_slot + 32;
+    store = reopen_at_v30(store, stale_blob_slot, column_slot, Some(stray_data_slot));
+    // `open()` loads an existing `DATA_INFO_KEY` regardless of the schema version.
+    assert_eq!(store.get_data_info().oldest_data_slot, stray_data_slot);
+    upgrade_to_v31(&store, column_slot);
+}
+
 /// Check that blob pruning prunes blobs older than the data availability boundary.
 #[tokio::test]
 async fn deneb_prune_blobs_happy_case() {
@@ -4635,10 +4791,7 @@ async fn deneb_prune_blobs_happy_case() {
 
     // Prior to manual pruning with an artifically low data availability boundary all blobs should
     // be stored.
-    assert_eq!(
-        store.get_blob_info().oldest_blob_slot,
-        Some(deneb_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, deneb_fork_slot);
     check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger blob pruning of blobs older than epoch 2.
@@ -4648,7 +4801,7 @@ async fn deneb_prune_blobs_happy_case() {
         .unwrap();
 
     // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
-    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    let oldest_blob_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(
         oldest_blob_slot,
         data_availability_boundary.start_slot(E::slots_per_epoch())
@@ -4703,10 +4856,7 @@ async fn deneb_prune_blobs_no_finalization() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs should still be available.
-    assert_eq!(
-        store.get_blob_info().oldest_blob_slot,
-        Some(deneb_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, deneb_fork_slot);
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt blob pruning of blobs older than epoch 4, which is newer than finalization.
@@ -4716,7 +4866,7 @@ async fn deneb_prune_blobs_no_finalization() {
         .unwrap();
 
     // Check oldest blob slot is only updated to finalization, and NOT to the DAB.
-    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    let oldest_blob_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(oldest_blob_slot, finalized_slot);
     check_blob_existence(&harness, Slot::new(0), finalized_slot - 1, false);
     check_blob_existence(&harness, finalized_slot, harness.head_slot(), true);
@@ -4773,10 +4923,7 @@ async fn prune_blobs_across_fork_boundary() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs should still be available.
-    assert_eq!(
-        store.get_blob_info().oldest_blob_slot,
-        Some(deneb_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, deneb_fork_slot);
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt pruning with data availability epochs that precede the fork epoch.
@@ -4787,11 +4934,8 @@ async fn prune_blobs_across_fork_boundary() {
             .try_prune_blobs(true, data_availability_boundary)
             .unwrap();
 
-        // Check oldest blob slot is not updated.
-        assert_eq!(
-            store.get_blob_info().oldest_blob_slot,
-            Some(deneb_fork_slot)
-        );
+        // Check oldest data slot is not updated.
+        assert_eq!(store.get_data_info().oldest_data_slot, deneb_fork_slot);
     }
     // All blobs should still be available.
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
@@ -4799,7 +4943,7 @@ async fn prune_blobs_across_fork_boundary() {
     // Prune one epoch past the fork.
     let pruned_slot = (deneb_fork_epoch + 1).start_slot(E::slots_per_epoch());
     store.try_prune_blobs(true, deneb_fork_epoch + 1).unwrap();
-    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+    assert_eq!(store.get_data_info().oldest_data_slot, pruned_slot);
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
 
@@ -4824,7 +4968,7 @@ async fn prune_blobs_across_fork_boundary() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs since last pruning during Deneb should still be available.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+    assert_eq!(store.get_data_info().oldest_data_slot, pruned_slot);
 
     let electra_first_slot = electra_fork_epoch.start_slot(E::slots_per_epoch());
     // Check that blobs exist from the pruned slot to electra
@@ -4834,7 +4978,7 @@ async fn prune_blobs_across_fork_boundary() {
     let pruned_slot = (electra_fork_epoch + 1).start_slot(E::slots_per_epoch());
 
     store.try_prune_blobs(true, finalized_epoch).unwrap();
-    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(finalized_slot));
+    assert_eq!(store.get_data_info().oldest_data_slot, finalized_slot);
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
 
@@ -4864,7 +5008,7 @@ async fn prune_blobs_across_fork_boundary() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All blobs since last pruning during Electra should still be available.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+    assert_eq!(store.get_data_info().oldest_data_slot, pruned_slot);
 
     let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
     // Check that blobs have been pruned up to the pruned slot
@@ -4894,18 +5038,15 @@ async fn prune_blobs_across_fork_boundary() {
 
         if data_availability_boundary < fulu_fork_epoch {
             // Pre Fulu fork epochs
-            // Check oldest blob slot is not updated.
-            assert!(store.get_blob_info().oldest_blob_slot >= Some(oldest_slot));
+            // Check oldest data slot is not updated.
+            assert!(store.get_data_info().oldest_data_slot >= oldest_slot);
             check_blob_existence(&harness, Slot::new(0), oldest_slot - 1, false);
             // Blobs should exist
             check_blob_existence(&harness, oldest_slot, harness.head_slot(), true);
         } else {
             // Fulu fork epochs
             // Pruning should have been triggered
-            assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
-            // Oldest blob slot should never be greater than the first fulu slot
-            let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
-            assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
+            assert!(store.get_data_info().oldest_data_slot <= oldest_slot);
             // Blobs should not exist post-Fulu
             check_blob_existence(&harness, oldest_slot, harness.head_slot(), false);
             // Data columns should exist post-Fulu
@@ -4963,10 +5104,7 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
 
     // Prior to manual pruning with an artifically low data availability boundary all blobs should
     // be stored.
-    assert_eq!(
-        store.get_blob_info().oldest_blob_slot,
-        Some(deneb_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, deneb_fork_slot);
     check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
@@ -4983,47 +5121,13 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
         .unwrap();
 
     // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
-    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    let oldest_blob_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(
         oldest_blob_slot,
         effective_data_availability_boundary.start_slot(E::slots_per_epoch())
     );
     check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
-}
-
-/// Check that a database with `blobs_db=false` can be upgraded to `blobs_db=true` before Deneb.
-#[tokio::test]
-async fn change_to_separate_blobs_db_before_deneb() {
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-
-    // Only run this test on forks prior to Deneb. If the blobs database already has blobs, we can't
-    // move it.
-    if store.get_chain_spec().deneb_fork_epoch.is_some() {
-        return;
-    }
-
-    let init_blob_info = store.get_blob_info();
-    assert!(
-        init_blob_info.blobs_db,
-        "separate blobs DB should be the default"
-    );
-
-    // Change to `blobs_db=false` to emulate legacy Deneb DB.
-    let legacy_blob_info = BlobInfo {
-        blobs_db: false,
-        ..init_blob_info
-    };
-    store
-        .compare_and_set_blob_info_with_write(init_blob_info.clone(), legacy_blob_info.clone())
-        .unwrap();
-    assert_eq!(store.get_blob_info(), legacy_blob_info);
-
-    // Re-open the DB and check that `blobs_db` gets changed back to true.
-    drop(store);
-    let store = get_store(&db_path);
-    assert_eq!(store.get_blob_info(), init_blob_info);
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.
@@ -5086,10 +5190,7 @@ async fn fulu_prune_data_columns_happy_case() {
 
     // Prior to manual pruning with an artifically low data availability boundary all data columns
     // should be stored.
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(fulu_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, fulu_fork_slot);
     check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger pruning of data columns older than epoch 2.
@@ -5100,10 +5201,7 @@ async fn fulu_prune_data_columns_happy_case() {
 
     // Check oldest data column slot is updated accordingly and prior data columns have been
     // deleted.
-    let oldest_data_column_slot = store
-        .get_data_column_info()
-        .oldest_data_column_slot
-        .unwrap();
+    let oldest_data_column_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(
         oldest_data_column_slot,
         data_availability_boundary.start_slot(E::slots_per_epoch())
@@ -5161,10 +5259,7 @@ async fn fulu_prune_data_columns_no_finalization() {
     assert_eq!(store.get_split_slot(), finalized_slot);
 
     // All data columns should still be available.
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(fulu_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, fulu_fork_slot);
     check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt pruning of data columns older than epoch 4, which is newer than finalization.
@@ -5174,10 +5269,7 @@ async fn fulu_prune_data_columns_no_finalization() {
         .unwrap();
 
     // Check oldest data column slot is only updated to finalization, and NOT to the DAB.
-    let oldest_data_column_slot = store
-        .get_data_column_info()
-        .oldest_data_column_slot
-        .unwrap();
+    let oldest_data_column_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(oldest_data_column_slot, finalized_slot);
     check_data_column_existence(&harness, Slot::new(0), finalized_slot - 1, false);
     check_data_column_existence(&harness, finalized_slot, harness.head_slot(), true);
@@ -5222,26 +5314,21 @@ async fn fulu_prune_data_columns_fork_boundary() {
     );
     assert_eq!(store.get_split_slot(), finalized_slot);
 
-    // All data columns should still be available.
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(fulu_fork_slot)
-    );
+    // The oldest data slot starts at the Deneb fork slot (genesis for this spec), and all data
+    // columns should be available.
+    assert_eq!(store.get_data_info().oldest_data_slot, Slot::new(0));
     check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
 
     // Attempt pruning with data availability epochs that precede the fork epoch.
-    // No pruning should occur.
+    // Pre-fork blobs may be pruned, but no data columns must be pruned.
     assert!(fulu_fork_epoch < finalized_epoch);
     for data_availability_boundary in [Epoch::new(0), Epoch::new(3), fulu_fork_epoch] {
         store
             .try_prune_blobs(true, data_availability_boundary)
             .unwrap();
 
-        // Check oldest data column slot is not updated.
-        assert_eq!(
-            store.get_data_column_info().oldest_data_column_slot,
-            Some(fulu_fork_slot)
-        );
+        // Check the oldest data slot has not advanced past the fork slot.
+        assert!(store.get_data_info().oldest_data_slot <= fulu_fork_slot);
     }
     // All data columns should still be available.
     check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
@@ -5249,10 +5336,7 @@ async fn fulu_prune_data_columns_fork_boundary() {
     // Prune one epoch past the fork.
     let pruned_slot = (fulu_fork_epoch + 1).start_slot(E::slots_per_epoch());
     store.try_prune_blobs(true, fulu_fork_epoch + 1).unwrap();
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(pruned_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, pruned_slot);
     check_data_column_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_data_column_existence(&harness, pruned_slot, harness.head_slot(), true);
 }
@@ -5371,10 +5455,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
 
     // Prior to manual pruning with an artifically low data availability boundary all blobs should
     // be stored.
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(fulu_fork_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, fulu_fork_slot);
     check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
@@ -5391,10 +5472,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
         .unwrap();
 
     // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
-    let oldest_data_column_slot = store
-        .get_data_column_info()
-        .oldest_data_column_slot
-        .unwrap();
+    let oldest_data_column_slot = store.get_data_info().oldest_data_slot;
     assert_eq!(
         oldest_data_column_slot,
         effective_data_availability_boundary.start_slot(E::slots_per_epoch())
