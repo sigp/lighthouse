@@ -1,12 +1,15 @@
 use beacon_chain::NotifyExecutionLayer;
+use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
-use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
+};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
-use futures::FutureExt;
 use std::sync::Arc;
+use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
     WithdrawalRequest,
 };
 
@@ -101,7 +104,7 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
 }
 
 #[tokio::test]
-async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
+async fn lookup_imports_gloas_payload_after_restart() {
     if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
         return;
     }
@@ -113,6 +116,7 @@ async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();
+    harness.execution_block_generator().set_min_blob_count(1);
 
     harness.extend_to_slot(Slot::new(1)).await;
 
@@ -121,6 +125,12 @@ async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
     harness.advance_slot();
     let (block_contents, envelope, _) = harness.make_block_with_envelope(state, target_slot).await;
     let block_root = block_contents.0.canonical_root();
+    let custody_columns =
+        generate_data_column_sidecars_from_block(&block_contents.0, &harness.chain.spec);
+    assert!(
+        !custody_columns.is_empty(),
+        "test block should contain blobs"
+    );
 
     harness
         .process_block(target_slot, block_root, block_contents)
@@ -131,18 +141,67 @@ async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
         .persist_fork_choice()
         .expect("fork choice should persist");
 
-    let resumed = BeaconChainHarness::builder(E::default())
-        .spec(spec)
-        .deterministic_keypairs(64)
-        .resumed_ephemeral_store(harness.chain.store.clone())
-        .mock_execution_layer()
-        .mock_execution_layer_all_payloads_valid()
-        .testing_slot_clock(harness.chain.slot_clock.clone())
-        .build();
+    let store = harness.chain.store.clone();
+    let slot_clock = harness.chain.slot_clock.clone();
     drop(harness);
+    let resume = || {
+        BeaconChainHarness::builder(E::default())
+            .spec(spec.clone())
+            .deterministic_keypairs(64)
+            .resumed_ephemeral_store(store.clone())
+            .mock_execution_layer()
+            .mock_execution_layer_all_payloads_valid()
+            .testing_slot_clock(slot_clock.clone())
+            .build()
+    };
+    let envelope = Arc::new(envelope.expect("Gloas block should produce an envelope"));
+
+    let proof_resumed = resume();
+    assert!(
+        proof_resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_none(),
+        "the pending bid cache should start empty after restart"
+    );
+    let proof_status = proof_resumed
+        .chain
+        .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
+            proof: Arc::new(SignedExecutionProof {
+                message: ExecutionProof {
+                    proof_data: ProofData::new(vec![1]).expect("proof data"),
+                    proof_type: 0,
+                    public_input: PublicInput {
+                        new_payload_request_root: Hash256::random(),
+                    },
+                    beacon_block_root: block_root,
+                },
+                validator_index: 0,
+                signature: bls::Signature::infinity().expect("infinity signature"),
+            }),
+            block_slot: target_slot,
+        })
+        .await
+        .expect("execution proof should be accepted after restart");
+    assert!(matches!(
+        proof_status,
+        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
+    ));
+    assert!(
+        proof_resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_some(),
+        "execution-proof processing should restore the persisted bid"
+    );
+    drop(proof_resumed);
+
+    let column_resumed = resume();
 
     assert!(
-        resumed
+        column_resumed
             .chain
             .pending_payload_cache
             .get_bid(&block_root)
@@ -150,38 +209,71 @@ async fn lookup_restores_gloas_bid_before_payload_execution_after_restart() {
         "the pending bid cache should start empty after restart"
     );
 
-    let verified_envelope = resumed
+    let column_status = column_resumed
         .chain
-        .verify_envelope_for_gossip(
-            Arc::new(envelope.expect("Gloas block should produce an envelope")),
-            EnvelopeSource::Rpc,
-        )
+        .process_rpc_custody_columns(custody_columns.clone())
         .await
-        .expect("envelope should verify");
-    let process_envelope = resumed.chain.process_execution_payload_envelope(
-        block_root,
-        verified_envelope,
-        NotifyExecutionLayer::Yes,
-        BlockImportSource::Lookup,
-        || Ok(()),
-    );
-    tokio::pin!(process_envelope);
-
+        .expect("custody columns should be accepted after restart");
+    assert!(matches!(
+        column_status,
+        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
+    ));
     assert!(
-        process_envelope.as_mut().now_or_never().is_none(),
-        "envelope processing should wait for the execution layer"
-    );
-    assert!(
-        resumed
+        column_resumed
             .chain
             .pending_payload_cache
             .get_bid(&block_root)
             .is_some(),
-        "envelope processing should restore the bid before execution-layer verification"
+        "custody-column processing should restore the persisted bid"
     );
-    process_envelope
+    drop(column_resumed);
+
+    let envelope_resumed = resume();
+    assert!(
+        envelope_resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_none(),
+        "the pending bid cache should start empty after restart"
+    );
+    let verified_envelope = envelope_resumed
+        .chain
+        .verify_envelope_for_gossip(envelope, EnvelopeSource::Rpc)
+        .await
+        .expect("envelope should verify");
+    let envelope_status = envelope_resumed
+        .chain
+        .process_execution_payload_envelope(
+            block_root,
+            verified_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
         .await
         .expect("envelope should be accepted after restart");
+    assert!(matches!(
+        envelope_status,
+        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
+    ));
+    assert!(
+        envelope_resumed
+            .chain
+            .pending_payload_cache
+            .get_bid(&block_root)
+            .is_some(),
+        "envelope processing should restore the persisted bid"
+    );
+    let import_status = envelope_resumed
+        .chain
+        .process_rpc_custody_columns(custody_columns)
+        .await
+        .expect("custody columns should complete the payload import");
+    assert!(matches!(
+        import_status,
+        beacon_chain::AvailabilityProcessingStatus::Imported(..)
+    ));
 }
 
 /// An envelope whose `execution_requests` don't hash to the bid's committed

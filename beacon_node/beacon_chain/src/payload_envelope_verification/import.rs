@@ -55,7 +55,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_envelope.signed_envelope.slot();
-        let envelope_block_root = unverified_envelope.signed_envelope.beacon_block_root();
         let bid = Arc::new(
             unverified_envelope
                 .block
@@ -64,10 +63,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .signed_execution_payload_bid()?
                 .clone(),
         );
-        // Restore the bid before execution-layer verification so concurrent custody-column
-        // processing can use its KZG commitments.
-        self.pending_payload_cache
-            .insert_bid(envelope_block_root, bid.clone());
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).

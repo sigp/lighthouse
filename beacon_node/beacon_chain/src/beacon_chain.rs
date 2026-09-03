@@ -27,7 +27,8 @@ use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
     KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
-    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
+    PartialColumnVerificationResult, load_gloas_payload_bid,
+    validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
@@ -4198,9 +4199,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.get_or_load_gloas_payload_bid(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, custody_columns)
+                .put_rpc_custody_columns(block_root, custody_columns, &bid)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))
@@ -4222,12 +4224,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_proof: GossipVerifiedExecutionProof,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
+        let bid = self
+            .get_or_load_gloas_payload_bid(proof.beacon_block_root())
+            .await?;
         let availability = self
             .pending_payload_cache
-            .put_execution_proof(proof)
+            .put_execution_proof(proof, &bid)
             .map_err(BlockError::from)?;
         self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
             .await
+    }
+
+    /// Load a persisted Gloas bid without blocking the async runtime.
+    pub(crate) async fn get_or_load_gloas_payload_bid(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<Arc<SignedExecutionPayloadBid<T::EthSpec>>, BlockError> {
+        if let Some(bid) = self.pending_payload_cache.get_bid(&block_root) {
+            return Ok(bid);
+        }
+
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || load_gloas_payload_bid(block_root, &chain),
+            "load_gloas_payload_bid",
+        )
+        .await??
+        .ok_or_else(|| AvailabilityCheckError::MissingBid(block_root).into())
     }
 
     fn check_data_column_sidecar_header_signature_and_slashability<'a>(

@@ -253,7 +253,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     }
 
     /// Insert an executed payload envelope and its bid into the cache, then check availability.
-    pub fn put_executed_payload_envelope(
+    pub(crate) fn put_executed_payload_envelope(
         &self,
         executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
         bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
@@ -290,17 +290,15 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     ///
     /// Only the proof that reaches the requirement can unblock the payload, so repeats and
     /// extras skip the check rather than importing twice.
-    pub fn put_execution_proof(
+    pub(crate) fn put_execution_proof(
         &self,
         proof: Arc<SignedExecutionProof>,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block_root = proof.beacon_block_root();
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
 
         let (inserted, pending_components) =
-            self.update_pending_components(block_root, &bid, |pending_components| {
+            self.update_pending_components(block_root, bid, |pending_components| {
                 pending_components.insert_execution_proof(proof)
             })?;
 
@@ -324,14 +322,12 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// Perform KZG verification on RPC custody columns and insert them into the cache.
     /// After insertion check if the envelope becomes available.
     #[instrument(skip_all, level = "trace")]
-    pub fn put_rpc_custody_columns(
+    pub(crate) fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
             custody_columns,
             &bid.message.blob_kzg_commitments,
@@ -347,7 +343,11 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
             .collect::<Vec<_>>();
 
-        self.put_kzg_verified_custody_data_columns(block_root, &verified_custody_columns)
+        self.put_kzg_verified_custody_data_columns_with_bid(
+            block_root,
+            &verified_custody_columns,
+            bid,
+        )
     }
 
     /// Perform KZG verification on gossip verified custody columns and insert them into the cache.
@@ -441,8 +441,21 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .get_bid(&block_root)
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
 
+        self.put_kzg_verified_custody_data_columns_with_bid(
+            block_root,
+            kzg_verified_data_columns,
+            &bid,
+        )
+    }
+
+    fn put_kzg_verified_custody_data_columns_with_bid(
+        &self,
+        block_root: Hash256,
+        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<T::EthSpec>],
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let (_, pending_components) =
-            self.update_pending_components(block_root, &bid, |pending_components| {
+            self.update_pending_components(block_root, bid, |pending_components| {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
@@ -792,8 +805,9 @@ mod data_availability_checker_tests {
         }
 
         fn put_columns(&self, columns: DataColumnSidecarList<E>) -> Availability<E> {
+            let bid = self.cache.get_bid(&self.block_root).expect("bid");
             self.cache
-                .put_rpc_custody_columns(self.block_root, columns)
+                .put_rpc_custody_columns(self.block_root, columns, &bid)
                 .expect("put columns")
         }
 
@@ -808,8 +822,9 @@ mod data_availability_checker_tests {
         }
 
         fn put_proof(&self, proof_type: ProofType) -> Availability<E> {
+            let bid = self.cache.get_bid(&self.block_root).expect("bid");
             self.cache
-                .put_execution_proof(Arc::new(execution_proof(self.block_root, proof_type)))
+                .put_execution_proof(Arc::new(execution_proof(self.block_root, proof_type)), &bid)
                 .expect("put execution proof")
         }
     }
