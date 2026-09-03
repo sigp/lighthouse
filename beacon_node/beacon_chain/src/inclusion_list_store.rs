@@ -377,8 +377,8 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// The validators expected to be reported for `(slot, dependent_root)`: those with a stored
-    /// inclusion list, minus the equivocators, timely-filtered when `only_timely` is set.
+    /// The validators expected to be reported for `(slot, dependent_root)`, timely-filtered 
+    /// when `only_timely` is `True`.
     fn expected_submitters(
         store: &InclusionListStore<E>,
         slot: Slot,
