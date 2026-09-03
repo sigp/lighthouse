@@ -363,6 +363,7 @@ impl Config {
         if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint.as_ref() {
             let update_period_secs = Some(validator_client_config.monitoring_endpoint_period);
             config.monitoring_api = Some(monitoring_api::Config {
+                data_dir: Some(config.validator_dir.clone()),
                 db_path: None,
                 freezer_db_path: None,
                 update_period_secs,
