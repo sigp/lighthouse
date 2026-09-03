@@ -1,10 +1,12 @@
-//! Differential tests: the pure `builder_payment_window` module against the `BeaconState`
-//! implementation, driven by the same random operation sequences.
+//! Conformance tests for the adapter: the `BeaconState` functions in `adapter.rs` against the
+//! model they wrap, driven by the same random operation sequences.
 //!
-//! Each operation is applied to both a real Gloas `BeaconState` and the model, and after every
-//! step the window and the withdrawal queue must be identical. This is what justifies swapping
-//! the real code for calls into the module.
+//! Before the swap this compared two independent implementations and was the evidence that the
+//! model was faithful. Now the state side *is* the model plus conversions, so what this checks
+//! is the adapter: the type conversions and the `Vector` copy-in/out. The spec vectors are the
+//! independent oracle.
 
+use super::adapter::{to_model_payment, to_model_withdrawal, to_real_withdrawal};
 use super::{self as model, PendingPayment, PendingWithdrawal};
 use crate::per_block_processing::{
     add_builder_payment_weight, record_builder_pending_payment, settle_builder_payment,
@@ -13,9 +15,7 @@ use crate::per_epoch_processing::single_pass::process_builder_pending_payments;
 use beacon_chain::test_utils::BeaconChainHarness;
 use proptest::prelude::*;
 use std::sync::{Arc, OnceLock};
-use types::{
-    Address, BeaconState, BuilderPendingWithdrawal, EthSpec, ForkName, MinimalEthSpec, Slot,
-};
+use types::{BeaconState, EthSpec, ForkName, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;
 
@@ -40,33 +40,13 @@ fn genesis_state() -> BeaconState<E> {
         .clone()
 }
 
-fn to_model_withdrawal(w: &BuilderPendingWithdrawal) -> PendingWithdrawal {
-    PendingWithdrawal {
-        fee_recipient: w.fee_recipient.0.0,
-        amount: w.amount,
-        builder_index: w.builder_index,
-    }
-}
-
-fn to_real_withdrawal(w: &PendingWithdrawal) -> BuilderPendingWithdrawal {
-    BuilderPendingWithdrawal {
-        fee_recipient: Address::from(w.fee_recipient),
-        amount: w.amount,
-        builder_index: w.builder_index,
-    }
-}
-
 /// The real state's window and withdrawal queue, in model form.
 fn snapshot(state: &BeaconState<E>) -> (Vec<PendingPayment>, Vec<PendingWithdrawal>) {
     let payments = state
         .builder_pending_payments()
         .expect("gloas state")
         .iter()
-        .map(|p| PendingPayment {
-            weight: p.weight,
-            withdrawal: to_model_withdrawal(&p.withdrawal),
-            proposer_index: p.proposer_index,
-        })
+        .map(to_model_payment)
         .collect();
     let withdrawals = state
         .builder_pending_withdrawals()

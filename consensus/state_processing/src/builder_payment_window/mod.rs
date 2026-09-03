@@ -21,6 +21,7 @@
 //! - `process_operations.rs` (attestation weight accrual)
 //! - `per_epoch_processing/single_pass.rs` (epoch transition)
 
+pub mod adapter;
 #[cfg(test)]
 mod diff_tests;
 

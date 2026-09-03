@@ -1,3 +1,6 @@
+pub use crate::builder_payment_window::adapter::{
+    add_builder_payment_weight, record_builder_pending_payment, settle_builder_payment,
+};
 use crate::consensus_context::ConsensusContext;
 use errors::{
     BlockOperationError, BlockProcessingError, ExecutionPayloadBidInvalid, HeaderInvalid,
@@ -689,82 +692,6 @@ pub fn verify_execution_request_list_lengths<E: EthSpec>(
             BlockProcessingError::OperationListTooLong { kind, length, max }
         );
     }
-    Ok(())
-}
-
-/// Spec: `settle_builder_payment`.
-///
-/// Records the pending payment for a bid at `slot` in the current-epoch half of
-/// `builder_pending_payments`, overwriting whatever is there. Zero-amount withdrawals are not
-/// recorded.
-pub fn record_builder_pending_payment<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    slot: Slot,
-    withdrawal: BuilderPendingWithdrawal,
-    proposer_index: u64,
-) -> Result<(), BlockProcessingError> {
-    if withdrawal.amount == 0 {
-        return Ok(());
-    }
-
-    let payment_index = E::SlotsPerEpoch::to_usize()
-        .safe_add(slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
-
-    *state
-        .builder_pending_payments_mut()?
-        .get_mut(payment_index)
-        .ok_or(BlockProcessingError::BeaconStateError(
-            BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
-        ))? = BuilderPendingPayment {
-        weight: 0,
-        withdrawal,
-        proposer_index,
-    };
-
-    Ok(())
-}
-
-/// Adds an attester's effective balance to the weight of the pending payment at
-/// `payment_index`. Whether the attestation counts at all is decided by the caller.
-pub fn add_builder_payment_weight<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    payment_index: usize,
-    effective_balance: u64,
-) -> Result<(), BlockProcessingError> {
-    state
-        .builder_pending_payments_mut()?
-        .get_mut(payment_index)
-        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
-            payment_index,
-        ))?
-        .weight
-        .safe_add_assign(effective_balance)?;
-    Ok(())
-}
-
-/// Moves a pending payment from `builder_pending_payments[payment_index]` into
-/// `builder_pending_withdrawals`, then clears the slot.
-pub fn settle_builder_payment<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    payment_index: usize,
-) -> Result<(), BlockProcessingError> {
-    let payment_mut = state
-        .builder_pending_payments_mut()?
-        .get_mut(payment_index)
-        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
-            payment_index,
-        ))?;
-
-    let withdrawal = payment_mut.withdrawal.clone();
-    *payment_mut = BuilderPendingPayment::default();
-
-    if withdrawal.amount > 0 {
-        state
-            .builder_pending_withdrawals_mut()?
-            .push(withdrawal)
-            .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
-    }
-
     Ok(())
 }
 
