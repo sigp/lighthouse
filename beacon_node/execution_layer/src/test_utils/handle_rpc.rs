@@ -528,6 +528,11 @@ pub async fn handle_rpc<E: EthSpec>(
             let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
             Ok(serde_json::to_value(response).unwrap())
         }
+        ENGINE_GET_INCLUSION_LIST_V1 => {
+            let transactions = ctx.execution_block_generator.read().get_inclusion_list();
+
+            Ok(serde_json::to_value(JsonInclusionListV1(transactions)).unwrap())
+        }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3
