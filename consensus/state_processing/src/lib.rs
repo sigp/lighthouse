@@ -19,6 +19,7 @@ mod metrics;
 pub mod all_caches;
 pub mod block_replayer;
 pub mod builder_deposits_cache;
+pub mod builder_payment_window;
 pub mod common;
 pub mod consensus_context;
 pub mod envelope_processing;
