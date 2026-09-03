@@ -465,7 +465,18 @@ pub async fn serve<T: BeaconChainTypes>(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
-                        SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
+                        // A synced node may always serve requests.
+                        SyncState::Synced => Ok(()),
+                        // In any non-synced state, only serve requests if the head is recent
+                        // enough. This prevents a node that is far behind (e.g. stalled with a
+                        // head that is hundreds of epochs old) from serving duties based on a
+                        // stale head.
+                        SyncState::SyncingFinalized { .. }
+                        | SyncState::SyncingHead { .. }
+                        | SyncState::SyncTransition
+                        | SyncState::BackFillSyncing { .. }
+                        | SyncState::CustodyBackFillSyncing { .. }
+                        | SyncState::Stalled => {
                             let head_slot = chain.canonical_head.cached_head().head_slot();
 
                             let current_slot =
@@ -487,11 +498,6 @@ pub async fn serve<T: BeaconChainTypes>(
                                 )))
                             }
                         }
-                        SyncState::SyncTransition
-                        | SyncState::BackFillSyncing { .. }
-                        | SyncState::CustodyBackFillSyncing { .. } => Ok(()),
-                        SyncState::Synced => Ok(()),
-                        SyncState::Stalled => Ok(()),
                     }
                 },
             )
