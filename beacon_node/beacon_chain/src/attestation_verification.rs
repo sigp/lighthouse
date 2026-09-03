@@ -1226,7 +1226,9 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     }
 }
 
-/// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
+/// Returns the `ProtoBlock` for `attestation.data.beacon_block_root` if the block is known to
+/// this chain, does not exceed the skip slot limit, and descends from both the finalized
+/// checkpoint and the store's split block.
 ///
 /// The block root may not be known for two reasons:
 ///
@@ -1241,48 +1243,60 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     attestation_data: &AttestationData,
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
-    let block_opt = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&attestation_data.beacon_block_root)
-        .or_else(|| {
-            chain
-                .early_attester_cache
-                .get_proto_block(attestation_data.beacon_block_root)
-        });
+    let beacon_block_root = attestation_data.beacon_block_root;
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
 
-    if let Some(block) = block_opt {
-        // Reject any block that exceeds our limit on skipped slots.
-        if let Some(max_skip_slots) = max_skip_slots
-            && attestation_data.slot > block.slot + max_skip_slots
-        {
-            return Err(Error::TooManySkippedSlots {
-                head_block_slot: block.slot,
-                attestation_slot: attestation_data.slot,
-            });
-        }
+    let (block, in_fork_choice) = if let Some(block) = fork_choice.get_block(&beacon_block_root) {
+        (block, true)
+    } else if let Some(block) = chain
+        .early_attester_cache
+        .get_proto_block(beacon_block_root)
+    {
+        (block, false)
+    } else {
+        drop(fork_choice);
 
-        if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation_data, chain) {
-            return Err(Error::HeadBlockFinalized {
-                beacon_block_root: attestation_data.beacon_block_root,
-            });
-        }
+        return if chain.is_pre_finalization_block(beacon_block_root)? {
+            Err(Error::HeadBlockFinalized { beacon_block_root })
+        } else {
+            // The block is either:
+            //
+            // 1) A pre-finalization block that has been pruned. We'll do one network lookup
+            //    for it and when it fails we will penalise all involved peers.
+            // 2) A post-finalization block that we don't know about yet. We'll queue
+            //    the attestation until the block becomes available (or we time out).
+            Err(Error::UnknownHeadBlock { beacon_block_root })
+        };
+    };
 
-        Ok(block)
-    } else if chain.is_pre_finalization_block(attestation_data.beacon_block_root)? {
-        Err(Error::HeadBlockFinalized {
-            beacon_block_root: attestation_data.beacon_block_root,
+    verify_skip_slots(&block, attestation_data, max_skip_slots)?;
+
+    // `ForkChoice::get_block` only returns blocks that are descended from the finalized
+    // checkpoint, so the explicit `is_finalized_checkpoint_or_descendant` check is only required
+    // for blocks fetched from the early attester cache (which are not yet in fork choice).
+    if (!in_fork_choice && !fork_choice.is_finalized_checkpoint_or_descendant(beacon_block_root))
+        || !chain.descends_from_split_block(&fork_choice, beacon_block_root)
+    {
+        return Err(Error::HeadBlockFinalized { beacon_block_root });
+    }
+
+    Ok(block)
+}
+
+fn verify_skip_slots(
+    block: &ProtoBlock,
+    attestation_data: &AttestationData,
+    max_skip_slots: Option<u64>,
+) -> Result<(), Error> {
+    if let Some(max_skip_slots) = max_skip_slots
+        && attestation_data.slot > block.slot + max_skip_slots
+    {
+        Err(Error::TooManySkippedSlots {
+            head_block_slot: block.slot,
+            attestation_slot: attestation_data.slot,
         })
     } else {
-        // The block is either:
-        //
-        // 1) A pre-finalization block that has been pruned. We'll do one network lookup
-        //    for it and when it fails we will penalise all involved peers.
-        // 2) A post-finalization block that we don't know about yet. We'll queue
-        //    the attestation until the block becomes available (or we time out).
-        Err(Error::UnknownHeadBlock {
-            beacon_block_root: attestation_data.beacon_block_root,
-        })
+        Ok(())
     }
 }
 
@@ -1509,29 +1523,6 @@ pub fn verify_committee_index<E: EthSpec>(
         }
     }
     Ok(())
-}
-
-fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
-    attestation_data: &AttestationData,
-    chain: &BeaconChain<T>,
-) -> bool {
-    // If we have a split block newer than finalization then we also ban attestations which are not
-    // descended from that split block. It's important not to try checking `is_descendant` if
-    // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
-    // return `false` in this case.
-    let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let attestation_block_root = attestation_data.beacon_block_root;
-    let finalized_slot = fork_choice
-        .finalized_checkpoint()
-        .epoch
-        .start_slot(T::EthSpec::slots_per_epoch());
-    let split = chain.store.get_split_info();
-    let is_descendant_from_split_block = split.slot == 0
-        || split.slot <= finalized_slot
-        || fork_choice.is_descendant(split.block_root, attestation_block_root);
-
-    fork_choice.is_finalized_checkpoint_or_descendant(attestation_block_root)
-        && is_descendant_from_split_block
 }
 
 /// Assists in readability.
