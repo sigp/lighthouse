@@ -60,6 +60,11 @@ pub enum PayloadBidError {
     InvalidGasLimit,
     /// The bids execution payment is non-zero
     ExecutionPaymentNonZero { execution_payment: u64 },
+    /// The bids block hash equals its parent block hash
+    BlockHashEqualsParentBlockHash {
+        slot: Slot,
+        block_hash: ExecutionBlockHash,
+    },
     /// The number of blob KZG commitments exceeds the maximum allowed.
     InvalidBlobKzgCommitments {
         max_blobs_per_block: usize,

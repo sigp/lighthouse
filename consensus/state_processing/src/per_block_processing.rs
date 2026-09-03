@@ -820,6 +820,15 @@ pub fn process_execution_payload_bid<E: EthSpec>(
         .into()
     );
 
+    // Verify that the bid's block hash differs from its parent block hash
+    block_verify!(
+        bid.block_hash != bid.parent_block_hash,
+        ExecutionPayloadBidInvalid::BlockHashEqualsParentBlockHash {
+            block_hash: bid.block_hash,
+        }
+        .into()
+    );
+
     let expected_parent_root = *state.get_block_root(state.slot().safe_sub(1)?)?;
     block_verify!(
         bid.parent_block_root == expected_parent_root,
