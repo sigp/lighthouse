@@ -1,4 +1,4 @@
-use crate::pure_check::{AttRow, Verdict, check_attestation_pure};
+use crate::attestation_rules::{self, AttestationRecord, Verdict};
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
@@ -397,19 +397,9 @@ impl SlashingDatabase {
     ) -> Result<Safe, NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
-        // Fetch this validator's retained rows in one query and decide in
-        // `pure_check::check_attestation_pure`, which holds the slashing conditions.
-        //
-        // This reads every row for the validator instead of issuing four filtered queries.
-        // That is not a regression: the only index is `UNIQUE (validator_id, target_epoch)`,
-        // so the `MIN(source_epoch)` and `MIN(target_epoch)` lower-bound lookups this
-        // replaces already scanned the same rows.
-        //
-        // The row count is normally tiny, since pruning runs each epoch and retains only
-        // `SLASHING_PROTECTION_HISTORY_EPOCHS` (currently 1) worth of attestations. It is
-        // NOT bounded by the schema, though: a database that has not been pruned since
-        // startup can hold many rows per validator, and this scan happens inside the
-        // exclusive transaction.
+        // Load this validator's attestations and check them against the slashing conditions.
+        // Only rows for `validator_id` are read, and pruning keeps one epoch's worth of
+        // attestations.
         let history = txn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
@@ -419,10 +409,10 @@ impl SlashingDatabase {
             .query_map(params![validator_id], SignedAttestation::from_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let to_row = |source: Epoch, target: Epoch, root: SigningRoot| AttRow {
-            source: source.as_u64(),
-            target: target.as_u64(),
-            root: root.to_hash256_raw().0,
+        let to_row = |source: Epoch, target: Epoch, root: SigningRoot| AttestationRecord {
+            source_epoch: source.as_u64(),
+            target_epoch: target.as_u64(),
+            signing_root: root.to_hash256_raw().0,
         };
 
         let rows = history
@@ -431,9 +421,9 @@ impl SlashingDatabase {
             .collect::<Vec<_>>();
         let candidate = to_row(att_source_epoch, att_target_epoch, att_signing_root);
 
-        // The verdict decides safety. The lookups below only recover the offending row for
-        // the error message, and never influence whether the attestation is accepted.
-        match check_attestation_pure(&rows, &candidate) {
+        // The verdict alone decides whether the attestation is safe. The error arms below
+        // only find the conflicting row to report.
+        match attestation_rules::check_attestation(&rows, &candidate) {
             Verdict::Valid => Ok(Safe::Valid),
             Verdict::SameData => Ok(Safe::SameData),
             Verdict::SourceExceedsTarget => Err(NotSafe::InvalidAttestation(
@@ -450,7 +440,7 @@ impl SlashingDatabase {
                 )))
             }
             Verdict::PrevSurroundsNew => {
-                // As before, report the most recent surrounding attestation.
+                // If there is a surrounding attestation, we only return the most recent one.
                 let prev = history
                     .iter()
                     .filter(|att| {
@@ -464,6 +454,7 @@ impl SlashingDatabase {
                 ))
             }
             Verdict::NewSurroundsPrev => {
+                // If there is a surrounded attestation, we only return the most recent one.
                 let prev = history
                     .iter()
                     .filter(|att| {
