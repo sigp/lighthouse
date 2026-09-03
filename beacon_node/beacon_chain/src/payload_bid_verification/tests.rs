@@ -572,6 +572,36 @@ fn unknown_parent_execution_payload_is_ignored_before_signature() {
 }
 
 #[test]
+fn block_hash_equals_parent_block_hash() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let parent_block_hash = ctx.execution_parent_hash();
+    let bid = Arc::new(SignedExecutionPayloadBid {
+        message: ExecutionPayloadBid {
+            slot,
+            gas_limit: 30_000_000,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash,
+            block_hash: parent_block_hash,
+            prev_randao: ctx.expected_prev_randao(),
+            ..ExecutionPayloadBid::default()
+        },
+        signature: Signature::empty(),
+    });
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::BlockHashEqualsParentBlockHash { .. })
+    ));
+}
+
+#[test]
 fn execution_payment_nonzero() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
