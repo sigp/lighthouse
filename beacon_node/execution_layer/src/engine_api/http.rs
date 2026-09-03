@@ -15,6 +15,7 @@ use std::sync::LazyLock;
 use tokio::sync::Mutex;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use types::ProgressiveTransactions;
 
 use std::time::{Duration, Instant};
 
@@ -68,6 +69,9 @@ pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
+pub const ENGINE_GET_INCLUSION_LIST_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 /// This code is returned by all clients when a method is not supported
@@ -96,6 +100,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V2,
     ENGINE_GET_BLOBS_V3,
+    ENGINE_GET_INCLUSION_LIST_V1,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
@@ -754,6 +759,16 @@ impl HttpJsonRpc {
         .await
     }
 
+    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
+        self.rpc_request::<JsonInclusionListV1>(
+            ENGINE_GET_INCLUSION_LIST_V1,
+            json!([]),
+            ENGINE_GET_INCLUSION_LIST_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+        .map(|response| response.0)
+    }
+
     pub async fn get_block_by_number(
         &self,
         query: BlockByNumberQuery<'_>,
@@ -1276,6 +1291,7 @@ impl HttpJsonRpc {
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
             get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
+            get_inclusion_list_v1: capabilities.contains(ENGINE_GET_INCLUSION_LIST_V1),
         })
     }
 
@@ -1747,6 +1763,15 @@ mod test {
         txs
     }
 
+    fn generate_progressive_transactions(spec: &[usize]) -> ProgressiveTransactions {
+        let mut txs = ProgressiveTransactions::empty();
+        for &num_bytes in spec {
+            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]));
+        }
+
+        txs
+    }
+
     #[test]
     fn transaction_serde() {
         assert_transactions_serde::<MainnetEthSpec>(
@@ -1795,6 +1820,42 @@ mod test {
         );
     }
 
+    fn assert_inclusion_list_serde(
+        name: &str,
+        as_obj: ProgressiveTransactions,
+        as_json: serde_json::Value,
+    ) {
+        assert_eq!(
+            serde_json::to_value(JsonInclusionListV1(as_obj.clone())).unwrap(),
+            as_json,
+            "encoding for {}",
+            name
+        );
+        assert_eq!(
+            serde_json::from_value::<JsonInclusionListV1>(as_json)
+                .unwrap()
+                .0,
+            as_obj,
+            "decoding for {}",
+            name
+        );
+    }
+
+    #[test]
+    fn inclusion_list_serde() {
+        assert_inclusion_list_serde("empty", generate_progressive_transactions(&[]), json!([]));
+        assert_inclusion_list_serde(
+            "one empty tx",
+            generate_progressive_transactions(&[0]),
+            json!(["0x"]),
+        );
+        assert_inclusion_list_serde(
+            "mixed bag",
+            generate_progressive_transactions(&[0, 1, 3, 0]),
+            json!(["0x", "0x00", "0x000000", "0x"]),
+        );
+    }
+
     #[tokio::test]
     async fn get_block_by_number_request() {
         Tester::new(true)
@@ -1819,6 +1880,27 @@ mod test {
                     .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                     .await
             })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_inclusion_list_v1_request() {
+        Tester::new(true)
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client.get_inclusion_list_v1().await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_GET_INCLUSION_LIST_V1,
+                    "params": []
+                }),
+            )
+            .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move { client.get_inclusion_list_v1().await })
             .await;
     }
 
