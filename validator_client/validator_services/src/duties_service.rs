@@ -297,7 +297,6 @@ impl Display for LookaheadDutyKind {
 }
 
 impl LookaheadDutyKind {
-    /// The `DUTIES_SERVICE_TIMES` label for this duty type's fetch phase.
     fn fetch_metric(&self) -> &'static str {
         match self {
             LookaheadDutyKind::Ptc => validator_metrics::UPDATE_PTC_FETCH,
@@ -305,7 +304,6 @@ impl LookaheadDutyKind {
         }
     }
 
-    /// The `DUTIES_SERVICE_TIMES` label for this duty type's store phase.
     fn store_metric(&self) -> &'static str {
         match self {
             LookaheadDutyKind::Ptc => validator_metrics::UPDATE_PTC_STORE,
