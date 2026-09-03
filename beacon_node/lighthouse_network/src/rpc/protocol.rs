@@ -303,6 +303,13 @@ pub enum Protocol {
     LightClientUpdatesByRange,
 }
 
+impl serde::Serialize for Protocol {
+    /// Serialize as the canonical protocol name (matching `AsRef<str>`/`Display`).
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_ref())
+    }
+}
+
 impl Protocol {
     pub(crate) fn terminator(self) -> Option<ResponseTermination> {
         match self {

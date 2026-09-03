@@ -2,6 +2,7 @@ use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
+use crate::rpc::Protocol as RpcProtocol;
 use crate::{rpc::MetaData, types::Subnet};
 use PeerConnectionStatus::*;
 use discv5::Enr;
@@ -59,6 +60,8 @@ pub struct PeerInfo<E: EthSpec> {
     connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
     enr: Option<Enr>,
+    /// The set of ReqResp protocols the peer advertised via `identify`. Empty until identified.
+    supported_protocols: HashSet<RpcProtocol>,
 }
 
 impl<E: EthSpec> Default for PeerInfo<E> {
@@ -78,6 +81,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             is_trusted: false,
             connection_direction: None,
             enr: None,
+            supported_protocols: HashSet::new(),
         }
     }
 }
@@ -170,6 +174,11 @@ impl<E: EthSpec> PeerInfo<E> {
     /// The ENR of the peer if it is known.
     pub fn enr(&self) -> Option<&Enr> {
         self.enr.as_ref()
+    }
+
+    /// Returns true if the peer advertised support for `protocol` via `identify`.
+    pub fn supports_protocol(&self, protocol: RpcProtocol) -> bool {
+        self.supported_protocols.contains(&protocol)
     }
 
     /// An iterator over all the subnets this peer is subscribed to.
@@ -398,6 +407,15 @@ impl<E: EthSpec> PeerInfo<E> {
     // VISIBILITY: The peer manager is able to set the client
     pub(in crate::peer_manager) fn set_client(&mut self, client: Client) {
         self.client = client
+    }
+
+    /// Replaces the set of ReqResp protocols the peer advertised via `identify`.
+    // VISIBILITY: The peer manager is able to set the supported protocols
+    pub(in crate::peer_manager) fn set_supported_protocols(
+        &mut self,
+        supported_protocols: HashSet<RpcProtocol>,
+    ) {
+        self.supported_protocols = supported_protocols;
     }
 
     /// Replaces the current listening addresses with those specified, returning the current
