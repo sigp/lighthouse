@@ -1854,7 +1854,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_inclusion_list_v1(&self, fork: ForkName) -> Result<ProgressiveTransactions, Error> {
+    pub async fn get_inclusion_list_v1(
+        &self,
+        fork: ForkName,
+    ) -> Result<ProgressiveTransactions, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_inclusion_list_v1(fork) {

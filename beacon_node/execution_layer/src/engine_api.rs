@@ -665,7 +665,7 @@ impl EngineCapabilities {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_inclusion_list_v1(fork),
             // Heze fork REST-SSZ spec does not exist yet
-            Self::Ssz(_) => false
+            Self::Ssz(_) => false,
         }
     }
 
