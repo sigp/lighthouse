@@ -425,6 +425,7 @@ pub struct BeaconNodeFallback<T> {
     head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
+    user_agent: String,
 }
 
 impl<T: SlotClock> BeaconNodeFallback<T> {
@@ -443,7 +444,13 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             head_monitor_send: None,
             broadcast_topics,
             spec,
+            user_agent: String::new(),
         }
+    }
+
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.user_agent = user_agent;
+        self
     }
 
     /// Used to update the slot clock post-instantiation.
@@ -535,12 +542,20 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
+        let client = reqwest::Client::builder()
+            .user_agent(&self.user_agent)
+            .build()
+            .unwrap_or_default();
+
         let new_candidates: Vec<CandidateBeaconNode> = new_list
             .clone()
             .into_iter()
             .enumerate()
             .map(|(index, url)| {
-                CandidateBeaconNode::new(BeaconNodeHttpClient::new(url, timeouts.clone()), index)
+                CandidateBeaconNode::new(
+                    BeaconNodeHttpClient::from_components(url, client.clone(), timeouts.clone()),
+                    index,
+                )
             })
             .collect();
 

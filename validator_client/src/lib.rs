@@ -296,6 +296,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let beacon_node_http_client = beacon_node_http_client_builder
                 // Set default timeout to be the full slot duration.
                 .timeout(slot_duration)
+                .user_agent(&config.user_agent)
                 .build()
                 .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
 
@@ -368,14 +369,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-        );
+        )
+        .with_user_agent(config.user_agent.clone());
 
         let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-        );
+        )
+        .with_user_agent(config.user_agent.clone());
 
         let (genesis_time, genesis_validators_root) =
             if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {

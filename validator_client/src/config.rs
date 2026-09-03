@@ -94,6 +94,9 @@ pub struct Config {
     pub disable_attesting: bool,
     /// Fetch proposer duties using the v1 endpoint instead of v2.
     pub disable_proposer_duties_v2: bool,
+    /// User-Agent string for HTTP clients (set by the top-level binary).
+    #[serde(skip)]
+    pub user_agent: String,
 }
 
 impl Default for Config {
@@ -142,11 +145,18 @@ impl Default for Config {
             initialized_validators: <_>::default(),
             disable_attesting: false,
             disable_proposer_duties_v2: false,
+            user_agent: String::new(),
         }
     }
 }
 
 impl Config {
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.initialized_validators.user_agent = user_agent.clone();
+        self.user_agent = user_agent;
+        self
+    }
+
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
     pub fn from_cli(
@@ -367,6 +377,7 @@ impl Config {
                 freezer_db_path: None,
                 update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
+                user_agent: config.user_agent.clone(),
             });
         }
 
@@ -419,5 +430,14 @@ mod tests {
     // Ensures the default config does not panic.
     fn default_config() {
         Config::default();
+    }
+
+    #[test]
+    fn user_agent_propagates_to_configs() {
+        let user_agent = "Lighthouse/v8.1.3-abcdef".to_string();
+        let config = Config::default().with_user_agent(user_agent.clone());
+
+        assert_eq!(config.user_agent, user_agent);
+        assert_eq!(config.initialized_validators.user_agent, user_agent);
     }
 }
