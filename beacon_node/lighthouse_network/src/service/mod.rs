@@ -815,21 +815,19 @@ impl<E: EthSpec> Network<E> {
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        // update the network globals
-        self.network_globals
-            .gossipsub_subscriptions
-            .write()
-            .insert(topic.clone());
+        let libp2p_topic: Topic = topic.clone().into();
 
-        let topic: Topic = topic.into();
-
-        match self.gossipsub_mut().subscribe(&topic) {
+        match self.gossipsub_mut().subscribe(&libp2p_topic) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
             }
             Ok(_) => {
                 debug!(%topic, "Subscribed to topic");
+                self.network_globals
+                    .gossipsub_subscriptions
+                    .write()
+                    .insert(topic);
                 true
             }
         }
@@ -853,7 +851,12 @@ impl<E: EthSpec> Network<E> {
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
-            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
+            let fork_digest = gossip_fork_digest_for_publish(
+                &message,
+                &self.fork_context,
+                self.enr_fork_id.fork_digest,
+            );
+            for topic in message.topics(GossipEncoding::default(), fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
                 if let Err(e) = self
                     .gossipsub_mut()
@@ -2178,5 +2181,100 @@ impl<E: EthSpec> Network<E> {
                 None
             }
         }
+    }
+}
+
+/// Fork digest used when publishing a gossip message.
+///
+/// `ProposerPreferences` uses the digest for `proposal_slot`'s epoch so pre-fork prefs land on the
+/// Gloas topic. All other messages use the current ENR fork digest.
+fn gossip_fork_digest_for_publish<E: EthSpec>(
+    message: &PubsubMessage<E>,
+    fork_context: &ForkContext,
+    current_enr_digest: [u8; 4],
+) -> [u8; 4] {
+    match message {
+        PubsubMessage::ProposerPreferences(prefs) => {
+            let epoch = prefs.message.proposal_slot.epoch(E::slots_per_epoch());
+            fork_context.context_bytes(epoch)
+        }
+        _ => current_enr_digest,
+    }
+}
+
+#[cfg(test)]
+mod gossip_publish_digest_tests {
+    use super::*;
+    use bls::Signature;
+    use std::sync::Arc;
+    use types::{
+        Epoch, Hash256, MinimalEthSpec, ProposerPreferences, SignedProposerPreferences,
+        SignedVoluntaryExit, VoluntaryExit,
+    };
+
+    type E = MinimalEthSpec;
+
+    fn fulu_then_gloas_fork_context(gloas_epoch: u64) -> ForkContext {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.electra_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
+        ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    #[test]
+    fn proposer_preferences_publish_uses_proposal_epoch_digest() {
+        let gloas_epoch = 2;
+        let fork_context = fulu_then_gloas_fork_context(gloas_epoch);
+        let fulu_digest = fork_context.context_bytes(Epoch::new(0));
+        let gloas_digest = fork_context.context_bytes(Epoch::new(gloas_epoch));
+        assert_ne!(fulu_digest, gloas_digest);
+        assert_eq!(
+            gloas_digest,
+            fork_context
+                .spec
+                .compute_fork_digest(Hash256::ZERO, Epoch::new(gloas_epoch))
+        );
+
+        let prefs = SignedProposerPreferences {
+            message: ProposerPreferences {
+                dependent_root: Hash256::ZERO,
+                proposal_slot: Epoch::new(gloas_epoch).start_slot(E::slots_per_epoch()),
+                validator_index: 1,
+                fee_recipient: Default::default(),
+                target_gas_limit: 30_000_000,
+            },
+            signature: Signature::empty(),
+        };
+        let message = PubsubMessage::<E>::ProposerPreferences(Arc::new(prefs));
+
+        let digest = gossip_fork_digest_for_publish(&message, &fork_context, fulu_digest);
+        assert_eq!(digest, gloas_digest);
+        assert_ne!(digest, fulu_digest);
+    }
+
+    #[test]
+    fn other_messages_publish_use_current_enr_digest() {
+        let fork_context = fulu_then_gloas_fork_context(2);
+        let fulu_digest = fork_context.context_bytes(Epoch::new(0));
+        let other_digest = [9, 9, 9, 9];
+
+        let exit = SignedVoluntaryExit {
+            message: VoluntaryExit {
+                epoch: Epoch::new(0),
+                validator_index: 0,
+            },
+            signature: Signature::empty(),
+        };
+        let message = PubsubMessage::<E>::VoluntaryExit(Box::new(exit));
+
+        let digest = gossip_fork_digest_for_publish(&message, &fork_context, other_digest);
+        assert_eq!(digest, other_digest);
+        assert_ne!(digest, fork_context.context_bytes(Epoch::new(2)));
+        assert_eq!(fulu_digest, fork_context.current_fork_digest());
     }
 }
