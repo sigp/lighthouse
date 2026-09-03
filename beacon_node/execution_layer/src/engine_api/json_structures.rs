@@ -1313,6 +1313,13 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonInclusionListV1(
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub  ProgressiveTransactions,
+);
+
 #[cfg(test)]
 mod tests {
     use bls::{PublicKeyBytes, SignatureBytes};
