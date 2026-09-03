@@ -27,6 +27,7 @@ dirs = { workspace = true }
 environment = { workspace = true }
 eth2_config = { workspace = true }
 execution_layer = { workspace = true }
+filesystem = { workspace = true }
 genesis = { workspace = true }
 hex = { workspace = true }
 http_api = { workspace = true }
@@ -45,3 +46,4 @@ types = { workspace = true }
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
+tempfile = { workspace = true }
