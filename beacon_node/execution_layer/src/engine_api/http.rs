@@ -66,6 +66,7 @@ pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
+pub const ENGINE_GET_BLOBS_V4: &str = "engine_getBlobsV4";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
@@ -98,6 +99,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V2,
     ENGINE_GET_BLOBS_V3,
+    ENGINE_GET_BLOBS_V4,
     ENGINE_GET_INCLUSION_LIST_V1,
 ];
 
@@ -757,6 +759,21 @@ impl HttpJsonRpc {
         .await
     }
 
+    pub async fn get_blobs_v4<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+        indices_bitarray: CustodyColumnsBitArray,
+    ) -> Result<Vec<Option<BlobCellsAndProofsV1<E>>>, Error> {
+        let params = json!([versioned_hashes, indices_bitarray]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V4,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
     pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
         self.rpc_request::<JsonInclusionListV1>(
             ENGINE_GET_INCLUSION_LIST_V1,
@@ -1266,6 +1283,7 @@ impl HttpJsonRpc {
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
             get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
+            get_blobs_v4: capabilities.contains(ENGINE_GET_BLOBS_V4),
             get_inclusion_list_v1: capabilities.contains(ENGINE_GET_INCLUSION_LIST_V1),
         })
     }

@@ -58,7 +58,10 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v6: true,
     get_client_version_v1: true,
     get_blobs_v2: true,
-    get_blobs_v3: true,
+    // The mock server has no `engine_getBlobsV3` handler, so it must not advertise it: nodes
+    // prefer the advertised version and get method-not-found errors instead of blobs.
+    get_blobs_v3: false,
+    get_blobs_v4: true,
     get_inclusion_list_v1: true,
 };
 

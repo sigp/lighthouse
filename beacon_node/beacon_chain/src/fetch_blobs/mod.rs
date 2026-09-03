@@ -24,17 +24,25 @@ use crate::{
     metrics,
 };
 use execution_layer::Error as ExecutionLayerError;
-use execution_layer::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use execution_layer::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, BlobCellsAndProofsV1, ColumnIndexTooHighError,
+    CustodyColumnsBitArray,
+};
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{debug, instrument, warn};
-use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError};
+use types::data::{
+    BlobSidecarError, CellBitmap, ColumnIndex, DataColumnSidecarError, PartialDataColumn,
+    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnHeader,
+    PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
+};
 use types::{
     AbstractExecPayload, BeaconStateError, EthSpec, Hash256, KzgCommitment, ListRef,
-    PartialDataColumnHeader, SignedBeaconBlock, SignedExecutionPayloadBid, Slot, VersionedHash,
+    SignedBeaconBlock, SignedExecutionPayloadBid, Slot, VersionedHash,
 };
 
 /// The source of the KZG commitments for a block's partial data columns.
@@ -143,15 +151,30 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         .spec()
         .is_peer_das_enabled_for_epoch(header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch()))
     {
-        fetch_and_process_blobs_v2_or_v3(
-            chain_adapter,
-            block_root,
-            header_or_bid,
-            versioned_hashes,
-            custody_columns,
-            publish_fn,
-        )
-        .await
+        // `engine_getBlobsV4` lets us request only the columns we custody and assemble partial
+        // columns directly from the cells the EL returns. It supports both the Fulu partial-header
+        // path and the Gloas bid path; we fall back to V2/V3 only when the EL lacks the capability.
+        if chain_adapter.supports_get_blobs_v4().await? {
+            fetch_and_process_blobs_v4(
+                chain_adapter,
+                block_root,
+                header_or_bid,
+                versioned_hashes,
+                custody_columns,
+                publish_fn,
+            )
+            .await
+        } else {
+            fetch_and_process_blobs_v2_or_v3(
+                chain_adapter,
+                block_root,
+                header_or_bid,
+                versioned_hashes,
+                custody_columns,
+                publish_fn,
+            )
+            .await
+        }
     } else {
         Err(FetchEngineBlobError::InternalError(
             "fetch blobs v1 no longer supported".to_owned(),
@@ -169,7 +192,6 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
-    let slot = header_or_bid.slot();
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
 
@@ -270,7 +292,33 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    let availability_processing_status = match &header_or_bid {
+    let availability_processing_status = import_custody_partial_columns(
+        &chain_adapter,
+        block_root,
+        &header_or_bid,
+        custody_columns_to_import,
+        publish_fn,
+    )
+    .await?;
+
+    Ok(Some(availability_processing_status))
+}
+
+/// Merge the deduplicated custody partial columns into the appropriate fork-specific cache, publish
+/// any newly-completed columns, and return the resulting availability status.
+///
+/// This is the shared tail for both the V2/V3 and V4 fetch-blobs paths. The Fulu (partial-header)
+/// path goes through the [`PartialDataColumnAssembler`](crate::partial_data_column_assembler), while
+/// the Gloas (bid) path goes through the [`PendingPayloadCache`](crate::pending_payload_cache).
+async fn import_custody_partial_columns<T: BeaconChainTypes>(
+    chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
+    block_root: Hash256,
+    header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+    custody_columns_to_import: Vec<KzgVerifiedPartialDataColumn<T::EthSpec>>,
+    publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
+) -> Result<AvailabilityProcessingStatus, FetchEngineBlobError> {
+    let slot = header_or_bid.slot();
+    match header_or_bid {
         PartialHeaderOrBid::PartialHeader(header) => {
             let custody_columns_to_import: Vec<_> = custody_columns_to_import
                 .into_iter()
@@ -307,9 +355,11 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
                 chain_adapter
                     .process_engine_blobs_fulu(slot, block_root, full_columns)
-                    .await?
+                    .await
             } else {
-                AvailabilityProcessingStatus::MissingComponents(slot, block_root)
+                Ok(AvailabilityProcessingStatus::MissingComponents(
+                    slot, block_root,
+                ))
             }
         }
         PartialHeaderOrBid::Bid(bid) => {
@@ -340,11 +390,254 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
             chain_adapter
                 .process_payload_envelope_availability(slot, availability)
-                .await?
+                .await
         }
-    };
+    }
+}
+
+/// EIP-8070 `engine_getBlobsV4` path: request only the columns we custody from
+/// the EL and assemble `PartialDataColumn`s directly from the cells it returns,
+/// skipping the local KZG-cell derivation that V2/V3 require.
+///
+/// Works for both the Fulu (partial-header) and Gloas (bid) paths; the fork-specific assembly and
+/// import happen in [`build_partial_columns_from_v4_response`] and [`import_custody_partial_columns`].
+#[instrument(skip_all, level = "debug")]
+async fn fetch_and_process_blobs_v4<T: BeaconChainTypes>(
+    chain_adapter: FetchBlobsBeaconAdapter<T>,
+    block_root: Hash256,
+    header_or_bid: PartialHeaderOrBid<T::EthSpec>,
+    versioned_hashes: Vec<VersionedHash>,
+    custody_columns_indices: &[ColumnIndex],
+    publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
+) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
+    let num_expected_blobs = versioned_hashes.len();
+
+    metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
+    inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V4_REQUESTS_TOTAL);
+    let _timer =
+        metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS);
+
+    let bitarray = CustodyColumnsBitArray::try_from(custody_columns_indices).map_err(
+        |ColumnIndexTooHighError(idx)| {
+            FetchEngineBlobError::InternalError(format!(
+                "Column index {} is too high for the getBlobsV4 bitmap",
+                idx
+            ))
+        },
+    )?;
+
+    debug!(
+        num_expected_blobs,
+        num_columns = custody_columns_indices.len(),
+        "Fetching blob cells from the EL via V4"
+    );
+
+    let response = chain_adapter
+        .get_blobs_v4(versioned_hashes, bitarray)
+        .await
+        .inspect_err(|_| {
+            inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+        })?;
+
+    if response.len() != num_expected_blobs {
+        warn!(
+            response_len = response.len(),
+            num_expected_blobs, "engine_getBlobsV4 returned the wrong number of blob entries"
+        );
+        inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+        return Ok(None);
+    }
+
+    // Count present (non-null) cells across the response.
+    let total_cells_expected = num_expected_blobs.saturating_mul(custody_columns_indices.len());
+    let total_cells_present: usize = response
+        .iter()
+        .flatten()
+        .flat_map(|cells_and_proofs| cells_and_proofs.blob_cells.iter())
+        .filter(|c| c.is_some())
+        .count();
+
+    if total_cells_present == 0 {
+        debug!(num_expected_blobs, "No cells fetched from the EL");
+        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
+        return Ok(None);
+    } else if total_cells_present == total_cells_expected {
+        debug!(total_cells_present, "All requested cells received from EL");
+        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
+        inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V4_COMPLETE_RESPONSES_TOTAL);
+    } else {
+        debug!(
+            total_cells_present,
+            total_cells_expected, "Cells partially received from the EL"
+        );
+        inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL);
+    }
+
+    if chain_adapter.fork_choice_contains_block(&block_root) {
+        debug!(
+            info = "block has already been imported",
+            "Ignoring EL blobs response"
+        );
+        return Ok(None);
+    }
+
+    let chain_adapter = Arc::new(chain_adapter);
+    let custody_columns_to_import = build_partial_columns_from_v4_response(
+        &chain_adapter,
+        block_root,
+        &header_or_bid,
+        response,
+        custody_columns_indices,
+    )
+    .await?;
+
+    if custody_columns_to_import.is_empty() {
+        debug!(
+            info = "No new data columns to import",
+            "Ignoring EL blobs response"
+        );
+        return Ok(None);
+    }
+
+    let availability_processing_status = import_custody_partial_columns(
+        &chain_adapter,
+        block_root,
+        &header_or_bid,
+        custody_columns_to_import,
+        publish_fn,
+    )
+    .await?;
 
     Ok(Some(availability_processing_status))
+}
+
+/// Group the per-blob cells/proofs returned by `engine_getBlobsV4` into one `PartialDataColumn` per
+/// custody column index.
+///
+/// Builds the Fulu or Gloas partial-column variant depending on `header_or_bid`, then dedupes
+/// against columns we've already observed on gossip or cached in the data availability checker. The
+/// returned columns are known to be custody columns (we only request custody indices from the EL),
+/// but are wrapped in [`KzgVerifiedPartialDataColumn`] so the shared
+/// [`import_custody_partial_columns`] tail can assert custody and split by fork.
+async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
+    chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
+    block_root: Hash256,
+    header_or_bid: &PartialHeaderOrBid<T::EthSpec>,
+    response: Vec<Option<BlobCellsAndProofsV1<T::EthSpec>>>,
+    custody_columns_indices: &[ColumnIndex],
+) -> Result<Vec<KzgVerifiedPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
+    let num_blobs = response.len();
+    let num_columns = custody_columns_indices.len();
+    let slot = header_or_bid.slot();
+    let mut sorted_column_indices = custody_columns_indices.to_vec();
+    sorted_column_indices.sort_unstable();
+
+    let mut custody_columns: Vec<KzgVerifiedPartialDataColumn<T::EthSpec>> =
+        Vec::with_capacity(num_columns);
+    for (col_pos, &column_index) in sorted_column_indices.iter().enumerate() {
+        let mut bitmap = CellBitmap::<T::EthSpec>::with_capacity(num_blobs).map_err(|_| {
+            FetchEngineBlobError::InternalError("failed to allocate cell bitmap".to_string())
+        })?;
+        let mut cells = Vec::with_capacity(num_blobs);
+        let mut proofs = Vec::with_capacity(num_blobs);
+
+        for (blob_idx, blob) in response.iter().enumerate() {
+            let Some(blob) = blob else {
+                continue;
+            };
+            let cell = blob.blob_cells.get(col_pos).and_then(|c| c.as_ref());
+            let proof = blob.proofs.get(col_pos).and_then(|p| p.as_ref());
+
+            match (cell, proof) {
+                (Some(cell), Some(proof)) => {
+                    bitmap.set(blob_idx, true).map_err(|_| {
+                        FetchEngineBlobError::InternalError("unexpected oob bitmap set".to_string())
+                    })?;
+                    cells.push(cell.0.clone());
+                    proofs.push(*proof);
+                }
+                (Some(_), None) => {
+                    return Err(FetchEngineBlobError::InternalError(
+                        "engine_getBlobsV4 entry has a cell but no proof".to_string(),
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(FetchEngineBlobError::InternalError(
+                        "engine_getBlobsV4 entry has a proof but no cell".to_string(),
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
+        if cells.is_empty() {
+            continue;
+        }
+
+        // The cells and proofs are fork-independent; only the wrapping partial-column variant
+        // differs (Gloas carries the slot in the partial and omits the inline header).
+        let partial = match header_or_bid {
+            PartialHeaderOrBid::PartialHeader(_) => {
+                let column = VariableList::try_from(cells).map_err(|_| {
+                    FetchEngineBlobError::InternalError("unexpectedly many cells".to_string())
+                })?;
+                let kzg_proofs = VariableList::try_from(proofs).map_err(|_| {
+                    FetchEngineBlobError::InternalError("unexpectedly many proofs".to_string())
+                })?;
+
+                PartialDataColumn::Fulu(PartialDataColumnFulu {
+                    block_root,
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarFulu::<T::EthSpec> {
+                        cells_present_bitmap: bitmap,
+                        column,
+                        kzg_proofs,
+                        header: None.into(),
+                    },
+                })
+            }
+            PartialHeaderOrBid::Bid(_) => {
+                let column = ProgressiveVariableList::new(cells);
+                let kzg_proofs = ProgressiveVariableList::new(proofs);
+
+                PartialDataColumn::Gloas(PartialDataColumnGloas {
+                    block_root,
+                    slot,
+                    index: column_index,
+                    sidecar: PartialDataColumnSidecarGloas::<T::EthSpec> {
+                        cells_present_bitmap: bitmap,
+                        column,
+                        kzg_proofs,
+                    },
+                })
+            }
+        };
+        custody_columns.push(KzgVerifiedPartialDataColumn::from_execution_verified(
+            partial,
+        ));
+    }
+
+    // Dedupe against gossip-observed columns.
+    let observation_key = match header_or_bid {
+        PartialHeaderOrBid::PartialHeader(header) => ObservationKey::new_proposer_key(
+            header.signed_block_header.message.proposer_index,
+            header.slot(),
+        ),
+        PartialHeaderOrBid::Bid(bid) => {
+            ObservationKey::new_block_root_key(block_root, bid.message.slot)
+        }
+    };
+    if let Some(observed_columns) =
+        chain_adapter.data_column_known_for_observation_key(observation_key)
+    {
+        custody_columns.retain(|col| !observed_columns.contains(&col.index()));
+    }
+
+    // Dedupe against DA-checker-cached columns.
+    if let Some(known_columns) = chain_adapter.cached_data_column_indexes(&block_root, slot) {
+        custody_columns.retain(|col| !known_columns.contains(&col.index()));
+    }
+
+    Ok(custody_columns)
 }
 
 /// Offload the data column computation to a blocking task to avoid holding up the async runtime.

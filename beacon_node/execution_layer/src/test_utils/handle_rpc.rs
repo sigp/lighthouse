@@ -528,6 +528,41 @@ pub async fn handle_rpc<E: EthSpec>(
             let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
             Ok(serde_json::to_value(response).unwrap())
         }
+        ENGINE_GET_BLOBS_V4 => {
+            let versioned_hashes =
+                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let indices_bitarray = get_param::<CustodyColumnsBitArray>(params, 1)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let requested_indices = indices_bitarray
+                .iter_set_bits()
+                .map(|i| i as usize)
+                .collect::<Vec<_>>();
+
+            let generator = ctx.execution_block_generator.read();
+            let response = versioned_hashes
+                .iter()
+                .map(|hash| {
+                    // Pre-Fulu blobs have no cells and cannot be served over V4.
+                    let Some((cells, cell_proofs)) = generator.get_blob_cells_and_proofs(hash)
+                    else {
+                        return Ok(None);
+                    };
+                    let mut blob_cells = Vec::with_capacity(requested_indices.len());
+                    let mut proofs = Vec::with_capacity(requested_indices.len());
+                    for &index in &requested_indices {
+                        let (cell, proof) =
+                            cells.get(index).zip(cell_proofs.get(index)).ok_or((
+                                format!("cell index {index} out of range"),
+                                BAD_PARAMS_ERROR_CODE,
+                            ))?;
+                        blob_cells.push(Some(JsonCell(cell.clone())));
+                        proofs.push(Some(*proof));
+                    }
+                    Ok(Some(BlobCellsAndProofsV1::<E> { blob_cells, proofs }))
+                })
+                .collect::<Result<Vec<_>, (String, i64)>>()?;
+            Ok(serde_json::to_value(response).unwrap())
+        }
         ENGINE_GET_INCLUSION_LIST_V1 => {
             let transactions = ctx.execution_block_generator.read().get_inclusion_list();
 
