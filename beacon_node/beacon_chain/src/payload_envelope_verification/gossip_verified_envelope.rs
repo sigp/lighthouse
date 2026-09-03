@@ -16,11 +16,13 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
+    observed_execution_payloads::ObservedExecutionPayloads,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 
 /// Bundles only the dependencies needed for gossip verification of execution payload envelopes,
 /// decoupling `GossipVerifiedEnvelope::new` from the full `BeaconChain`.
@@ -31,9 +33,11 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_envelopes: &'a ObservedPayloadEnvelopes,
     pub genesis_validators_root: Hash256,
     pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
+    pub observed_execution_payloads: &'a ObservedExecutionPayloads,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -237,6 +241,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
+                ctx.builder_onboarding_cache,
                 ctx.spec,
             )?;
             let expected_proposer = proposer.index;
@@ -300,23 +305,24 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         }
 
-        // Emit SSE event once per envelope, on first observation from any source
-        if !envelope_already_seen
-            && let Some(event_handler) = ctx.event_handler.as_ref()
-            && event_handler.has_execution_payload_gossip_subscribers()
-        {
-            event_handler.register(EventKind::ExecutionPayloadGossip(
-                SseExecutionPayloadGossip {
-                    slot: block_slot,
-                    builder_index,
-                    block_hash: gossip_verified_envelope
-                        .signed_envelope
-                        .message
-                        .payload
-                        .block_hash,
-                    block_root: beacon_block_root,
-                },
-            ));
+        if !envelope_already_seen {
+            let payload = &gossip_verified_envelope.signed_envelope.message.payload;
+            ctx.observed_execution_payloads
+                .insert(payload.block_hash, payload.gas_limit);
+
+            // Emit the SSE event once for the first observation from any source.
+            if let Some(event_handler) = ctx.event_handler.as_ref()
+                && event_handler.has_execution_payload_gossip_subscribers()
+            {
+                event_handler.register(EventKind::ExecutionPayloadGossip(
+                    SseExecutionPayloadGossip {
+                        slot: block_slot,
+                        builder_index,
+                        block_hash: payload.block_hash,
+                        block_root: beacon_block_root,
+                    },
+                ));
+            }
         }
 
         Ok(gossip_verified_envelope)
@@ -340,9 +346,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec: &self.spec,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_envelopes: &self.observed_payload_envelopes,
             genesis_validators_root: self.genesis_validators_root,
             event_handler: &self.event_handler,
+            observed_execution_payloads: &self.observed_execution_payloads,
         }
     }
 
