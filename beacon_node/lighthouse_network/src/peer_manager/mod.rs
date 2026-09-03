@@ -848,8 +848,17 @@ impl<E: EthSpec> PeerManager<E> {
     /* Internal functions */
 
     /// Sets a peer as connected as long as their reputation allows it
-    fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) {
-        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr);
+    fn inject_connect_incoming(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+    ) {
+        self.inject_peer_connection(
+            peer_id,
+            ConnectingType::IncomingConnected { multiaddr },
+            enr,
+        );
     }
 
     /// Sets a peer as connected as long as their reputation allows it
@@ -892,10 +901,10 @@ impl<E: EthSpec> PeerManager<E> {
         );
     }
 
-    /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
+    /// Registers a peer as connected. The `connection` parameter determines if the peer is being
     /// dialed or connecting to us.
     ///
-    /// This is called by `connect_ingoing` and `connect_outgoing`.
+    /// This is called by `connect_incoming` and `connect_outgoing`.
     fn inject_peer_connection(
         &mut self,
         peer_id: &PeerId,
@@ -914,8 +923,8 @@ impl<E: EthSpec> PeerManager<E> {
                     peerdb.dialing_peer(peer_id, enr);
                     return;
                 }
-                ConnectingType::IngoingConnected { multiaddr } => {
-                    peerdb.connect_ingoing(peer_id, multiaddr, enr);
+                ConnectingType::IncomingConnected { multiaddr } => {
+                    peerdb.connect_incoming(peer_id, multiaddr, enr);
                     // start a timer to ping inbound peers.
                     self.inbound_ping_peers.insert(*peer_id);
                 }
@@ -1701,7 +1710,7 @@ enum ConnectingType {
     /// We are in the process of dialing this peer.
     Dialing,
     /// A peer has dialed us.
-    IngoingConnected {
+    IncomingConnected {
         // The multiaddr the peer connected to us on.
         multiaddr: Multiaddr,
     },
@@ -1790,10 +1799,10 @@ mod tests {
         // Create 6 peers to connect to with a target of 3.
         // 2 will be outbound-only, and have the lowest score.
         // 1 will be a trusted peer.
-        // The other 3 will be ingoing peers.
+        // The other 3 will be incoming peers.
 
         // We expect this test to disconnect from 3 peers. 1 from the outbound peer (the other must
-        // remain due to the outbound peer limit) and 2 from the ingoing peers (the trusted peer
+        // remain due to the outbound peer limit) and 2 from the incoming peers (the trusted peer
         // should remain connected).
         let peer0 = PeerId::random();
         let peer1 = PeerId::random();
@@ -1804,10 +1813,10 @@ mod tests {
 
         let mut peer_manager = build_peer_manager_with_trusted_peers(vec![trusted_peer], 3).await;
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_outgoing(
             &outbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
@@ -1888,16 +1897,16 @@ mod tests {
     async fn test_peer_manager_not_enough_outbound_peers_no_panic_during_heartbeat() {
         let mut peer_manager = build_peer_manager(20).await;
 
-        // Connect to 20 ingoing-only peers.
+        // Connect to 20 incoming-only peers.
         for _i in 0..19 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         }
 
         // Connect an outbound-only peer.
         // Give it the lowest score so that it is evaluated first in the disconnect list iterator.
         let outbound_only_peer = PeerId::random();
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &outbound_only_peer,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
@@ -1929,11 +1938,19 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(
+            &peer0,
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+            None,
+        );
+        peer_manager.inject_connect_incoming(
+            &peer1,
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+            None,
+        );
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &inbound_only_peer1,
             "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
             None,
@@ -1989,16 +2006,16 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_outgoing(
             &outbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
         );
         // Have one peer be on the verge of disconnection.
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &inbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
@@ -2044,11 +2061,11 @@ mod tests {
         println!("{}", peer3);
         println!("{}", peer4);
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer4, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer4, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Have some of the peers be on a long-lived subnet
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
@@ -2151,7 +2168,7 @@ mod tests {
         let mut peer_manager = build_peer_manager_with_opts(vec![], 1, spec).await;
         let pubkey = Keypair::generate_secp256k1().public();
         let peer_id = PeerId::from_public_key(&pubkey);
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &peer_id,
             Multiaddr::empty().with_p2p(peer_id).unwrap(),
             None,
@@ -2199,7 +2216,7 @@ mod tests {
             let subnet: u64 = { if x < 15 { x % 4 } else { x } };
 
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             {
@@ -2293,7 +2310,7 @@ mod tests {
         let mut peers = Vec::new();
         for x in 0..6 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let custody_subnets = match x {
@@ -2383,7 +2400,7 @@ mod tests {
         let mut peers = Vec::new();
         for x in 0..6 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
@@ -2494,7 +2511,7 @@ mod tests {
         let mut peers = Vec::new();
         for peer_idx in 0..8 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let custody_subnets = match peer_idx {
@@ -2658,7 +2675,7 @@ mod tests {
                     HashSet::from([DataColumnSubnetId::new(3)])
                 }
                 6 => {
-                    peer_manager.inject_connect_ingoing(
+                    peer_manager.inject_connect_incoming(
                         &peer,
                         "/ip4/0.0.0.0".parse().unwrap(),
                         None,
@@ -2666,7 +2683,7 @@ mod tests {
                     HashSet::from([DataColumnSubnetId::new(4)])
                 }
                 7 => {
-                    peer_manager.inject_connect_ingoing(
+                    peer_manager.inject_connect_incoming(
                         &peer,
                         "/ip4/0.0.0.0".parse().unwrap(),
                         None,
@@ -2753,7 +2770,7 @@ mod tests {
 
         for &subnet in subnet_assignments.iter() {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
             attnets.set(subnet, true).unwrap();
@@ -2840,7 +2857,7 @@ mod tests {
         let current_peer_count = 6;
         for i in 0..current_peer_count {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let sync_status = match i {
                 0 => SyncStatus::Behind {
@@ -2934,7 +2951,7 @@ mod tests {
         let mut peers = Vec::new();
         for i in 0..12 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let custody_subnet = match i {
                 ..4 => 0,
@@ -3151,7 +3168,7 @@ mod tests {
                                 None,
                             );
                         } else {
-                            peer_manager.inject_connect_ingoing(
+                            peer_manager.inject_connect_incoming(
                                 &condition.peer_id,
                                 "/ip4/0.0.0.0".parse().unwrap(),
                                 None,
