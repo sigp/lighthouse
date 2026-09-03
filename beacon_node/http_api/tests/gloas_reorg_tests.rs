@@ -665,7 +665,7 @@ pub async fn proposer_boost_re_org_test(
     // forkchoiceUpdated head hash references B's own execution block hash.
     if let Some(block_b_envelope) = block_b_envelope {
         harness
-            .process_envelope(block_b_root, block_b_envelope, &state_b, state_b_root)
+            .process_envelope(block_b_root, block_b_envelope)
             .await;
     }
 

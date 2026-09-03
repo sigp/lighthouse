@@ -1,3 +1,4 @@
+use crate::AvailabilityProcessingStatus;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -29,7 +30,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
+    ExecutionLayer,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -55,8 +56,7 @@ use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
-    BlockSignatureStrategy, VerifyBlockRoot, deneb::kzg_commitment_to_versioned_hash,
-    per_block_processing,
+    BlockSignatureStrategy, VerifyBlockRoot, per_block_processing,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -705,6 +705,7 @@ where
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
+            import_ledger: <_>::default(),
             rng: make_rng(),
         }
     }
@@ -759,6 +760,33 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 /// attestations.
 ///
 /// Used for testing.
+/// Ground-truth record of artifacts the harness has successfully imported, maintained
+/// independently of the chain so that `check_fork_choice_consistency` audits the chain's
+/// wiring rather than trusting it.
+#[derive(Default)]
+pub struct ImportLedger {
+    /// Map from block root to `(slot, parent_root)`.
+    pub blocks: HashMap<Hash256, (Slot, Hash256)>,
+    /// Block roots whose execution payload envelope has been imported.
+    pub envelopes: HashSet<Hash256>,
+}
+
+impl ImportLedger {
+    /// Walk parent pointers within the ledger. Returns `false` if the walk exits the ledger
+    /// (e.g. reaches the anchor) without finding `ancestor`.
+    fn descends_from(&self, mut root: Hash256, ancestor: Hash256) -> bool {
+        loop {
+            if root == ancestor {
+                return true;
+            }
+            match self.blocks.get(&root) {
+                Some((_, parent_root)) if *parent_root != root => root = *parent_root,
+                _ => return false,
+            }
+        }
+    }
+}
+
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
     /// Optional BLS withdrawal keys for each validator.
@@ -775,6 +803,8 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
+
+    pub import_ledger: Mutex<ImportLedger>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -1546,6 +1576,7 @@ where
             .await
             .unwrap_or_else(|e| panic!("import failed at slot {}: {e:?}", slot));
         self.chain.recompute_head_at_current_slot().await;
+        self.record_imported_block(block_root, slot, parent_root);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2986,6 +3017,46 @@ where
         (deposits, state)
     }
 
+    fn record_imported_block(&self, block_root: Hash256, slot: Slot, parent_root: Hash256) {
+        self.import_ledger
+            .lock()
+            .blocks
+            .insert(block_root, (slot, parent_root));
+        self.check_fork_choice_consistency();
+    }
+
+    fn record_imported_envelope(&self, block_root: Hash256) {
+        self.import_ledger.lock().envelopes.insert(block_root);
+        self.check_fork_choice_consistency();
+    }
+
+    /// Assert that everything in the import ledger is reflected in fork choice.
+    ///
+    /// Blocks that do not descend from the finalized checkpoint are exempt (they are
+    /// legitimately pruned).
+    pub fn check_fork_choice_consistency(&self) {
+        let ledger = self.import_ledger.lock();
+        let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+        let finalized_root = fork_choice.finalized_checkpoint().root;
+
+        for (block_root, (slot, _)) in &ledger.blocks {
+            if !ledger.descends_from(*block_root, finalized_root) {
+                continue;
+            }
+            assert!(
+                fork_choice.contains_block(block_root),
+                "imported block {block_root:?} (slot {slot}) missing from fork choice"
+            );
+            if ledger.envelopes.contains(block_root) {
+                assert!(
+                    fork_choice.is_payload_received(block_root),
+                    "imported envelope for block {block_root:?} (slot {slot}) not reflected in \
+                     fork choice"
+                );
+            }
+        }
+    }
+
     pub async fn process_block(
         &self,
         slot: Slot,
@@ -2994,6 +3065,8 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
+        let block_slot = block.slot();
+        let parent_root = block.message().parent_root();
         // Determine if block is available: it's available if it doesn't require blobs,
         // or if it requires blobs and we have them
         let has_blob_commitments = block
@@ -3030,6 +3103,7 @@ where
         };
 
         self.chain.recompute_head_at_current_slot().await;
+        self.record_imported_block(block_root, block_slot, parent_root);
         Ok(block_hash)
     }
 
@@ -3040,6 +3114,8 @@ where
         let (block, blob_items) = block_contents;
 
         let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        let parent_root = block.message().parent_root();
         // Determine if block is available: it's available if it doesn't require blobs,
         // or if it requires blobs and we have them
         let has_blob_commitments = block
@@ -3076,113 +3152,63 @@ where
         };
 
         self.chain.recompute_head_at_current_slot().await;
+        self.record_imported_block(block_root, block_slot, parent_root);
         Ok(block_hash)
     }
 
-    /// Verify and process (with fork choice) an execution payload envelope for a Gloas block.
+    /// Verify and import an execution payload envelope via the production import path.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
-        state: &BeaconState<E>,
-        block_state_root: Hash256,
     ) {
         debug!(
             slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
 
-        state_processing::envelope_processing::verify_execution_payload_envelope(
-            state,
-            &signed_envelope,
-            state_processing::VerifySignatures::True,
-            block_state_root,
-            &self.spec,
-        )
-        .expect("should verify envelope");
-
-        // Notify the EL of the new payload so forkchoiceUpdated can reference it.
-        let block = self
+        let verified = self
             .chain
-            .store
-            .get_blinded_block(&block_root)
-            .expect("should read block from store")
-            .expect("block should exist in store");
-
-        let bid = &block
-            .message()
-            .body()
-            .signed_execution_payload_bid()
-            .expect("Gloas block should have a payload bid")
-            .message;
-
-        let versioned_hashes = bid
-            .blob_kzg_commitments
-            .iter()
-            .map(kzg_commitment_to_versioned_hash)
-            .collect();
-
-        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
-        });
-
-        self.chain
-            .execution_layer
-            .as_ref()
-            .expect("harness should have execution layer")
-            .notify_new_payload(request)
+            .verify_envelope_for_gossip(Arc::new(signed_envelope))
             .await
-            .expect("newPayload should succeed");
+            .expect("should gossip verify envelope");
 
-        // Store the envelope and the data columns derived from the block.
-        //
-        // Production stores columns inside `import_available_execution_payload_envelope` after
-        // the cache is satisfied. The harness sidesteps that flow but must still persist columns
-        // or the `DataColumnMissing` invariant fires for any block with `num_expected_blobs > 0`.
-        let block = self
+        let status = self
             .chain
-            .store
-            .get_blinded_block(&block_root)
-            .expect("should read block from store")
-            .expect("block should exist in store");
-        let mut ops = vec![];
-        let block_with_full_payload = self
-            .chain
-            .store
-            .make_full_block(&block_root, block.clone())
-            .expect("should reconstruct full block");
-        let columns =
-            generate_data_column_sidecars_from_block(&block_with_full_payload, &self.spec);
-        if !columns.is_empty()
-            && let Some(store_op) = self.chain.get_blobs_or_columns_store_op(
+            .process_execution_payload_envelope(
                 block_root,
-                block.slot(),
-                AvailableBlockData::DataColumns(columns),
+                verified,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
             )
-        {
-            ops.push(store_op);
+            .await
+            .expect("should process envelope");
+
+        // Blocks with blob commitments are only available once their data columns are in the
+        // pending payload cache. Feed the columns through the production gossip path, which
+        // completes the envelope import.
+        if matches!(status, AvailabilityProcessingStatus::MissingComponents(..)) {
+            let block = self
+                .chain
+                .store
+                .get_blinded_block(&block_root)
+                .expect("should read block from store")
+                .expect("block should exist in store");
+            let full_block = self
+                .chain
+                .store
+                .make_full_block(&block_root, block)
+                .expect("should reconstruct full block");
+            self.process_gossip_columns(&full_block, None).await;
+            assert!(
+                self.chain.envelope_is_known_to_fork_choice(&block_root),
+                "envelope import did not complete for {block_root:?}"
+            );
         }
-        ops.push(store::StoreOp::PutPayloadEnvelope(
-            block_root,
-            std::sync::Arc::new(signed_envelope),
-        ));
-        self.chain
-            .store
-            .do_atomically_with_block_and_blobs_cache(ops)
-            .expect("should persist envelope and columns");
 
-        // Update fork choice so it knows the payload was received.
-        self.chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(block_root)
-            .expect("should update fork choice with envelope");
-
-        // Run fork choice because the envelope could become the head.
         self.chain.recompute_head_at_current_slot().await;
+        self.record_imported_envelope(block_root);
     }
 
     /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -3433,9 +3459,7 @@ where
             .await?;
 
         if let Some(envelope) = opt_envelope {
-            let block_state_root = block_contents.0.state_root();
-            self.process_envelope(block_hash.into(), envelope, &new_state, block_state_root)
-                .await;
+            self.process_envelope(block_hash.into(), envelope).await;
         }
         Ok((block_hash, block_contents, new_state))
     }
