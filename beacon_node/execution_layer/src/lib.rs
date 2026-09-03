@@ -52,9 +52,9 @@ use types::{
     SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-    FullPayload, ProposerPreparationData, Slot,
+    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecPayload,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -1363,6 +1363,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .notify_forkchoice_updated(
                             fork_choice_state,
                             Some(payload_attributes.clone()),
+                            None,
                         )
                         .await?;
 
@@ -1542,6 +1543,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -1550,6 +1552,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
+        custody_columns: &[ColumnIndex],
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1599,7 +1602,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes)
+                    .notify_forkchoice_updated(
+                        forkchoice_state,
+                        payload_attributes,
+                        Some(custody_columns),
+                    )
                     .await
             })
             .await;

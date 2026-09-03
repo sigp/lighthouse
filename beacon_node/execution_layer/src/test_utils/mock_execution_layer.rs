@@ -132,6 +132,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -304,6 +305,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
+                &[],
             )
             .await
             .unwrap();
