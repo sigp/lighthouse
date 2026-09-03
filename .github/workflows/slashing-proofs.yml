@@ -76,12 +76,14 @@ jobs:
           git clone https://github.com/AeneasVerif/aeneas
           git -C aeneas checkout "$AENEAS_REV"
           ln -sfn ~/verif/charon ~/verif/aeneas/charon
+          # ubuntu-latest ships neither opam nor OCaml.
+          sudo apt-get update -qq && sudo apt-get install -y -qq opam
           # domainslib requires OCaml >= 5.0
           opam init -y --bare --disable-sandboxing
           opam switch create aeneas 5.2.0 -y
-          opam install -y --switch=aeneas --assume-depexts dune ppx_deriving ppx_deriving_yojson \
-            visitors ppxlib easy_logging core_unix ocamlgraph progress domainslib \
-            unionFind logs menhir yojson zarith
+          # Take the dependency list from Aeneas itself so it cannot drift from the pinned rev.
+          (cd ~/verif/aeneas/src && opam install -y --switch=aeneas --assume-depexts --deps-only \
+            ./aeneas.opam ./aeneas.ppx.opam)
           (cd ~/verif/aeneas/src && opam exec --switch=aeneas -- dune build)
 
       - name: Regenerate and diff
