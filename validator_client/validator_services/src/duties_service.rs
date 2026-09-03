@@ -753,7 +753,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
     // Spawn the task which keeps track of local PTC duties.
     // Only start PTC duties service if Gloas fork is scheduled.
-    if core_duties_service.spec.is_gloas_scheduled() {
+    if let Some(gloas_fork_epoch) = core_duties_service.spec.gloas_fork_epoch {
         let duties_service = core_duties_service.clone();
         core_duties_service.executor.spawn(
             async move {
@@ -766,10 +766,6 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     };
 
                     let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-                    let Some(gloas_fork_epoch) = duties_service.spec.gloas_fork_epoch else {
-                        // Gloas fork epoch not configured, should not reach here
-                        break;
-                    };
 
                     if current_epoch + 1 < gloas_fork_epoch {
                         // Wait until the next slot and check again
@@ -808,7 +804,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
     // Spawn the task which keeps track of the inclusion list committee duties.
     // Only track IL committee duties if the heze fork is scheduled
-    if core_duties_service.spec.is_heze_scheduled() {
+    if let Some(heze_fork_epoch) = core_duties_service.spec.heze_fork_epoch {
         let duties_service = core_duties_service.clone();
         core_duties_service.executor.spawn(
             async move {
@@ -820,10 +816,6 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     };
 
                     let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-                    let Some(heze_fork_epoch) = duties_service.spec.heze_fork_epoch else {
-                        // Heze fork epoch not configured
-                        break;
-                    };
 
                     if current_epoch + 1 < heze_fork_epoch {
                         // Wait until the next slot and check again if the Heze fork epoch is close
