@@ -15,3 +15,4 @@ safe_arith = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+tree_hash = { workspace = true }
