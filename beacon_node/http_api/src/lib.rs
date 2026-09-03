@@ -66,7 +66,8 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    ForkChoiceNode, JsonClientVersion, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    version_with_commit,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -2278,6 +2279,49 @@ pub async fn serve<T: BeaconChainTypes>(
             .into_response()
         });
 
+    // GET /v2/node/version
+    let get_node_version_v2 = eth_v2
+        .clone()
+        .and(warp::path("node"))
+        .and(warp::path("version"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .then(|chain: Arc<BeaconChain<T>>| async move {
+            let execution_client = if let Some(execution_layer) = &chain.execution_layer {
+                match execution_layer.get_engine_version(None).await {
+                    Ok(versions) => versions.into_iter().next(),
+                    Err(e) => {
+                        warn!(
+                            error = ?e,
+                            "Unable to fetch execution client info for /v2/node/version"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let beacon_node = version_with_commit();
+            warp::reply::json(&api_types::GenericResponse::from(
+                api_types::VersionDataV2 {
+                    beacon_node: JsonClientVersion {
+                        code: beacon_node.code,
+                        name: beacon_node.name,
+                        version: beacon_node.version,
+                        commit: beacon_node.commit,
+                    },
+                    execution_client: execution_client.map(|ec| JsonClientVersion {
+                        code: ec.code.to_string(),
+                        name: ec.name,
+                        version: ec.version,
+                        commit: ec.commit.to_string(),
+                    }),
+                },
+            ))
+            .into_response()
+        });
+
     // GET node/syncing
     let get_node_syncing = eth_v1
         .clone()
@@ -3416,6 +3460,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_debug_fork_choice)
                 .uor(get_node_identity)
                 .uor(get_node_version)
+                .uor(get_node_version_v2)
                 .uor(get_node_syncing)
                 .uor(get_node_health)
                 .uor(get_node_peers_by_id)

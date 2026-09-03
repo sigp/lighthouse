@@ -3559,6 +3559,42 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_node_version_v2(self) -> Self {
+        let result = self.client.get_node_version_v2().await.unwrap().data;
+
+        let beacon_node = eth2::types::version_with_commit();
+        let execution_client = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_engine_version(None)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let expected = VersionDataV2 {
+            beacon_node: JsonClientVersion {
+                code: beacon_node.code,
+                name: beacon_node.name,
+                version: beacon_node.version,
+                commit: beacon_node.commit,
+            },
+            execution_client: Some(JsonClientVersion {
+                code: execution_client.code.to_string(),
+                name: execution_client.name,
+                version: execution_client.version,
+                commit: execution_client.commit.to_string(),
+            }),
+        };
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     pub async fn test_get_node_syncing(self) -> Self {
         let result = self.client.get_node_syncing().await.unwrap().data;
         let head_slot = self.chain.canonical_head.cached_head().head_slot();
@@ -9717,6 +9753,8 @@ async fn node_get() {
     ApiTester::new()
         .await
         .test_get_node_version()
+        .await
+        .test_get_node_version_v2()
         .await
         .test_get_node_syncing()
         .await
