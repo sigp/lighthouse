@@ -642,7 +642,7 @@ mod tests {
         },
     }
 
-    /// Prunes are drawn from a range that straddles `PROP_SLOTS`, so some are no-ops, some drop
+    /// Prunes are generated for a range of `PROP_SLOTS`, some are no-ops, some drop
     /// one slot, and some drop both.
     fn op_strategy() -> impl Strategy<Value = Op> {
         prop_oneof![
