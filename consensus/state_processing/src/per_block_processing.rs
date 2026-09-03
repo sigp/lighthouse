@@ -694,6 +694,54 @@ pub fn verify_execution_request_list_lengths<E: EthSpec>(
 
 /// Spec: `settle_builder_payment`.
 ///
+/// Records the pending payment for a bid at `slot` in the current-epoch half of
+/// `builder_pending_payments`, overwriting whatever is there. Zero-amount withdrawals are not
+/// recorded.
+pub fn record_builder_pending_payment<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    slot: Slot,
+    withdrawal: BuilderPendingWithdrawal,
+    proposer_index: u64,
+) -> Result<(), BlockProcessingError> {
+    if withdrawal.amount == 0 {
+        return Ok(());
+    }
+
+    let payment_index = E::SlotsPerEpoch::to_usize()
+        .safe_add(slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
+
+    *state
+        .builder_pending_payments_mut()?
+        .get_mut(payment_index)
+        .ok_or(BlockProcessingError::BeaconStateError(
+            BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
+        ))? = BuilderPendingPayment {
+        weight: 0,
+        withdrawal,
+        proposer_index,
+    };
+
+    Ok(())
+}
+
+/// Adds an attester's effective balance to the weight of the pending payment at
+/// `payment_index`. Whether the attestation counts at all is decided by the caller.
+pub fn add_builder_payment_weight<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    payment_index: usize,
+    effective_balance: u64,
+) -> Result<(), BlockProcessingError> {
+    state
+        .builder_pending_payments_mut()?
+        .get_mut(payment_index)
+        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
+            payment_index,
+        ))?
+        .weight
+        .safe_add_assign(effective_balance)?;
+    Ok(())
+}
+
 /// Moves a pending payment from `builder_pending_payments[payment_index]` into
 /// `builder_pending_withdrawals`, then clears the slot.
 pub fn settle_builder_payment<E: EthSpec>(
@@ -843,25 +891,16 @@ pub fn process_execution_payload_bid<E: EthSpec>(
     // Record the pending payment if there is some payment
     if amount > 0 {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
-        let pending_payment = BuilderPendingPayment {
-            weight: 0,
-            withdrawal: BuilderPendingWithdrawal {
+        record_builder_pending_payment(
+            state,
+            bid.slot,
+            BuilderPendingWithdrawal {
                 fee_recipient: bid.fee_recipient,
                 amount,
                 builder_index,
             },
             proposer_index,
-        };
-
-        let payment_index = E::SlotsPerEpoch::to_usize()
-            .safe_add(bid.slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
-
-        *state
-            .builder_pending_payments_mut()?
-            .get_mut(payment_index)
-            .ok_or(BlockProcessingError::BeaconStateError(
-                BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
-            ))? = pending_payment;
+        )?;
     }
 
     // Cache the execution bid

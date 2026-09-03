@@ -472,7 +472,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // Process builder pending payments outside the single-pass loop, as they depend on balances for
     // multiple validators and cannot be computed accurately inside the loop.
     if fork_name.gloas_enabled() && conf.builder_pending_payments {
-        process_builder_pending_payments(state, state_ctxt, spec)?;
+        let quorum =
+            get_builder_payment_quorum_threshold::<E>(state_ctxt.total_active_balance, spec)?;
+        process_builder_pending_payments(state, quorum)?;
     }
 
     // Finally, finish updating effective balance caches. We need this to happen *after* processing
@@ -579,14 +581,12 @@ pub fn process_ptc_window<E: EthSpec>(
     Ok(committee_cache)
 }
 
-/// Calculate the quorum threshold for builder payments based on total active balance.
-fn get_builder_payment_quorum_threshold<E: EthSpec>(
-    state_ctxt: &StateContext,
+/// Calculate the quorum threshold for builder payments from the total active balance.
+pub fn get_builder_payment_quorum_threshold<E: EthSpec>(
+    total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let per_slot_balance = state_ctxt
-        .total_active_balance
-        .safe_div(E::slots_per_epoch())?;
+    let per_slot_balance = total_active_balance.safe_div(E::slots_per_epoch())?;
     let quorum = per_slot_balance.safe_mul(spec.builder_payment_threshold_numerator)?;
     quorum
         .safe_div(spec.builder_payment_threshold_denominator)
@@ -594,13 +594,12 @@ fn get_builder_payment_quorum_threshold<E: EthSpec>(
 }
 
 /// Processes the builder pending payments from the previous epoch.
-fn process_builder_pending_payments<E: EthSpec>(
+/// Pays every previous-epoch pending payment whose weight reached `quorum`, then shifts the
+/// window forward one epoch.
+pub fn process_builder_pending_payments<E: EthSpec>(
     state: &mut BeaconState<E>,
-    state_ctxt: &StateContext,
-    spec: &ChainSpec,
+    quorum: u64,
 ) -> Result<(), Error> {
-    let quorum = get_builder_payment_quorum_threshold::<E>(state_ctxt, spec)?;
-
     // Collect qualifying payments and append to `builder_pending_withdrawals`.
     // We use this pattern rather than a loop to avoid multiple borrows of the state's fields.
     let new_pending_builder_withdrawals = state

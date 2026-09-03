@@ -440,13 +440,7 @@ pub mod gloas {
                 && state.is_attestation_same_slot(data)?
                 && payment_withdrawal_amount > 0
             {
-                let builder_payments = state.builder_pending_payments_mut()?;
-                let payment = builder_payments.get_mut(payment_index).ok_or(
-                    BlockProcessingError::BuilderPaymentIndexOutOfBounds(payment_index),
-                )?;
-                payment
-                    .weight
-                    .safe_add_assign(validator_effective_balance)?;
+                add_builder_payment_weight(state, payment_index, validator_effective_balance)?;
             }
         }
 
