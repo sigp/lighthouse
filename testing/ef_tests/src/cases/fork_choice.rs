@@ -423,8 +423,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         const IGNORED_PRE_FULU_CASES: &[&str] = &["epoch_boundary"];
         // TODO(gloas): Remove once the EF test vectors include the fix from
         // https://github.com/ethereum/consensus-specs/pull/5594.
-        const IGNORED_STALE_GLOAS_CASES: &[&str] =
-            &["new_validator_deposit_with_multiple_epoch_transitions"];
+        const IGNORED_STALE_GLOAS_CASES: &[&str] = &[
+            "new_validator_deposit_with_multiple_epoch_transitions",
+            "on_block_parent_full_accepts_verified_payload",
+        ];
 
         if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
             || (!fork_name.fulu_enabled()
