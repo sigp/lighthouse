@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     time::Duration,
 };
@@ -415,6 +415,7 @@ pub enum DoNotReOrg {
     HeadNotLate,
     NotProposing,
     ReOrgsDisabled,
+    EquivocatingWeightsUnknown,
 }
 
 impl std::fmt::Display for DoNotReOrg {
@@ -459,6 +460,9 @@ impl std::fmt::Display for DoNotReOrg {
             }
             Self::ReOrgsDisabled => {
                 write!(f, "re-orgs disabled in config")
+            }
+            Self::EquivocatingWeightsUnknown => {
+                write!(f, "equivocating committee weights unknown")
             }
         }
     }
@@ -655,6 +659,7 @@ impl ProtoArrayForkChoice {
         justified_state_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), String> {
@@ -691,6 +696,7 @@ impl ProtoArrayForkChoice {
                 finalized_checkpoint,
                 proposer_boost_root,
                 new_balances,
+                equivocating_committee_weights,
                 spec,
             )
             .map_err(|e| format!("find_head failed: {:?}", e))
@@ -707,6 +713,7 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -724,27 +731,36 @@ impl ProtoArrayForkChoice {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
+        // With unknown weights we can't tell whether the head is weak, so don't re-org.
+        let Some(equivocating_committee_weights) = equivocating_committee_weights else {
+            return Err(DoNotReOrg::EquivocatingWeightsUnknown.into());
+        };
+        let equivocating_committee_weight = equivocating_committee_weights
+            .get(&info.head_node.slot())
+            .copied()
+            .unwrap_or(0);
+
         // Only re-org if the head's weight is less than the heads configured committee fraction.
-        let head_weight = info.head_node.weight();
-        let re_org_head_weight_threshold = info.re_org_head_weight_threshold;
-        let weak_head = head_weight < re_org_head_weight_threshold;
-        if !weak_head {
+        if !info.head_node.is_head_weak(
+            info.re_org_head_weight_threshold,
+            equivocating_committee_weight,
+        ) {
             return Err(DoNotReOrg::HeadNotWeak {
-                head_weight,
-                re_org_head_weight_threshold,
+                head_weight: info
+                    .head_node
+                    .head_weight_for_reorg(equivocating_committee_weight),
+                re_org_head_weight_threshold: info.re_org_head_weight_threshold,
             }
             .into());
         }
 
-        // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
-        // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
-        let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
-        let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-        let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
-        if !parent_strong {
+        if !info
+            .parent_node
+            .is_parent_strong(info.re_org_parent_weight_threshold)
+        {
             return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight: parent_pending_weight,
-                re_org_parent_weight_threshold,
+                parent_weight: info.parent_node.attestation_score(PayloadStatus::Pending),
+                re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
             }
             .into());
         }
@@ -1083,6 +1099,7 @@ impl ProtoArrayForkChoice {
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         self.proto_array.get_canonical_payload_status::<E>(
@@ -1090,6 +1107,7 @@ impl ProtoArrayForkChoice {
             current_slot,
             proposer_boost_root,
             &self.balances,
+            equivocating_committee_weights,
             spec,
         )
     }
@@ -1235,7 +1253,6 @@ fn compute_deltas(
             delta: 0,
             empty_delta: 0,
             full_delta: 0,
-            equivocating_attestation_delta: 0,
         };
         indices.len()
     ];
@@ -1277,11 +1294,6 @@ fn compute_deltas(
                         block_slot(current_delta_index)?,
                     );
                     node_delta.sub_payload_delta(status, old_balance, current_delta_index)?;
-
-                    // Track equivocating weight for `is_head_weak` monotonicity.
-                    node_delta.equivocating_attestation_delta = node_delta
-                        .equivocating_attestation_delta
-                        .saturating_add(old_balance);
                 }
 
                 vote.current_root = Hash256::zero();
@@ -2309,5 +2321,249 @@ mod test_compute_deltas {
         assert_eq!(deltas[0].delta, 0);
         assert_eq!(deltas[0].empty_delta, 0);
         assert_eq!(deltas[0].full_delta, 0);
+    }
+
+    #[test]
+    fn equivocating_committee_weight_prevents_reorg() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+
+        let genesis_root = hash_from_index(0);
+        let parent_root = hash_from_index(1);
+        let head_root = hash_from_index(2);
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        };
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Slot::new(0),
+            Hash256::zero(),
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            Some(ExecutionBlockHash::zero()),
+            Some(ExecutionBlockHash::from_root(genesis_root)),
+            0,
+            &spec,
+        )
+        .unwrap();
+
+        // Chain: genesis (slot 0) <- parent (slot 1) <- head (slot 2).
+        for (slot, root, parent) in [(1, parent_root, genesis_root), (2, head_root, parent_root)] {
+            let block = Block {
+                slot: Slot::new(slot),
+                root,
+                parent_root: Some(parent),
+                state_root: Hash256::zero(),
+                target_root: genesis_root,
+                current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                justified_checkpoint: genesis_checkpoint,
+                finalized_checkpoint: genesis_checkpoint,
+                execution_status: ExecutionStatus::Optimistic(ExecutionBlockHash::from_root(root)),
+                unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                // Mismatched parent payload hash keeps each block on its parent's Empty
+                // path, which the head walk follows when no payload envelopes are received.
+                execution_payload_parent_hash: Some(ExecutionBlockHash::from_root(
+                    hash_from_index(99),
+                )),
+                execution_payload_block_hash: Some(ExecutionBlockHash::from_root(root)),
+                proposer_index: Some(0),
+                payload_received: false,
+            };
+            fork_choice
+                .process_block::<MainnetEthSpec>(block, Slot::new(slot), &spec, Duration::ZERO)
+                .unwrap();
+        }
+
+        // Two validators attest to the parent; nobody attests to the head.
+        for validator in 0..2 {
+            fork_choice
+                .process_attestation(validator, parent_root, Slot::new(1), false)
+                .unwrap();
+        }
+
+        // 32 validators with balance 32: committee weight = 1024 / 32 = 32.
+        // Head threshold (20%) = 6, parent threshold (160%) = 51.
+        // Parent weight = 2 * 32 = 64 > 51 (strong); head weight = 0 < 6 (weak).
+        let justified_balances = JustifiedBalances::from_effective_balances(vec![32; 32]).unwrap();
+        let equivocating_indices = BTreeSet::new();
+        let no_equivocating_weights = BTreeMap::new();
+
+        let (head, _) = fork_choice
+            .find_head::<MainnetEthSpec>(
+                genesis_checkpoint,
+                genesis_checkpoint,
+                &justified_balances,
+                Hash256::zero(),
+                &equivocating_indices,
+                Some(&no_equivocating_weights),
+                Slot::new(3),
+                &spec,
+            )
+            .unwrap();
+        assert_eq!(head, head_root);
+
+        let re_org_head_threshold = ReOrgThreshold(spec.reorg_head_weight_threshold);
+        let re_org_parent_threshold = ReOrgThreshold(spec.reorg_parent_weight_threshold);
+        let max_epochs_since_finalization = Epoch::new(spec.reorg_max_epochs_since_finalization);
+
+        // Control: without equivocating committee weight the head is weak and the
+        // re-org is permitted.
+        let info = fork_choice
+            .get_proposer_head::<MainnetEthSpec>(
+                Slot::new(3),
+                head_root,
+                &justified_balances,
+                re_org_head_threshold,
+                re_org_parent_threshold,
+                Some(&no_equivocating_weights),
+                max_epochs_since_finalization,
+            )
+            .expect("head should be weak without equivocating committee weight");
+        assert_eq!(info.parent_node.root(), parent_root);
+
+        // Equivocating committee weight at the head's slot pushes it over the
+        // threshold: the head is no longer weak and the re-org is rejected.
+        let equivocating_committee_weights = BTreeMap::from_iter([(Slot::new(2), 32)]);
+        match fork_choice.get_proposer_head::<MainnetEthSpec>(
+            Slot::new(3),
+            head_root,
+            &justified_balances,
+            re_org_head_threshold,
+            re_org_parent_threshold,
+            Some(&equivocating_committee_weights),
+            max_epochs_since_finalization,
+        ) {
+            Err(ProposerHeadError::DoNotReOrg(DoNotReOrg::HeadNotWeak { head_weight, .. })) => {
+                assert_eq!(head_weight, 32);
+            }
+            other => panic!("expected HeadNotWeak, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn equivocating_committee_weight_prevents_boost_invalidation() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+
+        let genesis_root = hash_from_index(0);
+        let parent_root = hash_from_index(1);
+        let equivocating_root = hash_from_index(2);
+        let boosted_root = hash_from_index(3);
+        let competing_root = hash_from_index(4);
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        };
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Slot::new(0),
+            Hash256::zero(),
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            Some(ExecutionBlockHash::zero()),
+            Some(ExecutionBlockHash::from_root(genesis_root)),
+            0,
+            &spec,
+        )
+        .unwrap();
+
+        // Tree: genesis <- {parent, equivocating} at slot 1 (same proposer), and
+        // {boosted, competing} at slot 2 as children of parent.
+        for (slot, root, parent, proposer_index) in [
+            (1, parent_root, genesis_root, 0),
+            (1, equivocating_root, genesis_root, 0),
+            (2, boosted_root, parent_root, 1),
+            (2, competing_root, parent_root, 2),
+        ] {
+            let block = Block {
+                slot: Slot::new(slot),
+                root,
+                parent_root: Some(parent),
+                state_root: Hash256::zero(),
+                target_root: genesis_root,
+                current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                justified_checkpoint: genesis_checkpoint,
+                finalized_checkpoint: genesis_checkpoint,
+                execution_status: ExecutionStatus::Optimistic(ExecutionBlockHash::from_root(root)),
+                unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                // Mismatched parent payload hash keeps each block on its parent's Empty
+                // path, which the head walk follows when no payload envelopes are received.
+                execution_payload_parent_hash: Some(ExecutionBlockHash::from_root(
+                    hash_from_index(99),
+                )),
+                execution_payload_block_hash: Some(ExecutionBlockHash::from_root(root)),
+                proposer_index: Some(proposer_index),
+                payload_received: false,
+            };
+            fork_choice
+                .process_block::<MainnetEthSpec>(block, Slot::new(slot), &spec, Duration::ZERO)
+                .unwrap();
+        }
+
+        // Validator 0 (balance 4) attests to the competing block; this is the
+        // parent's entire subtree weight.
+        fork_choice
+            .process_attestation(0, competing_root, Slot::new(2), false)
+            .unwrap();
+
+        // Total balance = 31 * 32 + 4 = 996, committee weight = 996 / 32 = 31.
+        // Head-weak threshold (20%) = 6, proposer boost (40%) = 12.
+        // Parent weight = 4 < 6 (weak); boost 12 beats competing weight 4.
+        let mut balances = vec![32; 32];
+        balances[0] = 4;
+        let justified_balances = JustifiedBalances::from_effective_balances(balances).unwrap();
+        let equivocating_indices = BTreeSet::new();
+        let no_equivocating_weights = BTreeMap::new();
+
+        // Control: the parent is weak and the same proposer produced an equivocating
+        // block at the parent's slot, so the boost is invalidated and the competing
+        // block wins on attestation weight.
+        let (head, _) = fork_choice
+            .find_head::<MainnetEthSpec>(
+                genesis_checkpoint,
+                genesis_checkpoint,
+                &justified_balances,
+                boosted_root,
+                &equivocating_indices,
+                Some(&no_equivocating_weights),
+                Slot::new(2),
+                &spec,
+            )
+            .unwrap();
+        assert_eq!(head, competing_root);
+
+        // Equivocating committee weight at the parent's slot makes the parent
+        // not weak, so the boost is kept and the boosted block wins.
+        let equivocating_committee_weights = BTreeMap::from_iter([(Slot::new(1), 32)]);
+        let (head, _) = fork_choice
+            .find_head::<MainnetEthSpec>(
+                genesis_checkpoint,
+                genesis_checkpoint,
+                &justified_balances,
+                boosted_root,
+                &equivocating_indices,
+                Some(&equivocating_committee_weights),
+                Slot::new(2),
+                &spec,
+            )
+            .unwrap();
+        assert_eq!(head, boosted_root);
     }
 }

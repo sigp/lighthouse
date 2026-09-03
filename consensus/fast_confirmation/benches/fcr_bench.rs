@@ -8,7 +8,7 @@
 //! `get_latest_confirmed` is measured across a table of realistic (chain position, FCR run slot)
 //! scenarios — see `SCENARIOS`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -235,6 +235,7 @@ fn build_chain_inner(
         &balances,
         Hash256::zero(), // no proposer boost
         &BTreeSet::new(),
+        Some(&BTreeMap::new()),
         Slot::new(CHAIN_TIP_SLOT),
         &spec,
     )
