@@ -44,8 +44,14 @@ lake build
 ```
 
 Roughly five minutes with a warm cache. `SlashingProofs/Axioms.lean` prints the axiom
-dependencies; all five theorems rest only on `propext`, `Classical.choice` and `Quot.sound`,
+dependencies: all five theorems rest only on `propext`, `Classical.choice` and `Quot.sound`,
 and there are no `sorry`s.
+
+Neither of those holds by construction. `#print axioms` only reports, and Lean reports a
+`sorry` as a warning that does not fail the build, so both are asserted in
+`.github/workflows/proofs.yml` -- it requires every `#print axioms` line in the audit file
+to report, and each to name exactly those three axioms. The axiom check is the load-bearing one: a `sorry` anywhere
+beneath these theorems surfaces as `sorryAx` however deep it hides.
 
 ## Regenerating after editing `attestation_rules.rs`
 
@@ -58,7 +64,8 @@ git clone https://github.com/AeneasVerif/charon && cd charon
 git checkout fea3fc68d445181cf4ce094855a43a17192a2b12
 cd charon && cargo build --release
 
-# Aeneas (OCaml 5.2; needs domainslib, so 4.x will not work)
+# Aeneas (OCaml 5.2; needs domainslib, so 4.x will not work).
+# Use the `rev` pinned in lakefile.toml -- that file is the source of truth, and CI reads it.
 git clone https://github.com/AeneasVerif/aeneas && cd aeneas
 git checkout 453b09f98f2b593c0544a8ad654b77e2a3bc621a
 ln -s ../charon charon && cd src && dune build
@@ -92,7 +99,12 @@ hitting it:
 The proof does not stand alone. It also trusts:
 
 - **Charon and Aeneas** — that the Lean they emit faithfully models the Rust.
-- **The Aeneas Lean library**, which itself contains two `sorry`s in `Aeneas/Std/Slice.lean`.
+- **The Aeneas Lean library**. Building this project emits four ``declaration uses `sorry` ``
+  warnings from it, two in `Aeneas/Std/Slice.lean` and two in `Aeneas/Std/StringIter.lean`.
+  (Aeneas contains other textual `sorry`s, but those sit in tactic implementations and in its
+  own tutorial exercises, not in admitted theorems.) None of the four is reachable from the
+  theorems here -- that is exactly what the axiom check enforces, since depending on one
+  would show up as `sorryAx`.
 - **mathlib** and the Lean kernel.
 
 And it says nothing about the SQL in `slashing_database.rs`, which is covered instead by the
