@@ -1,0 +1,9 @@
+#!/bin/sh
+# AppRun - AppImage entry point for Lighthouse
+# Resolves the real location of the AppImage and executes the bundled binary.
+set -e
+
+SELF=$(readlink -f "$0")
+HERE=$(dirname "$SELF")
+
+exec "$HERE/usr/bin/lighthouse" "$@"

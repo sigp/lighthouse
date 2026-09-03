@@ -1,9 +1,15 @@
-# Define the Rust image as an argument with a default to x86_64 Rust 1.88 image based on Debian Bullseye
-ARG RUST_IMAGE="rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816"
+# Single version tag to maintain for reproducible builds.
+# This multi-arch index digest resolves to the correct arch-specific image at build time.
+# To update: run `docker buildx imagetools inspect rust:X.Y-bookworm` and replace the digest below.
+# rust:1.95-bookworm
+ARG RUST_IMAGE="rust:1.95-bookworm@sha256:225aa827d55fae9816a0492284592827e794a5247c6c6a961c3b471b344295ec"
 FROM ${RUST_IMAGE} AS builder
 
-# Install specific version of the build dependencies
-RUN apt-get update && apt-get install -y libclang-dev=1:11.0-51+nmu5 cmake=3.18.4-2+deb11u1 libjemalloc-dev=5.2.1-3
+# Install pinned versions of the build dependencies
+RUN apt-get update && apt-get install -y \
+    libclang-dev=1:14.0-55.7~deb12u1 \
+    cmake=3.25.1-1 \
+    libjemalloc-dev=5.3.0-1
 
 ARG RUST_TARGET="x86_64-unknown-linux-gnu"
 
@@ -14,11 +20,21 @@ WORKDIR /app
 # Build the project with the reproducible settings
 RUN make build-reproducible
 
-# Move the binary to a standard location
-RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse
+# Move the binary and runtime libs to fixed paths for arch-independent copying below.
+# ldd shows the binary dynamically requires: libz.so.1, libstdc++.so.6, libgcc_s.so.1,
+# and glibc — the latter three are already in distroless/cc; only libz needs to be copied.
+# libssl/libcrypto are statically linked by this build (no dynamic dep on them).
+# libz lives under an arch-specific triplet dir; normalise to /libs/ for a clean COPY below.
+RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse \
+    && mkdir /libs \
+    && find /usr/lib -maxdepth 3 -name "libz.so.1" -exec cp {} /libs/ \;
 
-# Create a minimal final image with just the binary
-FROM gcr.io/distroless/cc-debian12:nonroot-6755e21ccd99ddead6edc8106ba03888cbeed41a
+# Final image: distroless/cc-debian12 (Bookworm) — matches builder OS for ABI compatibility.
+# The cc variant already includes libc, libgcc, and libstdc++.
+# gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:e2d29aec8061843706b7e484c444f78fafb05bfe47745505252b1769a05d14f1
+
+COPY --from=builder /libs/libz.so.1 /usr/lib/
 COPY --from=builder /lighthouse /lighthouse
 
 ENTRYPOINT [ "/lighthouse" ]
