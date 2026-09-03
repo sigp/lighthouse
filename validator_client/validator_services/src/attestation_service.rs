@@ -107,7 +107,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                     .ok_or("Cannot build AttestationService without chain_spec")?,
                 head_monitor_rx: self.head_monitor_rx,
                 disable: self.disable,
-                latest_attested_slot: Mutex::new(Slot::default()),
+                latest_attested_slot: Mutex::new(None),
             }),
         })
     }
@@ -123,7 +123,7 @@ pub struct Inner<S, T> {
     chain_spec: Arc<ChainSpec>,
     head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
     disable: bool,
-    latest_attested_slot: Mutex<Slot>,
+    latest_attested_slot: Mutex<Option<Slot>>,
 }
 
 /// Attempts to produce attestations for all known validators at the fork-aware attestation
@@ -156,17 +156,13 @@ fn attestation_deadline<E: EthSpec>(
     slot_clock: &impl SlotClock,
     chain_spec: &ChainSpec,
     now: Duration,
-) -> (Slot, Option<Duration>) {
-    let attestation_slot = slot_clock
-        .slot_of(now)
-        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
-    let duration_to_attestation_deadline = slot_clock
-        .start_of(attestation_slot)
-        .and_then(|slot_start| {
-            slot_start.checked_add(chain_spec.get_attestation_due::<E>(attestation_slot))
-        })
-        .and_then(|deadline| deadline.checked_sub(now));
-    (attestation_slot, duration_to_attestation_deadline)
+    after: Option<Slot>,
+) -> Option<(Slot, Duration)> {
+    slot_clock.duration_to_deadline_after(
+        now,
+        |slot| chain_spec.get_attestation_due::<E>(slot),
+        after,
+    )
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
@@ -197,11 +193,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     sleep(slot_duration).await;
                     continue;
                 };
-                let (attestation_slot, duration_to_attestation_deadline) =
-                    attestation_deadline::<S::E>(&self.slot_clock, &self.chain_spec, now);
-                let Some(duration_to_attestation_deadline) = duration_to_attestation_deadline
+                let last_slot = *self.latest_attested_slot.lock().await;
+                let Some((target_slot, duration_to_attestation_deadline)) =
+                    attestation_deadline::<S::E>(
+                        &self.slot_clock,
+                        &self.chain_spec,
+                        now,
+                        last_slot,
+                    )
                 else {
-                    error!(%attestation_slot, "Failed to determine attestation deadline");
+                    error!("Failed to determine attestation deadline");
                     sleep(slot_duration).await;
                     continue;
                 };
@@ -209,7 +210,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 let beacon_node_data = if self.head_monitor_rx.is_some() {
                     tokio::select! {
                         _ = sleep(duration_to_attestation_deadline) => None,
-                        event = self.poll_for_head_events() =>
+                        event = self.poll_for_head_events(target_slot) =>
                             event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
                     }
                 } else {
@@ -217,26 +218,40 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     None
                 };
 
-                let Some(current_slot) = self.slot_clock.now() else {
+                let Some(now_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
                     continue;
                 };
 
-                let mut last_slot = self.latest_attested_slot.lock().await;
-
-                if current_slot <= *last_slot {
-                    debug!(%current_slot, "Attestation already initiated for the slot");
+                // Sleep can overshoot into a later slot. Consume the target only when the
+                // deadline fired so a head event for the wrong slot does not skip production.
+                if now_slot != target_slot {
+                    if beacon_node_data.is_none() {
+                        warn!(
+                            %target_slot,
+                            %now_slot,
+                            "Missed attestation slot due to lag"
+                        );
+                        let mut last_slot = self.latest_attested_slot.lock().await;
+                        *last_slot = Some(target_slot);
+                    }
                     continue;
                 }
 
-                match self.spawn_attestation_tasks(beacon_node_data).await {
-                    Ok(_) => {
-                        *last_slot = current_slot;
-                    }
-                    Err(e) => {
-                        crit!(error = e, "Failed to spawn attestation tasks");
-                    }
+                let mut last_slot = self.latest_attested_slot.lock().await;
+                if last_slot.is_some_and(|s| target_slot <= s) {
+                    debug!(%target_slot, "Attestation already initiated for the slot");
+                    continue;
                 }
+
+                if let Err(e) = self
+                    .spawn_attestation_tasks(target_slot, beacon_node_data)
+                    .await
+                {
+                    crit!(error = e, "Failed to spawn attestation tasks");
+                }
+                // Consume the slot after any attempt so a zero wait cannot spin the loop.
+                *last_slot = Some(target_slot);
             }
         };
 
@@ -244,7 +259,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    async fn poll_for_head_events(&self) -> Option<HeadEvent> {
+    async fn poll_for_head_events(&self, target_slot: Slot) -> Option<HeadEvent> {
         let Some(receiver) = &self.head_monitor_rx else {
             return None;
         };
@@ -252,13 +267,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         loop {
             match receiver.recv().await {
                 Some(head_event) => {
-                    // Only return head events for the current slot - this ensures the
-                    // block for this slot has been produced before triggering attestation
-                    let current_slot = self.slot_clock.now()?;
-                    if head_event.slot == current_slot {
+                    // Only return head events for `target_slot`. A head for an earlier slot
+                    // must not trigger a late attestation.
+                    if head_event.slot == target_slot {
                         return Some(head_event);
                     }
-                    // Head event is for a previous slot, keep waiting
                 }
                 None => {
                     warn!("Head monitor channel closed unexpectedly");
@@ -273,10 +286,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// aggregates to the beacon node.
     async fn spawn_attestation_tasks(
         &self,
+        slot: Slot,
         beacon_node_data: Option<(usize, Hash256)>,
     ) -> Result<(), String> {
-        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
-
         // Create and publish an `Attestation` for all validators only once
         // as the committee_index is not included in AttestationData post-Electra
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
@@ -877,26 +889,58 @@ mod tests {
                 Duration::from_millis(4999),
             ),
             (
-                "pre-Gloas",
-                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                "pre-Gloas slot start",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
                 last_pre_gloas_slot,
-                Duration::from_millis(15999),
+                spec.get_attestation_due::<E>(last_pre_gloas_slot),
             ),
             (
-                "post-Gloas",
-                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                "first Gloas slot start",
+                slot_clock.start_of(first_gloas_slot).unwrap(),
                 first_gloas_slot,
-                Duration::from_millis(15000),
+                spec.get_attestation_due::<E>(first_gloas_slot),
+            ),
+            (
+                "1ms past current-slot due",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap()
+                    + spec.get_attestation_due::<E>(last_pre_gloas_slot)
+                    + Duration::from_millis(1),
+                first_gloas_slot,
+                slot_duration
+                    - spec.get_attestation_due::<E>(last_pre_gloas_slot)
+                    - Duration::from_millis(1)
+                    + spec.get_attestation_due::<E>(first_gloas_slot),
             ),
         ];
 
         for (case, now, expected_slot, expected_duration) in test_cases {
             assert_eq!(
-                attestation_deadline::<E>(&slot_clock, &spec, now),
-                (expected_slot, Some(expected_duration)),
+                attestation_deadline::<E>(&slot_clock, &spec, now, None),
+                Some((expected_slot, expected_duration)),
                 "{case}"
             );
         }
+    }
+
+    #[test]
+    fn duration_to_attestation_deadline_after_skips_attempted_slot() {
+        type E = MainnetEthSpec;
+
+        let spec = E::default_spec();
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let slot = Slot::new(0);
+        let due = spec.get_attestation_due::<E>(slot);
+        let now = slot_clock.start_of(slot).unwrap() + due;
+
+        assert_eq!(
+            attestation_deadline::<E>(&slot_clock, &spec, now, Some(slot)),
+            Some((
+                Slot::new(1),
+                slot_duration - due + spec.get_attestation_due::<E>(Slot::new(1))
+            ))
+        );
     }
 
     /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
