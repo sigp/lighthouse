@@ -62,6 +62,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     // prefer the advertised version and get method-not-found errors instead of blobs.
     get_blobs_v3: false,
     get_blobs_v4: true,
+    get_inclusion_list_v1: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =

@@ -12,7 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::PendingPayloadCache;
+use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -995,6 +995,13 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        // Without a proof engine we can't verify proofs, so we don't require them.
+        let required_execution_proofs = if self.proof_engine.is_some() {
+            REQUIRED_EXECUTION_PROOFS
+        } else {
+            0
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1084,6 +1091,7 @@ where
                     self.kzg.clone(),
                     custody_context,
                     disable_get_blobs,
+                    required_execution_proofs,
                     self.spec.clone(),
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,

@@ -50,7 +50,8 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -157,6 +158,7 @@ pub enum Error {
     ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
     GetBlobsNotSupported,
+    GetInclusionListNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -1795,6 +1797,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::EngineError)
         } else {
             Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_inclusion_list_v1 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_inclusion_list_v1().await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetInclusionListNotSupported)
         }
     }
 
