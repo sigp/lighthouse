@@ -397,7 +397,6 @@ impl<T1> ProposerHeadError<T1> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DoNotReOrg {
     MissingHeadOrParentNode,
-    MissingHeadFinalizedCheckpoint,
     ParentDistance,
     HeadDistance,
     JustificationAndFinalizationNotCompetitive,
@@ -421,7 +420,6 @@ impl std::fmt::Display for DoNotReOrg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::MissingHeadOrParentNode => write!(f, "unknown head or parent"),
-            Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::JustificationAndFinalizationNotCompetitive => {
@@ -708,6 +706,7 @@ impl ProtoArrayForkChoice {
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
         max_epochs_since_finalization: Epoch,
+        store_finalized_checkpoint: Checkpoint,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
             current_slot,
@@ -716,6 +715,7 @@ impl ProtoArrayForkChoice {
             re_org_head_threshold,
             re_org_parent_threshold,
             max_epochs_since_finalization,
+            store_finalized_checkpoint,
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
@@ -765,6 +765,7 @@ impl ProtoArrayForkChoice {
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
         max_epochs_since_finalization: Epoch,
+        store_finalized_checkpoint: Checkpoint,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
             .proto_array
@@ -782,10 +783,7 @@ impl ProtoArrayForkChoice {
 
         // Check finalization distance.
         let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
-        let finalized_epoch = head_node
-            .unrealized_finalized_checkpoint()
-            .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
-            .epoch;
+        let finalized_epoch = store_finalized_checkpoint.epoch;
         let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
         if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
             return Err(DoNotReOrg::ChainNotFinalizing {
@@ -804,9 +802,7 @@ impl ProtoArrayForkChoice {
 
         // Check FFG.
         let ffg_competitive = parent_node.unrealized_justified_checkpoint()
-            == head_node.unrealized_justified_checkpoint()
-            && parent_node.unrealized_finalized_checkpoint()
-                == head_node.unrealized_finalized_checkpoint();
+            == head_node.unrealized_justified_checkpoint();
         if !ffg_competitive {
             return Err(DoNotReOrg::JustificationAndFinalizationNotCompetitive.into());
         }
@@ -2309,5 +2305,187 @@ mod test_compute_deltas {
         assert_eq!(deltas[0].delta, 0);
         assert_eq!(deltas[0].empty_delta, 0);
         assert_eq!(deltas[0].full_delta, 0);
+    }
+}
+
+#[cfg(test)]
+mod test_proposer_head {
+    use super::*;
+    use fixed_bytes::FixedBytesExtended;
+    use types::MainnetEthSpec;
+
+    fn genesis_setup(store_finalized_checkpoint: Checkpoint) -> ProtoArrayForkChoice {
+        let spec = MainnetEthSpec::default_spec();
+        let genesis_slot = Slot::new(0);
+        let genesis_epoch = Epoch::new(0);
+        let state_root = Hash256::from_low_u64_be(0);
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let execution_status = ExecutionStatus::irrelevant();
+        let genesis_checkpoint = Checkpoint {
+            epoch: genesis_epoch,
+            root: store_finalized_checkpoint.root,
+        };
+
+        ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
+            genesis_slot,
+            state_root,
+            genesis_checkpoint,
+            store_finalized_checkpoint,
+            shuffling_id.clone(),
+            shuffling_id,
+            execution_status,
+            None,
+            None,
+            0,
+            &spec,
+        )
+        .unwrap()
+    }
+
+    fn add_child(
+        fc: &mut ProtoArrayForkChoice,
+        slot: u64,
+        root: u64,
+        parent_root: u64,
+        unrealized_justified: Option<Checkpoint>,
+        unrealized_finalized: Option<Checkpoint>,
+    ) {
+        let spec = MainnetEthSpec::default_spec();
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: Hash256::from_low_u64_be(1),
+        };
+
+        fc.proto_array
+            .on_block::<MainnetEthSpec>(
+                Block {
+                    slot: Slot::new(slot),
+                    root: Hash256::from_low_u64_be(root),
+                    parent_root: Some(Hash256::from_low_u64_be(parent_root)),
+                    state_root: Hash256::from_low_u64_be(0),
+                    target_root: Hash256::from_low_u64_be(1),
+                    current_epoch_shuffling_id: shuffling_id.clone(),
+                    next_epoch_shuffling_id: shuffling_id,
+                    justified_checkpoint: checkpoint,
+                    finalized_checkpoint: checkpoint,
+                    unrealized_justified_checkpoint: unrealized_justified,
+                    unrealized_finalized_checkpoint: unrealized_finalized,
+                    execution_status: ExecutionStatus::irrelevant(),
+                    execution_payload_parent_hash: None,
+                    execution_payload_block_hash: None,
+                    proposer_index: Some(0),
+                },
+                Slot::new(slot),
+                &spec,
+                Duration::ZERO,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn finalization_age_uses_store_checkpoint() {
+        let genesis_root = Hash256::from_low_u64_be(1);
+        let store_finalized = Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        };
+        let mut fc = genesis_setup(store_finalized);
+
+        let parent_justified = Some(Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        });
+        add_child(&mut fc, 33, 2, 1, parent_justified, parent_justified);
+
+        // Head claims fresh finalization (epoch 5), store is stale (epoch 0).
+        let head_fresh_finalized = Some(Checkpoint {
+            epoch: Epoch::new(5),
+            root: genesis_root,
+        });
+        add_child(&mut fc, 34, 3, 2, parent_justified, head_fresh_finalized);
+
+        let result = fc.get_proposer_head_info::<MainnetEthSpec>(
+            Slot::new(35),
+            Hash256::from_low_u64_be(3),
+            &JustifiedBalances {
+                effective_balances: vec![32; 16],
+                total_effective_balance: 512,
+                num_active_validators: 16,
+            },
+            ReOrgThreshold(20),
+            ReOrgThreshold(160),
+            &DisallowedReOrgOffsets::default(),
+            Epoch::new(0),
+            store_finalized,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ProposerHeadError::DoNotReOrg(
+                DoNotReOrg::ChainNotFinalizing { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn ffg_check_only_compares_justification() {
+        let genesis_root = Hash256::from_low_u64_be(1);
+        let store_finalized = Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        };
+        let mut fc = genesis_setup(store_finalized);
+        let shared_justified = Some(Checkpoint {
+            epoch: Epoch::new(0),
+            root: genesis_root,
+        });
+
+        // Parent and head share justification but differ on finalized checkpoint.
+        add_child(
+            &mut fc,
+            33,
+            2,
+            1,
+            shared_justified,
+            Some(Checkpoint {
+                epoch: Epoch::new(0),
+                root: genesis_root,
+            }),
+        );
+        add_child(
+            &mut fc,
+            34,
+            3,
+            2,
+            shared_justified,
+            Some(Checkpoint {
+                epoch: Epoch::new(1),
+                root: Hash256::from_low_u64_be(99),
+            }),
+        );
+
+        let result = fc.get_proposer_head_info::<MainnetEthSpec>(
+            Slot::new(35),
+            Hash256::from_low_u64_be(3),
+            &JustifiedBalances {
+                effective_balances: vec![32; 16],
+                total_effective_balance: 512,
+                num_active_validators: 16,
+            },
+            ReOrgThreshold(20),
+            ReOrgThreshold(160),
+            &DisallowedReOrgOffsets::default(),
+            Epoch::new(2),
+            store_finalized,
+        );
+
+        assert!(!matches!(
+            result,
+            Err(ProposerHeadError::DoNotReOrg(
+                DoNotReOrg::JustificationAndFinalizationNotCompetitive
+            ))
+        ));
     }
 }
