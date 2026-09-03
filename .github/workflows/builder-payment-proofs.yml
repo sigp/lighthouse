@@ -1,0 +1,130 @@
+name: builder-payment-proofs
+
+# Only runs when the verified module or the proofs themselves change. Everything here needs
+# Lean, OCaml and a pinned rustc nightly, which is far too heavy to put in front of every PR --
+# and a failure here should point at whoever edited `builder_payment_window/mod.rs`, not at an
+# unrelated contributor.
+on:
+  push:
+    paths:
+      - 'consensus/state_processing/src/builder_payment_window/mod.rs'
+      - 'consensus/state_processing/proofs/**'
+      - '.github/workflows/builder-payment-proofs.yml'
+  pull_request:
+    paths:
+      - 'consensus/state_processing/src/builder_payment_window/mod.rs'
+      - 'consensus/state_processing/proofs/**'
+      - '.github/workflows/builder-payment-proofs.yml'
+  workflow_dispatch:
+
+env:
+  # Must stay in sync with proofs/lakefile.lean and proofs/README.md.
+  CHARON_REV: fea3fc68d445181cf4ce094855a43a17192a2b12
+  AENEAS_REV: 453b09f98f2b593c0544a8ad654b77e2a3bc621a
+  PROOFS: consensus/state_processing/proofs
+  GENERATED: consensus/state_processing/proofs/BuilderPaymentProofs/Generated.lean
+
+jobs:
+  proofs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for a committed Generated.lean
+        id: generated
+        run: |
+          if [ -f "$GENERATED" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$GENERATED is not committed yet; this run will produce it as an artifact"
+          fi
+
+      # Everything below re-derives Generated.lean from mod.rs. When one is committed, it must
+      # not have drifted: that is what makes the proof a statement about the current source.
+      - name: Cache charon/aeneas builds
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/verif/charon/charon/target/release/charon
+            ~/verif/charon/charon/target/release/charon-driver
+            ~/verif/aeneas/src/_build/default/main.exe
+          key: verif-tools-${{ runner.os }}-${{ env.CHARON_REV }}-${{ env.AENEAS_REV }}
+
+      - name: Build Charon and Aeneas
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/verif && cd ~/verif
+          git clone https://github.com/AeneasVerif/charon
+          git -C charon checkout "$CHARON_REV"
+          (cd charon/charon && cargo build --release)
+          git clone https://github.com/AeneasVerif/aeneas
+          git -C aeneas checkout "$AENEAS_REV"
+          ln -sfn ~/verif/charon ~/verif/aeneas/charon
+          # ubuntu-latest ships neither opam nor OCaml.
+          sudo apt-get update -qq && sudo apt-get install -y -qq opam
+          # domainslib requires OCaml >= 5.0
+          opam init -y --bare --disable-sandboxing
+          opam switch create aeneas 5.2.0 -y
+          # Take the dependency list from Aeneas itself so it cannot drift from the pinned rev.
+          (cd ~/verif/aeneas/src && opam install -y --switch=aeneas --assume-depexts --deps-only \
+            ./aeneas.opam ./aeneas.ppx.opam)
+          (cd ~/verif/aeneas/src && opam exec --switch=aeneas -- dune build)
+
+      - name: Translate mod.rs
+        working-directory: consensus/state_processing
+        run: |
+          export PATH="$HOME/verif/charon/charon/target/release:$PATH"
+          charon cargo --preset=aeneas \
+            --start-from 'state_processing::builder_payment_window::record_bid_payment' \
+            --start-from 'state_processing::builder_payment_window::add_attestation_weight' \
+            --start-from 'state_processing::builder_payment_window::pay_on_reveal' \
+            --start-from 'state_processing::builder_payment_window::pay_at_epoch_transition' \
+            --dest-file "$GITHUB_WORKSPACE/window.llbc" -- --lib
+          ~/verif/aeneas/src/_build/default/main.exe -backend lean "$GITHUB_WORKSPACE/window.llbc" -dest /tmp/regen
+          ls /tmp/regen
+
+      - name: Upload Generated.lean (bootstrap)
+        if: steps.generated.outputs.present != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Generated.lean
+          path: /tmp/regen/*.lean
+
+      - name: Bootstrap stop
+        if: steps.generated.outputs.present != 'true'
+        run: |
+          echo "::error::Commit the uploaded Generated.lean to $GENERATED and re-run."
+          exit 1
+
+      - name: Diff against the committed Generated.lean
+        run: |
+          # The generated file is namespaced/renamed on the way in; compare the definitions.
+          src=$(ls /tmp/regen/*.lean | head -1)
+          diff <(sed -n '/^namespace/,$p' "$src") \
+               <(sed -n '/^namespace/,$p' "$GENERATED") \
+            || { echo "::error::Generated.lean is stale -- regenerate it (see proofs/README.md)"; exit 1; }
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Cache lake build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PROOFS }}/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('consensus/state_processing/proofs/lakefile.lean', 'consensus/state_processing/proofs/lean-toolchain') }}
+
+      - name: Build the proofs
+        working-directory: ${{ env.PROOFS }}
+        run: lake build
+
+      - name: Fail on sorry
+        working-directory: ${{ env.PROOFS }}
+        run: |
+          if grep -rn 'sorry' BuilderPaymentProofs/; then
+            echo "::error::a proof depends on sorry"
+            exit 1
+          fi
