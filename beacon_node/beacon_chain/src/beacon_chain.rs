@@ -4653,14 +4653,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg = "Restoring fork choice from disk",
                 error = ?e,
                 "Database write failed!"
             );
-            return Err(self
-                .handle_import_block_db_write_error(fork_choice)
-                .err()
-                .unwrap_or(e.into()));
+            self.handle_import_block_db_write_error(fork_choice, block_root);
+            return Err(e.into());
         }
 
         drop(db_span);
@@ -4734,36 +4731,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
+    /// Handle a database write failure during block import, which causes fork choice
+    /// to contain a block that the store does not.
+    ///
+    /// Poison fork choice so the diverged version is never persisted, and shut down the
+    /// node. On restart, the normal startup procedure loads the last consistent fork
+    /// choice from disk.
     fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
-    ) -> Result<(), BlockError> {
+        block_root: Hash256,
+    ) {
+        drop(fork_choice_write_lock);
+
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        // Since the write failed, try to revert the canonical head back to what was stored
-        // in the database. This attempts to prevent inconsistency between the database and
-        // fork choice.
-        if let Err(e) = self.canonical_head.restore_from_store(
-            fork_choice_write_lock,
-            ResetPayloadStatuses::always_reset_conditionally(
-                self.config.always_reset_payload_statuses,
-            ),
-            &self.store,
-            &self.spec,
-        ) {
-            crit!(
-                error = ?e,
-                warning = "The database is likely corrupt now, consider --purge-db",
-                "No stored fork choice found to restore from"
-            );
-            Err(BlockError::BeaconChainError(Box::new(e)))
-        } else {
-            Ok(())
+        self.canonical_head.poison_fork_choice();
+        crit!(
+            ?block_root,
+            advice = "restart the node to recover the last consistent fork choice from disk",
+            "Shutting down due to database write failure"
+        );
+        if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
+            "Database write failure during block import",
+        )) {
+            crit!(error = ?e, "Failed to send shutdown signal");
         }
     }
 
@@ -7844,10 +7841,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
+        if self.canonical_head.fork_choice_poisoned() {
+            warn!("Skipping persistence on drop: fork choice is poisoned");
+            return;
+        }
+
         let drop = || -> Result<(), Error> {
-            self.persist_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_custody_context()
+            self.persist_custody_context()?;
+            self.persist_fork_choice()
         };
 
         if let Err(e) = drop() {
