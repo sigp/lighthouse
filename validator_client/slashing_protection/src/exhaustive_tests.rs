@@ -14,6 +14,7 @@
 
 #![cfg(test)]
 
+use crate::pure_check::{AttRow, Verdict, check_attestation_pure};
 use crate::test_utils::*;
 use crate::*;
 use tempfile::tempdir;
@@ -125,6 +126,27 @@ fn reference_check(history: &[EpochPair], candidate: EpochPair) -> bool {
     true
 }
 
+/// The signing root `attestation_data` produces for a given `(source, target)`.
+fn signing_root_bytes(att: Att) -> [u8; 32] {
+    let data = attestation_data(att.0, att.1);
+    SignedAttestation::from_attestation(&data, DEFAULT_DOMAIN)
+        .signing_root
+        .to_hash256_raw()
+        .0
+}
+
+fn to_row(att: Att) -> AttRow {
+    AttRow {
+        source: att.0,
+        target: att.1,
+        root: signing_root_bytes(att),
+    }
+}
+
+fn to_rows(atts: &[Att]) -> Vec<AttRow> {
+    atts.iter().map(|att| to_row(*att)).collect()
+}
+
 /// Compare `reference_check` against the database on every enumerated history.
 ///
 /// Two comparisons are made per history:
@@ -190,11 +212,23 @@ fn reference_agrees_with_database() {
                  (database accepted: {db_verdict}, reference accepted: {reference_verdict})"
             );
             comparisons += 1;
+
+            // (3) The same candidate, offered straight to the pure function with no database
+            // in the way. Agreement here separates a logic bug from a plumbing bug in the
+            // `Epoch`/`u64` and `SigningRoot`/`[u8; 32]` conversions.
+            let pure_verdict = check_attestation_pure(&to_rows(&stored), &to_row(candidate));
+            assert_eq!(
+                pure_verdict != Verdict::Valid && pure_verdict != Verdict::SameData,
+                !reference_verdict,
+                "pure disagreement: history {stored:?}, candidate {candidate:?} \
+                 (pure verdict: {pure_verdict:?}, reference accepted: {reference_verdict})"
+            );
+            comparisons += 1;
         }
     }
 
     let insertions: usize = histories.iter().map(Vec::len).sum();
-    let expected = insertions + histories.len() * candidates.len();
+    let expected = insertions + 2 * histories.len() * candidates.len();
     assert_eq!(comparisons, expected);
 }
 
@@ -223,4 +257,49 @@ fn all_histories_covers_min_vs_max_bound() {
     // And the shape is inside the enumerated space.
     assert!(history.iter().all(|&(s, t)| t <= MAX_EPOCH && s <= t));
     assert!(history.len() <= MAX_HISTORY);
+}
+
+/// A null signing root never compares equal, not even to another null root.
+///
+/// `impl PartialEq for SigningRoot` encodes this: rows written by an interchange import carry
+/// a null root, and treating one as "same data" would let a validator re-sign a target epoch
+/// it had already voted on. `roots_eq` in `pure_check` has to reproduce it exactly, and plain
+/// byte equality would not.
+#[test]
+fn null_root_is_never_same_data() {
+    let null = [0u8; 32];
+    let candidate = AttRow {
+        source: 1,
+        target: 2,
+        root: null,
+    };
+
+    // Stored row with a null root, identical epochs: a double vote, NOT same data.
+    let history = vec![AttRow {
+        source: 1,
+        target: 2,
+        root: null,
+    }];
+    assert_eq!(
+        check_attestation_pure(&history, &candidate),
+        Verdict::DoubleVote
+    );
+
+    // A non-null stored root matching the candidate's is same data.
+    let mut root = [0u8; 32];
+    root[0] = 7;
+    let history = vec![AttRow {
+        source: 1,
+        target: 2,
+        root,
+    }];
+    let candidate = AttRow {
+        source: 1,
+        target: 2,
+        root,
+    };
+    assert_eq!(
+        check_attestation_pure(&history, &candidate),
+        Verdict::SameData
+    );
 }
