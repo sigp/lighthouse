@@ -4254,6 +4254,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidBuilderVersion { .. }
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::BlockHashEqualsParentBlockHash { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
                 | PayloadBidError::InvalidPrevRandao { .. },

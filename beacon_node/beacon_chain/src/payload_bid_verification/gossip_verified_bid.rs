@@ -44,6 +44,13 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
         });
     }
 
+    if bid.block_hash == bid.parent_block_hash {
+        return Err(PayloadBidError::BlockHashEqualsParentBlockHash {
+            slot: bid_slot,
+            block_hash: bid.block_hash,
+        });
+    }
+
     let max_blobs_per_block =
         spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
 
