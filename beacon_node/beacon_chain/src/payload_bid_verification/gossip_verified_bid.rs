@@ -13,22 +13,16 @@ use crate::{
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use slot_clock::SlotClock;
-use state_processing::signature_sets::{
-    execution_payload_bid_signature_set, get_builder_pubkey_from_state,
+use state_processing::{
+    builder_deposits_cache::OnboardBuildersCache,
+    signature_sets::{execution_payload_bid_signature_set, get_builder_pubkey_from_state},
+    state_advance::complete_state_advance,
 };
 use tracing::debug;
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
-
-pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), PayloadBidError> {
-    if bid_slot == current_slot || bid_slot == current_slot.saturating_add(1u64) {
-        Ok(())
-    } else {
-        Err(PayloadBidError::InvalidBidSlot { bid_slot })
-    }
-}
 
 fn verify_bid_payment_and_blobs<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
@@ -59,23 +53,23 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
 
 fn verify_builder<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
-    head_state: &BeaconState<E>,
+    bid_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let builder_index = bid.builder_index;
-    let builder_version = head_state
+    let builder_version = bid_state
         .get_builder(builder_index)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?
         .version;
 
-    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
+    if !bid_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
             builder_bid: bid.value,
         });
     }
 
-    let is_active_builder = head_state
+    let is_active_builder = bid_state
         .is_active_builder(builder_index, spec)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
     if !is_active_builder {
@@ -87,6 +81,34 @@ fn verify_builder<E: EthSpec>(
             builder_index,
             version: builder_version,
         });
+    }
+
+    Ok(())
+}
+
+fn verify_bid_slot_range<S: SlotClock>(
+    slot_clock: &S,
+    bid_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
+    let current_time = slot_clock
+        .now_duration()
+        .ok_or(PayloadBidError::UnableToReadSlot)?;
+    let earliest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_sub(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_sub(spec.maximum_gossip_clock_disparity());
+    let latest_permissible_time = slot_clock
+        .start_of(bid_slot.saturating_add(1u64))
+        .ok_or(PayloadBidError::UnableToReadSlot)?
+        .saturating_add(spec.maximum_gossip_clock_disparity());
+
+    if current_time < earliest_permissible_time {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
+    }
+
+    if current_time > latest_permissible_time {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
     Ok(())
@@ -164,6 +186,7 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
 }
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_payloads: &'a ObservedExecutionPayloads,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
@@ -193,11 +216,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_parent = BidParent::from_bid(&signed_bid.message);
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
-        let current_slot = ctx
-            .slot_clock
-            .now()
-            .ok_or(PayloadBidError::UnableToReadSlot)?;
-        verify_bid_slot(bid_slot, current_slot)?;
+
+        verify_bid_slot_range(ctx.slot_clock, bid_slot, ctx.spec)?;
 
         if ctx
             .gossip_verified_payload_bid_cache
@@ -222,72 +242,56 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        let cached_head = ctx.canonical_head.cached_head();
+        verify_bid_payment_and_blobs(&signed_bid.message, ctx.spec)?;
 
-        // Check the descendant rule before the bid fields that follow it in the gossip spec. Delay
-        // reporting an unknown parent until after those fields have been checked.
+        // The spec evaluates the remaining state-dependent checks against the post-state of the
+        // bid's parent block, which can be either the head or the head's parent.
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-        let parent_block = fork_choice.get_block(&bid_parent_block_root);
-        if let Some(parent_block) = parent_block.as_ref()
-            && bid_slot <= parent_block.slot
-        {
+        let parent_block = fork_choice.get_block(&bid_parent_block_root).ok_or(
+            PayloadBidError::ParentBlockRootUnknown {
+                parent_block_root: bid_parent_block_root,
+            },
+        )?;
+        let parent_slot = parent_block.slot;
+        let parent_state_root = parent_block.state_root;
+
+        if bid_slot <= parent_slot {
             return Err(PayloadBidError::BidNotDescendantOfParent {
                 bid_slot,
-                parent_slot: parent_block.slot,
+                parent_slot,
+            });
+        }
+        drop(fork_choice);
+
+        let parent_state = ctx
+            .store
+            .get_state(&parent_state_root, Some(parent_slot), true)
+            .map_err(|e| {
+                PayloadBidError::InternalError(format!(
+                    "failed to load bid parent state {parent_state_root:?}: {e:?}"
+                ))
+            })?
+            .ok_or(PayloadBidError::ParentBlockStateUnknown {
+                parent_block_root: bid_parent_block_root,
+                parent_state_root,
+            })?;
+
+        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
+        if proposal_epoch
+            > parent_state
+                .current_epoch()
+                .saturating_add(ctx.spec.min_seed_lookahead)
+        {
+            return Err(PayloadBidError::BidOutsideParentProposerLookahead {
+                bid_slot,
+                parent_slot,
             });
         }
 
-        verify_bid_payment_and_blobs(&signed_bid.message, ctx.spec)?;
-
-        parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
-            parent_block_root: bid_parent_block_root,
-        })?;
-        drop(fork_choice);
-
-        let snapshot_state = &cached_head.snapshot.beacon_state;
-
-        // At the Gloas fork boundary the head snapshot is still a pre-Gloas state, so we must
-        // use the advanced state instead.
-        // TODO(post-gloas) this can be removed after the gloas fork
-        let advanced_state;
-        let head_state = if ctx
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(bid_slot)
-            .gloas_enabled()
-            && !snapshot_state.fork_name_unchecked().gloas_enabled()
-        {
-            let (_, state) = ctx
-                .store
-                .get_advanced_hot_state(
-                    cached_head.head_block_root(),
-                    bid_slot,
-                    cached_head.head_state_root(),
-                )
-                .map_err(|e| {
-                    PayloadBidError::InternalError(format!(
-                        "failed to load advanced head state: {e:?}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    PayloadBidError::InternalError("advanced head state unavailable".to_string())
-                })?;
-            if !state.fork_name_unchecked().gloas_enabled() {
-                return Err(PayloadBidError::InternalError(
-                    "head state not yet advanced to Gloas".to_string(),
-                ));
-            }
-            advanced_state = state;
-            &advanced_state
-        } else {
-            snapshot_state
-        };
-
-        // Look up the preferences keyed by the dependent root that is canonical from our head's
-        // perspective, so we don't pick up preferences cached for a competing branch's proposer.
-        let proposal_epoch = bid_slot.epoch(T::EthSpec::slots_per_epoch());
-        let dependent_root = head_state.proposer_shuffling_decision_root_at_epoch(
+        // Key preferences by the dependent root derived from this bid's parent branch.
+        let dependent_root = parent_state.proposer_shuffling_decision_root_at_epoch(
             proposal_epoch,
-            cached_head.head_block_root(),
+            bid_parent_block_root,
             ctx.spec,
         )?;
 
@@ -316,8 +320,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::InvalidGasLimit);
         }
 
+        let cached_head = ctx.canonical_head.cached_head();
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
-
         // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
         if !is_bid_compatible_with_head(&cached_head, &fork_choice, &signed_bid.message, ctx.spec)?
         {
@@ -325,22 +329,39 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
                 parent_block_root: bid_parent_block_root,
             });
         }
-
         drop(fork_choice);
 
-        // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
-        // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
+        // `prev_randao` is checked against the unadvanced parent post-state.
         if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+            != *parent_state.get_randao_mix(parent_state.current_epoch())?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        verify_builder(&signed_bid.message, head_state, ctx.spec)?;
+        // Builder validity and balance are evaluated at the bid's slot, after applying any skipped
+        // slot and epoch processing to the parent block post-state.
+        let mut bid_state = parent_state.clone();
+        complete_state_advance(
+            &mut bid_state,
+            Some(parent_state_root),
+            bid_slot,
+            ctx.builder_onboarding_cache,
+            ctx.spec,
+        )
+        .map_err(|e| {
+            PayloadBidError::InternalError(format!("failed to advance state to bid slot: {e:?}"))
+        })?;
+        if !bid_state.fork_name_unchecked().gloas_enabled() {
+            return Err(PayloadBidError::InternalError(
+                "bid state not yet advanced to Gloas".to_string(),
+            ));
+        }
+
+        verify_builder(&signed_bid.message, &bid_state, ctx.spec)?;
 
         execution_payload_bid_signature_set(
-            head_state,
-            |i| get_builder_pubkey_from_state(head_state, i),
+            &bid_state,
+            |i| get_builder_pubkey_from_state(&bid_state, i),
             &signed_bid,
             ctx.spec,
         )
@@ -366,6 +387,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedPayloadBid`.
     pub fn payload_bid_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             canonical_head: &self.canonical_head,
             observed_execution_payloads: &self.observed_execution_payloads,
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
@@ -458,29 +480,32 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_gas_limit_target_compatible, verify_bid_slot};
-    use types::Slot;
+    use super::{is_gas_limit_target_compatible, verify_bid_slot_range};
+    use std::time::Duration;
+    use types::{EthSpec, MinimalEthSpec, Slot};
 
     use crate::payload_bid_verification::PayloadBidError;
+    use crate::slot_clock::{SlotClock, TestingSlotClock};
+
+    type E = MinimalEthSpec;
 
     #[test]
-    fn test_invalid_bid_slot_too_old() {
-        let current_slot = Slot::new(10);
+    fn test_bid_slot_upper_disparity_boundary() {
+        let spec = E::default_spec();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let bid_slot = Slot::new(100);
+        let upper_boundary = slot_clock
+            .start_of(bid_slot.saturating_add(1u64))
+            .unwrap()
+            .saturating_add(spec.maximum_gossip_clock_disparity());
 
-        let result = verify_bid_slot(Slot::new(5), current_slot);
+        slot_clock.set_current_time(upper_boundary);
+        assert!(verify_bid_slot_range(&slot_clock, bid_slot, &spec).is_ok());
+
+        slot_clock.set_current_time(upper_boundary.saturating_add(Duration::from_millis(1)));
         assert!(matches!(
-            result,
-            Err(PayloadBidError::InvalidBidSlot { .. })
-        ));
-    }
-
-    #[test]
-    fn test_invalid_bid_slot_too_far_ahead() {
-        let current_slot = Slot::new(10);
-
-        let result = verify_bid_slot(Slot::new(12), current_slot);
-        assert!(matches!(
-            result,
+            verify_bid_slot_range(&slot_clock, bid_slot, &spec),
             Err(PayloadBidError::InvalidBidSlot { .. })
         ));
     }

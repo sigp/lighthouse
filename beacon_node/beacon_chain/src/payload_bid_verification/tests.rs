@@ -9,7 +9,7 @@ use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::ProgressiveVariableList;
-use state_processing::genesis::genesis_block;
+use state_processing::{AllCaches, genesis::genesis_block};
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
@@ -22,6 +22,7 @@ use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use types::AttestationShufflingId;
 
 use crate::{
+    BeaconStore,
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
@@ -57,9 +58,9 @@ struct TestContext {
     slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
+    store: BeaconStore<T>,
     genesis_block_root: Hash256,
     inactive_builder_index: u64,
-    store: crate::BeaconStore<T>,
 }
 
 fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -132,11 +133,19 @@ impl TestContext {
             .expect("should register inactive builder");
 
         let mut block = genesis_block(&state, &spec).expect("should build genesis block");
-        *block.state_root_mut() = state
+        let state_root = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
+        *block.state_root_mut() = state_root;
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
         let block_root = signed_block.canonical_root();
+
+        let _ = store
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
+            .expect("should initialize anchor info");
+        state
+            .build_all_caches(&spec)
+            .expect("should build state caches");
 
         let snapshot = BeaconSnapshot::new(
             Arc::new(signed_block.clone()),
@@ -154,6 +163,9 @@ impl TestContext {
         store
             .put_block(&block_root, signed_block.clone())
             .expect("should store genesis block");
+        store
+            .put_state(&state_root, &state)
+            .expect("should store genesis state");
 
         let (_, head_payload_status) = fork_choice
             .get_head(Slot::new(0), &spec)
@@ -189,9 +201,9 @@ impl TestContext {
             slot_clock,
             keypairs,
             spec,
+            store,
             genesis_block_root: block_root,
             inactive_builder_index,
-            store,
         }
     }
 
@@ -214,6 +226,7 @@ impl TestContext {
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
+            builder_onboarding_cache: None,
             canonical_head: &self.canonical_head,
             observed_execution_payloads: &self.observed_execution_payloads,
             gossip_verified_payload_bid_cache: &self.bid_cache,
@@ -268,7 +281,7 @@ impl TestContext {
         })
     }
 
-    fn insert_non_canonical_block(&self) -> Hash256 {
+    fn insert_non_canonical_block(&self, state_root: Hash256) -> Hash256 {
         let shuffling_id = AttestationShufflingId {
             shuffling_epoch: Epoch::new(0),
             shuffling_decision_block: self.genesis_block_root,
@@ -285,7 +298,7 @@ impl TestContext {
                     target_root: fork_block_root,
                     current_epoch_shuffling_id: shuffling_id.clone(),
                     next_epoch_shuffling_id: shuffling_id,
-                    state_root: Hash256::ZERO,
+                    state_root,
                     justified_checkpoint: Checkpoint {
                         epoch: Epoch::new(0),
                         root: self.genesis_block_root,
@@ -577,23 +590,23 @@ fn execution_payment_nonzero() {
         return;
     }
     let ctx = TestContext::new();
-    let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
-    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+    let unknown_root = Hash256::repeat_byte(0xff);
 
+    // Payment is a REJECT check that precedes the unknown-parent IGNORE check in the spec.
     let bid = Arc::new(SignedExecutionPayloadBid {
         message: ExecutionPayloadBid {
             slot,
             gas_limit: 30_000_000,
             execution_payment: 42,
-            parent_block_root: ctx.genesis_block_root,
+            parent_block_root: unknown_root,
             parent_block_hash: ctx.execution_parent_hash(),
             prev_randao: ctx.expected_prev_randao(),
             ..ExecutionPayloadBid::default()
         },
         signature: Signature::empty(),
     });
-    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
     assert!(matches!(
         result,
         Err(PayloadBidError::ExecutionPaymentNonZero { .. })
@@ -707,22 +720,48 @@ fn parent_block_root_not_canonical() {
         return;
     }
     let ctx = TestContext::new();
-    let gossip = ctx.gossip_ctx();
     // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
     // block slot` rule and exercise the  bid descendant from parent check specifically.
     ctx.slot_clock.set_slot(1);
     let slot = Slot::new(2);
-    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let fork_root = ctx.insert_non_canonical_block();
+    let fork_root =
+        ctx.insert_non_canonical_block(ctx.canonical_head.cached_head().head_state_root());
+    let prefs = GossipVerifiedProposerPreferences {
+        signed_preferences: make_signed_preferences(slot, 0, Address::ZERO, 30_000_000, fork_root),
+    };
+    ctx.preferences_cache.insert_preferences(prefs);
+
     let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, fork_root);
-    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
     assert!(result.is_err(), "expected error, got Ok");
     let err = result.unwrap_err();
     assert!(
         matches!(err, PayloadBidError::BidNotCompatibleWithHead { .. }),
         "expected BidNotCompatibleWithHead, got: {err:?}"
     );
+}
+
+#[test]
+fn parent_block_state_unknown() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    ctx.slot_clock.set_slot(1);
+    let slot = Slot::new(2);
+    let missing_state_root = Hash256::repeat_byte(0xcc);
+    let fork_root = ctx.insert_non_canonical_block(missing_state_root);
+
+    let bid = ctx.make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, fork_root);
+    let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::ParentBlockStateUnknown {
+            parent_block_root,
+            parent_state_root,
+        }) if parent_block_root == fork_root && parent_state_root == missing_state_root
+    ));
 }
 
 #[test]

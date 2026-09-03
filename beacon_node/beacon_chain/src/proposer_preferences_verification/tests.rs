@@ -247,6 +247,8 @@ fn proposal_slot_already_passed() {
         return;
     }
     let ctx = TestContext::new();
+    // Move beyond slot 0's gossip disparity window so the proposal slot has actually passed.
+    ctx.slot_clock.set_slot(1);
     let gossip = ctx.gossip_ctx();
 
     let prefs = make_signed_preferences(Slot::new(0), 0, Hash256::ZERO);

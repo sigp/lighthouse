@@ -22,10 +22,17 @@ mod tests;
 pub enum PayloadBidError {
     /// The bid's parent block root is unknown.
     ParentBlockRootUnknown { parent_block_root: Hash256 },
+    /// The post-state for the bid's parent block is unavailable.
+    ParentBlockStateUnknown {
+        parent_block_root: Hash256,
+        parent_state_root: Hash256,
+    },
     /// The bid's parent execution payload is unknown.
     ParentExecutionPayloadUnknown {
         parent_block_hash: ExecutionBlockHash,
     },
+    /// The bid is beyond the proposer lookahead available from its parent state.
+    BidOutsideParentProposerLookahead { bid_slot: Slot, parent_slot: Slot },
     /// The bid does not build on the head block or on the head block's parent.
     BidNotCompatibleWithHead { parent_block_root: Hash256 },
     /// The signature is invalid.
