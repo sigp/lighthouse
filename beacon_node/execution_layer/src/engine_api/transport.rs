@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::warn;
-use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
+use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256, ProgressiveTransactions};
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -188,6 +188,13 @@ impl EngineApi {
         );
         result
     }
+
+    pub async fn get_inclusion_list_v1<E: EthSpec>(&self) -> Result<ProgressiveTransactions, EngineApiError>{
+        match self.active_rest() {
+            Some(_) => Err(EngineApiError::RequiredMethodUnsupported("get_inclusion_list_v1 not supported for REST-SSZ")),
+            None => self.json_rpc.get_inclusion_list_v1().await,
+        }
+    } 
 
     pub async fn get_blobs_v2<E: EthSpec>(
         &self,

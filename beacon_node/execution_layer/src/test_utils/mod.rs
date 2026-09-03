@@ -60,6 +60,7 @@ pub const DEFAULT_JSON_RPC_CAPABILITIES: JsonRpcCapabilities = JsonRpcCapabiliti
     get_client_version_v1: true,
     get_blobs_v2: true,
     get_blobs_v3: true,
+    get_inclusion_list_v1: true,
 };
 
 pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities =

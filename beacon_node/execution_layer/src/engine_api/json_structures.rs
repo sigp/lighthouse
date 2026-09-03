@@ -5,7 +5,7 @@ use crate::http::{
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5, ENGINE_GET_INCLUSION_LIST_V1
 };
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,7 @@ pub struct JsonRpcCapabilities {
     pub get_client_version_v1: bool,
     pub get_blobs_v2: bool,
     pub get_blobs_v3: bool,
+    pub get_inclusion_list_v1: bool,
 }
 
 impl JsonRpcCapabilities {
@@ -81,6 +82,13 @@ impl JsonRpcCapabilities {
             ForkName::Gloas => self.forkchoice_updated_v4,
             // TODO(heze): add heze arm to appropriate forkchoice_updated version once JSON engine API spec is finalized
             ForkName::Base | ForkName::Altair | ForkName::Heze => false,
+        }
+    }
+
+    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Heze => self.get_inclusion_list_v1,
+            _ => false
         }
     }
 
@@ -142,6 +150,9 @@ impl JsonRpcCapabilities {
         }
         if self.get_blobs_v2 {
             response.push(ENGINE_GET_BLOBS_V2);
+        }
+        if self.get_inclusion_list_v1 {
+            response.push(ENGINE_GET_INCLUSION_LIST_V1);
         }
 
         response
@@ -1512,6 +1523,13 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
         })
     }
 }
+
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonInclusionListV1(
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub  ProgressiveTransactions,
+);
 
 #[cfg(test)]
 mod tests {
