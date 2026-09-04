@@ -866,6 +866,13 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                                 .push(ProgressiveVariableList::<u8>::new(tx.into()));
                         }
                     }
+                    ExecutionPayload::Heze(payload) => {
+                        for tx in Vec::from(transactions) {
+                            payload
+                                .transactions
+                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
+                        }
+                    }
                     _ => {
                         for tx in Vec::from(transactions) {
                             execution_payload

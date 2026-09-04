@@ -30,13 +30,13 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
-    BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BlobsList, BuilderIndex,
-    ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload, Graffiti, Hash256,
-    IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit, Slot,
-    SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
+    BeaconStateError, BlobsList, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
+    FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs, PayloadAttestation,
+    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -752,13 +752,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
-            // TODO(heze): construct a `BeaconBlockHeze` here once Heze block production is
-            // wired up end-to-end (get_payload, envelope handling, etc).
-            BeaconState::Heze(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Block production disabled for Heze".to_owned(),
-                ));
-            }
+            BeaconState::Heze(_) => BeaconBlock::Heze(BeaconBlockHeze {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::ZERO,
+                body: BeaconBlockBodyHeze {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    // The operation list lengths are bounded by the op pool packing limits above.
+                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
+                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
+                    attestations: ProgressiveVariableList::from_iter(attestations),
+                    deposits: ProgressiveVariableList::from_iter(deposits),
+                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
+                    sync_aggregate,
+                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                        bls_to_execution_changes,
+                    ),
+                    parent_execution_requests,
+                    signed_execution_payload_bid,
+                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
+                    _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                },
+            }),
         };
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
