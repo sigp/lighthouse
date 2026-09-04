@@ -14,18 +14,28 @@ pub struct MockExecutionLayer<E: EthSpec> {
     pub spec: Arc<ChainSpec>,
 }
 
-/// Env var that switches every test-infra `MockExecutionLayer` from JSON-RPC to REST-SSZ.
+/// Env var that selects the engine transport for every test-infra `MockExecutionLayer`.
 ///
-/// Off (unset) by default so the JSON-RPC path is always exercised. Because all mocks — including
-/// the `beacon_chain` harness's `mock_execution_layer_from_parts` — funnel through
-/// `MockExecutionLayer::new`, setting this flips the transport across the whole test tree with no
-/// per-crate Cargo plumbing, e.g. `MOCK_REST_SSZ=1 cargo nextest run`.
-pub const MOCK_REST_SSZ_ENV_VAR: &str = "MOCK_REST_SSZ";
+/// Unset or `JSON` runs JSON-RPC (the default); `SSZ` runs the REST-SSZ mock engine. Any other
+/// value panics rather than silently falling back. Matching is case-insensitive. Because all
+/// mocks — including the `beacon_chain` harness's `mock_execution_layer_from_parts` — funnel
+/// through `MockExecutionLayer::new`, setting this flips the transport across the whole test tree
+/// with no per-crate Cargo plumbing, e.g. `LH_ENGINE_TRANSPORT=SSZ cargo nextest run`.
+pub const ENGINE_TRANSPORT_ENV_VAR: &str = "LH_ENGINE_TRANSPORT";
 
+/// `true` when `LH_ENGINE_TRANSPORT` selects the REST-SSZ mock transport (`SSZ`); `false` when
+/// unset or `JSON`. Panics on any other value so a typo can't quietly run the wrong transport.
 pub fn mock_rest_ssz_enabled() -> bool {
-    std::env::var(MOCK_REST_SSZ_ENV_VAR)
-        .map(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
-        .unwrap_or(false)
+    match std::env::var(ENGINE_TRANSPORT_ENV_VAR) {
+        Ok(value) => match value.trim().to_ascii_uppercase().as_str() {
+            "SSZ" => true,
+            "" | "JSON" => false,
+            other => panic!(
+                "invalid {ENGINE_TRANSPORT_ENV_VAR}={other:?}; expected \"JSON\" or \"SSZ\""
+            ),
+        },
+        Err(_) => false,
+    }
 }
 
 impl<E: EthSpec> MockExecutionLayer<E> {
@@ -175,7 +185,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
     }
 
     /// Resolve the engine transport with an **awaited** upcheck, then assert it matches the mode
-    /// selected by `MOCK_REST_SSZ` (`Rest` when set, `JsonRpcOnly` otherwise).
+    /// selected by `LH_ENGINE_TRANSPORT` (`Rest` when `SSZ`, `JsonRpcOnly` otherwise).
     pub async fn resolve_and_assert_transport(self) -> Self {
         self.el.upcheck().await;
         let expected = if mock_rest_ssz_enabled() {
