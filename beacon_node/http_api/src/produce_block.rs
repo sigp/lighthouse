@@ -73,27 +73,35 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
-    let builder_boost_factor = if query.builder_boost_factor == Some(DEFAULT_BOOST_FACTOR) {
-        None
-    } else {
-        query.builder_boost_factor
+    // The GET route carries only a boost factor; direct builders arrive with the `BuilderConfig`
+    // body once this route is converted to POST (later in this PR stack). Until then the winning
+    // bid's builder URL is unused (`Eth-Builder-Url` also lands with the POST conversion).
+    let builder_config = api_types::BuilderConfig {
+        builder_boost_factor: query.builder_boost_factor.unwrap_or(DEFAULT_BOOST_FACTOR),
+        ..api_types::BuilderConfig::empty()
     };
 
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
-    let (block, _block_state, consensus_block_value, execution_payload_value, payload_contents) =
-        chain
-            .produce_block_with_verification_gloas(
-                randao_reveal,
-                slot,
-                graffiti_settings,
-                randao_verification,
-                builder_boost_factor,
-            )
-            .await
-            .map_err(|e| {
-                warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
-            })?;
+    let (
+        block,
+        _block_state,
+        consensus_block_value,
+        execution_payload_value,
+        payload_contents,
+        _builder_url,
+    ) = chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            slot,
+            graffiti_settings,
+            randao_verification,
+            builder_config,
+        )
+        .await
+        .map_err(|e| {
+            warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
+        })?;
 
     let payload_contents = include_payload.then_some(payload_contents).flatten();
 

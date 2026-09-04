@@ -19,6 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
+use builder_client::{BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -198,6 +199,28 @@ where
             })
             .transpose()?;
 
+        // Construct the Gloas builder handle (Builder API client) when the Gloas fork is scheduled.
+        // The client is stateless w.r.t. the target builder — each request carries its own URL — but
+        // still honors the same `--builder-user-agent` / `--builder-disable-ssz` flags as the
+        // pre-Gloas builder client.
+        let builders = if spec.gloas_fork_epoch.is_some() {
+            let (user_agent, disable_ssz) = config
+                .execution_layer
+                .as_ref()
+                .map(|el| {
+                    (
+                        el.builder_user_agent.clone(),
+                        el.disable_builder_ssz_requests,
+                    )
+                })
+                .unwrap_or((None, false));
+            let client = BuilderHttpClient::new(user_agent, disable_ssz)
+                .map_err(|e| format!("unable to start builder client: {:?}", e))?;
+            Some(Arc::new(Builders::new(Arc::new(client))))
+        } else {
+            None
+        };
+
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
         let kzg = if spec.is_peer_das_scheduled() {
             Kzg::new_from_trusted_setup(&config.trusted_setup).map_err(kzg_err_msg)?
@@ -222,6 +245,7 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .proof_engine(proof_engine)
+            .builders(builders)
             .node_custody_type(config.chain.node_custody_type)
             .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
