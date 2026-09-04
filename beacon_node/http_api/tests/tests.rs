@@ -2337,6 +2337,53 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_blobs_follow_commitment_order(self) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Vec<Hash256> = block
+            .message()
+            .blob_kzg_commitments()
+            .unwrap()
+            .iter()
+            .map(|commitment| commitment.calculate_versioned_hash())
+            .collect();
+        let num_blobs = versioned_hashes.len();
+        assert!(num_blobs >= 2, "test block must contain at least two blobs");
+
+        // The unfiltered response is in commitment order
+        let all_blobs = self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_data();
+        assert_eq!(all_blobs.len(), num_blobs);
+
+        // Every hash in reverse order
+        let request: Vec<Hash256> = versioned_hashes.iter().rev().copied().collect();
+
+        let result = self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), Some(&request))
+            .await
+            .unwrap()
+            .unwrap()
+            .into_data();
+
+        assert_eq!(result.len(), num_blobs);
+        for (index, (returned, expected)) in result.iter().zip(&all_blobs).enumerate() {
+            assert_eq!(
+                returned.blob, expected.blob,
+                "blob at position {index} does not follow commitment order"
+            );
+        }
+
+        self
+    }
+
     pub async fn test_get_blobs_post_fulu_full_node(self, versioned_hashes: bool) -> Self {
         let block_id = BlockId(CoreBlockId::Head);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
@@ -10681,6 +10728,8 @@ async fn get_blob_sidecars() {
         .test_get_blobs(false)
         .await
         .test_get_blobs(true)
+        .await
+        .test_get_blobs_follow_commitment_order()
         .await;
 }
 
@@ -10707,6 +10756,8 @@ async fn get_blobs_post_fulu_supernode() {
         .test_get_blobs(false)
         .await
         .test_get_blobs(true)
+        .await
+        .test_get_blobs_follow_commitment_order()
         .await;
 }
 
