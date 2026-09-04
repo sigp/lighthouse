@@ -2622,6 +2622,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 
 [[package]]
+name = "decentralized_checkpoint_sync"
+version = "8.2.2"
+dependencies = [
+ "merkle_proof",
+ "thiserror 2.0.17",
+ "tree_hash",
+ "types",
+]
+
+[[package]]
 name = "delay_map"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
