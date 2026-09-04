@@ -6,6 +6,7 @@ members = [
     "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
+    "beacon_node/decentralized_checkpoint_sync",
     "beacon_node/execution_layer",
     "beacon_node/genesis",
     "beacon_node/http_api",
