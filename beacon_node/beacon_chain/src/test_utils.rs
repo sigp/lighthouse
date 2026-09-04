@@ -37,8 +37,8 @@ use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
-use kzg::Kzg;
 use kzg::trusted_setup::get_trusted_setup;
+use kzg::{Cell as KzgCell, CellsAndKzgProofs, Kzg};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
@@ -4212,13 +4212,44 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     Ok((block, data_columns))
 }
 
+fn blob_cells_and_proofs_from_fixture(
+    cells: Vec<Vec<KzgCell>>,
+    proofs: Vec<Vec<KzgProof>>,
+    num_blobs: usize,
+) -> Vec<CellsAndKzgProofs> {
+    let num_fixture_blobs = cells.first().map(|column| column.len()).unwrap_or(0);
+    assert!(
+        num_fixture_blobs > 0,
+        "column sidecar fixture must contain at least one blob's cells"
+    );
+
+    (0..num_blobs)
+        .map(|i| {
+            let blob_idx = i % num_fixture_blobs;
+            let row_cells = cells
+                .iter()
+                .map(|column_cells| column_cells[blob_idx].clone())
+                .collect::<Vec<_>>();
+            let row_proofs = proofs
+                .iter()
+                .map(|column_proofs| column_proofs[blob_idx])
+                .collect::<Vec<_>>();
+
+            (
+                row_cells.try_into().unwrap(),
+                row_proofs.try_into().unwrap(),
+            )
+        })
+        .collect()
+}
+
 /// Generate data column sidecars from pre-computed cells and proofs.
 pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    // Load the precomputed column sidecar to avoid computing them for every block in the tests.
-    // Then repeat the cells and proofs for every blob
+    // Load the precomputed column sidecars to avoid computing them for every block in the tests,
+    // and cycle the fixture blobs' cells and proofs across the block's blobs
     if block.fork_name_unchecked().gloas_enabled() {
         let kzg_commitments = &block
             .message()
@@ -4245,16 +4276,22 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
                 let DataColumnSidecarGloas {
                     column, kzg_proofs, ..
                 } = sidecar;
-                // There's only one cell per column for a single blob
-                let cell_bytes: Vec<u8> = column.iter().next().unwrap().clone().into();
-                let kzg_cell = cell_bytes.try_into().unwrap();
-                let kzg_proof = *kzg_proofs.iter().next().unwrap();
-                (kzg_cell, kzg_proof)
+
+                let kzg_cells = column
+                    .iter()
+                    .map(|cell| {
+                        let cell_bytes: Vec<u8> = cell.clone().into();
+                        cell_bytes.try_into().unwrap()
+                    })
+                    .collect::<Vec<KzgCell>>();
+                let kzg_proofs = kzg_proofs.iter().copied().collect::<Vec<_>>();
+
+                (kzg_cells, kzg_proofs)
             })
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
+            blob_cells_and_proofs_from_fixture(cells, proofs, num_blobs);
 
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
@@ -4269,6 +4306,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             return vec![];
         }
 
+        let num_blobs = kzg_commitments.len();
         let kzg_commitments_inclusion_proof = block
             .message()
             .body()
@@ -4290,16 +4328,22 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
                 let DataColumnSidecarFulu {
                     column, kzg_proofs, ..
                 } = sidecar;
-                // There's only one cell per column for a single blob
-                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
-                let kzg_cell = cell_bytes.try_into().unwrap();
-                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
-                (kzg_cell, kzg_proof)
+
+                let kzg_cells = column
+                    .iter()
+                    .map(|cell| {
+                        let cell_bytes: Vec<u8> = cell.clone().into();
+                        cell_bytes.try_into().unwrap()
+                    })
+                    .collect::<Vec<KzgCell>>();
+                let kzg_proofs = kzg_proofs.iter().copied().collect::<Vec<_>>();
+
+                (kzg_cells, kzg_proofs)
             })
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+            blob_cells_and_proofs_from_fixture(cells, proofs, num_blobs);
 
         build_data_column_sidecars_fulu(
             kzg_commitments.clone(),

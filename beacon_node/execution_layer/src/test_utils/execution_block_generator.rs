@@ -10,7 +10,7 @@ use alloy_consensus::TxEnvelope;
 use alloy_rpc_types_eth::Transaction as AlloyTransaction;
 use eth2::types::BlobsBundle;
 use fixed_bytes::FixedBytesExtended;
-use kzg::{Kzg, KzgCommitment, KzgProof};
+use kzg::Kzg;
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
@@ -24,10 +24,10 @@ use tracing::warn;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
+    ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
+    ForkName, Hash256, ProgressiveTransactions, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -890,52 +890,14 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 }
 
-pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String>
-{
-    let BlobsBundle::<E> {
-        commitments,
-        proofs,
-        blobs,
-    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
-        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
-
-    Ok((
-        commitments
-            .first()
-            .cloned()
-            .ok_or("commitment missing in test bundle")?,
-        proofs
-            .first()
-            .cloned()
-            .ok_or("proof missing in test bundle")?,
-        blobs
-            .first()
-            .cloned()
-            .ok_or("blob missing in test bundle")?,
-    ))
+pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<BlobsBundle<E>, String> {
+    BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))
 }
 
-pub fn load_test_blobs_bundle_v2<E: EthSpec>()
--> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
-    let BlobsBundle::<E> {
-        commitments,
-        proofs,
-        blobs,
-    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE_V2)
-        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
-
-    Ok((
-        commitments
-            .first()
-            .cloned()
-            .ok_or("commitment missing in test bundle")?,
-        // there's only one blob in the test bundle, hence we take all the cell proofs here.
-        proofs,
-        blobs
-            .first()
-            .cloned()
-            .ok_or("blob missing in test bundle")?,
-    ))
+pub fn load_test_blobs_bundle_v2<E: EthSpec>() -> Result<BlobsBundle<E>, String> {
+    BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE_V2)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))
 }
 
 pub fn generate_blobs<E: EthSpec>(
@@ -946,25 +908,55 @@ pub fn generate_blobs<E: EthSpec>(
         .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
     let transactions = vec![tx; n_blobs];
 
-    let bundle = if fork_name.fulu_enabled() {
-        let (kzg_commitment, kzg_proofs, blob) = load_test_blobs_bundle_v2::<E>()?;
-        BlobsBundle {
-            commitments: vec![kzg_commitment; n_blobs].try_into().unwrap(),
-            proofs: vec![kzg_proofs.to_vec(); n_blobs]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
-            blobs: vec![blob; n_blobs].try_into().unwrap(),
-        }
+    let (fixture_bundle, proofs_per_blob) = if fork_name.fulu_enabled() {
+        (load_test_blobs_bundle_v2::<E>()?, E::cells_per_ext_blob())
     } else {
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
-        BlobsBundle {
-            commitments: vec![kzg_commitment; n_blobs].try_into().unwrap(),
-            proofs: vec![kzg_proof; n_blobs].try_into().unwrap(),
-            blobs: vec![blob; n_blobs].try_into().unwrap(),
-        }
+        (load_test_blobs_bundle_v1::<E>()?, 1)
+    };
+    let num_fixture_blobs = fixture_bundle.blobs.len();
+
+    if num_fixture_blobs == 0
+        || fixture_bundle.commitments.len() != num_fixture_blobs
+        || fixture_bundle.proofs.len() != num_fixture_blobs * proofs_per_blob
+    {
+        return Err("invalid test blobs bundle fixture".to_string());
+    }
+
+    let mut commitments = Vec::with_capacity(n_blobs);
+    let mut proofs = Vec::with_capacity(n_blobs * proofs_per_blob);
+    let mut blobs = Vec::with_capacity(n_blobs);
+
+    for i in 0..n_blobs {
+        // Cycle around the fixture entries
+        let index = i % num_fixture_blobs;
+        commitments.push(
+            fixture_bundle
+                .commitments
+                .get(index)
+                .cloned()
+                .ok_or("commitment missing in test bundle")?,
+        );
+        proofs.extend(
+            fixture_bundle
+                .proofs
+                .iter()
+                .skip(index * proofs_per_blob)
+                .take(proofs_per_blob)
+                .cloned(),
+        );
+        blobs.push(
+            fixture_bundle
+                .blobs
+                .get(index)
+                .cloned()
+                .ok_or("blob missing in test bundle")?,
+        );
+    }
+
+    let bundle = BlobsBundle {
+        commitments: commitments.try_into().unwrap(),
+        proofs: proofs.try_into().unwrap(),
+        blobs: blobs.try_into().unwrap(),
     };
 
     Ok((bundle, transactions.try_into().unwrap()))
@@ -1137,33 +1129,88 @@ mod test {
 
     fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
-        let kzg_blob: KzgBlobRef = blob
-            .as_ref()
-            .try_into()
-            .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
-        kzg.verify_blob_kzg_proof(kzg_blob, kzg_commitment, kzg_proof)
-            .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
+        let bundle = load_test_blobs_bundle_v1::<E>()?;
+        if bundle.proofs.len() != bundle.blobs.len() {
+            return Err("v1 bundle must have one proof per blob".to_string());
+        }
+        for ((blob, commitment), proof) in bundle
+            .blobs
+            .iter()
+            .zip(bundle.commitments.iter())
+            .zip(bundle.proofs.iter())
+        {
+            let kzg_blob: KzgBlobRef = blob
+                .as_ref()
+                .try_into()
+                .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
+            kzg.verify_blob_kzg_proof(kzg_blob, *commitment, *proof)
+                .map_err(|e| format!("Invalid blobs bundle: {e:?}"))?;
+        }
+        Ok(())
     }
 
     fn validate_blob_bundle_v2<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (kzg_commitments, kzg_proofs, cells) =
-            load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
-                let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
-                (
-                    vec![commitment.0; proofs.len()],
-                    proofs.into_iter().map(|p| p.0).collect::<Vec<_>>(),
-                    kzg.compute_cells(kzg_blob).unwrap(),
-                )
-            })?;
-        let (cell_indices, cell_refs): (Vec<u64>, Vec<CellRef>) = cells
+        let bundle = load_test_blobs_bundle_v2::<E>()?;
+        let num_blobs = bundle.blobs.len();
+        let proofs_per_blob = E::cells_per_ext_blob();
+        if bundle.proofs.len() != num_blobs * proofs_per_blob {
+            return Err(format!(
+                "v2 bundle must have {proofs_per_blob} cell proofs per blob"
+            ));
+        }
+        for (index, (blob, commitment)) in bundle
+            .blobs
             .iter()
+            .zip(bundle.commitments.iter())
             .enumerate()
-            .map(|(cell_idx, cell)| (cell_idx as u64, CellRef::try_from(cell.as_ref()).unwrap()))
-            .unzip();
-        kzg.verify_cell_proof_batch(&cell_refs, &kzg_proofs, cell_indices, &kzg_commitments)
-            .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
+        {
+            let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
+            let cells = kzg.compute_cells(kzg_blob).unwrap();
+            let kzg_commitments = vec![commitment.0; proofs_per_blob];
+            let kzg_proofs = bundle
+                .proofs
+                .iter()
+                .skip(index * proofs_per_blob)
+                .take(proofs_per_blob)
+                .map(|p| p.0)
+                .collect::<Vec<_>>();
+            let (cell_indices, cell_refs): (Vec<u64>, Vec<CellRef>) = cells
+                .iter()
+                .enumerate()
+                .map(|(cell_idx, cell)| {
+                    (cell_idx as u64, CellRef::try_from(cell.as_ref()).unwrap())
+                })
+                .unzip();
+            kzg.verify_cell_proof_batch(&cell_refs, &kzg_proofs, cell_indices, &kzg_commitments)
+                .map_err(|e| format!("Invalid blobs bundle: {e:?}"))?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_blobs_bundle_fixtures_are_distinct() {
+        for bundle in [
+            load_test_blobs_bundle_v1::<MainnetEthSpec>().unwrap(),
+            load_test_blobs_bundle_v2::<MainnetEthSpec>().unwrap(),
+        ] {
+            assert!(
+                bundle.blobs.len() >= 2,
+                "fixture must contain at least two blobs"
+            );
+            for i in 0..bundle.blobs.len() {
+                for j in (i + 1)..bundle.blobs.len() {
+                    assert_ne!(
+                        bundle.blobs[i], bundle.blobs[j],
+                        "blobs {i} and {j} identical"
+                    );
+                    assert_ne!(
+                        bundle.commitments[i], bundle.commitments[j],
+                        "commitments {i} and {j} identical"
+                    );
+                }
+            }
+        }
     }
 
     fn load_kzg() -> Result<Kzg, String> {
