@@ -743,16 +743,16 @@ pub async fn proposer_boost_re_org_test(
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .block_hash
+            .message()
+            .block_hash()
     };
     let exec_parent_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
         block
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash
+            .message()
+            .parent_block_hash()
     };
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());

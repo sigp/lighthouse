@@ -170,17 +170,12 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
         // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
-        // first post-genesis proposer can build on the correct EL head.
-        let el_genesis_hash = state.latest_execution_payload_bid()?.block_hash;
-        let bid = state.latest_execution_payload_bid_mut()?;
+        // first post-genesis proposer can build on the correct EL head. This runs on the
+        // Gloas genesis state; a later Heze upgrade carries these fields forward.
+        let bid = state.latest_execution_payload_bid_gloas_mut()?;
+        let el_genesis_hash = bid.block_hash;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
-
-        // Update the `latest_block_header.body_root` so that it matches the body of the
-        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
-        // `signed_execution_payload_bid` field (see `genesis_block`).
-        let genesis_body_root = genesis_block(&state, spec)?.body_root();
-        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Upgrade to heze if configured from genesis.
@@ -192,6 +187,14 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Remove intermediate Gloas fork from `state.fork`.
         state.fork_mut().previous_version = spec.heze_fork_version;
+    }
+
+    // From Gloas onwards the genesis block body embeds `state.latest_execution_payload_bid`
+    // (see `genesis_block`), so `latest_block_header.body_root` must be computed against the
+    // final genesis fork, after every upgrade has run
+    if state.fork_name_unchecked().gloas_enabled() {
+        let genesis_body_root = genesis_block(&state, spec)?.body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -217,8 +220,16 @@ pub fn genesis_block<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
-    if let Ok(signed_bid) = block.body_mut().signed_execution_payload_bid_mut() {
-        signed_bid.message = state.latest_execution_payload_bid()?.clone();
+    match &mut block {
+        BeaconBlock::Gloas(gloas_block) => {
+            gloas_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_gloas()?.clone();
+        }
+        BeaconBlock::Heze(heze_block) => {
+            heze_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_heze()?.clone();
+        }
+        _ => {}
     }
     Ok(block)
 }

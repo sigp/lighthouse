@@ -273,7 +273,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             .message()
             .body()
             .signed_execution_payload_bid()
-            .is_ok_and(|bid| !bid.message.blob_kzg_commitments.is_empty());
+            .is_ok_and(|bid| !bid.message().blob_kzg_commitments().is_empty());
         if commits_to_blobs {
             return Err(warp_utils::reject::custom_bad_request(
                 "block commits to blobs but the beacon node has no cached blobs and KZG proofs to attach"

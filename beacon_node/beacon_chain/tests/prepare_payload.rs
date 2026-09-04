@@ -424,8 +424,8 @@ async fn prepare_payload_generic(
         .body()
         .signed_execution_payload_bid()
         .unwrap()
-        .message
-        .parent_block_hash;
+        .message()
+        .parent_block_hash();
     assert_eq!(
         produced_execution_parent_hash, expected_execution_parent_hash,
         "block production should independently select the {parent_payload_status:?} parent"

@@ -25,7 +25,10 @@ pub use execution_payload::{
     ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
     Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
-pub use execution_payload_bid::ExecutionPayloadBid;
+pub use execution_payload_bid::{
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+    ExecutionPayloadBidRefMut,
+};
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
@@ -50,6 +53,9 @@ pub use payload::{
     OwnedExecPayload,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
-pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
+pub use signed_execution_payload_bid::{
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadBidRef,
+};
 pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
 pub use signed_inclusion_list::SignedInclusionList;

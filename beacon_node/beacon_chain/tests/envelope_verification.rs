@@ -91,8 +91,8 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
         harness
             .chain
             .observed_execution_payloads
-            .get_gas_limit(genesis_bid.parent_block_hash),
-        Some(genesis_bid.gas_limit)
+            .get_gas_limit(genesis_bid.parent_block_hash()),
+        Some(genesis_bid.gas_limit())
     );
 }
 

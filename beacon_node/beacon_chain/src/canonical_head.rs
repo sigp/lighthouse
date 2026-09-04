@@ -360,7 +360,7 @@ impl<E: EthSpec> CachedHead<E> {
             self.snapshot
                 .beacon_state
                 .latest_execution_payload_bid()
-                .map(|bid| bid.prev_randao)
+                .map(|bid| bid.prev_randao())
         } else {
             block.body().execution_payload().map(|p| p.prev_randao())
         }

@@ -9,9 +9,9 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
-    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
-    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
+    ForkVersionDecode, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
     PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
     PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
@@ -422,8 +422,20 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 E::max_signed_execution_payload_bid_size()
                             ));
                         }
-                        let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let execution_payload_bid = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(&fork_name) => {
+                                SignedExecutionPayloadBid::from_ssz_bytes_by_fork(data, fork_name)
+                                    .map_err(|e| format!("{:?}", e))?
+                            }
+                            None => {
+                                return Err(format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                ));
+                            }
+                        };
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
                             execution_payload_bid,
                         )))
@@ -653,7 +665,8 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 write!(
                     f,
                     "Execution payload bid: slot: {:?} value: {:?}",
-                    data.message.slot, data.message.value
+                    data.message().slot(),
+                    data.message().value()
                 )
             }
             PubsubMessage::ProposerPreferences(data) => {

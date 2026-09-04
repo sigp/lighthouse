@@ -18,7 +18,7 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
+    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBidRef, SignedExecutionPayloadBid,
     SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -31,21 +31,21 @@ pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), 
 }
 
 fn verify_bid_payment_and_blobs<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+    bid: ExecutionPayloadBidRef<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     // Execution payments are used by off protocol builders. In protocol bids
     // should always have this value set to zero.
-    if bid.execution_payment != 0 {
+    if bid.execution_payment() != 0 {
         return Err(PayloadBidError::ExecutionPaymentNonZero {
-            execution_payment: bid.execution_payment,
+            execution_payment: bid.execution_payment(),
         });
     }
 
-    if bid.block_hash == bid.parent_block_hash {
+    if bid.block_hash() == bid.parent_block_hash() {
         return Err(PayloadBidError::BlockHashEqualsParentBlockHash {
-            slot: bid.slot,
-            block_hash: bid.block_hash,
+            slot: bid.slot(),
+            block_hash: bid.block_hash(),
         });
     }
 
@@ -53,16 +53,16 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
 }
 
 fn verify_bid_blobs<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+    bid: ExecutionPayloadBidRef<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     let max_blobs_per_block =
-        spec.max_blobs_per_block(bid.slot.epoch(E::slots_per_epoch())) as usize;
+        spec.max_blobs_per_block(bid.slot().epoch(E::slots_per_epoch())) as usize;
 
-    if bid.blob_kzg_commitments.len() > max_blobs_per_block {
+    if bid.blob_kzg_commitments().len() > max_blobs_per_block {
         return Err(PayloadBidError::InvalidBlobKzgCommitments {
             max_blobs_per_block,
-            blob_kzg_commitments_len: bid.blob_kzg_commitments.len(),
+            blob_kzg_commitments_len: bid.blob_kzg_commitments().len(),
         });
     }
 
@@ -75,15 +75,15 @@ fn verify_bid_blobs<E: EthSpec>(
 /// These checks are shared by gossip and direct bids. Source-specific checks (e.g. the gossip-only
 /// requirement that `execution_payment == 0`) are applied by the caller.
 pub(crate) fn verify_bid_consistency<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+    bid: ExecutionPayloadBidRef<E>,
     current_slot: Slot,
     proposer_preferences: &SignedProposerPreferences,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
-    verify_bid_slot(bid.slot, current_slot)?;
+    verify_bid_slot(bid.slot(), current_slot)?;
 
-    if bid.fee_recipient != proposer_preferences.message.fee_recipient {
+    if bid.fee_recipient() != proposer_preferences.message.fee_recipient {
         return Err(PayloadBidError::InvalidFeeRecipient);
     }
 
@@ -99,20 +99,20 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 /// dropping). Re-running them against the production state lets bid selection drop a gossip bid that
 /// has since become invalid, rather than committing to it and failing the whole block.
 pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+    bid: ExecutionPayloadBidRef<E>,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
-    let builder_index = bid.builder_index;
+    let builder_index = bid.builder_index();
     let builder_version = head_state
         .get_builder(builder_index)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?
         .version;
 
-    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
+    if !head_state.can_builder_cover_bid(builder_index, bid.value(), spec)? {
         return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
-            builder_bid: bid.value,
+            builder_bid: bid.value(),
         });
     }
 
@@ -137,7 +137,7 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
 pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
     cached_head: &CachedHead<T::EthSpec>,
     fork_choice_read: &ForkChoiceReadGuard<'_, T>,
-    bid: &ExecutionPayloadBid<T::EthSpec>,
+    bid: ExecutionPayloadBidRef<'_, T::EthSpec>,
     spec: &ChainSpec,
 ) -> Result<bool, PayloadBidError> {
     let head_block_root = cached_head.head_block_root();
@@ -171,18 +171,18 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         )
     };
 
-    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
-    let builds_on_parent_payload = Some(bid.parent_block_hash) == head_bid_parent_block_hash;
+    let builds_on_parent_block = Some(bid.parent_block_root()) == head_block.parent_root;
+    let builds_on_parent_payload = Some(bid.parent_block_hash()) == head_bid_parent_block_hash;
 
     if builds_on_parent_block && builds_on_parent_payload {
         return Ok(true);
     }
 
-    if bid.parent_block_root != head_block.root {
+    if bid.parent_block_root() != head_block.root {
         return Ok(false);
     }
 
-    let builds_on_head_payload = Some(bid.parent_block_hash) == head_bid_block_hash;
+    let builds_on_head_payload = Some(bid.parent_block_hash()) == head_bid_block_hash;
 
     if head_is_pre_gloas {
         return Ok(builds_on_head_payload);
@@ -192,7 +192,7 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         .should_build_on_full(
             &head_block_root,
             cached_head.head_payload_status(),
-            bid.slot,
+            bid.slot(),
         )
         .map_err(|e| {
             PayloadBidError::InternalError(format!("should_build_on_full failed: {e:?}"))
@@ -230,10 +230,10 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        let bid_slot = signed_bid.message.slot;
-        let bid_parent = BidParent::from_bid(&signed_bid.message);
-        let bid_parent_block_root = signed_bid.message.parent_block_root;
-        let bid_value = signed_bid.message.value;
+        let bid_slot = signed_bid.message().slot();
+        let bid_parent = BidParent::from_bid(signed_bid.message());
+        let bid_parent_block_root = signed_bid.message().parent_block_root();
+        let bid_value = signed_bid.message().value();
         let current_slot = ctx
             .slot_clock
             .now()
@@ -242,10 +242,14 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         if ctx
             .gossip_verified_payload_bid_cache
-            .seen_builder_bid_for_parent(&bid_slot, bid_parent, signed_bid.message.builder_index)
+            .seen_builder_bid_for_parent(
+                &bid_slot,
+                bid_parent,
+                signed_bid.message().builder_index(),
+            )
         {
             return Err(PayloadBidError::BuilderAlreadySeen {
-                builder_index: signed_bid.message.builder_index,
+                builder_index: signed_bid.message().builder_index(),
                 slot: bid_slot,
             });
         }
@@ -255,10 +259,10 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         if let Some(cached_bid) = ctx
             .gossip_verified_payload_bid_cache
             .get_highest_bid(bid_slot, bid_parent)
-            && bid_value <= cached_bid.message.value
+            && bid_value <= cached_bid.message().value()
         {
             return Err(PayloadBidError::BidValueBelowCached {
-                cached_value: cached_bid.message.value,
+                cached_value: cached_bid.message().value(),
                 incoming_value: bid_value,
             });
         }
@@ -278,7 +282,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
-        verify_bid_payment_and_blobs(&signed_bid.message, ctx.spec)?;
+        verify_bid_payment_and_blobs(signed_bid.message(), ctx.spec)?;
 
         parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
             parent_block_root: bid_parent_block_root,
@@ -339,19 +343,19 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
         };
 
-        if signed_bid.message.fee_recipient != proposer_preferences.message.fee_recipient {
+        if signed_bid.message().fee_recipient() != proposer_preferences.message.fee_recipient {
             return Err(PayloadBidError::InvalidFeeRecipient);
         }
 
         let parent_gas_limit = ctx
             .observed_execution_payloads
-            .get_gas_limit(signed_bid.message.parent_block_hash)
+            .get_gas_limit(signed_bid.message().parent_block_hash())
             .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
-                parent_block_hash: signed_bid.message.parent_block_hash,
+                parent_block_hash: signed_bid.message().parent_block_hash(),
             })?;
         if !is_gas_limit_target_compatible(
             parent_gas_limit,
-            signed_bid.message.gas_limit,
+            signed_bid.message().gas_limit(),
             proposer_preferences.message.target_gas_limit,
         )? {
             return Err(PayloadBidError::InvalidGasLimit);
@@ -360,7 +364,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
         // TODO(gloas) should we reprocess a dropped bid when the head changes to its parent?
-        if !is_bid_compatible_with_head(&cached_head, &fork_choice, &signed_bid.message, ctx.spec)?
+        if !is_bid_compatible_with_head(&cached_head, &fork_choice, signed_bid.message(), ctx.spec)?
         {
             return Err(PayloadBidError::BidNotCompatibleWithHead {
                 parent_block_root: bid_parent_block_root,
@@ -371,18 +375,18 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
-        if signed_bid.message.prev_randao
+        if signed_bid.message().prev_randao()
             != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        verify_bid_state_conditions(&signed_bid.message, head_state, ctx.spec)?;
+        verify_bid_state_conditions(signed_bid.message(), head_state, ctx.spec)?;
 
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
-            &signed_bid,
+            signed_bid.to_ref(),
             ctx.spec,
         )
         .map_err(|_| PayloadBidError::BadSignature)?
@@ -425,9 +429,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<GossipVerifiedPayloadBid<T::EthSpec>, PayloadBidError> {
-        let slot = bid.message.slot;
-        let parent_block_root = bid.message.parent_block_root;
-        let parent_block_hash = bid.message.parent_block_hash;
+        let slot = bid.message().slot();
+        let parent_block_root = bid.message().parent_block_root();
+        let parent_block_hash = bid.message().parent_block_hash();
 
         let ctx = self.payload_bid_gossip_verification_context();
         match GossipVerifiedPayloadBid::new(bid, &ctx) {

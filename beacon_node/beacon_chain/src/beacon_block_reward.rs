@@ -45,11 +45,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let bid_parent_block_hash = block
                 .body()
                 .signed_execution_payload_bid()?
-                .message
-                .parent_block_hash;
-            if bid_parent_block_hash == parent_bid.block_hash {
+                .message()
+                .parent_block_hash();
+            if bid_parent_block_hash == parent_bid.block_hash() {
                 let availability_index = parent_bid
-                    .slot
+                    .slot()
                     .as_usize()
                     .safe_rem(T::EthSpec::slots_per_historical_root())?;
                 state
@@ -291,7 +291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_slot = state
             .latest_execution_payload_bid()
             .ok()
-            .map(|bid| bid.slot);
+            .map(|bid| bid.slot());
 
         for attestation in block.body().attestations() {
             let data = attestation.data();

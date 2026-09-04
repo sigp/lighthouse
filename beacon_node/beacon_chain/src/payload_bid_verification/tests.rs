@@ -13,9 +13,10 @@ use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, Hash256,
-    MinimalEthSpec, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidRef, ExecutionPayloadHeader,
+    ExecutionPayloadHeaderFulu, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedProposerPreferences,
+    SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -175,7 +176,8 @@ impl TestContext {
         let genesis_bid = state
             .latest_execution_payload_bid()
             .expect("should have a Gloas payload bid");
-        observed_execution_payloads.insert(genesis_bid.parent_block_hash, genesis_bid.gas_limit);
+        observed_execution_payloads
+            .insert(genesis_bid.parent_block_hash(), genesis_bid.gas_limit());
 
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -197,7 +199,7 @@ impl TestContext {
         }
     }
 
-    fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
+    fn sign_bid(&self, bid: ExecutionPayloadBidGloas<E>) -> Arc<SignedExecutionPayloadBid<E>> {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.spec.get_domain(
@@ -206,12 +208,14 @@ impl TestContext {
             &state.fork(),
             state.genesis_validators_root(),
         );
-        let message = bid.signing_root(domain);
+        let message = ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain);
         let signature = self.keypairs[bid.builder_index as usize].sk.sign(message);
-        Arc::new(SignedExecutionPayloadBid {
-            message: bid,
-            signature,
-        })
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: bid,
+                signature,
+            },
+        ))
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
@@ -254,20 +258,22 @@ impl TestContext {
         value: u64,
         parent_block_root: Hash256,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
-        Arc::new(SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
-                slot,
-                builder_index,
-                fee_recipient,
-                gas_limit,
-                value,
-                parent_block_root,
-                parent_block_hash: self.execution_parent_hash(),
-                prev_randao: self.expected_prev_randao(),
-                ..ExecutionPayloadBid::default()
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
+                    slot,
+                    builder_index,
+                    fee_recipient,
+                    gas_limit,
+                    value,
+                    parent_block_root,
+                    parent_block_hash: self.execution_parent_hash(),
+                    prev_randao: self.expected_prev_randao(),
+                    ..ExecutionPayloadBidGloas::default()
+                },
+                signature: Signature::empty(),
             },
-            signature: Signature::empty(),
-        })
+        ))
     }
 
     fn insert_non_canonical_block(&self) -> Hash256 {
@@ -415,7 +421,7 @@ fn same_builder_new_parent_tuple_not_blocked() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBid {
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
         slot,
         builder_index: 0,
         fee_recipient: Address::ZERO,
@@ -424,7 +430,7 @@ fn same_builder_new_parent_tuple_not_blocked() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
+        ..ExecutionPayloadBidGloas::default()
     });
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(
@@ -526,7 +532,7 @@ fn gas_limit_mismatch() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBid {
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
         slot,
         builder_index: 0,
         fee_recipient: Address::ZERO,
@@ -535,7 +541,7 @@ fn gas_limit_mismatch() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
+        ..ExecutionPayloadBidGloas::default()
     });
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
@@ -584,18 +590,20 @@ fn block_hash_equals_parent_block_hash() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let parent_block_hash = ctx.execution_parent_hash();
-    let bid = Arc::new(SignedExecutionPayloadBid {
-        message: ExecutionPayloadBid {
-            slot,
-            gas_limit: 30_000_000,
-            parent_block_root: ctx.genesis_block_root,
-            parent_block_hash,
-            block_hash: parent_block_hash,
-            prev_randao: ctx.expected_prev_randao(),
-            ..ExecutionPayloadBid::default()
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                gas_limit: 30_000_000,
+                parent_block_root: ctx.genesis_block_root,
+                parent_block_hash,
+                block_hash: parent_block_hash,
+                prev_randao: ctx.expected_prev_randao(),
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    });
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -613,18 +621,20 @@ fn execution_payment_nonzero() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = Arc::new(SignedExecutionPayloadBid {
-        message: ExecutionPayloadBid {
-            slot,
-            gas_limit: 30_000_000,
-            execution_payment: 42,
-            parent_block_root: ctx.genesis_block_root,
-            parent_block_hash: ctx.execution_parent_hash(),
-            prev_randao: ctx.expected_prev_randao(),
-            ..ExecutionPayloadBid::default()
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                gas_limit: 30_000_000,
+                execution_payment: 42,
+                parent_block_root: ctx.genesis_block_root,
+                parent_block_hash: ctx.execution_parent_hash(),
+                prev_randao: ctx.expected_prev_randao(),
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    });
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -733,7 +743,7 @@ fn bid_state_conditions_reject_uncoverable_bid() {
         100,
         ctx.genesis_block_root,
     );
-    assert!(verify_bid_state_conditions(&coverable.message, state, &ctx.spec).is_ok());
+    assert!(verify_bid_state_conditions(coverable.message(), state, &ctx.spec).is_ok());
 
     let uncoverable = ctx.make_signed_bid(
         slot,
@@ -744,7 +754,7 @@ fn bid_state_conditions_reject_uncoverable_bid() {
         ctx.genesis_block_root,
     );
     assert!(matches!(
-        verify_bid_state_conditions(&uncoverable.message, state, &ctx.spec),
+        verify_bid_state_conditions(uncoverable.message(), state, &ctx.spec),
         Err(PayloadBidError::BuilderCantCoverBid { .. })
     ));
 }
@@ -842,21 +852,23 @@ fn invalid_blob_kzg_commitments() {
         .map(|_| KzgCommitment::empty_for_testing())
         .collect();
 
-    let bid = Arc::new(SignedExecutionPayloadBid {
-        message: ExecutionPayloadBid {
-            slot,
-            builder_index: 0,
-            fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
-            value: 0,
-            parent_block_root: ctx.genesis_block_root,
-            parent_block_hash: ctx.execution_parent_hash(),
-            prev_randao: ctx.expected_prev_randao(),
-            blob_kzg_commitments: ProgressiveVariableList::new(commitments),
-            ..ExecutionPayloadBid::default()
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                builder_index: 0,
+                fee_recipient: Address::ZERO,
+                gas_limit: 30_000_000,
+                value: 0,
+                parent_block_root: ctx.genesis_block_root,
+                parent_block_hash: ctx.execution_parent_hash(),
+                prev_randao: ctx.expected_prev_randao(),
+                blob_kzg_commitments: ProgressiveVariableList::new(commitments),
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    });
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -883,7 +895,7 @@ fn bad_signature() {
         0,
         ctx.genesis_block_root,
     );
-    let bid_parent = BidParent::from_bid(&bid.message);
+    let bid_parent = BidParent::from_bid(bid.message());
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
     assert!(
@@ -903,7 +915,7 @@ fn valid_bid_after_empty_genesis_uses_parent_payload_gas_limit() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBid {
+    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
         slot,
         builder_index: 0,
         fee_recipient: Address::ZERO,
@@ -912,7 +924,7 @@ fn valid_bid_after_empty_genesis_uses_parent_payload_gas_limit() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
+        ..ExecutionPayloadBidGloas::default()
     });
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(
@@ -932,7 +944,7 @@ fn two_builders_coexist_in_cache() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid_0 = ctx.sign_bid(ExecutionPayloadBid {
+    let bid_0 = ctx.sign_bid(ExecutionPayloadBidGloas {
         slot,
         builder_index: 0,
         fee_recipient: Address::ZERO,
@@ -941,7 +953,7 @@ fn two_builders_coexist_in_cache() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
+        ..ExecutionPayloadBidGloas::default()
     });
     let result_0 = GossipVerifiedPayloadBid::new(bid_0, &gossip);
     assert!(
@@ -951,7 +963,7 @@ fn two_builders_coexist_in_cache() {
     );
 
     // Builder 1 must bid strictly higher than builder 0's cached value.
-    let bid_1 = ctx.sign_bid(ExecutionPayloadBid {
+    let bid_1 = ctx.sign_bid(ExecutionPayloadBidGloas {
         slot,
         builder_index: 1,
         fee_recipient: Address::ZERO,
@@ -960,7 +972,7 @@ fn two_builders_coexist_in_cache() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBid::default()
+        ..ExecutionPayloadBidGloas::default()
     });
     let result_1 = GossipVerifiedPayloadBid::new(bid_1, &gossip);
     assert!(
@@ -987,8 +999,8 @@ fn two_builders_coexist_in_cache() {
         .bid_cache
         .get_highest_bid(slot, bid_parent)
         .expect("should have highest bid");
-    assert_eq!(highest.message.value, 1);
-    assert_eq!(highest.message.builder_index, 1);
+    assert_eq!(highest.message().value(), 1);
+    assert_eq!(highest.message().builder_index(), 1);
 }
 
 #[test]

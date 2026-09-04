@@ -57,7 +57,9 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
         block: &SignedBeaconBlock<E, P>,
     ) -> Option<Self> {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            Some(PartialHeaderOrBid::Bid(Arc::new(bid.clone())))
+            Some(PartialHeaderOrBid::Bid(Arc::new(
+                bid.clone_as_signed_execution_payload_bid(),
+            )))
         } else {
             PartialDataColumnHeader::try_from(block)
                 .ok()
@@ -68,14 +70,16 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
     pub fn kzg_commitments(&self) -> ListRef<'_, KzgCommitment, E::MaxBlobCommitmentsPerBlock> {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => ListRef::Basic(&header.kzg_commitments),
-            PartialHeaderOrBid::Bid(bid) => ListRef::Progressive(&bid.message.blob_kzg_commitments),
+            PartialHeaderOrBid::Bid(bid) => {
+                ListRef::Progressive(bid.message().blob_kzg_commitments())
+            }
         }
     }
 
     pub fn slot(&self) -> Slot {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => header.slot(),
-            PartialHeaderOrBid::Bid(bid) => bid.message.slot,
+            PartialHeaderOrBid::Bid(bid) => bid.slot(),
         }
     }
 }
@@ -407,7 +411,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                         header.slot(),
                     ),
                     PartialHeaderOrBid::Bid(bid) => {
-                        ObservationKey::new_block_root_key(block_root, bid.message.slot)
+                        ObservationKey::new_block_root_key(block_root, bid.slot())
                     }
                 };
 

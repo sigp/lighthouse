@@ -153,15 +153,15 @@ impl<E: EthSpec> BidCandidate<E> {
     /// terms are far below `Uint256::MAX`, so it is exact (a u64 gwei sum could saturate under a
     /// hostile `execution_payment` with the cap disabled).
     fn trusted_value(&self) -> Uint256 {
-        let bid = &self.signed_bid.message;
+        let bid = self.signed_bid.message();
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
-            BidSource::Gossip => gwei_to_wei(bid.value), // gossip `execution_payment` is zero
+            BidSource::Gossip => gwei_to_wei(bid.value()), // gossip `execution_payment` is zero
             BidSource::Direct {
                 max_execution_payment,
                 ..
-            } => gwei_to_wei(bid.value).saturating_add(gwei_to_wei(
-                bid.execution_payment.min(*max_execution_payment),
+            } => gwei_to_wei(bid.value()).saturating_add(gwei_to_wei(
+                bid.execution_payment().min(*max_execution_payment),
             )),
         }
     }
@@ -197,10 +197,10 @@ impl<E: EthSpec> BidCandidate<E> {
     /// or the **unclamped** `value + execution_payment` (the proposer's real revenue; the clamp is a
     /// ranking-only trust bound).
     pub fn payload_value(&self) -> Uint256 {
-        let bid = &self.signed_bid.message;
+        let bid = self.signed_bid.message();
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
-            _ => gwei_to_wei(bid.value.saturating_add(bid.execution_payment)),
+            _ => gwei_to_wei(bid.value().saturating_add(bid.execution_payment())),
         }
     }
 
@@ -252,7 +252,7 @@ mod tests {
     use super::*;
     use bls::Signature;
     use ssz_types::VariableList;
-    use types::{ExecutionPayloadBid, MainnetEthSpec};
+    use types::{ExecutionPayloadBidGloas, MainnetEthSpec, SignedExecutionPayloadBidGloas};
 
     type TestSpec = MainnetEthSpec;
 
@@ -277,15 +277,17 @@ mod tests {
         value_gwei: u64,
         payment_gwei: u64,
     ) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
-        Arc::new(SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
-                builder_index,
-                value: value_gwei,
-                execution_payment: payment_gwei,
-                ..Default::default()
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
+                    builder_index,
+                    value: value_gwei,
+                    execution_payment: payment_gwei,
+                    ..Default::default()
+                },
+                signature: Signature::empty(),
             },
-            signature: Signature::empty(),
-        })
+        ))
     }
 
     fn gossip(value_gwei: u64, boost: u64) -> BidCandidate<TestSpec> {
@@ -327,13 +329,13 @@ mod tests {
 
     fn local(block_value_gwei: u64, should_override_builder: bool) -> BidCandidate<TestSpec> {
         BidCandidate::local(
-            SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     builder_index: LOCAL_BUILDER,
                     ..Default::default()
                 },
                 signature: Signature::empty(),
-            },
+            }),
             ExecutionPayloadData {
                 payload: ExecutionPayloadGloas::default(),
                 execution_requests: ExecutionRequestsGloas::default(),
@@ -354,7 +356,7 @@ mod tests {
             BidSource::Direct { .. } => "direct",
         };
         (
-            win.signed_bid.message.builder_index,
+            win.signed_bid.message().builder_index(),
             win.is_local(),
             win.payload_value(),
             source,
