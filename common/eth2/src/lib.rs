@@ -3668,8 +3668,8 @@ impl BeaconNodeHttpClient {
         AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
-    /// `GET validator/payload_attestation_data/{slot}`
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot`
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data(
         &self,
         slot: Slot,
@@ -3679,22 +3679,24 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
             .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
-            .await
-            .optional()?;
+            .await?;
 
-        match opt_response {
-            Some(response) => Ok(Some(BeaconResponse::ForkVersioned(response.json().await?))),
-            None => Ok(None),
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
         }
+
+        Ok(Some(BeaconResponse::ForkVersioned(response.json().await?)))
     }
 
-    /// `GET validator/payload_attestation_data/{slot}` in SSZ format
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot` in SSZ format
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data_ssz(
         &self,
         slot: Slot,
@@ -3704,16 +3706,27 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.payload_attestation)
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
+            .get_response(path, |b| {
+                b.accept(Accept::Ssz)
+                    .timeout(self.timeouts.payload_attestation)
+            })
             .await?;
 
-        opt_response
-            .map(|bytes| PayloadAttestationData::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
-            .transpose()
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        let bytes = response.bytes().await?;
+
+        PayloadAttestationData::from_ssz_bytes(&bytes)
+            .map(Some)
+            .map_err(Error::InvalidSsz)
     }
 
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`

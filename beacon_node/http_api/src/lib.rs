@@ -2594,7 +2594,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/payload_attestation_data/{slot}
+    // GET validator/payload_attestation_data?slot
     let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
         eth_v1.clone(),
         chain_filter.clone(),

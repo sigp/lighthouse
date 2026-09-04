@@ -182,18 +182,14 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/payload_attestations_data/{slot}`
+    /// Mocks `GET /eth/v1/validator/payload_attestation_data?slot`
     pub fn mock_get_validator_payload_attestation_data(
         &mut self,
         data: &PayloadAttestationData,
         fork_name: ForkName,
         slot: Slot,
     ) -> Mock {
-        let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/payload_attestation_data/{}$",
-            slot.as_u64()
-        ))
-        .unwrap();
+        let path_pattern = Regex::new(r"^/eth/v1/validator/payload_attestation_data$").unwrap();
 
         let body = serde_json::json!({
         "version": fork_name.to_string(),
@@ -202,22 +198,20 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded("slot".into(), slot.to_string()))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(serde_json::to_string(&body).unwrap())
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/payload_attestation_data/{slot}` returning error
+    /// Mocks `GET /eth/v1/validator/payload_attestation_data?slot` returning error
     pub fn mock_get_validator_payload_attestation_data_error(&mut self, slot: Slot) -> Mock {
-        let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/payload_attestation_data/{}$",
-            slot.as_u64()
-        ))
-        .unwrap();
+        let path_pattern = Regex::new(r"^/eth/v1/validator/payload_attestation_data$").unwrap();
 
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded("slot".into(), slot.to_string()))
             .with_status(500)
             .with_header("content-type", "application/json")
             .with_body(r#"{"message":"Internal server error"}"#)
