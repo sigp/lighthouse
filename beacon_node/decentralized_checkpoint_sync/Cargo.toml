@@ -1,0 +1,10 @@
+[package]
+name = "decentralized_checkpoint_sync"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+merkle_proof = { workspace = true }
+thiserror = { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }
