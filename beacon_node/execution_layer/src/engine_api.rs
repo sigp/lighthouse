@@ -1,13 +1,6 @@
 use crate::engines::ForkchoiceState;
-use crate::http::{
-    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5,
-};
+pub use crate::json_structures::JsonRpcCapabilities;
+use crate::ssz_structures::SszCapabilities;
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
@@ -17,6 +10,7 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -35,6 +29,9 @@ pub mod auth;
 pub mod http;
 pub mod json_structures;
 mod new_payload_request;
+pub mod rest;
+pub mod ssz_structures;
+pub mod transport;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
@@ -55,7 +52,10 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage { code: i64, message: String },
+    ServerMessage {
+        code: i64,
+        message: String,
+    },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -71,6 +71,20 @@ pub enum Error {
     UnsupportedForkVariant(String),
     InvalidClientVersion(String),
     TooManyConsolidationRequests(usize),
+    SszDecode(ssz::DecodeError),
+    RestProblem {
+        status: u16,
+        problem: String,
+        detail: Option<String>,
+    },
+    TransportUnreachable(String),
+    TransportAlreadyResolved(transport::Transport),
+}
+
+impl From<transport::Transport> for Error {
+    fn from(transport: transport::Transport) -> Self {
+        Error::TransportAlreadyResolved(transport)
+    }
 }
 
 impl From<reqwest::Error> for Error {
@@ -101,6 +115,17 @@ impl From<auth::Error> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
+    }
+}
+
+impl Error {
+    /// A REST `GET /payloads/{id}` 404 whose id the EL has expired (build-bound TTL)
+    pub fn is_unknown_payload(&self) -> bool {
+        matches!(self, Error::RestProblem { status: 404, problem, .. } if problem == "unknown-payload")
+    }
+
+    pub fn is_transport_unreachable(&self) -> bool {
+        matches!(self, Error::TransportUnreachable(_))
     }
 }
 
@@ -153,11 +178,12 @@ impl ExecutionBlock {
 
 #[superstruct(
     variants(V1, V2, V3, V4),
-    variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
+    variant_attributes(derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
@@ -593,96 +619,89 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct EngineCapabilities {
-    pub new_payload_v1: bool,
-    pub new_payload_v2: bool,
-    pub new_payload_v3: bool,
-    pub new_payload_v4: bool,
-    pub new_payload_v5: bool,
-    pub forkchoice_updated_v1: bool,
-    pub forkchoice_updated_v2: bool,
-    pub forkchoice_updated_v3: bool,
-    pub forkchoice_updated_v4: bool,
-    pub get_payload_bodies_by_hash_v1: bool,
-    pub get_payload_bodies_by_range_v1: bool,
-    pub get_payload_v1: bool,
-    pub get_payload_v2: bool,
-    pub get_payload_v3: bool,
-    pub get_payload_v4: bool,
-    pub get_payload_v5: bool,
-    pub get_payload_v6: bool,
-    pub get_client_version_v1: bool,
-    pub get_blobs_v2: bool,
-    pub get_blobs_v3: bool,
-    pub get_inclusion_list_v1: bool,
+#[derive(Clone, Debug)]
+pub enum EngineCapabilities {
+    JsonRpc(JsonRpcCapabilities),
+    Ssz(SszCapabilities),
 }
 
 impl EngineCapabilities {
-    pub fn to_response(&self) -> Vec<&str> {
-        let mut response = Vec::new();
-        if self.new_payload_v1 {
-            response.push(ENGINE_NEW_PAYLOAD_V1);
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.new_payload(fork),
+            Self::Ssz(capabilities) => capabilities.new_payload(fork),
         }
-        if self.new_payload_v2 {
-            response.push(ENGINE_NEW_PAYLOAD_V2);
-        }
-        if self.new_payload_v3 {
-            response.push(ENGINE_NEW_PAYLOAD_V3);
-        }
-        if self.new_payload_v4 {
-            response.push(ENGINE_NEW_PAYLOAD_V4);
-        }
-        if self.new_payload_v5 {
-            response.push(ENGINE_NEW_PAYLOAD_V5);
-        }
-        if self.forkchoice_updated_v1 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
-        }
-        if self.forkchoice_updated_v2 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
-        }
-        if self.forkchoice_updated_v3 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V3);
-        }
-        if self.forkchoice_updated_v4 {
-            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
-        }
-        if self.get_payload_bodies_by_hash_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
-        }
-        if self.get_payload_bodies_by_range_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
-        }
-        if self.get_payload_v1 {
-            response.push(ENGINE_GET_PAYLOAD_V1);
-        }
-        if self.get_payload_v2 {
-            response.push(ENGINE_GET_PAYLOAD_V2);
-        }
-        if self.get_payload_v3 {
-            response.push(ENGINE_GET_PAYLOAD_V3);
-        }
-        if self.get_payload_v4 {
-            response.push(ENGINE_GET_PAYLOAD_V4);
-        }
-        if self.get_payload_v5 {
-            response.push(ENGINE_GET_PAYLOAD_V5);
-        }
-        if self.get_payload_v6 {
-            response.push(ENGINE_GET_PAYLOAD_V6);
-        }
-        if self.get_client_version_v1 {
-            response.push(ENGINE_GET_CLIENT_VERSION_V1);
-        }
-        if self.get_blobs_v2 {
-            response.push(ENGINE_GET_BLOBS_V2);
-        }
-        if self.get_inclusion_list_v1 {
-            response.push(ENGINE_GET_INCLUSION_LIST_V1);
-        }
+    }
 
-        response
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload(fork),
+            Self::Ssz(capabilities) => capabilities.get_payload(fork),
+        }
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.forkchoice_updated(fork),
+            Self::Ssz(capabilities) => capabilities.forkchoice_updated(fork),
+        }
+    }
+
+    pub fn get_payload_bodies_by_range(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
+            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
+        }
+    }
+
+    pub fn get_payload_bodies_by_hash(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
+            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
+        }
+    }
+
+    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_inclusion_list_v1(fork),
+            // Heze fork REST-SSZ spec does not exist yet
+            Self::Ssz(_) => false,
+        }
+    }
+
+    pub fn supports_payload_bodies_endpoint(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
+            Self::Ssz(capabilities) => capabilities.bodies,
+        }
+    }
+
+    pub fn get_blobs_v2(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_blobs_v2,
+            Self::Ssz(capabilities) => capabilities.get_blobs_v2(),
+        }
+    }
+
+    pub fn get_blobs_v3(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_blobs_v3,
+            Self::Ssz(capabilities) => capabilities.get_blobs_v3(),
+        }
+    }
+
+    pub fn get_client_version_v1(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_client_version_v1,
+            Self::Ssz(capabilities) => capabilities.get_client_version_v1(),
+        }
+    }
+
+    pub fn to_response(&self) -> Vec<&str> {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.to_response(),
+            Self::Ssz(_capabilities) => vec![],
+        }
     }
 }
 
@@ -868,5 +887,80 @@ impl ClientVersionV1 {
             .copy_from_slice(&graffiti_string.as_bytes()[..bytes_to_copy]);
 
         Graffiti::from(graffiti_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rest_problem(status: u16, problem: &str) -> Error {
+        Error::RestProblem {
+            status,
+            problem: problem.to_string(),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn is_unknown_payload_matches_404_unknown_payload() {
+        // The one case the reconcile path retries on: a REST 404 with the `unknown-payload` slug.
+        assert!(rest_problem(404, "unknown-payload").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_other_404_slugs() {
+        // A 404 with any other slug is a different failure a re-fcU can't fix.
+        assert!(!rest_problem(404, "invalid-request").is_unknown_payload());
+        assert!(!rest_problem(404, "").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_unknown_payload_with_other_status() {
+        // The slug alone is not enough; only a 404 counts.
+        assert!(!rest_problem(400, "unknown-payload").is_unknown_payload());
+        assert!(!rest_problem(500, "unknown-payload").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_non_rest_errors() {
+        // JSON-RPC / non-REST errors never match, so the JSON-RPC path never enters the retry arm.
+        // `ServerMessage` is a JSON-RPC error response from the EL — the closest JSON-RPC analogue.
+        assert!(
+            !Error::ServerMessage {
+                code: -38001,
+                message: "Unknown payload".to_string(),
+            }
+            .is_unknown_payload()
+        );
+        assert!(!Error::PayloadIdUnavailable.is_unknown_payload());
+        assert!(!Error::IsSyncing.is_unknown_payload());
+    }
+
+    #[test]
+    fn is_transport_unreachable_matches_transport_unreachable() {
+        // The h2c -> HTTP/1.1 fallback trigger: a statusless, non-timeout REST send failure.
+        assert!(
+            Error::TransportUnreachable("connection reset".to_string()).is_transport_unreachable()
+        );
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_status_bearing_errors() {
+        // Any error carrying an HTTP status means the peer responded over the attempted
+        // transport, so it must never trigger the HTTP/2 -> HTTP/1.1 fallback. A non-2xx status
+        // surfaces as `RestProblem`; a 401/403 surfaces as `Auth` (see `From<reqwest::Error>`).
+        assert!(!rest_problem(400, "unsupported-fork").is_transport_unreachable());
+        assert!(!rest_problem(415, "").is_transport_unreachable());
+        assert!(
+            !Error::Auth(crate::auth::Error::InvalidToken("401".to_string()))
+                .is_transport_unreachable()
+        );
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_non_rest_errors() {
+        assert!(!Error::PayloadIdUnavailable.is_transport_unreachable());
+        assert!(!Error::IsSyncing.is_transport_unreachable());
     }
 }

@@ -25,7 +25,7 @@ use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
-use crate::EngineCapabilities;
+use crate::{EngineCapabilities, ForkchoiceState, JsonRpcCapabilities, PayloadAttributes};
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
@@ -34,11 +34,12 @@ pub use execution_block_generator::{
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
+pub use mock_execution_layer::mock_rest_ssz_enabled;
 
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
-pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+pub const DEFAULT_JSON_RPC_CAPABILITIES: JsonRpcCapabilities = JsonRpcCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
     new_payload_v3: true,
@@ -62,6 +63,9 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_inclusion_list_v1: true,
 };
 
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities =
+    EngineCapabilities::JsonRpc(DEFAULT_JSON_RPC_CAPABILITIES);
+
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     LazyLock::new(|| JsonClientVersionV1 {
         code: "MC".to_string(), // "mock client"
@@ -71,9 +75,11 @@ pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     });
 
 mod execution_block_generator;
+mod handle_rest;
 mod handle_rpc;
 mod hook;
 mod mock_builder;
+mod mock_engine_core;
 mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
@@ -86,6 +92,7 @@ pub struct MockExecutionConfig {
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
     pub amsterdam_time: Option<u64>,
+    pub serve_rest_ssz: bool,
     pub heze_time: Option<u64>,
 }
 
@@ -99,6 +106,7 @@ impl Default for MockExecutionConfig {
             prague_time: None,
             osaka_time: None,
             amsterdam_time: None,
+            serve_rest_ssz: false,
             heze_time: None,
         }
     }
@@ -140,6 +148,7 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            serve_rest_ssz,
             heze_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
@@ -158,8 +167,11 @@ impl<E: EthSpec> MockServer<E> {
             config: server_config,
             jwt_key,
             last_echo_request: last_echo_request.clone(),
+            last_rest_request: <_>::default(),
+            serve_rest_ssz,
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
+            previous_forkchoice_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
@@ -202,6 +214,19 @@ impl<E: EthSpec> MockServer<E> {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
+    pub fn disable_client_version(&self) {
+        match &mut *self.ctx.engine_capabilities.write() {
+            EngineCapabilities::JsonRpc(capabilities) => {
+                capabilities.get_client_version_v1 = false;
+            }
+            EngineCapabilities::Ssz(capabilities) => {
+                capabilities
+                    .unscoped_endpoints
+                    .retain(|e| e.as_str() != "identity");
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         handle: &runtime::Handle,
@@ -224,6 +249,7 @@ impl<E: EthSpec> MockServer<E> {
                 prague_time,
                 osaka_time,
                 amsterdam_time,
+                serve_rest_ssz: false,
                 heze_time,
             },
             kzg,
@@ -232,6 +258,13 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
         self.ctx.execution_block_generator.write()
+    }
+
+    pub fn expire_all_payload_ids(&self) {
+        self.ctx
+            .execution_block_generator
+            .write()
+            .expire_all_payload_ids();
     }
 
     pub fn url(&self) -> String {
@@ -249,12 +282,24 @@ impl<E: EthSpec> MockServer<E> {
             .expect("last echo request is none")
     }
 
+    pub fn last_rest_request(&self) -> RestCapture {
+        self.ctx
+            .last_rest_request
+            .write()
+            .take()
+            .expect("last rest request is none")
+    }
+
     pub fn push_preloaded_response(&self, response: serde_json::Value) {
         self.ctx.preloaded_responses.lock().push(response)
     }
 
     pub fn take_previous_request(&self) -> Option<serde_json::Value> {
         self.ctx.previous_request.lock().take()
+    }
+
+    pub fn take_previous_forkchoice_request(&self) -> Option<CapturedForkchoiceRequest> {
+        self.ctx.previous_forkchoice_request.lock().take()
     }
 
     pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
@@ -508,10 +553,24 @@ pub struct StaticNewPayloadResponse {
     status: PayloadStatusV1,
     should_import: bool,
 }
+
+/// A captured REST-SSZ request (header + path/query + body) recorded by the `/engine/v1/...` routes.
+#[derive(Debug, Clone)]
+pub struct RestCapture {
+    pub method: String,
+    pub path: String,
+    pub eth_execution_version: Option<String>,
+    pub client_version: Option<String>,
+    pub content_type: Option<String>,
+    pub body: Bytes,
+}
 #[derive(Debug)]
 struct AuthError(String);
 
 impl warp::reject::Reject for AuthError {}
+
+/// A captured `forkchoice_updated` request: the state plus any payload attributes.
+pub type CapturedForkchoiceRequest = (ForkchoiceState, Option<PayloadAttributes>);
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -521,9 +580,12 @@ pub struct Context<E: EthSpec> {
     pub jwt_key: JwtKey,
 
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
+    pub last_rest_request: Arc<RwLock<Option<RestCapture>>>,
+    pub serve_rest_ssz: bool,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
+    pub previous_forkchoice_request: Arc<Mutex<Option<CapturedForkchoiceRequest>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub hook: Arc<Mutex<Hook>>,
@@ -636,6 +698,52 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     Ok(warp::reply::with_status(json, code))
 }
 
+const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam"],"fork_scoped_endpoints":["payloads","forkchoice","bodies"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
+
+/// Records the REST request into `last_rest_request`, then dispatches to `handle_rest`.
+#[allow(clippy::too_many_arguments)]
+async fn handle_rest_capture<E: EthSpec>(
+    method: &'static str,
+    full: warp::path::FullPath,
+    query: Option<String>,
+    eth_execution_version: Option<String>,
+    client_version: Option<String>,
+    content_type: Option<String>,
+    body: Bytes,
+    ctx: Arc<Context<E>>,
+) -> Result<warp::http::Response<Bytes>, warp::Rejection> {
+    let full_path = full.as_str();
+
+    if !ctx.serve_rest_ssz {
+        return Ok(warp::http::Response::builder()
+            .status(404)
+            .body(Bytes::new())
+            .unwrap());
+    }
+
+    let path = match &query {
+        Some(query) => format!("{full_path}?{query}"),
+        None => full_path.to_string(),
+    };
+    *ctx.last_rest_request.write() = Some(RestCapture {
+        method: method.to_string(),
+        path,
+        eth_execution_version: eth_execution_version.clone(),
+        client_version,
+        content_type,
+        body: body.clone(),
+    });
+
+    Ok(handle_rest::handle_rest(
+        method,
+        full_path,
+        query.as_deref(),
+        eth_execution_version.as_deref(),
+        &body,
+        &ctx,
+    ))
+}
+
 /// Creates a server that will serve requests using information from `ctx`.
 ///
 /// The server will shut down gracefully when the `shutdown` future resolves.
@@ -712,7 +820,7 @@ pub fn serve<E: EthSpec>(
     // Sends the body of the request to `ctx.last_echo_request` so we can inspect requests.
     let echo = warp::path("echo")
         .and(warp::body::bytes())
-        .and(ctx_filter)
+        .and(ctx_filter.clone())
         .and_then(|bytes: Bytes, ctx: Arc<Context<E>>| async move {
             *ctx.last_echo_request.write() = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
@@ -720,9 +828,63 @@ pub fn serve<E: EthSpec>(
             )
         });
 
-    let routes = warp::post()
-        .and(auth_header_filter(ctx.jwt_key.clone()))
-        .and(root.or(echo))
+    // `/engine/v1/...` REST-SSZ routes.
+    let opt_query = || {
+        warp::query::raw()
+            .map(Some)
+            .or(warp::any().map(|| None))
+            .unify()
+    };
+    let rest_post = warp::post()
+        .and(warp::path("engine"))
+        .and(warp::path("v1"))
+        .and(warp::path::full())
+        .and(opt_query())
+        .and(warp::header::optional::<String>("Eth-Execution-Version"))
+        .and(warp::header::optional::<String>("X-Engine-Client-Version"))
+        .and(warp::header::optional::<String>("Content-Type"))
+        .and(warp::body::bytes())
+        .and(ctx_filter.clone())
+        .and_then(
+            |full, query, eth_version, client_version, content_type, body, ctx| {
+                handle_rest_capture(
+                    "POST",
+                    full,
+                    query,
+                    eth_version,
+                    client_version,
+                    content_type,
+                    body,
+                    ctx,
+                )
+            },
+        );
+    let rest_get = warp::get()
+        .and(warp::path("engine"))
+        .and(warp::path("v1"))
+        .and(warp::path::full())
+        .and(opt_query())
+        .and(warp::header::optional::<String>("Eth-Execution-Version"))
+        .and(warp::header::optional::<String>("X-Engine-Client-Version"))
+        .and(warp::header::optional::<String>("Content-Type"))
+        .and(ctx_filter)
+        .and_then(
+            |full, query, eth_version, client_version, content_type, ctx| {
+                handle_rest_capture(
+                    "GET",
+                    full,
+                    query,
+                    eth_version,
+                    client_version,
+                    content_type,
+                    Bytes::new(),
+                    ctx,
+                )
+            },
+        );
+
+    let routes = auth_header_filter(ctx.jwt_key.clone())
+        .and(warp::post().and(root.or(echo)).or(rest_post).or(rest_get))
         .recover(handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));

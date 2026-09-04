@@ -696,6 +696,12 @@ where
 
         let chain = builder.build().expect("should build");
 
+        if execution_layer::test_utils::mock_rest_ssz_enabled()
+            && let Some(mock) = &self.mock_execution_layer
+        {
+            mock.el.spawn_watchdog_routine(chain.slot_clock.clone());
+        }
+
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),

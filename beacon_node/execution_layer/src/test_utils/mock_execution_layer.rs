@@ -1,4 +1,6 @@
-use crate::{test_utils::DEFAULT_JWT_SECRET, test_utils::MockServer, *};
+use crate::{
+    test_utils::DEFAULT_JWT_SECRET, test_utils::MockExecutionConfig, test_utils::MockServer, *,
+};
 use alloy_primitives::B256 as H256;
 use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
@@ -10,6 +12,30 @@ pub struct MockExecutionLayer<E: EthSpec> {
     pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
     pub spec: Arc<ChainSpec>,
+}
+
+/// Env var that selects the engine transport for every test-infra `MockExecutionLayer`.
+///
+/// Unset or `JSON` runs JSON-RPC (the default); `SSZ` runs the REST-SSZ mock engine. Any other
+/// value panics rather than silently falling back. Matching is case-insensitive. Because all
+/// mocks — including the `beacon_chain` harness's `mock_execution_layer_from_parts` — funnel
+/// through `MockExecutionLayer::new`, setting this flips the transport across the whole test tree
+/// with no per-crate Cargo plumbing, e.g. `LH_ENGINE_TRANSPORT=SSZ cargo nextest run`.
+pub const ENGINE_TRANSPORT_ENV_VAR: &str = "LH_ENGINE_TRANSPORT";
+
+/// `true` when `LH_ENGINE_TRANSPORT` selects the REST-SSZ mock transport (`SSZ`); `false` when
+/// unset or `JSON`. Panics on any other value so a typo can't quietly run the wrong transport.
+pub fn mock_rest_ssz_enabled() -> bool {
+    match std::env::var(ENGINE_TRANSPORT_ENV_VAR) {
+        Ok(value) => match value.trim().to_ascii_uppercase().as_str() {
+            "SSZ" => true,
+            "" | "JSON" => false,
+            other => panic!(
+                "invalid {ENGINE_TRANSPORT_ENV_VAR}={other:?}; expected \"JSON\" or \"SSZ\""
+            ),
+        },
+        Err(_) => false,
+    }
 }
 
 impl<E: EthSpec> MockExecutionLayer<E> {
@@ -31,6 +57,46 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         )
     }
 
+    pub fn fulu_params(executor: TaskExecutor) -> Self {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_block_hash = ExecutionBlockHash::zero();
+        spec.terminal_block_hash_activation_epoch = Epoch::new(0);
+        Self::new(
+            executor,
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(0),
+            None,
+            None,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Arc::new(spec),
+            None,
+        )
+    }
+
+    /// Build a mock whose client advertises REST-SSZ but whose server does not serve it. The
+    /// capabilities probe then 404s over REST, forcing the transport to fall back to JSON-RPC.
+    pub fn rest_client_without_rest_server(executor: TaskExecutor) -> Self {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_block_hash = ExecutionBlockHash::zero();
+        spec.terminal_block_hash_activation_epoch = Epoch::new(0);
+        Self::new_with_transport(
+            executor,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Arc::new(spec),
+            None,
+            true,
+            false,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
@@ -44,18 +110,54 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
-        let handle = executor.handle().unwrap();
-
-        let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
-        let server = MockServer::new(
-            &handle,
-            jwt_key,
+        let rest_ssz = mock_rest_ssz_enabled();
+        Self::new_with_transport(
+            executor,
             shanghai_time,
             cancun_time,
             prague_time,
             osaka_time,
             amsterdam_time,
             heze_time,
+            jwt_key,
+            spec,
+            kzg,
+            rest_ssz,
+            rest_ssz,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_transport(
+        executor: TaskExecutor,
+        shanghai_time: Option<u64>,
+        cancun_time: Option<u64>,
+        prague_time: Option<u64>,
+        osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
+        jwt_key: Option<JwtKey>,
+        spec: Arc<ChainSpec>,
+        kzg: Option<Arc<Kzg>>,
+        client_rest_ssz: bool,
+        server_rest_ssz: bool,
+    ) -> Self {
+        let handle = executor.handle().unwrap();
+
+        let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
+        let server = MockServer::new_with_config(
+            &handle,
+            MockExecutionConfig {
+                jwt_key,
+                shanghai_time,
+                cancun_time,
+                prague_time,
+                osaka_time,
+                amsterdam_time,
+                heze_time,
+                serve_rest_ssz: server_rest_ssz,
+                ..Default::default()
+            },
             kzg,
         );
 
@@ -69,6 +171,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             execution_endpoint: Some(url),
             secret_file: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            engine_api_rest_ssz: client_rest_ssz,
             ..Default::default()
         };
         let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
@@ -79,6 +182,19 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             executor,
             spec,
         }
+    }
+
+    /// Resolve the engine transport with an **awaited** upcheck, then assert it matches the mode
+    /// selected by `LH_ENGINE_TRANSPORT` (`Rest` when `SSZ`, `JsonRpcOnly` otherwise).
+    pub async fn resolve_and_assert_transport(self) -> Self {
+        self.el.upcheck().await;
+        let expected = if mock_rest_ssz_enabled() {
+            Transport::Rest
+        } else {
+            Transport::JsonRpcOnly
+        };
+        assert_eq!(self.el.resolved_transport(), Some(expected));
+        self
     }
 
     pub async fn produce_valid_execution_payload_on_head(self) -> Self {
@@ -132,6 +248,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                ForkName::Bellatrix,
             )
             .await
             .unwrap();
@@ -239,6 +356,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                     block_number,
                     timestamp,
                     prev_randao,
+                    ForkName::Bellatrix,
                 )
                 .await;
             }
@@ -252,10 +370,110 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                     block_number,
                     timestamp,
                     prev_randao,
+                    ForkName::Bellatrix,
                 )
                 .await;
             }
         };
+
+        self
+    }
+
+    pub async fn reconcile_unknown_payload_on_head(self) -> Self {
+        let latest_execution_block = {
+            let block_gen = self.server.execution_block_generator();
+            block_gen.latest_block().unwrap()
+        };
+
+        let parent_hash = latest_execution_block.block_hash();
+        let parent_gas_limit = latest_execution_block.gas_limit();
+        let block_number = latest_execution_block.block_number() + 1;
+        let timestamp = block_number;
+        let prev_randao = Hash256::from_low_u64_be(block_number);
+        let head_block_root = Hash256::repeat_byte(42);
+        let slot = Slot::new(0);
+        let validator_index = 0;
+
+        let current_fork = self
+            .server
+            .execution_block_generator()
+            .get_fork_at_timestamp(timestamp);
+
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root: head_block_root,
+            head_hash: Some(parent_hash),
+            justified_hash: None,
+            finalized_hash: None,
+        };
+        let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            current_fork.capella_enabled().then(Vec::new),
+            current_fork.deneb_enabled().then(Hash256::zero),
+            None,
+            None,
+        );
+
+        let build_params = || PayloadParameters {
+            parent_hash,
+            parent_gas_limit: Some(parent_gas_limit),
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork,
+        };
+        let builder_params = || BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot,
+            chain_health: ChainHealth::Healthy,
+        };
+
+        self.el
+            .get_payload(
+                build_params(),
+                builder_params(),
+                &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
+            )
+            .await
+            .unwrap();
+
+        let expired_before = crate::metrics::get_int_counter(
+            &crate::metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+            &[crate::metrics::EXPIRED],
+        )
+        .map(|counter| counter.get())
+        .unwrap_or(0);
+
+        // Make the cached id unknown to the EL so the next `get_payload` reconciles.
+        self.server.expire_all_payload_ids();
+
+        // Same `(parent_hash, attrs)`: cache HIT the stale id -> unknown-payload -> re-fcU -> retry once.
+        self.el
+            .get_payload(
+                build_params(),
+                builder_params(),
+                &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
+            )
+            .await
+            .unwrap();
+
+        let expired_after = crate::metrics::get_int_counter(
+            &crate::metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+            &[crate::metrics::EXPIRED],
+        )
+        .map(|counter| counter.get())
+        .unwrap_or(0);
+        assert_eq!(
+            expired_after,
+            expired_before + 1,
+            "reconcile did not fire: cached id was not observed as unknown-payload"
+        );
 
         self
     }
@@ -270,6 +488,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         block_number: u64,
         timestamp: u64,
         prev_randao: H256,
+        fork: ForkName,
     ) {
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);
@@ -304,6 +523,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
+                fork,
             )
             .await
             .unwrap();

@@ -3,14 +3,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, ExecutionStatus,
     bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
-use execution_layer::{
-    EngineCapabilities,
-    http::{
-        ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-        ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
-    },
-};
+use execution_layer::EngineCapabilities;
 use lighthouse_network::{NetworkGlobals, types::SyncState};
 use logging::crit;
 use slot_clock::SlotClock;
@@ -441,7 +434,7 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
             {
                 Err(e) => Err(format!("Exchange capabilities failed: {e:?}")),
                 Ok(capabilities) => {
-                    let missing_methods = methods_required_for_fork(fork, capabilities);
+                    let missing_methods = methods_required_for_fork(fork, &capabilities);
                     if missing_methods.is_empty() {
                         Ok(())
                     } else {
@@ -510,9 +503,10 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
 
 fn methods_required_for_fork(
     fork: ForkName,
-    capabilities: EngineCapabilities,
+    capabilities: &EngineCapabilities,
 ) -> Vec<&'static str> {
     let mut missing_methods = vec![];
+
     match fork {
         ForkName::Base | ForkName::Altair | ForkName::Bellatrix => {
             warn!(
@@ -520,50 +514,15 @@ fn methods_required_for_fork(
                 "Invalid methods_required_for_fork call"
             );
         }
-        ForkName::Capella => {
-            if !capabilities.get_payload_v2 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V2);
+        fork => {
+            if !capabilities.get_payload(fork) {
+                missing_methods.push("getPayload")
             }
-            if !capabilities.forkchoice_updated_v2 {
-                missing_methods.push(ENGINE_FORKCHOICE_UPDATED_V2);
+            if !capabilities.forkchoice_updated(fork) {
+                missing_methods.push("forkchoice_update");
             }
-            if !capabilities.new_payload_v2 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V2);
-            }
-        }
-        ForkName::Deneb => {
-            if !capabilities.get_payload_v3 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V3);
-            }
-            if !capabilities.forkchoice_updated_v3 {
-                missing_methods.push(ENGINE_FORKCHOICE_UPDATED_V3);
-            }
-            if !capabilities.new_payload_v3 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V3);
-            }
-        }
-        ForkName::Electra => {
-            if !capabilities.get_payload_v4 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V4);
-            }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
-            }
-        }
-        ForkName::Fulu => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
-            }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
-            }
-        }
-        ForkName::Gloas | ForkName::Heze => {
-            if !capabilities.get_payload_v6 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V6);
-            }
-            if !capabilities.new_payload_v5 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
+            if !capabilities.new_payload(fork) {
+                missing_methods.push("newPayload");
             }
         }
     }

@@ -1,5 +1,6 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus, metrics};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
+use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -42,16 +43,19 @@ type BlockResult<E> = Result<Option<Arc<SignedBeaconBlock<E>>>, BeaconChainError
 
 // stores the components of a block for future re-construction in a small form
 struct BlockParts<E: EthSpec> {
+    fork: ForkName,
     blinded_block: Box<SignedBlindedBeaconBlock<E>>,
     header: Box<ExecutionPayloadHeader<E>>,
 }
 
 impl<E: EthSpec> BlockParts<E> {
     pub fn new(
+        fork: ForkName,
         blinded: Box<SignedBlindedBeaconBlock<E>>,
         header: ExecutionPayloadHeader<E>,
     ) -> Self {
         Self {
+            fork,
             blinded_block: blinded,
             header: Box::new(header),
         }
@@ -63,6 +67,10 @@ impl<E: EthSpec> BlockParts<E> {
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         self.header.block_hash()
+    }
+
+    pub fn fork(&self) -> ForkName {
+        self.fork
     }
 }
 
@@ -211,7 +219,17 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                                 &self.beacon_chain.spec,
                             ))
                         } else {
-                            LoadedBlock::NeedsPayload(BlockParts::new(Box::new(block), header))
+                            // Carry the fork for single-fork REST body batching.
+                            match block.fork_name(&self.beacon_chain.spec) {
+                                Ok(fork) => LoadedBlock::NeedsPayload(BlockParts::new(
+                                    fork,
+                                    Box::new(block),
+                                    header,
+                                )),
+                                Err(e) => LoadedBlock::Complete(Err(
+                                    BeaconChainError::InconsistentFork(e),
+                                )),
+                            }
                         }
                     }
                 }
@@ -219,29 +237,44 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         }
     }
 
-    /// Fetch payload bodies for `block_hashes` from the execution layer.
+    /// Fetch payload bodies for `blocks` (hash + fork) from the execution layer.
     ///
-    /// The returned vec has the same length and order as `block_hashes`. A body the execution
-    /// layer doesn't know about is `None`.
+    /// The returned vec has the same length and order as `blocks`. A body the execution layer
+    /// doesn't know about is `None`. Requests are grouped by fork so each REST `/bodies/hash`
+    /// request is single-fork (decodable at one `Eth-Execution-Version`); JSON-RPC ignores the
+    /// fork, so the grouping is a no-op there.
     async fn fetch_payload_bodies(
         &self,
-        block_hashes: Vec<ExecutionBlockHash>,
+        blocks: Vec<(ExecutionBlockHash, ForkName)>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<T::EthSpec>>>, Error> {
-        let mut bodies = Vec::with_capacity(block_hashes.len());
-        for chunk in block_hashes.chunks(MAX_PAYLOAD_BODIES_PER_REQUEST) {
-            let chunk_bodies = self
-                .execution_layer
-                .get_payload_bodies_by_hash(chunk.to_vec())
-                .await
-                .map_err(|e| Error::BlocksByHashFailure(Box::new(e)))?;
+        // Result slots by original index, so the returned order matches `blocks`.
+        let mut bodies: Vec<Option<ExecutionPayloadBodyV1<T::EthSpec>>> =
+            (0..blocks.len()).map(|_| None).collect();
 
-            if chunk_bodies.len() != chunk.len() {
-                return Err(Error::InvalidPayloadBodiesResponse {
-                    expected: chunk.len(),
-                    received: chunk_bodies.len(),
-                });
+        let mut by_fork: HashMap<ForkName, Vec<usize>> = HashMap::new();
+        for (i, (_, fork)) in blocks.iter().enumerate() {
+            by_fork.entry(*fork).or_default().push(i);
+        }
+
+        for (fork, indices) in by_fork {
+            for chunk in indices.chunks(MAX_PAYLOAD_BODIES_PER_REQUEST) {
+                let hashes = chunk.iter().map(|&i| blocks[i].0).collect::<Vec<_>>();
+                let chunk_bodies = self
+                    .execution_layer
+                    .get_payload_bodies_by_hash(fork, hashes)
+                    .await
+                    .map_err(|e| Error::BlocksByHashFailure(Box::new(e)))?;
+
+                if chunk_bodies.len() != chunk.len() {
+                    return Err(Error::InvalidPayloadBodiesResponse {
+                        expected: chunk.len(),
+                        received: chunk_bodies.len(),
+                    });
+                }
+                for (&i, body) in chunk.iter().zip(chunk_bodies) {
+                    bodies[i] = body;
+                }
             }
-            bodies.extend(chunk_bodies);
         }
         Ok(bodies)
     }
@@ -278,17 +311,19 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             }
         };
 
-        let block_hashes = loaded_blocks
+        let blocks = loaded_blocks
             .iter()
             .filter_map(|(_, loaded)| match loaded {
-                LoadedBlock::NeedsPayload(block_parts) => Some(block_parts.block_hash()),
+                LoadedBlock::NeedsPayload(block_parts) => {
+                    Some((block_parts.block_hash(), block_parts.fork()))
+                }
                 LoadedBlock::Complete(_) => None,
             })
             .collect::<Vec<_>>();
         // On failure, complete blocks are still sent and each block requiring a payload gets
         // the (shared) error as its result, so that the stream terminates with an error
         // rather than looking like a complete response.
-        let mut bodies = match self.fetch_payload_bodies(block_hashes).await {
+        let mut bodies = match self.fetch_payload_bodies(blocks).await {
             Ok(bodies) => Ok(bodies.into_iter()),
             Err(e) => {
                 let block_result: Arc<BlockResult<T::EthSpec>> = Arc::new(Err(e.into()));

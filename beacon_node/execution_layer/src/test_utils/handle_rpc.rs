@@ -1,7 +1,7 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
-use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
+use crate::test_utils::DEFAULT_CLIENT_VERSION;
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -217,37 +217,9 @@ pub async fn handle_rpc<E: EthSpec>(
                 _ => unreachable!(),
             };
 
-            // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_new_payload_status(request.block_hash()) {
-                return status
-                    .map(|status| serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap())
-                    .map_err(|message| (message, GENERIC_ERROR_CODE));
-            }
+            let status = ctx.core_new_payload(request.try_into().unwrap())?;
 
-            let (static_response, should_import) =
-                if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
-                    if response.status.status == PayloadStatusV1Status::Valid {
-                        response.status.latest_valid_hash = Some(*request.block_hash())
-                    }
-
-                    (Some(response.status), response.should_import)
-                } else {
-                    (None, true)
-                };
-
-            let dynamic_response = if should_import {
-                Some(
-                    ctx.execution_block_generator
-                        .write()
-                        .new_payload(request.try_into().unwrap()),
-                )
-            } else {
-                None
-            };
-
-            let response = static_response.or(dynamic_response).unwrap();
-
-            Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
@@ -259,42 +231,18 @@ pub async fn handle_rpc<E: EthSpec>(
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
 
-            let response = ctx
-                .execution_block_generator
-                .write()
-                .get_payload(&id)
-                .ok_or_else(|| {
-                    (
-                        format!("no payload for id {:?}", id),
-                        UNKNOWN_PAYLOAD_ERROR_CODE,
-                    )
-                })?;
-
-            let maybe_blobs = ctx.execution_block_generator.write().get_blobs_bundle(&id);
-            let maybe_execution_requests = ctx
-                .execution_block_generator
-                .read()
-                .get_execution_requests(&id);
+            let core = ctx.core_get_payload(id)?;
+            let fork = core.fork;
 
             // validate method called correctly according to shanghai fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Capella
-                && method == ENGINE_GET_PAYLOAD_V1
-            {
+            if fork == ForkName::Capella && method == ENGINE_GET_PAYLOAD_V1 {
                 return Err((
                     format!("{} called after Capella fork!", method),
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
             // validate method called correctly according to cancun fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Deneb
+            if fork == ForkName::Deneb
                 && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
             {
                 return Err((
@@ -303,11 +251,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
             // validate method called correctly according to prague fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Electra
+            if fork == ForkName::Electra
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
                     || method == ENGINE_GET_PAYLOAD_V3)
@@ -319,11 +263,7 @@ pub async fn handle_rpc<E: EthSpec>(
             }
 
             // validate method called correctly according to osaka fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Fulu
+            if fork == ForkName::Fulu
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
                     || method == ENGINE_GET_PAYLOAD_V3
@@ -336,11 +276,7 @@ pub async fn handle_rpc<E: EthSpec>(
             }
 
             // validate method called correctly according to amsterdam fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Gloas
+            if fork == ForkName::Gloas
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
                     || method == ENGINE_GET_PAYLOAD_V3
@@ -354,11 +290,7 @@ pub async fn handle_rpc<E: EthSpec>(
             }
 
             // validate method called correctly according to heze fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Heze
+            if fork == ForkName::Heze
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
                     || method == ENGINE_GET_PAYLOAD_V3
@@ -373,144 +305,17 @@ pub async fn handle_rpc<E: EthSpec>(
 
             match method {
                 ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
-                    JsonExecutionPayload::try_from(response).unwrap(),
+                    JsonExecutionPayload::try_from(core.payload).unwrap(),
                 )
                 .unwrap()),
-                ENGINE_GET_PAYLOAD_V2 => {
-                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
-                        JsonExecutionPayload::Bellatrix(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseBellatrix {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            })
-                            .unwrap()
-                        }
-                        JsonExecutionPayload::Capella(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseCapella {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            })
-                            .unwrap()
-                        }
-                        _ => unreachable!(),
-                    })
+                // V2 onwards wraps the payload in a getPayload response; the version is validated
+                // against the fork above, so the shared conversion yields the matching variant.
+                _ => {
+                    let response =
+                        JsonGetPayloadResponse::try_from(core.into_get_payload_response())
+                            .map_err(|e| (format!("{e:?}"), GENERIC_ERROR_CODE))?;
+                    Ok(serde_json::to_value(response).unwrap())
                 }
-                // From v3 onwards, we use the getPayload version only for the corresponding
-                // ExecutionPayload version. So we return an error if the ExecutionPayload version
-                // we get does not correspond to the getPayload version.
-                ENGINE_GET_PAYLOAD_V3 => {
-                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
-                        JsonExecutionPayload::Deneb(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseDeneb {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                                blobs_bundle: maybe_blobs
-                                    .ok_or((
-                                        "No blobs returned despite V3 Payload".to_string(),
-                                        GENERIC_ERROR_CODE,
-                                    ))?
-                                    .into(),
-                                should_override_builder: false,
-                            })
-                            .unwrap()
-                        }
-                        _ => unreachable!(),
-                    })
-                }
-                ENGINE_GET_PAYLOAD_V4 => {
-                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
-                        JsonExecutionPayload::Electra(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseElectra {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                                blobs_bundle: maybe_blobs
-                                    .ok_or((
-                                        "No blobs returned despite V4 Payload".to_string(),
-                                        GENERIC_ERROR_CODE,
-                                    ))?
-                                    .into(),
-                                should_override_builder: false,
-                                execution_requests: maybe_execution_requests
-                                    .clone()
-                                    .unwrap_or_else(|| {
-                                        types::ExecutionRequests::Electra(Default::default())
-                                    })
-                                    .into(),
-                            })
-                            .unwrap()
-                        }
-                        _ => unreachable!(),
-                    })
-                }
-                ENGINE_GET_PAYLOAD_V5 => {
-                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
-                        JsonExecutionPayload::Fulu(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseFulu {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                                blobs_bundle: maybe_blobs
-                                    .ok_or((
-                                        "No blobs returned despite V5 Payload".to_string(),
-                                        GENERIC_ERROR_CODE,
-                                    ))?
-                                    .into(),
-                                should_override_builder: false,
-                                execution_requests: maybe_execution_requests
-                                    .clone()
-                                    .unwrap_or_else(|| {
-                                        types::ExecutionRequests::Electra(Default::default())
-                                    })
-                                    .into(),
-                            })
-                            .unwrap()
-                        }
-                        _ => unreachable!(),
-                    })
-                }
-                ENGINE_GET_PAYLOAD_V6 => {
-                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
-                        JsonExecutionPayload::Gloas(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseGloas {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                                blobs_bundle: maybe_blobs
-                                    .ok_or((
-                                        "No blobs returned despite V6 Payload".to_string(),
-                                        GENERIC_ERROR_CODE,
-                                    ))?
-                                    .into(),
-                                should_override_builder: false,
-                                execution_requests: maybe_execution_requests
-                                    .unwrap_or_else(|| {
-                                        types::ExecutionRequests::Electra(Default::default())
-                                    })
-                                    .into(),
-                            })
-                            .unwrap()
-                        }
-                        JsonExecutionPayload::Heze(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseHeze {
-                                execution_payload,
-                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                                blobs_bundle: maybe_blobs
-                                    .ok_or((
-                                        "No blobs returned despite V6 Payload".to_string(),
-                                        GENERIC_ERROR_CODE,
-                                    ))?
-                                    .into(),
-                                should_override_builder: false,
-                                execution_requests: maybe_execution_requests
-                                    .unwrap_or_else(|| {
-                                        types::ExecutionRequests::Electra(Default::default())
-                                    })
-                                    .into(),
-                            })
-                            .unwrap()
-                        }
-                        _ => unreachable!(),
-                    })
-                }
-                _ => unreachable!(),
             }
         }
         ENGINE_GET_BLOBS_V2 => {
@@ -675,45 +480,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 };
             }
 
-            if let Some(hook_response) = ctx
-                .hook
-                .lock()
-                .on_forkchoice_updated(forkchoice_state.clone(), payload_attributes.clone())
-            {
-                return Ok(serde_json::to_value(hook_response).unwrap());
-            }
-
-            let head_block_hash = forkchoice_state.head_block_hash;
-
-            // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
-                return status
-                    .map(|status| {
-                        let response = JsonForkchoiceUpdatedV1Response {
-                            payload_status: JsonPayloadStatusV1::from(status),
-                            payload_id: None,
-                        };
-                        serde_json::to_value(response).unwrap()
-                    })
-                    .map_err(|message| (message, GENERIC_ERROR_CODE));
-            }
-
-            let mut response = ctx
-                .execution_block_generator
-                .write()
-                .forkchoice_updated(
-                    forkchoice_state.into(),
-                    payload_attributes.map(|json| json.into()),
-                )
-                .map_err(|s| (s, GENERIC_ERROR_CODE))?;
-
-            if let Some(mut status) = ctx.static_forkchoice_updated_response.lock().clone() {
-                if status.status == PayloadStatusV1Status::Valid {
-                    status.latest_valid_hash = Some(head_block_hash)
-                }
-
-                response.payload_status = status.into();
-            }
+            let response = ctx.core_forkchoice_updated(
+                forkchoice_state.into(),
+                payload_attributes.map(|json| json.into()),
+            )?;
 
             Ok(serde_json::to_value(response).unwrap())
         }

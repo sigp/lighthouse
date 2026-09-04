@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 pub const HIT: &str = "hit";
 pub const MISS: &str = "miss";
+pub const EXPIRED: &str = "expired";
 pub const GET_PAYLOAD: &str = "get_payload";
 pub const GET_BLINDED_PAYLOAD: &str = "get_blinded_payload";
 pub const GET_BLINDED_PAYLOAD_LOCAL: &str = "get_blinded_payload_local";
@@ -14,6 +15,17 @@ pub const LOCAL: &str = "local";
 pub const BUILDER: &str = "builder";
 pub const SUCCESS: &str = "success";
 pub const FAILURE: &str = "failure";
+
+pub const TRANSPORT_REST: &str = "rest";
+pub const TRANSPORT_JSON_RPC: &str = "json-rpc";
+
+pub const DIRECTION_REQUEST: &str = "request";
+pub const DIRECTION_RESPONSE: &str = "response";
+
+pub const GET_PAYLOAD_BODIES_BY_HASH: &str = "get_payload_bodies_by_hash";
+pub const GET_PAYLOAD_BODIES_BY_RANGE: &str = "get_payload_bodies_by_range";
+pub const GET_BLOBS_V2: &str = "get_blobs_v2";
+pub const GET_BLOBS_V3: &str = "get_blobs_v3";
 
 pub static EXECUTION_LAYER_PROPOSER_INSERTED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
@@ -36,6 +48,31 @@ pub static EXECUTION_LAYER_REQUEST_TIMES: LazyLock<Result<HistogramVec>> = LazyL
         &["method"],
     )
 });
+pub static EXECUTION_LAYER_ENGINE_REQUEST_TIMES: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec_with_buckets(
+            "execution_layer_engine_request_times",
+            "Duration of engine_* Engine API calls at the transport seam, by method and transport",
+            Ok(vec![
+                50e-6, 100e-6, 250e-6, 500e-6, 1e-3, 2.5e-3, 5e-3, 10e-3, 25e-3, 50e-3, 100e-3,
+                250e-3, 500e-3, 1.0, 2.5,
+            ]),
+            &["method", "transport"],
+        )
+    });
+pub static EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES: LazyLock<Result<HistogramVec>> = LazyLock::new(
+    || {
+        try_create_histogram_vec_with_buckets(
+            "execution_layer_engine_body_size_bytes",
+            "Wire size of engine_* Engine API request/response bodies, by method, transport and direction",
+            Ok(vec![
+                256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0,
+                16777216.0, 67108864.0,
+            ]),
+            &["method", "transport", "direction"],
+        )
+    },
+);
 pub static EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
@@ -121,6 +158,19 @@ pub static EXECUTION_LAYER_INFO: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|
         &["code", "name", "version", "commit"],
     )
 });
+
+pub fn engine_method_label(jsonrpc_method: &str) -> Option<&'static str> {
+    match jsonrpc_method {
+        m if m.starts_with("engine_newPayload") => Some(NEW_PAYLOAD),
+        m if m.starts_with("engine_forkchoiceUpdated") => Some(FORKCHOICE_UPDATED),
+        m if m.starts_with("engine_getPayloadBodiesByHash") => Some(GET_PAYLOAD_BODIES_BY_HASH),
+        m if m.starts_with("engine_getPayloadBodiesByRange") => Some(GET_PAYLOAD_BODIES_BY_RANGE),
+        "engine_getBlobsV2" => Some(GET_BLOBS_V2),
+        "engine_getBlobsV3" => Some(GET_BLOBS_V3),
+        m if m.starts_with("engine_getPayload") => Some(GET_PAYLOAD),
+        _ => None,
+    }
+}
 
 pub fn reset_execution_layer_info_gauge() {
     let _ = EXECUTION_LAYER_INFO.as_ref().map(|gauge| gauge.reset());

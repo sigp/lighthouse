@@ -1,7 +1,17 @@
 use super::*;
+use crate::http::{
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
+};
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
+use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -13,6 +23,142 @@ use types::execution::{
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
+
+#[derive(Clone, Copy, Debug)]
+pub struct JsonRpcCapabilities {
+    pub new_payload_v1: bool,
+    pub new_payload_v2: bool,
+    pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
+    pub new_payload_v5: bool,
+    pub forkchoice_updated_v1: bool,
+    pub forkchoice_updated_v2: bool,
+    pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
+    pub get_payload_bodies_by_hash_v1: bool,
+    pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_v1: bool,
+    pub get_payload_v2: bool,
+    pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
+    pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
+    pub get_client_version_v1: bool,
+    pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
+    pub get_inclusion_list_v1: bool,
+}
+
+impl JsonRpcCapabilities {
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.new_payload_v1,
+            ForkName::Capella => self.new_payload_v2,
+            ForkName::Deneb => self.new_payload_v3,
+            ForkName::Electra | ForkName::Fulu => self.new_payload_v4,
+            ForkName::Gloas => self.new_payload_v5,
+            // TODO(heze): add heze arm to appropriate new_payload version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
+        }
+    }
+
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.get_payload_v1,
+            ForkName::Capella => self.get_payload_v2,
+            ForkName::Deneb => self.get_payload_v3,
+            ForkName::Electra => self.get_payload_v4,
+            ForkName::Fulu => self.get_payload_v5,
+            ForkName::Gloas => self.get_payload_v6,
+            // TODO(heze): add heze arm to appropriate get_payload version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
+        }
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.forkchoice_updated_v1,
+            ForkName::Capella => self.forkchoice_updated_v2,
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => self.forkchoice_updated_v3,
+            ForkName::Gloas => self.forkchoice_updated_v4,
+            // TODO(heze): add heze arm to appropriate forkchoice_updated version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
+        }
+    }
+
+    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Heze => self.get_inclusion_list_v1,
+            _ => false,
+        }
+    }
+
+    pub fn to_response(&self) -> Vec<&str> {
+        let mut response = Vec::new();
+        if self.new_payload_v1 {
+            response.push(ENGINE_NEW_PAYLOAD_V1);
+        }
+        if self.new_payload_v2 {
+            response.push(ENGINE_NEW_PAYLOAD_V2);
+        }
+        if self.new_payload_v3 {
+            response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
+        }
+        if self.new_payload_v5 {
+            response.push(ENGINE_NEW_PAYLOAD_V5);
+        }
+        if self.forkchoice_updated_v1 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
+        }
+        if self.forkchoice_updated_v2 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
+        }
+        if self.forkchoice_updated_v3 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V3);
+        }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
+        }
+        if self.get_payload_bodies_by_hash_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
+        }
+        if self.get_payload_bodies_by_range_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        }
+        if self.get_payload_v1 {
+            response.push(ENGINE_GET_PAYLOAD_V1);
+        }
+        if self.get_payload_v2 {
+            response.push(ENGINE_GET_PAYLOAD_V2);
+        }
+        if self.get_payload_v3 {
+            response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
+        }
+        if self.get_payload_v5 {
+            response.push(ENGINE_GET_PAYLOAD_V5);
+        }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
+        }
+        if self.get_client_version_v1 {
+            response.push(ENGINE_GET_CLIENT_VERSION_V1);
+        }
+        if self.get_blobs_v2 {
+            response.push(ENGINE_GET_BLOBS_V2);
+        }
+        if self.get_inclusion_list_v1 {
+            response.push(ENGINE_GET_INCLUSION_LIST_V1);
+        }
+
+        response
+    }
+}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -718,7 +864,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(bound = "E: EthSpec", untagged)]
 pub struct JsonGetPayloadResponse<E: EthSpec> {
     #[superstruct(
         only(Bellatrix),
@@ -745,6 +891,71 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub should_override_builder: bool,
     #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: JsonExecutionRequests,
+}
+
+impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for JsonGetPayloadResponse<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Self::Error> {
+        match response {
+            GetPayloadResponse::Bellatrix(inner) => Ok(JsonGetPayloadResponse::Bellatrix(
+                JsonGetPayloadResponseBellatrix {
+                    execution_payload: inner.execution_payload.into(),
+                    block_value: inner.block_value,
+                },
+            )),
+            GetPayloadResponse::Capella(inner) => Ok(JsonGetPayloadResponse::Capella(
+                JsonGetPayloadResponseCapella {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                },
+            )),
+            GetPayloadResponse::Deneb(inner) => {
+                Ok(JsonGetPayloadResponse::Deneb(JsonGetPayloadResponseDeneb {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                }))
+            }
+            GetPayloadResponse::Electra(inner) => Ok(JsonGetPayloadResponse::Electra(
+                JsonGetPayloadResponseElectra {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Electra(inner.requests).into(),
+                },
+            )),
+            GetPayloadResponse::Fulu(inner) => {
+                Ok(JsonGetPayloadResponse::Fulu(JsonGetPayloadResponseFulu {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Electra(inner.requests).into(),
+                }))
+            }
+            GetPayloadResponse::Gloas(inner) => {
+                Ok(JsonGetPayloadResponse::Gloas(JsonGetPayloadResponseGloas {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Gloas(inner.requests).into(),
+                }))
+            }
+            GetPayloadResponse::Heze(inner) => {
+                Ok(JsonGetPayloadResponse::Heze(JsonGetPayloadResponseHeze {
+                    execution_payload: inner.execution_payload.try_into()?,
+                    block_value: inner.block_value,
+                    blobs_bundle: inner.blobs_bundle.into(),
+                    should_override_builder: inner.should_override_builder,
+                    execution_requests: ExecutionRequests::Gloas(inner.requests).into(),
+                }))
+            }
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
@@ -1032,11 +1243,12 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        derive(Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
     )
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BlobAndProof<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
