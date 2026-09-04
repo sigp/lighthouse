@@ -3688,8 +3688,6 @@ impl BeaconNodeHttpClient {
             .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
             .await?;
 
-        // `ok_or_error` treats 204 as success, so the empty-slot case must be filtered out
-        // before attempting to deserialize the body.
         if response.status() == StatusCode::NO_CONTENT {
             return Ok(None);
         }
@@ -3720,8 +3718,6 @@ impl BeaconNodeHttpClient {
             })
             .await?;
 
-        // `ok_or_error` treats 204 as success, so the empty-slot case must be filtered out
-        // before attempting to deserialize the body.
         if response.status() == StatusCode::NO_CONTENT {
             return Ok(None);
         }

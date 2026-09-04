@@ -354,19 +354,9 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                     let payload_attestation_data =
                         match chain.produce_payload_attestation_data(slot) {
                             Ok(data) => data,
-                            // Per beacon-APIs #612 an empty slot is an expected condition rather
-                            // than an error: return 204 so that the validator client can skip
-                            // attesting without treating the response as a failure.
+                            // VC can skip the payload attestation if there is no block at that slot
                             Err(BeaconChainError::NoBlockForSlot(_)) => {
-                                return Builder::new()
-                                    .status(204)
-                                    .body(Vec::<u8>::new())
-                                    .map(|res| res.into_response())
-                                    .map_err(|e| {
-                                        warp_utils::reject::custom_server_error(format!(
-                                            "Failed to build empty response: {e}"
-                                        ))
-                                    });
+                                return Ok(StatusCode::NO_CONTENT.into_response());
                             }
                             Err(e @ BeaconChainError::InvalidSlot(_)) => {
                                 return Err(warp_utils::reject::custom_bad_request(format!(
