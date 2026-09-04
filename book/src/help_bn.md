@@ -92,7 +92,7 @@ Options:
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
           Sepolia; set to "false" to opt out.
-      --engine-api-rest-ssz
+      --enable-rest-ssz-engine
           Use the REST-SSZ Engine API transport instead of JSON-RPC. Requires an
           execution endpoint that supports the REST-SSZ Engine API; falls back
           to JSON-RPC if the capabilities probe fails.
