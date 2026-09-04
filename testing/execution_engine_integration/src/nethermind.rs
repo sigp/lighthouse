@@ -8,19 +8,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
 
-/// We've pinned the Nethermind version since our method of using the `master` branch to
-/// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.
-/// We should fix this so we always pull the latest version of Nethermind.
-const NETHERMIND_BRANCH: &str = "release/1.27.0";
+/// The Nethermind version is pinned so the test is reproducible. Bump this manually when a newer
+/// release is needed.
+const NETHERMIND_BRANCH: &str = "release/1.38.0";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.sln")
+        .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
-        .arg("-p:TreatWarningsAsErrors=false")
+        // TODO: temporary flag to suppress the `NU1903` warning for a vulnerable package pinned
+        // by 1.38.0, can be removed in future when updating the version.
+        .arg("-p:WarningsNotAsErrors=NU1903")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
@@ -34,7 +35,7 @@ pub fn build(execution_clients_dir: &Path) {
         build_utils::clone_repo(execution_clients_dir, NETHERMIND_REPO_URL).unwrap()
     }
 
-    // Get the latest tag
+    // Get the latest tag on the pinned release branch
     let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
@@ -102,7 +103,7 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("hive")
+            .arg("none")
             .arg("--Init.ChainSpecPath")
             .arg(genesis_json_path.to_str().unwrap())
             .arg("--Merge.TerminalTotalDifficulty")
