@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
+use logging::crit;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
@@ -255,8 +256,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // state if we returned early without committing. In other words, an error here would
         // corrupt the node's database permanently.
 
-        // Store the envelope, its post-state, and any data columns.
-        // If the write fails, revert fork choice to the version from disk, else we can
+        // Store the envelope and any data columns.
+        // If the write fails, revert `payload_received` in fork choice, else we can
         // end up with envelopes in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (signed_envelope, columns) = signed_envelope.deconstruct();
@@ -282,16 +283,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg = "Restoring fork choice from disk",
+                ?block_root,
                 error = ?e,
                 "Database write failed!"
             );
+            if let Err(revert_error) = fork_choice.on_payload_envelope_write_failed(block_root) {
+                // TODO(gloas): poison fork choice and shut the node down once
+                // https://github.com/sigp/lighthouse/pull/9819 is merged.
+                crit!(
+                    ?block_root,
+                    error = ?revert_error,
+                    "Failed to revert fork choice after payload envelope write failure"
+                );
+            }
             return Err(e.into());
-            // TODO(gloas) handle db write failure
-            // return Err(self
-            //    .handle_import_block_db_write_error(fork_choice)
-            //    .err()
-            //    .unwrap_or(e.into()));
         }
 
         drop(db_span);

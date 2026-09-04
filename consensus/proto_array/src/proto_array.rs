@@ -814,6 +814,28 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// An execution payload envelope could not be written to disk. Set `payload_received` to false
+    /// so that the in-memory fork choice and on-disk database stay aligned.
+    pub fn on_payload_envelope_write_failed(&mut self, block_root: Hash256) -> Result<(), Error> {
+        let index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+
+        let node = self
+            .nodes
+            .get_mut(index)
+            .ok_or(Error::InvalidNodeIndex(index))?;
+
+        let v29 = node
+            .as_v29_mut()
+            .map_err(|_| Error::InvalidNodeVariant { block_root })?;
+
+        v29.payload_received = false;
+
+        Ok(())
+    }
+
     /// Updates the `block_root` and all ancestors to have validated execution payloads.
     ///
     /// Returns an error if:
