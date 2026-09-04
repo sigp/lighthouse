@@ -7,6 +7,7 @@ mod column_verification;
 mod envelope_verification;
 mod events;
 mod fast_confirmation_restart;
+mod gloas_pre_import_rpc_cache;
 mod inclusion_list_store;
 mod op_verification;
 mod payload_invalidation;
