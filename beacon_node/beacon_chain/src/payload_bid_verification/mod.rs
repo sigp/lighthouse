@@ -12,6 +12,7 @@
 
 use types::{BeaconStateError, ExecutionBlockHash, Hash256, Slot};
 
+pub mod direct_verified_bid;
 pub mod gossip_verified_bid;
 pub mod payload_bid_cache;
 
@@ -28,12 +29,29 @@ pub enum PayloadBidError {
     },
     /// The bid does not build on the head block or on the head block's parent.
     BidNotCompatibleWithHead { parent_block_root: Hash256 },
+    /// The bid's parent block hash does not match the parent selected for the block being produced
+    /// (an equality check against the producer's choice). Produced only by direct
+    /// (block-production) verification, never by gossip, which does parent fork-choice
+    /// *membership* checks instead.
+    InvalidParentBlockHash {
+        bid: ExecutionBlockHash,
+        expected: ExecutionBlockHash,
+    },
+    /// The bid's parent block root does not match the parent selected for the block being produced
+    /// (an equality check against the producer's choice). Produced only by direct
+    /// (block-production) verification, never by gossip, which does parent fork-choice
+    /// *membership* checks instead.
+    InvalidParentBlockRoot { bid: Hash256, expected: Hash256 },
     /// The signature is invalid.
     BadSignature,
     /// A bid for this builder at this slot has already been seen.
     BuilderAlreadySeen { builder_index: u64, slot: Slot },
     /// Builder is not valid/active for the given epoch
     InvalidBuilder { builder_index: u64 },
+    /// The bid was signed by a builder not in the requesting entry's `builder_pubkeys` (the
+    /// response filter from beacon-APIs #630). Produced only by direct (block-production)
+    /// verification, never by gossip, which has no requesting entry.
+    UnexpectedBuilder { builder_index: u64 },
     /// The builder's version is not `PAYLOAD_BUILDER_VERSION`.
     InvalidBuilderVersion { builder_index: u64, version: u8 },
     /// The bid value is lower than the currently cached bid.
@@ -60,6 +78,11 @@ pub enum PayloadBidError {
     InvalidGasLimit,
     /// The bids execution payment is non-zero
     ExecutionPaymentNonZero { execution_payment: u64 },
+    /// The bids block hash equals its parent block hash
+    BlockHashEqualsParentBlockHash {
+        slot: Slot,
+        block_hash: ExecutionBlockHash,
+    },
     /// The number of blob KZG commitments exceeds the maximum allowed.
     InvalidBlobKzgCommitments {
         max_blobs_per_block: usize,
