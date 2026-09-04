@@ -3880,19 +3880,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Gloas blocks dont need to be inserted into the DA cache
-        // they are always available.
-        if !unverified_block
-            .block()
-            .fork_name_unchecked()
-            .gloas_enabled()
-        {
-            self.data_availability_checker.put_pre_execution_block(
-                block_root,
-                unverified_block.block_cloned(),
-                block_source,
-            )?;
-        }
+        // Include Gloas blocks so BeaconBlocksByRoot can serve them during import (#9975).
+        self.data_availability_checker.put_pre_execution_block(
+            block_root,
+            unverified_block.block_cloned(),
+            block_source,
+        )?;
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);

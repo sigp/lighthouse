@@ -1901,6 +1901,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // Insert before spawning column publish so BlocksByRoot can serve the block if getBlobs
+        // finishes first (#9975).
+        if let Err(e) = self
+            .chain
+            .data_availability_checker
+            .put_pre_execution_block(block_root, block.clone(), BlockImportSource::Gossip)
+        {
+            debug!(
+                %block_root,
+                error = ?e,
+                "Failed to insert gossip block into pre-import cache"
+            );
+        }
+
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
         let publish_blobs = true;
