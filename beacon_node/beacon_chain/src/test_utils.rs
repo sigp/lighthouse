@@ -1305,6 +1305,7 @@ where
                 _consensus_block_value,
                 _execution_payload_value,
                 _payload_contents,
+                _builder_url,
             ) = self
                 .chain
                 .produce_block_on_state_gloas(
@@ -1316,7 +1317,7 @@ where
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
-                    None,
+                    eth2::types::BuilderConfig::empty(),
                 )
                 .await
                 .unwrap();
