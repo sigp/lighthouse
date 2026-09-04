@@ -4167,6 +4167,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // This may be the proof the block's envelope was waiting on.
+                match self
+                    .chain
+                    .check_execution_proof_availability_and_import(verified)
+                    .await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
+                        info!(
+                            ?block_root,
+                            %slot,
+                            "Execution payload envelope imported after execution proof"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                        // The payload envelope is imported (`is_payload_received` is now true);
+                        // release any attestations awaiting this block's payload.
+                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
+                    }
+                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
+                    Err(error) => {
+                        debug!(
+                            %beacon_block_root,
+                            proof_type,
+                            ?error,
+                            "Could not cache execution proof"
+                        );
+                    }
+                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4226,6 +4254,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidBuilderVersion { .. }
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::BlockHashEqualsParentBlockHash { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
                 | PayloadBidError::InvalidPrevRandao { .. },
@@ -4239,19 +4268,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(
                 PayloadBidError::NoProposerPreferences { .. }
+                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentExecutionPayloadUnknown { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
-                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
                 | PayloadBidError::UnableToReadSlot,
             ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            // These variants are direct-only (see their docs) and are matched here only because
+            // `PayloadBidError` is shared. Reaching this arm is a wiring bug: log it, and ignore
+            // rather than penalize the peer.
+            Err(
+                PayloadBidError::InvalidParentBlockHash { .. }
+                | PayloadBidError::InvalidParentBlockRoot { .. }
+                | PayloadBidError::UnexpectedBuilder { .. },
+            ) => {
+                error!("Direct-bid validation error from gossip payload bid verification");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }

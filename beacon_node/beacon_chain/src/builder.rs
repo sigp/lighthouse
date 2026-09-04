@@ -12,7 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::PendingPayloadCache;
+use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -22,6 +22,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
 use bls::Signature;
+use builder_client::Builders;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
@@ -94,6 +95,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     op_pool: Option<OperationPool<T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<Builders>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -137,6 +139,7 @@ where
             op_pool: None,
             execution_layer: None,
             proof_engine: None,
+            builders: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
@@ -641,6 +644,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` builder service (the Gloas Builder API client).
+    pub fn builders(mut self, builders: Option<Arc<Builders>>) -> Self {
+        self.builders = builders;
+        self
+    }
+
     /// Sets the node custody type for data column import.
     pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
         self.node_custody_type = node_custody_type;
@@ -995,6 +1004,13 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        // Without a proof engine we can't verify proofs, so we don't require them.
+        let required_execution_proofs = if self.proof_engine.is_some() {
+            REQUIRED_EXECUTION_PROOFS
+        } else {
+            0
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1037,6 +1053,7 @@ where
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
             proof_engine: self.proof_engine,
+            builders: self.builders,
             genesis_validators_root,
             genesis_time,
             canonical_head,
@@ -1084,6 +1101,7 @@ where
                     self.kzg.clone(),
                     custody_context,
                     disable_get_blobs,
+                    required_execution_proofs,
                     self.spec.clone(),
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,

@@ -1,6 +1,6 @@
 use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
-use beacon_chain::kzg_utils::reconstruct_blobs;
+use beacon_chain::kzg_utils::{reconstruct_blob_sidecars, reconstruct_blobs};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
@@ -11,8 +11,8 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkName, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -366,7 +366,20 @@ impl BlockId {
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, query.indices, &block)?
+                let data_columns =
+                    Self::get_data_columns_for_blob_reconstruction(chain, root, &block)?;
+                reconstruct_blob_sidecars(
+                    &chain.kzg,
+                    data_columns,
+                    query.indices,
+                    &block,
+                    &chain.spec,
+                )
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Error reconstructing data columns: {e:?}"
+                    ))
+                })?
             } else {
                 Self::get_blobs(chain, root, query.indices, max_blobs_per_block)?
             }
@@ -392,8 +405,8 @@ impl BlockId {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
         })?;
 
-        // Error if the block is pre-Deneb and lacks blobs.
-        let blob_kzg_commitments = block.message().body().blob_kzg_commitments().map_err(|_| {
+        let block_message = block.message();
+        let blob_kzg_commitments = block_message.blob_kzg_commitments().ok_or_else(|| {
             warp_utils::reject::custom_bad_request(
                 "block is pre-Deneb and has no blobs".to_string(),
             )
@@ -413,22 +426,34 @@ impl BlockId {
         });
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
-        let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
+        let blobs = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, blob_indices_opt, &block)?
+                let data_columns =
+                    Self::get_data_columns_for_blob_reconstruction(chain, root, &block)?;
+                reconstruct_blobs(
+                    &chain.kzg,
+                    data_columns,
+                    blob_indices_opt,
+                    blob_kzg_commitments.len(),
+                )
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Error reconstructing data columns: {e:?}"
+                    ))
+                })?
             } else {
                 Self::get_blobs(chain, root, blob_indices_opt, max_blobs_per_block)?
+                    .into_iter()
+                    .map(|sidecar| sidecar.blob.clone())
+                    .collect()
             }
         } else {
-            BlobSidecarList::new(vec![], max_blobs_per_block)
-                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+            vec![]
         };
 
-        let blobs = blob_sidecar_list
+        let blobs = blobs
             .into_iter()
-            .map(|sidecar| BlobWrapper::<T::EthSpec> {
-                blob: sidecar.blob.clone(),
-            })
+            .map(|blob| BlobWrapper::<T::EthSpec> { blob })
             .collect();
 
         Ok(UnversionedResponse {
@@ -469,12 +494,11 @@ impl BlockId {
             .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
     }
 
-    fn get_blobs_from_data_columns<T: BeaconChainTypes>(
+    fn get_data_columns_for_blob_reconstruction<T: BeaconChainTypes>(
         chain: &BeaconChain<T>,
         root: Hash256,
-        blob_indices: Option<Vec<u64>>,
         block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
+    ) -> Result<Vec<Arc<DataColumnSidecar<T::EthSpec>>>, Rejection> {
         let column_indices = chain.store.get_data_column_keys(root).map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
                 "Error fetching data columns keys: {e:?}"
@@ -486,31 +510,23 @@ impl BlockId {
         let is_blob_available = num_found_column_keys >= num_required_columns;
         let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
 
-        if is_blob_available {
-            let data_columns = column_indices
-                .into_iter()
-                .filter_map(|column_index| {
-                    match chain.get_data_column(&root, &column_index, fork_name) {
-                        Ok(Some(data_column)) => Some(Ok(data_column)),
-                        Ok(None) => None,
-                        Err(e) => Some(Err(warp_utils::reject::unhandled_error(e))),
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(
-                |e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "Error reconstructing data columns: {e:?}"
-                    ))
-                },
-            )
-        } else {
-            Err(warp_utils::reject::custom_bad_request(format!(
+        if !is_blob_available {
+            return Err(warp_utils::reject::custom_bad_request(format!(
                 "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found. \
                 You may need to run the beacon node with --supernode or --semi-supernode."
-            )))
+            )));
         }
+
+        column_indices
+            .into_iter()
+            .filter_map(|column_index| {
+                match chain.get_data_column(&root, &column_index, fork_name) {
+                    Ok(Some(data_column)) => Some(Ok(data_column)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(warp_utils::reject::unhandled_error(e))),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 }
 
@@ -534,6 +550,7 @@ mod tests {
     use beacon_chain::{
         PayloadVerificationStatus,
         block_verification_types::AvailableBlockData,
+        custody_context::NodeCustodyType,
         data_availability_checker::AvailableBlock,
         test_utils::{
             BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
@@ -552,6 +569,83 @@ mod tests {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build()
+    }
+
+    fn gloas_supernode_harness() -> TestHarness {
+        BeaconChainHarness::builder(MinimalEthSpec)
+            .spec(Arc::new(
+                ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec()),
+            ))
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build()
+    }
+
+    #[tokio::test]
+    async fn get_blobs_by_versioned_hashes_post_gloas() {
+        let harness = gloas_supernode_harness();
+        harness.execution_block_generator().set_min_blob_count(2);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let (block_root, (block, _), _) = harness
+            .add_block_at_slot(slot, harness.get_current_state())
+            .await
+            .expect("Gloas block should import");
+        let block_root = Hash256::from(block_root);
+
+        assert_eq!(block.fork_name_unchecked(), ForkName::Gloas);
+        assert!(block.num_expected_blobs() >= 2);
+
+        let all_blobs_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: None,
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be retrievable");
+
+        assert_eq!(all_blobs_response.data.len(), block.num_expected_blobs());
+
+        let second_versioned_hash = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should contain an execution payload bid")
+            .message()
+            .blob_kzg_commitments()
+            .get(1)
+            .expect("test block should contain at least two blob commitments")
+            .calculate_versioned_hash();
+        let filtered_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: Some(vec![second_versioned_hash]),
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be filterable by versioned hash");
+
+        assert_eq!(filtered_response.data.len(), 1);
+        assert_eq!(
+            filtered_response
+                .data
+                .first()
+                .expect("filtered response should contain one blob")
+                .blob,
+            all_blobs_response
+                .data
+                .get(1)
+                .expect("unfiltered response should contain at least two blobs")
+                .blob
+        );
+        assert_eq!(
+            BlockId(CoreBlockId::Head).root(&harness.chain).unwrap().0,
+            block_root
+        );
     }
 
     #[tokio::test]

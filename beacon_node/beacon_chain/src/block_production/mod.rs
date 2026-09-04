@@ -11,6 +11,7 @@ use crate::{
     fork_choice_signal::ForkChoiceWaitResult, metrics,
 };
 
+mod bid_selection;
 mod gloas;
 
 pub use gloas::PayloadEnvelopeContents;
@@ -175,6 +176,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<ReOrgInputs<T::EthSpec>> {
+        if self.config.disable_proposer_reorg {
+            return None;
+        }
+
         let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
         let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
         let re_org_max_epochs_since_finalization =
