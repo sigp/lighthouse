@@ -176,12 +176,6 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         let el_genesis_hash = bid.block_hash;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
-
-        // Update the `latest_block_header.body_root` so that it matches the body of the
-        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
-        // `signed_execution_payload_bid` field (see `genesis_block`).
-        let genesis_body_root = genesis_block(&state, spec)?.body_root();
-        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Upgrade to heze if configured from genesis.
@@ -193,6 +187,14 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Remove intermediate Gloas fork from `state.fork`.
         state.fork_mut().previous_version = spec.heze_fork_version;
+    }
+
+    // From Gloas onwards the genesis block body embeds `state.latest_execution_payload_bid`
+    // (see `genesis_block`), so `latest_block_header.body_root` must be computed against the
+    // final genesis fork, after every upgrade has run
+    if state.fork_name_unchecked().gloas_enabled() {
+        let genesis_body_root = genesis_block(&state, spec)?.body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
