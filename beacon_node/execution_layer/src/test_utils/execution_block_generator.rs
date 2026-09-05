@@ -545,6 +545,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             };
         };
 
@@ -553,6 +554,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
                 validation_error: Some("invalid block number".to_string()),
+                inclusion_list_satisfied: None,
             };
         }
 
@@ -563,6 +565,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(valid_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -819,6 +822,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V5(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -858,22 +864,21 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 let max_blobs = max(1, self.min_blobs_count);
                 let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
                 let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-                match &mut execution_payload {
-                    ExecutionPayload::Gloas(payload) => {
-                        for tx in Vec::from(transactions) {
-                            payload
-                                .transactions
-                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
-                        }
+                // Gloas and later carry a progressive transactions list, earlier forks a bounded one.
+                if fork_name.gloas_enabled() {
+                    let payload_transactions = execution_payload
+                        .transactions_progressive_mut()
+                        .map_err(|e| format!("invalid payload variant: {e:?}"))?;
+                    for tx in Vec::from(transactions) {
+                        payload_transactions.push(ProgressiveVariableList::<u8>::new(tx.into()));
                     }
-                    _ => {
-                        for tx in Vec::from(transactions) {
-                            execution_payload
-                                .transactions_bounded_mut()
-                                .map_err(|e| format!("invalid payload variant: {e:?}"))?
-                                .push(tx)
-                                .map_err(|_| "transactions are full".to_string())?;
-                        }
+                } else {
+                    for tx in Vec::from(transactions) {
+                        execution_payload
+                            .transactions_bounded_mut()
+                            .map_err(|e| format!("invalid payload variant: {e:?}"))?
+                            .push(tx)
+                            .map_err(|_| "transactions are full".to_string())?;
                     }
                 }
                 bundle

@@ -10,6 +10,8 @@ use beacon_chain::{
 };
 use bls::Keypair;
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
+use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
+use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
@@ -677,6 +679,135 @@ async fn prepare_payload_on_fork_boundary(
         "prepare_beacon_proposer should use withdrawals computed from the \
          advanced state"
     );
+}
+
+#[tokio::test]
+async fn prepare_payload_on_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()),
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_before_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()) - 1,
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+/// Prepare a payload for `prepare_slot` on a chain with a Heze fork at `heze_fork_epoch` and
+/// verify that the fcU sent to the execution layer uses the engine API version required for the
+/// fork of `prepare_slot`: `engine_forkchoiceUpdatedV5` with `PayloadAttributesV5` from Heze
+/// onwards, `V4` before
+async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoch: Epoch) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.gloas_fork_epoch = Some(Epoch::new(0));
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    let prepare_slot_is_heze = spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled();
+
+    // Only produce blocks up to the parent slot, so no Heze block production is required
+    let num_blocks_produced = (prepare_slot - 1).as_u64();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let parent_payload_status = cached_head.head_payload_status();
+
+    let mut advanced_state = cached_head.snapshot.beacon_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+
+    // Call `prepare_beacon_proposer` for the next slot.
+    // This sends a fcU with the payload attributes to the execution layer
+    // which validates the method version against the fork at the attributes' timestamp
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Advance the slot clock to just before the prepare slot so the lookahead check passes
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    // Inspect the fcU request received by the mock execution layer
+    let request = harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .take_previous_request()
+        .expect("no previous request");
+    let method = request.get("method").expect("no method");
+    let params = request.get("params").expect("no params");
+    let payload_attributes_json = params.get(1).expect("no payload attributes param");
+
+    if prepare_slot_is_heze {
+        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
+        let attributes: JsonPayloadAttributesV5 =
+            serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        // We are currently sending the V5 shape with an empty inclusion list
+        assert!(attributes.inclusion_list_transactions.is_empty());
+        // `custodyColumns` is the (nullable) third parameter of engine api call
+        assert!(params.get(2).is_some_and(|c| c.is_null()));
+    } else {
+        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V4);
+        let _attributes: JsonPayloadAttributesV4 =
+            serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        assert!(
+            payload_attributes_json
+                .get("inclusionListTransactions")
+                .is_none()
+        );
+    }
+
+    // The cached payload attributes must use the matching variant
+    let head_root = harness.head_block_root();
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+    if prepare_slot_is_heze {
+        assert!(matches!(attributes, PayloadAttributes::V5(_)));
+    } else {
+        assert!(matches!(attributes, PayloadAttributes::V4(_)));
+    }
 }
 
 #[tokio::test]
