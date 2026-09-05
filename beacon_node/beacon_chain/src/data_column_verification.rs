@@ -1379,7 +1379,7 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
         Ok(column) => PartialColumnVerificationResult::Ok {
             column,
             slot,
-            verified_header: Some(header),
+            header_or_bid: VerifiedPartialHeaderOrBid::PartialHeader(header),
         },
         Err(err) => PartialColumnVerificationResult::ErrWithValidHeader { err, header },
     }
@@ -1401,8 +1401,8 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         return PartialColumnVerificationResult::Err(e.into());
     }
 
-    // The bid carries the commitments. It is gossip-verified and inserted into the pending
-    // payload cache on its own path - we don't cache anything from this code path.
+    // The bid carries the commitments. Return the same bid after verification so partial-column
+    // processing does not need to look it up again.
     let bid = match load_gloas_payload_bid(block_root, chain) {
         Ok(Some(bid)) => bid,
         Ok(None) => {
@@ -1438,7 +1438,7 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         Ok(column) => PartialColumnVerificationResult::Ok {
             column,
             slot,
-            verified_header: None,
+            header_or_bid: VerifiedPartialHeaderOrBid::Bid(bid),
         },
         Err(err) => PartialColumnVerificationResult::Err(err),
     }
@@ -1480,21 +1480,24 @@ fn validate_partial_data_column_common<T: BeaconChainTypes>(
     verify_kzg_for_partial_data_column(*column, kzg_commitments, chain, seen_timestamp)
 }
 
-/// The result of a `validate_partial_data_column_sidecar_for_gossip` call. The `verified_header`
-/// is only set for Fulu, where the header travels with the partial column on gossip and may be
-/// newly cached during this call. For Gloas, the bid that backs the verification arrives on its
-/// own gossip path and is never cached as part of partial-column processing — there is nothing
-/// to return.
+/// The verified header or block bid used to check a partial column.
+pub enum VerifiedPartialHeaderOrBid<E: EthSpec> {
+    /// Fulu partials use a gossip-verified header.
+    PartialHeader(GossipVerifiedPartialDataColumnHeader<E>),
+    /// Gloas partials use the bid from their known beacon block.
+    Bid(Arc<SignedExecutionPayloadBid<E>>),
+}
+
+/// The result of a `validate_partial_data_column_sidecar_for_gossip` call.
 pub enum PartialColumnVerificationResult<E: EthSpec> {
-    /// Verification succeeded fully.
+    /// Verification succeeded with the supplied header or bid.
     Ok {
         column: KzgVerifiedPartialDataColumn<E>,
         slot: Slot,
-        verified_header: Option<GossipVerifiedPartialDataColumnHeader<E>>,
+        header_or_bid: VerifiedPartialHeaderOrBid<E>,
     },
     /// Verification of the column failed, but the Fulu header is valid. Gloas has no equivalent
-    /// variant because the bid that would correspond to the header is not produced as a result
-    /// of this verification.
+    /// because its bid arrives independently of the partial column.
     ErrWithValidHeader {
         err: GossipPartialDataColumnError,
         header: GossipVerifiedPartialDataColumnHeader<E>,

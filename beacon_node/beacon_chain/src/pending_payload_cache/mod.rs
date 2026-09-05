@@ -369,12 +369,13 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.put_kzg_verified_custody_data_columns(block_root, &custody_columns)
+        self.put_kzg_verified_custody_data_columns_with_bid(block_root, &custody_columns, &bid)
     }
 
     /// Merge KZG verified partial custody columns into the cache. Returns the columns that became
     /// fully populated as a result of this merge, plus the accumulated partials that gained cells
-    /// (for republishing).
+    /// (for republishing). The bid must belong to `block_root` and is used if the cache entry does
+    /// not exist.
     #[instrument(skip_all, level = "trace")]
     pub fn merge_partial_data_columns(
         &self,
@@ -382,13 +383,10 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         kzg_verified_partial_data_columns: &[KzgVerifiedCustodyPartialDataColumnGloas<
             T::EthSpec,
         >],
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<AvailabilityAndPartialMergeResult<T::EthSpec>, AvailabilityCheckError> {
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
-
         let (outcome, pending_components) =
-            self.update_pending_components(block_root, &bid, |pending_components| {
+            self.update_pending_components(block_root, bid, |pending_components| {
                 pending_components.merge_partial_data_columns(kzg_verified_partial_data_columns)
             })?;
 
@@ -537,16 +535,20 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             "Reconstructed columns"
         );
 
-        self.put_kzg_verified_custody_data_columns(*block_root, &data_columns_to_import_and_publish)
-            .map(|availability| {
-                DataColumnReconstructionResult::Success((
-                    availability,
-                    data_columns_to_import_and_publish
-                        .into_iter()
-                        .map(|d| d.clone_arc())
-                        .collect::<Vec<_>>(),
-                ))
-            })
+        self.put_kzg_verified_custody_data_columns_with_bid(
+            *block_root,
+            &data_columns_to_import_and_publish,
+            &bid,
+        )
+        .map(|availability| {
+            DataColumnReconstructionResult::Success((
+                availability,
+                data_columns_to_import_and_publish
+                    .into_iter()
+                    .map(|d| d.clone_arc())
+                    .collect::<Vec<_>>(),
+            ))
+        })
     }
 
     // ── Metrics ──
@@ -1080,24 +1082,31 @@ mod data_availability_checker_tests {
     #[tokio::test]
     async fn merge_partial_columns_completes_column_across_arrivals() {
         let s = setup_with(NodeCustodyType::Fullnode, NumBlobs::Number(2));
-        let slot = s.cache.get_bid(&s.block_root).expect("bid").message.slot;
+        let bid = s.cache.get_bid(&s.block_root).expect("bid");
+        let slot = bid.message.slot;
+        s.cache.availability_cache.write().remove(&s.block_root);
+        assert!(s.cache.get_bid(&s.block_root).is_none());
 
         // First arrival: column 0 carries only blob 0's cell — incomplete (1 of 2 expected).
         let first = gloas_partial(s.block_root, slot, 0, 2, &[0]);
         let (availability, result) = s
             .cache
-            .merge_partial_data_columns(s.block_root, &[first])
+            .merge_partial_data_columns(s.block_root, &[first], &bid)
             .expect("merge");
         assert_missing(availability);
         assert_eq!(result.added_cells, 1);
         assert!(result.full_columns.is_empty(), "column not yet complete");
         assert!(!s.cache.is_column_complete(&s.block_root, 0));
+        assert_eq!(
+            s.cache.get_bid(&s.block_root).as_deref(),
+            Some(bid.as_ref())
+        );
 
         // Re-merging blob 0 while the column is still incomplete adds nothing.
         let duplicate = gloas_partial(s.block_root, slot, 0, 2, &[0]);
         let (_availability, result) = s
             .cache
-            .merge_partial_data_columns(s.block_root, &[duplicate])
+            .merge_partial_data_columns(s.block_root, &[duplicate], &bid)
             .expect("merge");
         assert_eq!(result.added_cells, 0);
 
@@ -1105,7 +1114,7 @@ mod data_availability_checker_tests {
         let second = gloas_partial(s.block_root, slot, 0, 2, &[1]);
         let (_availability, result) = s
             .cache
-            .merge_partial_data_columns(s.block_root, &[second])
+            .merge_partial_data_columns(s.block_root, &[second], &bid)
             .expect("merge");
         assert_eq!(result.added_cells, 1);
         assert_eq!(result.full_columns.len(), 1, "column 0 becomes complete");

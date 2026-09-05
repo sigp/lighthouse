@@ -319,15 +319,11 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
                     KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(column).into_gloas()
                 })
                 .collect();
-            // Ensure the bid is present in the cache.
-            chain_adapter
-                .pending_payload_cache()
-                .insert_bid(block_root, bid.clone());
             // Merge partials into the pending payload cache and return any full columns for
             // publishing.
             let (availability, merge_result) = chain_adapter
                 .pending_payload_cache()
-                .merge_partial_data_columns(block_root, &custody_columns_to_import)
+                .merge_partial_data_columns(block_root, &custody_columns_to_import, bid)
                 .map_err(|e| {
                     FetchEngineBlobError::InternalError(format!(
                         "Failed to merge partials into pending payload cache: {e:?}"

@@ -7,8 +7,7 @@ use crate::{
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedPartialDataColumn,
-    PartialColumnVerificationResult,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult, VerifiedPartialHeaderOrBid,
 };
 use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
@@ -1070,7 +1069,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             PartialColumnVerificationResult::Ok {
                 column,
                 slot,
-                verified_header,
+                header_or_bid,
             } => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
@@ -1095,10 +1094,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
+                let verified_header = match &header_or_bid {
+                    VerifiedPartialHeaderOrBid::PartialHeader(header) => Some(header.clone()),
+                    VerifiedPartialHeaderOrBid::Bid(_) => None,
+                };
                 self.process_gossip_verified_partial_data_column(
                     peer_id,
                     column,
-                    verified_header.clone(),
+                    header_or_bid,
                     slot,
                 )
                 .await;
@@ -1323,22 +1326,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Process a gossip-verified partial data column by merging it into the right per-fork store
     /// (the Fulu assembler or the Gloas pending payload cache) via `process_gossip_partial_data_column`.
-    ///
-    /// `verified_header` is `Some` for Fulu and `None` for Gloas.
     async fn process_gossip_verified_partial_data_column(
         self: &Arc<Self>,
         _peer_id: PeerId,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
+        header_or_bid: VerifiedPartialHeaderOrBid<T::EthSpec>,
         slot: Slot,
     ) {
         let processing_start_time = Instant::now();
         let block_root = verified_partial.block_root();
         let data_column_index = verified_partial.index();
+        let verified_header = match &header_or_bid {
+            VerifiedPartialHeaderOrBid::PartialHeader(header) => Some(header.clone()),
+            VerifiedPartialHeaderOrBid::Bid(_) => None,
+        };
 
         let result = self
             .chain
-            .process_gossip_partial_data_column(verified_partial, verified_header.clone(), slot)
+            .process_gossip_partial_data_column(verified_partial, header_or_bid, slot)
             .await;
 
         // First, handle merge results (if any)
