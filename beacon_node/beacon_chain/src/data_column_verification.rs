@@ -22,7 +22,6 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::DatabaseBlock;
 use superstruct::superstruct;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
@@ -33,7 +32,7 @@ use types::data::{
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
+    KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -405,12 +404,12 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )?;
             }
             DataColumnSidecar::Gloas(_) => {
-                let bid = load_gloas_payload_bid(column_sidecar.block_root(), chain)?.ok_or(
-                    GossipDataColumnError::BlockRootUnknown {
+                let bid = chain
+                    .load_gloas_payload_bid(column_sidecar.block_root())?
+                    .ok_or(GossipDataColumnError::BlockRootUnknown {
                         block_root: column_sidecar.block_root(),
                         slot: column_sidecar.slot(),
-                    },
-                )?;
+                    })?;
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
                     bid.message.blob_kzg_commitments.len(),
@@ -1257,12 +1256,12 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_unknown_sidecar(chain, &data_column)?;
 
-    let bid = load_gloas_payload_bid(data_column.block_root(), chain)?.ok_or(
-        GossipDataColumnError::BlockRootUnknown {
+    let bid = chain
+        .load_gloas_payload_bid(data_column.block_root())?
+        .ok_or(GossipDataColumnError::BlockRootUnknown {
             block_root: data_column.block_root(),
             slot: column_slot,
-        },
-    )?;
+        })?;
     if bid.message.slot != column_slot {
         return Err(GossipDataColumnError::BlockSlotMismatch {
             block_slot: bid.message.slot,
@@ -1403,7 +1402,7 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
 
     // The bid carries the commitments. It is gossip-verified and inserted into the pending
     // payload cache on its own path - we don't cache anything from this code path.
-    let bid = match load_gloas_payload_bid(block_root, chain) {
+    let bid = match chain.load_gloas_payload_bid(block_root) {
         Ok(Some(bid)) => bid,
         Ok(None) => {
             // Block not known, trigger lookup.
@@ -1544,63 +1543,6 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
     }
 
     Ok(())
-}
-
-/// Loads the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
-/// `early_attester_cache`, or the on-disk store (in that order).
-///
-/// The store fallback is a synchronous disk read, so this must be called from a blocking
-/// context, never directly on the async runtime.
-pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
-    block_root: Hash256,
-    chain: &BeaconChain<T>,
-) -> Result<Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>>, BeaconChainError> {
-    if let Some(bid) = chain.pending_payload_cache.get_bid(&block_root) {
-        return Ok(Some(bid));
-    }
-
-    let bid = if let Some(block) = chain.early_attester_cache.get_block(block_root) {
-        Arc::new(
-            block
-                .message()
-                .body()
-                .signed_execution_payload_bid()
-                .map_err(BeaconChainError::BeaconStateError)?
-                .clone(),
-        )
-    } else {
-        match chain
-            .store
-            .try_get_full_block(&block_root)
-            .map_err(BeaconChainError::DBError)?
-        {
-            Some(DatabaseBlock::Full(block)) => Arc::new(
-                block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
-            ),
-            Some(DatabaseBlock::Blinded(block)) => Arc::new(
-                block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
-            ),
-            None => {
-                return Ok(None);
-            }
-        }
-    };
-
-    chain
-        .pending_payload_cache
-        .insert_bid(block_root, bid.clone());
-
-    Ok(Some(bid))
 }
 
 fn missing_cells_for_column_sidecar<'a, T: BeaconChainTypes>(
@@ -1873,8 +1815,7 @@ mod test {
     use crate::data_column_verification::{
         GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
         GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumnFulu,
-        PartialColumnVerificationResult, load_gloas_payload_bid,
-        validate_data_column_sidecar_for_gossip_fulu,
+        PartialColumnVerificationResult, validate_data_column_sidecar_for_gossip_fulu,
         validate_partial_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
@@ -1989,7 +1930,9 @@ mod test {
                 .contains_block(block_root)
         );
 
-        let bid = load_gloas_payload_bid(block_root, &harness.chain)
+        let bid = harness
+            .chain
+            .load_gloas_payload_bid(block_root)
             .unwrap()
             .expect("bid should be loaded from the store");
         assert_eq!(*bid, expected_bid);
@@ -2005,7 +1948,9 @@ mod test {
 
         // An unknown block root yields no bid.
         assert!(
-            load_gloas_payload_bid(Hash256::repeat_byte(0x42), &harness.chain)
+            harness
+                .chain
+                .load_gloas_payload_bid(Hash256::repeat_byte(0x42))
                 .unwrap()
                 .is_none()
         );

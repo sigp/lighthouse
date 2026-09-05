@@ -327,7 +327,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
             // publishing.
             let (availability, merge_result) = chain_adapter
                 .pending_payload_cache()
-                .merge_partial_data_columns(block_root, &custody_columns_to_import)
+                .merge_partial_data_columns(block_root, bid.clone(), &custody_columns_to_import)
                 .map_err(|e| {
                     FetchEngineBlobError::InternalError(format!(
                         "Failed to merge partials into pending payload cache: {e:?}"

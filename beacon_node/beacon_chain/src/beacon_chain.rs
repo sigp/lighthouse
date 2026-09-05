@@ -3023,6 +3023,78 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         handle.await.map_err(Error::TokioJoin)
     }
 
+    /// Load the payload bid with cache and store fallbacks on a blocking worker.
+    pub(crate) async fn load_gloas_payload_bid_blocking(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<Arc<types::SignedExecutionPayloadBid<T::EthSpec>>, BlockError> {
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || chain.load_gloas_payload_bid(block_root),
+            "load_gloas_payload_bid",
+        )
+        .await??
+        .ok_or(BlockError::AvailabilityCheck(
+            AvailabilityCheckError::MissingBid(block_root),
+        ))
+    }
+
+    /// Loads the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
+    /// `early_attester_cache`, or the on-disk store (in that order).
+    ///
+    /// The store fallback is a synchronous disk read, so this must be called from a blocking
+    /// context, never directly on the async runtime.
+    pub(crate) fn load_gloas_payload_bid(
+        &self,
+        block_root: Hash256,
+    ) -> Result<Option<Arc<types::SignedExecutionPayloadBid<T::EthSpec>>>, BeaconChainError> {
+        if let Some(bid) = self.pending_payload_cache.get_bid(&block_root) {
+            return Ok(Some(bid));
+        }
+
+        let bid = if let Some(block) = self.early_attester_cache.get_block(block_root) {
+            Arc::new(
+                block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map_err(BeaconChainError::BeaconStateError)?
+                    .clone(),
+            )
+        } else {
+            match self
+                .store
+                .try_get_full_block(&block_root)
+                .map_err(BeaconChainError::DBError)?
+            {
+                Some(DatabaseBlock::Full(block)) => Arc::new(
+                    block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()
+                        .map_err(BeaconChainError::BeaconStateError)?
+                        .clone(),
+                ),
+                Some(DatabaseBlock::Blinded(block)) => Arc::new(
+                    block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()
+                        .map_err(BeaconChainError::BeaconStateError)?
+                        .clone(),
+                ),
+                None => {
+                    return Ok(None);
+                }
+            }
+        };
+
+        self.pending_payload_cache
+            .insert_bid(block_root, bid.clone());
+
+        Ok(Some(bid))
+    }
+
     /// Accepts a `chain_segment` and filters out any uninteresting blocks (e.g., pre-finalization
     /// or already-known).
     ///
@@ -3498,9 +3570,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
                 // Gloas: merge directly into the pending payload cache.
+                let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
                 let (availability, merge_result) = self
                     .pending_payload_cache
-                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .merge_partial_data_columns(block_root, bid, &[verified_partial])
                     .map_err(BlockError::from)?;
                 (merge_result, Some(availability))
             }
@@ -3739,11 +3812,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled();
 
         if is_gloas {
+            let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
                 .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                    pending_payload_cache.reconstruct_data_columns(&block_root)
+                    pending_payload_cache.reconstruct_data_columns(&block_root, bid)
                 })
                 .await
                 .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
@@ -4076,9 +4150,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_gossip_verified_data_columns(block_root, data_columns)?;
+                .put_gossip_verified_data_columns(block_root, bid, data_columns)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, publish_fn)
                 .await?)
@@ -4164,9 +4239,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_kzg_verified_custody_data_columns(block_root, &engine_get_blobs_output)
+                .put_kzg_verified_custody_data_columns(block_root, bid, &engine_get_blobs_output)
                 .map_err(BlockError::from)?;
             self.process_payload_envelope_availability(slot, availability, || Ok(()))
                 .await
@@ -4202,9 +4278,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, custody_columns)
+                .put_rpc_custody_columns(block_root, bid, custody_columns)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))

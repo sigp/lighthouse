@@ -143,9 +143,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = envelope.envelope.slot();
+        let block_root = envelope.block_root;
+        let bid = self.load_gloas_payload_bid_blocking(block_root).await?;
         let availability = self
             .pending_payload_cache
-            .put_executed_payload_envelope(envelope)?;
+            .put_executed_payload_envelope(envelope, bid)?;
         self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
     }
