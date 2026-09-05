@@ -845,3 +845,88 @@ async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
     // value should always be none post gloas
     assert_eq!(on_parent.parent_block_number, None);
 }
+
+#[tokio::test]
+async fn prepare_payload_registered_gas_limit_wins_over_schedule() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let registered_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        Some(registered_gas_limit),
+        registered_gas_limit,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_scheduled_gas_limit() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    prepare_payload_gas_limit_generic(Some(scheduled_gas_limit), None, scheduled_gas_limit).await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_default_gas_limit() {
+    prepare_payload_gas_limit_generic(None, None, DEFAULT_GAS_LIMIT).await;
+}
+
+async fn prepare_payload_gas_limit_generic(
+    scheduled_gas_limit: Option<u64>,
+    registered_gas_limit: Option<u64>,
+    expected_gas_limit: u64,
+) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    if let Some(gas_limit) = scheduled_gas_limit {
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![GasLimitScheduleEntry {
+            epoch: spec.gloas_fork_epoch.unwrap(),
+            gas_limit,
+        }]);
+    }
+    let spec = Arc::new(spec);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let prepare_slot = Slot::new(1);
+    let current_slot = prepare_slot - 1;
+    let proposer_index = harness
+        .get_current_state()
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &registered_gas_limit,
+        )],
+    )
+    .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    let attributes = el
+        .payload_attributes(
+            prepare_slot,
+            harness.head_block_root(),
+            PayloadStatus::Empty,
+        )
+        .await
+        .unwrap();
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, expected_gas_limit);
+}
