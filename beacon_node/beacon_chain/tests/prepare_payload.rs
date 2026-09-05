@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
+use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
     PayloadAttestationVote, test_spec,
@@ -9,7 +10,7 @@ use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
     graffiti_calculator::GraffitiSettings,
 };
-use bls::Keypair;
+use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
@@ -927,6 +928,164 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
     } else {
         assert!(matches!(attributes, PayloadAttributes::V4(_)));
     }
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_on_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_inclusion_lists_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()),
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_after_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_inclusion_lists_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1,
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+/// Prepare a payload for a Heze `prepare_slot` on a chain with a Heze fork at `heze_fork_epoch`,
+/// seed the inclusion list store for `prepare_slot - 1`, and verify which inclusion list
+/// transactions reach the execution layer in `PayloadAttributesV5`.
+///
+/// Inclusion lists only exist for Heze slots: the store refuses a list for a pre-Heze slot, so
+/// the first Heze proposer sends an empty list, and the transactions only flow once
+/// `prepare_slot - 1` is itself a Heze slot.
+async fn prepare_payload_inclusion_lists_around_heze_boundary(
+    prepare_slot: Slot,
+    heze_fork_epoch: Epoch,
+) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.gloas_fork_epoch = Some(Epoch::new(0));
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+    assert!(spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled());
+
+    // Derive the expectations from where the inclusion list slot sits relative to the fork.
+    let il_slot = prepare_slot - 1;
+    let il_transaction = ProgressiveVariableList::<u8>::new(vec![0xaa]);
+    let il_transactions = ProgressiveTransactions::new(vec![il_transaction]);
+    // Derive the expected IL store outcomes and the expected IL transactions
+    // in the payload attributes.
+    let (expected_insert_outcome, expected_transactions) =
+        if spec.fork_name_at_slot::<E>(il_slot).heze_enabled() {
+            (InsertOutcome::New, il_transactions.clone())
+        } else {
+            (InsertOutcome::Old, ProgressiveTransactions::empty())
+        };
+
+    // Produce blocks up to the parent slot. Preparing for a slot after the first Heze slot
+    // requires producing one Heze block.
+    let num_blocks_produced = (prepare_slot - 1).as_u64();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let parent_payload_status = cached_head.head_payload_status();
+    let head_root = cached_head.head_block_root();
+
+    let mut advanced_state = cached_head.snapshot.beacon_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+
+    // Seed the store with one inclusion list
+    let (committee, dependent_root) = harness
+        .chain
+        .inclusion_list_committee(head_root, il_slot)
+        .unwrap();
+    let insert_outcome = harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(
+            SignedInclusionList {
+                message: InclusionList {
+                    slot: il_slot,
+                    validator_index: committee[0],
+                    dependent_root,
+                    transactions: il_transactions,
+                },
+                signature: Signature::empty(),
+            },
+            true,
+        );
+    assert_eq!(insert_outcome, expected_insert_outcome);
+
+    // Call `prepare_beacon_proposer` for the next slot, which sends a fcU carrying the payload
+    // attributes to the execution layer.
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Advance the slot clock to just before the prepare slot so the lookahead check passes
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    // The fcU received by the mock execution layer must carry the expected inclusion list
+    let request = harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .take_previous_request()
+        .expect("no previous request");
+    let method = request.get("method").expect("no method");
+    let params = request.get("params").expect("no params");
+    let payload_attributes_json = params.get(1).expect("no payload attributes param");
+
+    assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
+    let attributes: JsonPayloadAttributesV5 =
+        serde_json::from_value(payload_attributes_json.clone()).unwrap();
+    assert_eq!(
+        attributes.inclusion_list_transactions,
+        expected_transactions
+    );
+
+    // The cached payload attributes must carry the same inclusion list as the fcU
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+    let PayloadAttributes::V5(cached) = attributes else {
+        panic!("expected V5 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(cached.inclusion_list_transactions, expected_transactions);
 }
 
 #[tokio::test]
