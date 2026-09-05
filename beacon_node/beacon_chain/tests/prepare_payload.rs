@@ -734,7 +734,7 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
     let parent_payload_status = cached_head.head_payload_status();
 
     let mut advanced_state = cached_head.snapshot.beacon_state.clone();
-    complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
 
     // Call `prepare_beacon_proposer` for the next slot.
     // This sends a fcU with the payload attributes to the execution layer
