@@ -33,10 +33,10 @@ use types::{
     BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProgressiveTransactions,
-    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit, Slot,
+    SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -1342,8 +1342,21 @@ where
         .await
         .unwrap_or(DEFAULT_GAS_LIMIT);
     let inclusion_list_transactions = if fork.heze_enabled() {
-        // TODO(heze): populate from the inclusion list store
-        Some(ProgressiveTransactions::empty())
+        let inner_chain = chain.clone();
+        let transactions = chain
+            .spawn_blocking_handle(
+                move || {
+                    inner_chain.proposer_inclusion_list_transactions(
+                        parent_beacon_block_root,
+                        builder_params.slot - 1,
+                    )
+                },
+                "prepare_execution_payload_inclusion_list_transactions",
+            )
+            .instrument(debug_span!("proposer_inclusion_list_transactions"))
+            .await
+            .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
+        Some(transactions)
     } else {
         None
     };
