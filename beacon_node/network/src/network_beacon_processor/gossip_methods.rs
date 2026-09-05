@@ -1901,6 +1901,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // Insert Gloas blocks before publishing columns so peers can fetch them by root.
+        if block.fork_name_unchecked().gloas_enabled() {
+            self.chain.pending_payload_cache.insert_block(
+                block_root,
+                block.clone(),
+                BlockImportSource::Gossip,
+            );
+        }
+
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
         let publish_blobs = true;

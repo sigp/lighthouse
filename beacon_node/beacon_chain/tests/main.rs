@@ -5,6 +5,7 @@ mod block_verification;
 mod column_verification;
 mod envelope_verification;
 mod events;
+mod gloas_pre_import_rpc_cache;
 mod op_verification;
 mod payload_invalidation;
 mod prepare_payload;
