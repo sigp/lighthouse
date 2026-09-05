@@ -15,7 +15,9 @@ use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
 use types::execution::{ProofType, SignedExecutionProof};
-use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
+use types::{
+    BlockImportSource, ColumnIndex, EthSpec, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
+};
 
 /// This represents the components of a payload pending data availability.
 ///
@@ -24,6 +26,8 @@ use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub bid: Arc<SignedExecutionPayloadBid<E>>,
+    /// cached beacon block for serving over RPC while importing
+    pub block: Option<(Arc<SignedBeaconBlock<E>>, BlockImportSource)>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
@@ -308,6 +312,7 @@ impl<E: EthSpec> PendingComponents<E> {
         Self {
             block_root,
             bid,
+            block: None,
             envelope: None,
             verified_data_columns: HashMap::new(),
             execution_proofs: HashMap::new(),
