@@ -1901,17 +1901,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
-        // Insert before spawning column publish so BlocksByRoot can serve the block if getBlobs
-        // finishes first (#9975).
-        if let Err(e) = self
-            .chain
-            .data_availability_checker
-            .put_pre_execution_block(block_root, block.clone(), BlockImportSource::Gossip)
-        {
-            debug!(
-                %block_root,
-                error = ?e,
-                "Failed to insert gossip block into pre-import cache"
+        // Insert Gloas blocks before publishing columns so peers can fetch them by root.
+        if block.fork_name_unchecked().gloas_enabled() {
+            self.chain.pending_payload_cache.insert_block(
+                block_root,
+                block.clone(),
+                BlockImportSource::Gossip,
             );
         }
 

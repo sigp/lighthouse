@@ -1375,6 +1375,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return cached_block;
         }
 
+        if let Some((block, source)) = self.pending_payload_cache.get_block(block_root) {
+            return BlockProcessStatus::NotValidated(block, source);
+        }
+
         BlockProcessStatus::Unknown
     }
 
@@ -3880,12 +3884,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Include Gloas blocks so BeaconBlocksByRoot can serve them during import (#9975).
-        self.data_availability_checker.put_pre_execution_block(
-            block_root,
-            unverified_block.block_cloned(),
-            block_source,
-        )?;
+        // Gloas blocks dont need to be inserted into the DA cache
+        // they are always available.
+        if !unverified_block
+            .block()
+            .fork_name_unchecked()
+            .gloas_enabled()
+        {
+            self.data_availability_checker.put_pre_execution_block(
+                block_root,
+                unverified_block.block_cloned(),
+                block_source,
+            )?;
+        }
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -3904,14 +3915,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = Arc::new(
-                    block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()?
-                        .clone(),
-                );
-                chain.pending_payload_cache.insert_bid(block_root, bid);
+                chain
+                    .pending_payload_cache
+                    .insert_block(block_root, block, block_source);
             }
 
             publish_fn()?;

@@ -32,7 +32,7 @@ fn gloas_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
 }
 
 #[tokio::test]
-async fn gloas_pre_import_cache_serves_block_before_store_import() {
+async fn gloas_pending_payload_cache_serves_block_before_store_import() {
     let harness = gloas_harness();
     harness.advance_slot();
 
@@ -43,18 +43,17 @@ async fn gloas_pre_import_cache_serves_block_before_store_import() {
 
     harness
         .chain
-        .data_availability_checker
-        .put_pre_execution_block(block_root, signed_block.clone(), BlockImportSource::Gossip)
-        .expect("should put pre-execution block");
+        .pending_payload_cache
+        .insert_block(block_root, signed_block.clone(), BlockImportSource::Gossip);
 
     match harness.chain.get_block_process_status(&block_root) {
         BlockProcessStatus::NotValidated(cached_block, _) => {
             assert_eq!(cached_block.canonical_root(), block_root);
         }
         BlockProcessStatus::ExecutionValidated(_) => {
-            panic!("expected NotValidated pre-execution status")
+            panic!("expected NotValidated pending-payload status")
         }
-        BlockProcessStatus::Unknown => panic!("block missing from pre-import cache"),
+        BlockProcessStatus::Unknown => panic!("block missing from pending payload cache"),
     }
 
     assert!(!harness.chain.block_is_known_to_fork_choice(&block_root));
@@ -70,7 +69,7 @@ async fn gloas_pre_import_cache_serves_block_before_store_import() {
         .as_ref()
         .expect("cache lookup should succeed")
         .as_ref()
-        .expect("pre-import cache should serve the block");
+        .expect("pending payload cache should serve the block");
     assert_eq!(served.canonical_root(), block_root);
 }
 
@@ -113,7 +112,7 @@ async fn gloas_process_block_imports_without_custody_columns() {
             assert_eq!(cached_block.canonical_root(), block_root);
         }
         BlockProcessStatus::Unknown => {
-            panic!("process_block should insert the block into the pre-import cache")
+            panic!("process_block should insert the block into the pending payload cache")
         }
     }
 }
