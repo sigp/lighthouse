@@ -837,7 +837,7 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
 
     let prepare_slot_is_heze = spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled();
 
-    // Only produce blocks up to the parent slot, so no Heze block production is required
+    // Only produce blocks up to the parent slot
     let num_blocks_produced = (prepare_slot - 1).as_u64();
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path, spec.clone());
@@ -931,6 +931,36 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
     }
 }
 
+/// Store one inclusion list for `slot`, holding `transactions`, from the first member of the
+/// inclusion list committee that the chain resolves for `head_root`
+fn seed_inclusion_list(
+    harness: &TestHarness,
+    head_root: Hash256,
+    slot: Slot,
+    transactions: ProgressiveTransactions,
+) -> InsertOutcome {
+    let (committee, dependent_root) = harness
+        .chain
+        .inclusion_list_committee(head_root, slot)
+        .unwrap();
+    harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(
+            SignedInclusionList {
+                message: InclusionList {
+                    slot,
+                    validator_index: committee[0],
+                    dependent_root,
+                    transactions,
+                },
+                signature: Signature::empty(),
+            },
+            true,
+        )
+}
+
 #[tokio::test]
 async fn prepare_payload_inclusion_lists_on_heze_boundary() {
     let heze_fork_epoch = Epoch::new(1);
@@ -982,7 +1012,7 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
         };
 
     // Produce blocks up to the parent slot, which is a Heze block when preparing for a slot
-    // after the first Heze slot
+    // after the first fork slot
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path, spec.clone());
     let harness = get_harness(store, LOW_VALIDATOR_COUNT);
@@ -1000,26 +1030,7 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
     complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
 
     // Seed the store with one inclusion list
-    let (committee, dependent_root) = harness
-        .chain
-        .inclusion_list_committee(head_root, il_slot)
-        .unwrap();
-    let insert_outcome = harness
-        .chain
-        .inclusion_list_store
-        .write()
-        .process_inclusion_list(
-            SignedInclusionList {
-                message: InclusionList {
-                    slot: il_slot,
-                    validator_index: committee[0],
-                    dependent_root,
-                    transactions: il_transactions,
-                },
-                signature: Signature::empty(),
-            },
-            true,
-        );
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
     assert_eq!(insert_outcome, expected_insert_outcome);
 
     // Register the proposer, otherwise `prepare_beacon_proposer` skips the slot
@@ -1039,8 +1050,8 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
     )
     .await;
 
-    // Move the clock into the lookahead window, then prepare for `prepare_slot`: this sends a
-    // fcU carrying the payload attributes to the execution layer
+    // Move the clock into the lookahead window, then prepare for `prepare_slot`
+    // This sends a fcU carrying the payload attributes to the execution layer
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
     harness
         .chain
@@ -1112,26 +1123,7 @@ async fn prepare_payload_inclusion_lists_used_in_block_production() {
     let head_state = &cached_head.snapshot.beacon_state;
 
     // Seed the store with one inclusion list
-    let (committee, dependent_root) = harness
-        .chain
-        .inclusion_list_committee(head_root, il_slot)
-        .unwrap();
-    let insert_outcome = harness
-        .chain
-        .inclusion_list_store
-        .write()
-        .process_inclusion_list(
-            SignedInclusionList {
-                message: InclusionList {
-                    slot: il_slot,
-                    validator_index: committee[0],
-                    dependent_root,
-                    transactions: il_transactions.clone(),
-                },
-                signature: Signature::empty(),
-            },
-            true,
-        );
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
     assert_eq!(insert_outcome, InsertOutcome::New);
 
     // Capture the payload attributes of every fcU the mock EL receives from now on
@@ -1256,26 +1248,7 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
         .unwrap();
 
     // The inclusion list arrives after the beacon proposer preparation
-    let (committee, dependent_root) = harness
-        .chain
-        .inclusion_list_committee(head_root, il_slot)
-        .unwrap();
-    let insert_outcome = harness
-        .chain
-        .inclusion_list_store
-        .write()
-        .process_inclusion_list(
-            SignedInclusionList {
-                message: InclusionList {
-                    slot: il_slot,
-                    validator_index: committee[0],
-                    dependent_root,
-                    transactions: il_transactions.clone(),
-                },
-                signature: Signature::empty(),
-            },
-            true,
-        );
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
     assert_eq!(insert_outcome, InsertOutcome::New);
 
     // Produce the block for `prepare_slot`
@@ -1292,8 +1265,8 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
         .await
         .unwrap();
 
-    // The warm-up fcU carried an empty list; block production sent a fresh fcU with the stored
-    // list instead of reusing the warm-up's payload
+    // The warm-up fcU carried an empty list
+    // Block production sent a fresh fcU with the stored list instead of reusing the warm-up's payload
     let captured = captured.lock();
     let [
         PayloadAttributes::V5(warm_up),
