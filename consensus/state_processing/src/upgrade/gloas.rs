@@ -1,11 +1,13 @@
 use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signature_cached};
-use crate::per_block_processing::process_operations::is_pending_validator;
 use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
 use std::marker::PhantomData;
-use std::{collections::HashMap, mem};
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
@@ -224,6 +226,9 @@ fn initialize_ptc_window<E: EthSpec>(
 ///
 /// - Signature verification results are looked up in the `builder_onboarding_cache` (populated
 ///   ahead of the fork), falling back to inline verification on cache miss.
+/// - Instead of calling the spec's `is_pending_validator` for every builder-credential deposit,
+///   valid pending-validator pubkeys are collected while walking the queue. This makes each
+///   builder deposit's pending-validator check a constant-time set lookup.
 /// - The builder registry is accumulated in a local `Vec` and written to the state once at the
 ///   end. This is a deviation from the spec, which calls `add_builder_to_registry` per deposit:
 ///   scanning the registry for a reusable index on every insertion (quadratic overall) and
@@ -245,6 +250,9 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     let current_pending_deposits = state.pending_deposits()?.to_vec();
 
     let mut pending_deposits: Vec<PendingDeposit> = Vec::new();
+    // A valid deposit for a new validator permanently prevents the same pubkey from being
+    // onboarded as a builder later in this loop.
+    let mut valid_pending_validator_pubkeys: HashSet<PublicKeyBytes> = HashSet::new();
 
     let mut builders: Vec<Builder> = Vec::new();
     let mut builder_pubkey_to_index: HashMap<PublicKeyBytes, u64> = HashMap::new();
@@ -261,17 +269,15 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
                 // Deposits without builder withdrawal credentials are for new validators.
                 if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
                     pending_deposits.push(deposit.clone());
+                    if is_valid_deposit_signature_cached(builder_onboarding_cache, deposit, spec) {
+                        valid_pending_validator_pubkeys.insert(deposit.pubkey);
+                    }
                     continue;
                 }
 
                 // If there is a valid pending deposit for a new validator with this pubkey,
                 // keep this deposit in the pending queue to be applied to that validator later.
-                if is_pending_validator(
-                    &pending_deposits,
-                    &deposit.pubkey,
-                    builder_onboarding_cache,
-                    spec,
-                ) {
+                if valid_pending_validator_pubkeys.contains(&deposit.pubkey) {
                     pending_deposits.push(deposit.clone());
                     continue;
                 }
@@ -377,6 +383,12 @@ mod tests {
         builder_topup_deposit: PendingDeposit,
         /// The deposits expected to remain in the queue after onboarding, in order.
         expected_retained: Vec<PendingDeposit>,
+        /// A valid new-validator deposit whose pubkey a later builder deposit asks about.
+        shadowing_validator_deposit: PendingDeposit,
+        /// An invalid new-validator deposit whose pubkey a later builder deposit asks about.
+        retried_invalid_validator_deposit: PendingDeposit,
+        /// An invalid new-validator deposit whose pubkey no builder deposit asks about.
+        invalid_validator_deposit: PendingDeposit,
     }
 
     fn onboarding_fixture() -> OnboardingFixture {
@@ -394,7 +406,7 @@ mod tests {
         let mut pre_state = harness.get_current_state();
 
         // Fresh keypairs, distinct from the interop validator set.
-        let keypairs = generate_deterministic_keypairs(VALIDATOR_COUNT + 5);
+        let keypairs = generate_deterministic_keypairs(VALIDATOR_COUNT + 6);
         let new_keys = &keypairs[VALIDATOR_COUNT..];
 
         let existing_validator_pubkey = harness.validator_keypairs[0].pk.compress();
@@ -457,6 +469,31 @@ mod tests {
             &spec,
         );
 
+        // Two new-validator deposits for one pubkey, the first with an invalid signature and
+        // the second valid, followed by a builder deposit for the same pubkey. The builder
+        // deposit must stay queued: the *second* validator deposit makes the pubkey pending.
+        let retried_invalid_validator_deposit = make_deposit(
+            &new_keys[4],
+            eth1_credentials(),
+            32_000_000_000,
+            false,
+            &spec,
+        );
+        let retried_valid_validator_deposit = make_deposit(
+            &new_keys[4],
+            eth1_credentials(),
+            32_000_000_000,
+            true,
+            &spec,
+        );
+        let retried_shadowed_builder_deposit = make_deposit(
+            &new_keys[4],
+            builder_credentials(&spec),
+            256_000_000_000,
+            true,
+            &spec,
+        );
+
         pre_state
             .set_pending_deposits_from_iter(vec![
                 existing_validator_deposit.clone(),
@@ -466,6 +503,9 @@ mod tests {
                 builder_topup_deposit.clone(),
                 invalid_builder_deposit,
                 invalid_validator_deposit.clone(),
+                retried_invalid_validator_deposit.clone(),
+                retried_valid_validator_deposit.clone(),
+                retried_shadowed_builder_deposit.clone(),
             ])
             .unwrap();
 
@@ -476,10 +516,16 @@ mod tests {
             builder_topup_deposit,
             expected_retained: vec![
                 existing_validator_deposit,
-                shadowing_validator_deposit,
+                shadowing_validator_deposit.clone(),
                 shadowed_builder_deposit,
-                invalid_validator_deposit,
+                invalid_validator_deposit.clone(),
+                retried_invalid_validator_deposit.clone(),
+                retried_valid_validator_deposit,
+                retried_shadowed_builder_deposit,
             ],
+            shadowing_validator_deposit,
+            retried_invalid_validator_deposit,
+            invalid_validator_deposit,
         }
     }
 
@@ -565,6 +611,20 @@ mod tests {
         assert_eq!(
             cache.cached_is_valid_signature(&fixture.builder_deposit),
             Some(true)
+        );
+
+        // All new-validator deposits are checked while building the valid-pubkey set.
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.shadowing_validator_deposit),
+            Some(true)
+        );
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.retried_invalid_validator_deposit),
+            Some(false)
+        );
+        assert_eq!(
+            cache.cached_is_valid_signature(&fixture.invalid_validator_deposit),
+            Some(false)
         );
     }
 

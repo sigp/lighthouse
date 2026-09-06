@@ -295,6 +295,8 @@ easy_from_to!(AttestationError, BeaconChainError);
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
+    /// No viable payload bid was available (no local build and no eligible external bid).
+    NoViablePayloadBid,
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
