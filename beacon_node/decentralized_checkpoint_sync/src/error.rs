@@ -1,4 +1,5 @@
-use types::ForkName;
+use crate::LightClientStoreSchema;
+use types::{ForkName, Hash256};
 
 /// An error produced while validating light-client data for checkpoint sync.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -29,4 +30,16 @@ pub enum LightClientSyncError {
 
     #[error("light-client header has an invalid execution payload proof")]
     InvalidExecutionPayloadProof,
+
+    #[error("bootstrap schema {bootstrap_schema:?} is newer than store schema {store_schema:?}")]
+    IncompatibleStoreSchema {
+        bootstrap_schema: LightClientStoreSchema,
+        store_schema: LightClientStoreSchema,
+    },
+
+    #[error("bootstrap beacon root {actual:?} does not match trusted block root {expected:?}")]
+    BootstrapRootMismatch { expected: Hash256, actual: Hash256 },
+
+    #[error("bootstrap current sync committee proof is invalid")]
+    InvalidCurrentSyncCommitteeProof,
 }
