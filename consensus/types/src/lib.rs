@@ -13,6 +13,7 @@
 pub mod test_utils;
 
 pub mod attestation;
+pub mod beacon_state_summary;
 pub mod block;
 pub mod builder;
 pub mod consolidation;
@@ -32,6 +33,7 @@ pub mod withdrawal;
 
 // Temporary root level exports to maintain backwards compatibility for Lighthouse.
 pub use attestation::*;
+pub use beacon_state_summary::*;
 pub use block::*;
 pub use builder::*;
 pub use consolidation::*;
