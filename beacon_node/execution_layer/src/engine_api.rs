@@ -27,7 +27,7 @@ pub use types::{
 use types::{
     BlockAccessList, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequests, KzgProofs, ProgressiveTransactions, ProgressiveWithdrawals, Slot,
+    ExecutionRequests, KzgProofs, ProgressiveTransactions, ProgressiveWithdrawals,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -450,62 +450,11 @@ pub struct ExecutionPayloadBodyV1<E: EthSpec> {
 }
 
 /// The execution payload body returned by `engine_getPayloadBodiesByHashV2`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionPayloadBodyV2 {
     pub transactions: ProgressiveTransactions,
     pub withdrawals: ProgressiveWithdrawals,
     pub block_access_list: BlockAccessList,
-}
-
-/// Header fields obtained from `eth_getBlockByHash` which, together with an
-/// `ExecutionPayloadBodyV2`, comprise a Gloas execution payload.
-#[derive(Clone, Debug)]
-pub struct ExecutionBlockHeaderGloas<E: EthSpec> {
-    pub parent_hash: ExecutionBlockHash,
-    pub fee_recipient: Address,
-    pub state_root: Hash256,
-    pub receipts_root: Hash256,
-    pub logs_bloom: ssz_types::FixedVector<u8, E::BytesPerLogsBloom>,
-    pub prev_randao: Hash256,
-    pub block_number: u64,
-    pub gas_limit: u64,
-    pub gas_used: u64,
-    pub timestamp: u64,
-    pub extra_data: ssz_types::VariableList<u8, E::MaxExtraDataBytes>,
-    pub base_fee_per_gas: Uint256,
-    pub block_hash: ExecutionBlockHash,
-    pub blob_gas_used: u64,
-    pub excess_blob_gas: u64,
-}
-
-impl ExecutionPayloadBodyV2 {
-    pub fn to_payload<E: EthSpec>(
-        self,
-        header: ExecutionBlockHeaderGloas<E>,
-        slot: Slot,
-    ) -> ExecutionPayloadGloas<E> {
-        ExecutionPayloadGloas {
-            parent_hash: header.parent_hash,
-            fee_recipient: header.fee_recipient,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            logs_bloom: header.logs_bloom,
-            prev_randao: header.prev_randao,
-            block_number: header.block_number,
-            gas_limit: header.gas_limit,
-            gas_used: header.gas_used,
-            timestamp: header.timestamp,
-            extra_data: header.extra_data,
-            base_fee_per_gas: header.base_fee_per_gas,
-            block_hash: header.block_hash,
-            transactions: self.transactions,
-            withdrawals: self.withdrawals,
-            blob_gas_used: header.blob_gas_used,
-            excess_blob_gas: header.excess_blob_gas,
-            block_access_list: self.block_access_list,
-            slot_number: slot,
-        }
-    }
 }
 
 impl<E: EthSpec> ExecutionPayloadBodyV1<E> {

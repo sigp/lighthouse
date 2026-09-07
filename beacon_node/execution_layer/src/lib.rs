@@ -1674,51 +1674,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    /// Fetch Gloas execution payloads by hash. The Engine API supplies the payload bodies,
-    /// while `eth_getBlockByHash` supplies the execution header fields. The slot is consensus
-    /// data and must be supplied by the caller.
-    pub async fn get_payloads_by_hash_gloas(
+    /// Fetch Gloas execution payload bodies by block hash.
+    pub async fn get_payload_bodies_by_hash_v2(
         &self,
-        requests: Vec<(ExecutionBlockHash, Slot)>,
-    ) -> Result<Vec<Option<ExecutionPayloadGloas<E>>>, Error> {
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
         self.engine()
             .request(|engine: &Engine| async move {
-                let block_hashes = requests
-                    .iter()
-                    .map(|(block_hash, _)| *block_hash)
-                    .collect::<Vec<_>>();
-                let bodies = engine
-                    .api
-                    .get_payload_bodies_by_hash_v2(block_hashes)
-                    .await?;
-
-                if bodies.len() != requests.len() {
-                    return Err(ApiError::BadResponse(format!(
-                        "engine_getPayloadBodiesByHashV2 returned {} bodies for {} requests",
-                        bodies.len(),
-                        requests.len()
-                    )));
-                }
-
-                let mut payloads = Vec::with_capacity(requests.len());
-                for ((block_hash, slot), body) in requests.into_iter().zip(bodies) {
-                    let Some(body) = body else {
-                        payloads.push(None);
-                        continue;
-                    };
-                    let Some(header) = engine
-                        .api
-                        .get_execution_block_header_gloas(block_hash)
-                        .await?
-                    else {
-                        payloads.push(None);
-                        continue;
-                    };
-
-                    payloads.push(Some(body.to_payload(header, slot)));
-                }
-
-                Ok(payloads)
+                engine.api.get_payload_bodies_by_hash_v2(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -2245,27 +2208,30 @@ mod test {
     }
 
     #[tokio::test]
-    async fn reconstruct_gloas_payload_by_hash() {
+    async fn get_gloas_payload_bodies_by_hash() {
         let runtime = TestRuntime::default();
         let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
         let block_hash = ExecutionBlockHash::repeat_byte(0x42);
-        let slot = Slot::new(12);
         let payload = ExecutionPayloadGloas {
             block_hash,
-            slot_number: slot,
             ..Default::default()
+        };
+        let expected_body = ExecutionPayloadBodyV2 {
+            transactions: payload.transactions.clone(),
+            withdrawals: payload.withdrawals.clone(),
+            block_access_list: payload.block_access_list.clone(),
         };
         mock.server
             .execution_block_generator()
             .insert_block_without_checks(Block::PoS(payload.clone().into()));
 
-        let payloads = mock
+        let bodies = mock
             .el
-            .get_payloads_by_hash_gloas(vec![(block_hash, slot)])
+            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
             .await
-            .expect("payload reconstruction should succeed");
+            .expect("payload body request should succeed");
 
-        assert_eq!(payloads, vec![Some(payload)]);
+        assert_eq!(bodies, vec![Some(expected_body), None]);
     }
 
     #[tokio::test]

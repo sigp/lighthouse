@@ -29,8 +29,6 @@ pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
 
 pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
 pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
-pub const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
-pub const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
@@ -1226,32 +1224,6 @@ impl HttpJsonRpc {
             .into_iter()
             .map(|body| body.map(Into::into))
             .collect())
-    }
-
-    pub async fn get_execution_block_header_gloas<E: EthSpec>(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlockHeaderGloas<E>>, Error> {
-        let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
-        let response: Option<JsonExecutionBlockHeaderGloas<E>> = self
-            .rpc_request(
-                ETH_GET_BLOCK_BY_HASH,
-                params,
-                ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        response
-            .map(|header| {
-                if header.block_hash != block_hash {
-                    return Err(Error::BadResponse(format!(
-                        "eth_getBlockByHash returned block {} for requested block {}",
-                        header.block_hash, block_hash
-                    )));
-                }
-                Ok(header.into())
-            })
-            .transpose()
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
