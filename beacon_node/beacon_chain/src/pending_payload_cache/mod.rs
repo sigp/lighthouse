@@ -283,6 +283,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// This will silently drop the bid if a bid for this block root already exists in the cache.
     pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
         let mut write_lock = self.availability_cache.write();
+        // `or_insert_with` marks the entry recently used.
         write_lock
             .entry(block_root)
             .or_insert_with(|| PendingComponents::new(block_root, bid));
@@ -557,7 +558,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
-            if let Some(components) = self.availability_cache.write().get_mut(&block_root) {
+            // `peek_mut` does not refresh the LRU position. This entry is complete, so the slot
+            // is better kept for an entry that still collects components.
+            if let Some(components) = self.availability_cache.write().peek_mut(&block_root) {
                 // Clean up span now that data is available
                 components.span = Span::none();
             }
@@ -584,6 +587,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let mut write_lock = self.availability_cache.write();
 
         let outcome = {
+            // `or_insert_with` moves the entry to the back of the LRU list, so a block root that
+            // still receives components stays in the cache. Do not replace it with `and_modify`,
+            // which does not move the entry.
             let pending_components = write_lock
                 .entry(block_root)
                 .or_insert_with(|| PendingComponents::new(block_root, bid.clone()));
@@ -601,6 +607,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         Ok((outcome, pending_components))
     }
 
+    /// Read an entry without refreshing its LRU position.
     fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
         &self,
         block_root: &Hash256,
