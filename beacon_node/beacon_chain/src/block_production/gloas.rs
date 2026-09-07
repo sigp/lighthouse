@@ -182,60 +182,79 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Producing Gloas block"
         );
 
-        let parent_root = if state.slot() > 0 {
-            *state
-                .get_block_root(state.slot() - 1)
-                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
-        } else {
-            state.latest_block_header().canonical_root()
-        };
-
-        let should_build_on_full = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .should_build_on_full(&parent_root, parent_payload_status, produce_at_slot)
-            .map_err(|e| {
-                BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
-            })?;
-
-        // Extract the parent's execution requests from the envelope (if building on full).
-        let parent_execution_requests = if should_build_on_full {
-            parent_envelope
-                .as_ref()
-                .map(|env| env.message.execution_requests.clone())
-                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
-        } else {
-            ExecutionRequestsGloas::default()
-        };
-
         // Part 1/3 (blocking)
         //
-        // Perform the state advance and block-packing functions.
+        // Resolve the parent, advance the state, and pack the block.
         let chain = self.clone();
         let graffiti = self
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
-        let parent_execution_requests_ref = parent_execution_requests.clone();
-        let (partial_beacon_block, state) = self
+        let (
+            partial_beacon_block,
+            state,
+            parent_envelope,
+            parent_execution_requests,
+            should_build_on_full,
+        ) = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
-                    chain.produce_partial_beacon_block_gloas(
+                    let mut state = state;
+                    // An unadvanced post-state's block_roots omit the parent itself.
+                    // Resolve its root from the latest header and the loaded state root.
+                    let state_root = if state.latest_block_header().state_root.is_zero() {
+                        match state_root_opt {
+                            Some(root) => root,
+                            None => state.update_tree_hash_cache()?,
+                        }
+                    } else {
+                        Hash256::ZERO
+                    };
+                    let parent_root = state.get_latest_block_root(state_root);
+                    let should_build_on_full = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .should_build_on_full(&parent_root, parent_payload_status, produce_at_slot)
+                        .map_err(|e| {
+                            BlockProductionError::BeaconChain(Box::new(
+                                BeaconChainError::ForkChoiceError(e),
+                            ))
+                        })?;
+
+                    // Extract the parent's execution requests if building on full.
+                    let parent_execution_requests = if should_build_on_full {
+                        parent_envelope
+                            .as_ref()
+                            .map(|env| env.message.execution_requests.clone())
+                            .ok_or(BlockProductionError::MissingParentExecutionPayload)?
+                    } else {
+                        ExecutionRequestsGloas::default()
+                    };
+
+                    let (partial_beacon_block, state) = chain.produce_partial_beacon_block_gloas(
                         state,
                         state_root_opt,
                         produce_at_slot,
                         randao_reveal,
                         graffiti,
-                        &parent_execution_requests_ref,
+                        &parent_execution_requests,
                         should_build_on_full,
-                    )
+                    )?;
+                    Ok::<_, BlockProductionError>((
+                        partial_beacon_block,
+                        state,
+                        parent_envelope,
+                        parent_execution_requests,
+                        should_build_on_full,
+                    ))
                 },
                 "produce_partial_beacon_block_gloas",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let parent_root = partial_beacon_block.parent_root;
 
         // Part 2/3 (async)
         //

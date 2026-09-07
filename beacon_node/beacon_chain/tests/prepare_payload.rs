@@ -2,7 +2,8 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    PayloadAttestationVote, test_spec,
 };
 use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
@@ -104,6 +105,109 @@ fn get_harness_generic(
         .build();
     harness.advance_slot();
     harness
+}
+
+#[tokio::test]
+async fn gloas_block_production_parent_root_with_unadvanced_state() {
+    // Check the advanced-state control first, then the unadvanced-state regression.
+    for cache_advanced_state in [true, false] {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let db_path = tempdir().unwrap();
+        let store = get_store(&db_path, spec.clone());
+        let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness
+            .extend_chain(
+                2,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let parent_root = harness.head_block_root();
+        let parent_state = harness.get_current_state();
+        let parent_slot = parent_state.slot();
+        let slot = parent_slot + 1;
+        let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+        assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+
+        // The head's full branch has attestation weight, but negative PTC votes should make
+        // the next proposer build on empty. Looking up the grandparent instead skips this check.
+        let (messages, _) = harness.make_payload_attestation_messages(
+            &parent_state,
+            parent_root,
+            parent_slot,
+            vec![PayloadAttestationVote {
+                validator_count: E::ptc_size(),
+                payload_present: false,
+                blob_data_available: false,
+            }],
+        );
+        harness
+            .import_payload_attestation_messages(messages)
+            .unwrap();
+        harness.set_current_slot(slot);
+        harness.chain.recompute_head_at_current_slot().await;
+        let head = harness.chain.canonical_head.cached_head();
+        assert_eq!(head.head_block_root(), parent_root);
+        assert_eq!(head.head_payload_status(), PayloadStatus::Full);
+
+        let (state_root, mut state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.slot(), parent_slot);
+        complete_state_advance(&mut state, Some(state_root), slot, None, &spec).unwrap();
+        let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
+        let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+        if cache_advanced_state {
+            // Model the state advance timer completing before the proposal request.
+            let state_root = state.update_tree_hash_cache().unwrap();
+            store.put_state(&state_root, &state).unwrap();
+        }
+        let (_, loaded_state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded_state.slot(),
+            if cache_advanced_state {
+                slot
+            } else {
+                parent_slot
+            }
+        );
+        drop(head);
+
+        // Pass no state to production: it must load the correct parent through the public API.
+        let (block, _, _, _, payload_contents, _) = harness
+            .chain
+            .produce_block_with_verification_gloas(
+                randao_reveal,
+                slot,
+                GraffitiSettings::new(None, None),
+                ProduceBlockVerification::VerifyRandao,
+                eth2::types::BuilderConfig::empty(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(block.parent_root(), parent_root);
+        assert_eq!(
+            block
+                .body()
+                .signed_execution_payload_bid()
+                .unwrap()
+                .message
+                .parent_block_hash,
+            parent_bid.parent_block_hash,
+            "PTC votes must be checked against the parent with cache_advanced_state={cache_advanced_state}"
+        );
+        let (envelope, _, _) = payload_contents.unwrap();
+        assert_eq!(envelope.parent_beacon_block_root, parent_root);
+        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash);
+    }
 }
 
 #[tokio::test]
