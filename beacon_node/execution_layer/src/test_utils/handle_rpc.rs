@@ -64,6 +64,38 @@ pub async fn handle_rpc<E: EthSpec>(
                 )),
             }
         }
+        ETH_GET_BLOCK_BY_HASH => {
+            let block_hash = get_param::<ExecutionBlockHash>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let payload = ctx
+                .execution_block_generator
+                .read()
+                .execution_payload_by_hash(block_hash);
+
+            match payload {
+                Some(ExecutionPayload::Gloas(payload)) => {
+                    let json_payload =
+                        JsonExecutionPayloadGloas::try_from(payload).map_err(|e| {
+                            (format!("invalid Gloas payload: {e:?}"), GENERIC_ERROR_CODE)
+                        })?;
+                    let mut json_block = serde_json::to_value(json_payload).unwrap();
+                    if let JsonValue::Object(fields) = &mut json_block {
+                        for (payload_field, block_field) in [
+                            ("feeRecipient", "miner"),
+                            ("prevRandao", "mixHash"),
+                            ("blockNumber", "number"),
+                            ("blockHash", "hash"),
+                        ] {
+                            if let Some(value) = fields.remove(payload_field) {
+                                fields.insert(block_field.to_owned(), value);
+                            }
+                        }
+                    }
+                    Ok(json_block)
+                }
+                _ => Ok(JsonValue::Null),
+            }
+        }
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
@@ -763,6 +795,33 @@ pub async fn handle_rpc<E: EthSpec>(
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2 => {
+            let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+
+            let mut response = vec![];
+            for block_hash in block_hashes {
+                let payload = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_payload_by_hash(block_hash);
+
+                match payload {
+                    Some(ExecutionPayload::Gloas(payload)) => {
+                        response.push(Some(JsonExecutionPayloadBodyV2::from(
+                            ExecutionPayloadBodyV2 {
+                                transactions: payload.transactions,
+                                withdrawals: payload.withdrawals,
+                                block_access_list: payload.block_access_list,
+                            },
+                        )));
+                    }
+                    _ => response.push(None),
                 }
             }
 

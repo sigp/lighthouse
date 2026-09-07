@@ -1215,6 +1215,100 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2 {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
+    pub block_access_list: BlockAccessList,
+}
+
+impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
+    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.into_iter().map(Into::into).collect(),
+            block_access_list: value.block_access_list,
+        }
+    }
+}
+
+impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
+    fn from(value: ExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.into_iter().map(Into::into).collect(),
+            block_access_list: value.block_access_list,
+        }
+    }
+}
+
+/// The execution header fields returned by `eth_getBlockByHash` that are required to
+/// reconstruct a Gloas execution payload. Unknown Ethereum block fields are ignored.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionBlockHeaderGloas<E: EthSpec> {
+    pub parent_hash: ExecutionBlockHash,
+    #[serde(
+        rename = "miner",
+        alias = "feeRecipient",
+        with = "serde_utils::address_hex"
+    )]
+    pub fee_recipient: Address,
+    pub state_root: Hash256,
+    pub receipts_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
+    #[serde(rename = "mixHash", alias = "prevRandao")]
+    pub prev_randao: Hash256,
+    #[serde(
+        rename = "number",
+        alias = "blockNumber",
+        with = "serde_utils::u64_hex_be"
+    )]
+    pub block_number: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
+    #[serde(with = "serde_utils::u256_hex_be")]
+    pub base_fee_per_gas: Uint256,
+    #[serde(rename = "hash", alias = "blockHash")]
+    pub block_hash: ExecutionBlockHash,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub blob_gas_used: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub excess_blob_gas: u64,
+}
+
+impl<E: EthSpec> From<JsonExecutionBlockHeaderGloas<E>> for ExecutionBlockHeaderGloas<E> {
+    fn from(value: JsonExecutionBlockHeaderGloas<E>) -> Self {
+        Self {
+            parent_hash: value.parent_hash,
+            fee_recipient: value.fee_recipient,
+            state_root: value.state_root,
+            receipts_root: value.receipts_root,
+            logs_bloom: value.logs_bloom,
+            prev_randao: value.prev_randao,
+            block_number: value.block_number,
+            gas_limit: value.gas_limit,
+            gas_used: value.gas_used,
+            timestamp: value.timestamp,
+            extra_data: value.extra_data,
+            base_fee_per_gas: value.base_fee_per_gas,
+            block_hash: value.block_hash,
+            blob_gas_used: value.blob_gas_used,
+            excess_blob_gas: value.excess_blob_gas,
+        }
+    }
+}
+
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
     type Error = ssz_types::Error;
 

@@ -29,6 +29,8 @@ pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
 
 pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
 pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
+pub const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
@@ -55,6 +57,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2: &str = "engine_getPayloadBodiesByHashV2";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -94,6 +97,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V2,
@@ -1204,6 +1208,52 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
+    pub async fn get_payload_bodies_by_hash_v2(
+        &self,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let params = json!([block_hashes]);
+
+        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|body| body.map(Into::into))
+            .collect())
+    }
+
+    pub async fn get_execution_block_header_gloas<E: EthSpec>(
+        &self,
+        block_hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionBlockHeaderGloas<E>>, Error> {
+        let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
+        let response: Option<JsonExecutionBlockHeaderGloas<E>> = self
+            .rpc_request(
+                ETH_GET_BLOCK_BY_HASH,
+                params,
+                ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        response
+            .map(|header| {
+                if header.block_hash != block_hash {
+                    return Err(Error::BadResponse(format!(
+                        "eth_getBlockByHash returned block {} for requested block {}",
+                        header.block_hash, block_hash
+                    )));
+                }
+                Ok(header.into())
+            })
+            .transpose()
+    }
+
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
         &self,
         start: u64,
@@ -1255,6 +1305,8 @@ impl HttpJsonRpc {
             forkchoice_updated_v4: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V4),
             get_payload_bodies_by_hash_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
+            get_payload_bodies_by_hash_v2: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2),
             get_payload_bodies_by_range_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
