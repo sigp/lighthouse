@@ -78,4 +78,10 @@ impl<E: EthSpec> LightClientStore<E> {
     pub fn verified_checkpoint_header(&self) -> &VerifiedFinalizedHeader<E> {
         &self.checkpoint_header
     }
+
+    /// Seed the next-period validation path before update processing is implemented.
+    #[cfg(test)]
+    pub(crate) fn set_next_sync_committee_for_test(&mut self, committee: Arc<SyncCommittee<E>>) {
+        self.next_sync_committee = Some(committee);
+    }
 }
