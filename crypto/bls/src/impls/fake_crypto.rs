@@ -106,15 +106,19 @@ fn aggregate_real_pubkeys(
 ) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
     use blst::min_pk as blst_core;
 
-    let points = pubkeys
+    let serialized = pubkeys
         .iter()
-        .map(|pubkey| blst_core::PublicKey::key_validate(&pubkey.serialize()))
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    let point_refs = points.iter().collect::<Vec<_>>();
+        .map(|pubkey| pubkey.serialize())
+        .collect::<Vec<_>>();
+    let refs = serialized
+        .iter()
+        .map(|bytes| bytes.as_slice())
+        .collect::<Vec<_>>();
 
-    // Public keys have been validated above.
-    blst_core::AggregatePublicKey::aggregate(&point_refs, false)
+    // Aggregate without the subgroup check, which costs ~4x the aggregation itself and proves
+    // nothing for a backend that verifies no signatures. Keys from `SecretKey::public_key` still
+    // fail to decode, which is what selects the infinity fallback.
+    blst_core::AggregatePublicKey::aggregate_serialized(&refs, false)
         .ok()
         .map(|aggregate| aggregate.to_public_key().compress())
 }
