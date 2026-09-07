@@ -1,8 +1,8 @@
+use crate::merkle::is_valid_normalized_merkle_branch;
 use crate::{
     LightClientStore, LightClientStoreSchema, LightClientSyncError, VerifiedFinalizedHeader,
     beacon_header, validate_light_client_header,
 };
-use merkle_proof::verify_merkle_proof;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
@@ -116,17 +116,8 @@ fn verify_current_sync_committee_proof(
     depth: usize,
     root: Hash256,
 ) -> Result<(), LightClientSyncError> {
-    let extra = branch
-        .len()
-        .checked_sub(depth)
-        .ok_or(LightClientSyncError::InvalidCurrentSyncCommitteeProof)?;
-    let (padding, proof) = branch
-        .split_at_checked(extra)
-        .ok_or(LightClientSyncError::InvalidCurrentSyncCommitteeProof)?;
     // Upgrading a pre-Electra branch adds zero padding at the start, not an extra tree level.
-    if padding.iter().any(|node| *node != Hash256::default())
-        || !verify_merkle_proof(leaf, proof, depth, index, root)
-    {
+    if !is_valid_normalized_merkle_branch(leaf, branch, index, depth, root) {
         return Err(LightClientSyncError::InvalidCurrentSyncCommitteeProof);
     }
     Ok(())

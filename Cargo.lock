@@ -2625,7 +2625,9 @@ checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 name = "decentralized_checkpoint_sync"
 version = "8.2.2"
 dependencies = [
+ "bls",
  "merkle_proof",
+ "safe_arith",
  "thiserror 2.0.17",
  "tree_hash",
  "types",
