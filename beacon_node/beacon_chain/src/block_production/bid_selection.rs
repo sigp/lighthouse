@@ -79,8 +79,9 @@ pub struct BidCandidate<E: EthSpec> {
     pub signed_bid: Arc<SignedExecutionPayloadBid<E>>,
     /// The proposer's boost multiplier for this candidate; `100` (neutral) for the local build.
     builder_boost_factor: u64,
-    /// The proposer's `min_bid` acceptance floor (gwei) for this candidate; `0` for the local build,
-    /// which is the proposer's own block and is never gated.
+    /// The proposer's `min_bid` acceptance floor (gwei) for this candidate. `0` for the local
+    /// build: the floor is a policy on builder payments, and the proposer's own block has none,
+    /// so it always ranks in the meets-floor tier.
     min_bid: u64,
     pub source: BidSource<E>,
 }
@@ -148,7 +149,9 @@ impl<E: EthSpec> BidCandidate<E> {
 
     /// The trusted value ranking is based on, in **wei**: the local EL block value, or a bid's
     /// `value + min(execution_payment, max_execution_payment)`. Untrusted payment above the cap is
-    /// excluded so it can't sway ranking.
+    /// excluded so it can't sway ranking. The sum is taken in the wei domain, where two gwei-sized
+    /// terms are far below `Uint256::MAX`, so it is exact (a u64 gwei sum could saturate under a
+    /// hostile `execution_payment` with the cap disabled).
     fn trusted_value(&self) -> Uint256 {
         let bid = &self.signed_bid.message;
         match &self.source {
@@ -157,10 +160,9 @@ impl<E: EthSpec> BidCandidate<E> {
             BidSource::Direct {
                 max_execution_payment,
                 ..
-            } => gwei_to_wei(
-                bid.value
-                    .saturating_add(bid.execution_payment.min(*max_execution_payment)),
-            ),
+            } => gwei_to_wei(bid.value).saturating_add(gwei_to_wei(
+                bid.execution_payment.min(*max_execution_payment),
+            )),
         }
     }
 
@@ -185,8 +187,8 @@ impl<E: EthSpec> BidCandidate<E> {
     }
 
     /// Whether the bid clears its `min_bid` floor: its trusted value is at least the floor. Untrusted
-    /// payment (excluded from the trusted value) can't be used to clear it. Local is never gated
-    /// (`min_bid` is `0`), so it always qualifies.
+    /// payment (excluded from the trusted value) can't be used to clear it. The local build's floor
+    /// is `0` (there is no builder payment to hold to a floor), so it always clears.
     fn meets_min_bid(&self) -> bool {
         self.trusted_value() >= gwei_to_wei(self.min_bid)
     }
@@ -402,6 +404,19 @@ mod tests {
         let win = select_payload_bid(vec![local(5, false), direct(2, 4, NEUTRAL_BOOST, NO_CLAMP)])
             .unwrap();
         assert_eq!(outcome(win), (DIRECT_BUILDER, false, gwei(6), "direct"));
+    }
+
+    #[test]
+    fn huge_payment_sums_exactly_in_wei() {
+        // A hostile builder can put `u64::MAX` in `execution_payment`; with the cap disabled the
+        // trusted value must be the exact wei sum, not a saturated u64 gwei sum (which would
+        // collapse to `gwei(u64::MAX)` and erase `value`).
+        let candidate = direct(5, u64::MAX, NEUTRAL_BOOST, NO_CLAMP);
+        assert_eq!(
+            candidate.trusted_value(),
+            gwei(5).saturating_add(gwei(u64::MAX))
+        );
+        assert!(candidate.trusted_value() > gwei(u64::MAX));
     }
 
     #[test]

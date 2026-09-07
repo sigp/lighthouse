@@ -249,7 +249,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(state.latest_block_header().slot)
             .gloas_enabled();
-        let parent_block_hash = if should_build_on_full || parent_is_pre_gloas {
+        // The payload-chain parent: the latest *executed* ancestor's payload hash — the parent
+        // block's own payload when building on FULL, otherwise the payload the parent built on.
+        // Distinct from the beacon-chain parent (`parent_root`); on the wire this becomes the
+        // bid's `parent_block_hash` and the builder request's `parent_hash` path parameter.
+        let executed_ancestor_hash = if should_build_on_full || parent_is_pre_gloas {
             parent_bid.block_hash
         } else {
             parent_bid.parent_block_hash
@@ -261,7 +265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .pubkey;
         let ctx = BidRequestContext {
             slot: produce_at_slot,
-            parent_hash: parent_block_hash,
+            executed_ancestor_hash,
             parent_root,
             proposer_pubkey,
             fork_name: self.spec.fork_name_at_slot::<T::EthSpec>(produce_at_slot),
@@ -295,7 +299,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             produce_at_slot,
             BID_VALUE_SELF_BUILD,
             BUILDER_INDEX_SELF_BUILD,
-            parent_block_hash,
+            executed_ancestor_hash,
         );
         let (mut candidates, local_result) = tokio::join!(acquire_fut, local_fut);
 
@@ -372,7 +376,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
 
         // Ensure the state has performed a complete transition into the required slot.
-        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
+        complete_state_advance(
+            &mut state,
+            state_root_opt,
+            produce_at_slot,
+            self.builder_onboarding_cache.as_deref(),
+            &self.spec,
+        )?;
 
         drop(slot_timer);
 
@@ -887,7 +897,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
-        parent_block_hash: ExecutionBlockHash,
+        executed_ancestor_hash: ExecutionBlockHash,
     ) -> Result<
         (
             SignedExecutionPayloadBid<T::EthSpec>,
@@ -930,7 +940,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.clone(),
             state,
             parent_root,
-            parent_block_hash,
+            executed_ancestor_hash,
             parent_envelope,
             proposer_index,
             builder_params,
@@ -953,7 +963,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
-            parent_block_hash,
+            parent_block_hash: executed_ancestor_hash,
             parent_block_root: parent_root,
             block_hash: payload.block_hash,
             prev_randao: payload.prev_randao,
@@ -1038,7 +1048,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
             ctx.slot,
             BidParent {
-                parent_block_hash: ctx.parent_hash,
+                parent_block_hash: ctx.executed_ancestor_hash,
                 parent_block_root: ctx.parent_root,
             },
         ) {
@@ -1090,7 +1100,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let slot = ctx.slot;
-        let parent_hash = ctx.parent_hash;
+        let executed_ancestor_hash = ctx.executed_ancestor_hash;
         let parent_root = ctx.parent_root;
 
         // Clone the production state once and share it across the concurrent per-builder
@@ -1102,6 +1112,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let spec = self.spec.clone();
         let proposer_preferences = Arc::new(proposer_preferences.clone());
         let executor = self.task_executor.clone();
+        // The gas limit a direct bid must adjust from is that of the execution payload at the
+        // selected parent, which is the right baseline under either a FULL or EMPTY parent view.
+        // Unknown means we can't validate any direct bid for this parent; each is then skipped.
+        let executed_ancestor_gas_limit = self
+            .observed_execution_payloads
+            .get_gas_limit(executed_ancestor_hash);
 
         // Fan `getExecutionPayloadBid` out to the configured builders, validating each returned bid
         // against the production state, then turn each valid bid into a `Direct` selection candidate.
@@ -1122,11 +1138,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         executor
                             .spawn_blocking_handle(
                                 move || {
+                                    let Some(executed_ancestor_gas_limit) =
+                                        executed_ancestor_gas_limit
+                                    else {
+                                        return Err(
+                                            PayloadBidError::ParentExecutionPayloadUnknown {
+                                                parent_block_hash: executed_ancestor_hash,
+                                            },
+                                        );
+                                    };
                                     verify_direct_bid(
                                         &signed_bid,
                                         slot,
-                                        parent_hash,
+                                        executed_ancestor_hash,
                                         parent_root,
+                                        executed_ancestor_gas_limit,
                                         &expected_builder_pubkeys,
                                         &proposer_preferences,
                                         &state,

@@ -27,13 +27,18 @@ use types::{
 ///
 /// `state` must be the beacon state the block is being produced against — the parent block's
 /// post-state advanced to `proposal_slot` — and `parent_block_hash` / `parent_block_root` the
-/// FULL/EMPTY parent the producer selected.
+/// FULL/EMPTY parent the producer selected — `executed_ancestor_hash` is that choice's payload
+/// hash (the parent's payload if FULL, else the payload the parent built on), and
+/// `executed_ancestor_gas_limit` is its gas limit (from `ObservedExecutionPayloads`), the right
+/// baseline under either view — after an empty parent, the state's latest bid is unexecuted and
+/// its gas limit is not the one the bid must adjust from.
 #[allow(clippy::too_many_arguments)]
 pub fn verify_direct_bid<E: EthSpec>(
     signed_bid: &SignedExecutionPayloadBid<E>,
     proposal_slot: Slot,
-    parent_block_hash: ExecutionBlockHash,
+    executed_ancestor_hash: ExecutionBlockHash,
     parent_block_root: Hash256,
+    executed_ancestor_gas_limit: u64,
     expected_builder_pubkeys: &BuilderPubkeys,
     proposer_preferences: &SignedProposerPreferences,
     state: &BeaconState<E>,
@@ -46,11 +51,11 @@ pub fn verify_direct_bid<E: EthSpec>(
         return Err(PayloadBidError::InvalidBidSlot { bid_slot: bid.slot });
     }
 
-    // The bid must build on the same parent the producer selected (FULL or EMPTY).
-    if bid.parent_block_hash != parent_block_hash {
+    // The bid must build on the executed ancestor the producer selected (FULL or EMPTY view).
+    if bid.parent_block_hash != executed_ancestor_hash {
         return Err(PayloadBidError::InvalidParentBlockHash {
             bid: bid.parent_block_hash,
-            expected: parent_block_hash,
+            expected: executed_ancestor_hash,
         });
     }
     if bid.parent_block_root != parent_block_root {
@@ -66,14 +71,12 @@ pub fn verify_direct_bid<E: EthSpec>(
         return Err(PayloadBidError::InvalidPrevRandao { slot: bid.slot });
     }
 
-    // The gas limit must be compatible with the parent's, given the proposer's target.
-    if let Ok(parent_bid) = state.latest_execution_payload_bid()
-        && !is_gas_limit_target_compatible(
-            parent_bid.gas_limit,
-            bid.gas_limit,
-            proposer_preferences.message.target_gas_limit,
-        )?
-    {
+    // The gas limit must be compatible with the parent payload's, given the proposer's target.
+    if !is_gas_limit_target_compatible(
+        executed_ancestor_gas_limit,
+        bid.gas_limit,
+        proposer_preferences.message.target_gas_limit,
+    )? {
         return Err(PayloadBidError::InvalidGasLimit);
     }
 
@@ -120,6 +123,9 @@ mod tests {
     use types::{Address, ExecutionPayloadBid, MinimalEthSpec, ProposerPreferences};
 
     type E = MinimalEthSpec;
+
+    /// Gas limit of the executed ancestor's payload; equal to the proposer's target in `preferences()`.
+    const EXECUTED_ANCESTOR_GAS_LIMIT: u64 = 30_000_000;
 
     fn state_and_spec() -> (BeaconState<E>, ChainSpec) {
         let spec = E::default_spec();
@@ -170,6 +176,7 @@ mod tests {
             Slot::new(1),
             ExecutionBlockHash::zero(),
             Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
             &BuilderPubkeys::default(),
             &preferences(),
             &state,
@@ -182,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_parent_hash() {
+    fn rejects_wrong_executed_ancestor_hash() {
         let (state, spec) = state_and_spec();
         let bid = signed_bid(
             Slot::new(1),
@@ -195,6 +202,7 @@ mod tests {
             Slot::new(1),
             ExecutionBlockHash::zero(),
             Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
             &BuilderPubkeys::default(),
             &preferences(),
             &state,
@@ -220,6 +228,7 @@ mod tests {
             Slot::new(1),
             ExecutionBlockHash::zero(),
             Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
             &BuilderPubkeys::default(),
             &preferences(),
             &state,
@@ -246,6 +255,7 @@ mod tests {
             Slot::new(1),
             ExecutionBlockHash::zero(),
             Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
             &BuilderPubkeys::default(),
             &preferences(),
             &state,
@@ -255,5 +265,60 @@ mod tests {
             result,
             Err(PayloadBidError::InvalidPrevRandao { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_gas_limit_incompatible_with_parent() {
+        let (state, spec) = state_and_spec();
+        // Passes the slot, parent and RANDAO checks (a fresh state's mix is zero), then asks for
+        // double the parent's gas limit — far outside the per-block adjustment bound.
+        let mut bid = signed_bid(
+            Slot::new(1),
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            Hash256::ZERO,
+        );
+        bid.message.gas_limit = EXECUTED_ANCESTOR_GAS_LIMIT * 2;
+        let result = verify_direct_bid(
+            &bid,
+            Slot::new(1),
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
+            &BuilderPubkeys::default(),
+            &preferences(),
+            &state,
+            &spec,
+        );
+        assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
+    }
+
+    #[test]
+    fn compatible_gas_limit_passes_the_gas_check() {
+        let (state, spec) = state_and_spec();
+        // Same as above but holding the parent's gas limit, which is always compatible: the bid
+        // must get past the gas check and fail later, on the fresh state's missing builder.
+        let mut bid = signed_bid(
+            Slot::new(1),
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            Hash256::ZERO,
+        );
+        bid.message.gas_limit = EXECUTED_ANCESTOR_GAS_LIMIT;
+        let result = verify_direct_bid(
+            &bid,
+            Slot::new(1),
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
+            &BuilderPubkeys::default(),
+            &preferences(),
+            &state,
+            &spec,
+        );
+        assert!(
+            matches!(result, Err(PayloadBidError::InvalidBuilder { .. })),
+            "expected to fail after the gas check, got {result:?}"
+        );
     }
 }

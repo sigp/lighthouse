@@ -85,9 +85,10 @@ use state_processing::per_block_processing::{
     process_operations::verify_operation_list_lengths, verify_execution_request_list_lengths,
 };
 use state_processing::{
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
+    GloasVerificationContext, SlotProcessingError, VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
+    builder_deposits_cache::OnboardBuildersCache,
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
 };
@@ -652,6 +653,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &mut parent.pre_state,
         parent.beacon_state_root,
         highest_slot,
+        chain.builder_onboarding_cache.as_deref(),
         &chain.spec,
     )?;
 
@@ -1159,6 +1161,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1230,6 +1233,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1586,7 +1590,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state_root
             };
 
-            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
+            if let Some(summary) = per_slot_processing(
+                &mut state,
+                Some(state_root),
+                GloasVerificationContext::from_cache(chain.builder_onboarding_cache.as_deref()),
+                &chain.spec,
+            )? {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(
@@ -2119,6 +2128,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     block_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<Cow<'a, BeaconState<E>>, Err> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
@@ -2138,8 +2148,14 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 
         // Advance the state into the same epoch as the block. Use the "partial" method since state
         // roots are not important for proposer/attester shuffling.
-        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(BeaconChainError::from)?;
+        partial_state_advance(
+            &mut state,
+            state_root_opt,
+            target_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)?;
 
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;

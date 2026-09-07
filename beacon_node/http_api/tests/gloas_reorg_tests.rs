@@ -715,7 +715,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .withdrawals()
         .to_vec();
-    complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
+    complete_state_advance(&mut state_b, None, slot_c, None, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
@@ -836,7 +836,7 @@ pub async fn proposer_boost_re_org_test(
     // by the path that produced the matching fcU.
     let parent_state_advanced = if should_re_org {
         let mut state = state_a.clone();
-        complete_state_advance(&mut state, None, slot_c, &harness.chain.spec).unwrap();
+        complete_state_advance(&mut state, None, slot_c, None, &harness.chain.spec).unwrap();
         state
     } else {
         state_b.clone()
