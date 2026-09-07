@@ -2239,6 +2239,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
     async fn get_gloas_payload_bodies_v2() {
         let runtime = TestRuntime::default();
         let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
