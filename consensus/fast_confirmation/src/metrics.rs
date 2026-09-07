@@ -62,8 +62,7 @@ pub(crate) static FAST_CONFIRMATION_FALLBACK_REASONS: LazyLock<Result<IntCounter
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_fast_confirmation_fallback_reasons_total",
-            "Breakdown of `beacon_fast_confirmation_fallbacks_total` by reason. Kept separate because \
-         the standardised metric is specified without labels",
+            "Breakdown of `beacon_fast_confirmation_fallbacks_total` by reason",
             &["reason"],
         )
     });
