@@ -8,7 +8,9 @@ mod bootstrap;
 mod error;
 mod fork;
 mod header;
+mod merkle;
 mod store;
+mod update;
 mod verified;
 
 pub use bootstrap::initialize_light_client_store;
@@ -16,4 +18,5 @@ pub use error::LightClientSyncError;
 pub use fork::LightClientStoreSchema;
 pub use header::{beacon_header, validate_light_client_header};
 pub use store::LightClientStore;
+pub use update::{ValidatedLightClientUpdate, validate_light_client_update};
 pub use verified::VerifiedFinalizedHeader;

@@ -64,6 +64,23 @@ pub fn validate_light_client_header<E: EthSpec>(
     }
 }
 
+/// A supported update can finalize a historical Phase0 block after Altair activation.
+/// Its upgraded execution fields must still be empty. Bootstrap/attested headers retain their
+/// stricter supported-fork requirement. The default genesis sentinel is handled by the caller.
+pub(crate) fn validate_finalized_light_client_header<E: EthSpec>(
+    header: &LightClientHeader<E>,
+    data_fork: ForkName,
+    spec: &ChainSpec,
+) -> Result<(), LightClientSyncError> {
+    if spec.fork_name_at_slot::<E>(beacon_header(header).slot) == ForkName::Base {
+        LightClientStoreSchema::try_from(data_fork)?;
+        ensure_header_variant(header, data_fork)?;
+        validate_pre_capella_header(header)
+    } else {
+        validate_light_client_header(header, data_fork, spec)
+    }
+}
+
 fn ensure_header_variant<E: EthSpec>(
     header: &LightClientHeader<E>,
     data_fork: ForkName,
