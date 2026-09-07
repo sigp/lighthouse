@@ -1227,7 +1227,7 @@ pub struct JsonExecutionPayloadBodyV2 {
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
     pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub block_access_list: Option<JsonBlockAccessList>,
 }
 
@@ -1710,23 +1710,28 @@ mod tests {
         );
         assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
 
-        // Explicit `null` -> `None`, omitted on re-serialize.
+        // Explicit `null` -> `None`, retained as `null` on re-serialize.
         let null_bal = json!({
             "transactions": [],
             "withdrawals": null,
             "blockAccessList": null,
         });
-        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal).unwrap();
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
         let internal: ExecutionPayloadBodyV2 = body.clone().into();
         assert_eq!(internal.block_access_list, None);
-        assert_eq!(
-            serde_json::to_value(&body).unwrap(),
-            json!({ "transactions": [], "withdrawals": null })
-        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
 
-        // Omitted -> `None`.
+        // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
         let body: JsonExecutionPayloadBodyV2 =
             serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
         assert!(body.block_access_list.is_none());
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({
+                "transactions": [],
+                "withdrawals": null,
+                "blockAccessList": null,
+            })
+        );
     }
 }

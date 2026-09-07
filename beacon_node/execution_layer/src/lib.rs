@@ -2247,6 +2247,16 @@ mod test {
         let payload = ExecutionPayloadGloas {
             block_hash,
             block_number,
+            transactions: ProgressiveTransactions::new(vec![
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
+            ]),
+            withdrawals: types::ProgressiveWithdrawals::new(vec![Withdrawal {
+                index: 1,
+                validator_index: 2,
+                address: Address::from([0x33; 20]),
+                amount: 3,
+            }]),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]),
             ..Default::default()
         };
         let expected_body = ExecutionPayloadBodyV2 {
