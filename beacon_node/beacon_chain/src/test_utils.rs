@@ -1293,6 +1293,7 @@ where
                 None
             };
 
+            let state_root = state.update_tree_hash_cache().unwrap();
             let (
                 block,
                 post_block_state,
@@ -1304,7 +1305,7 @@ where
                 .chain
                 .produce_block_on_state_gloas(
                     state,
-                    None,
+                    state_root,
                     parent_payload_status,
                     parent_envelope,
                     slot,

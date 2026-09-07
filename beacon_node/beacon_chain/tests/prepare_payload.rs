@@ -831,11 +831,12 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
+    let state_root = state.update_tree_hash_cache().unwrap();
     let (block, _post_state, _value, _payload_value, _payload_contents, _builder_url) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
-            None,
+            state_root,
             parent_payload_status,
             parent_envelope,
             slot,
