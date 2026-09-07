@@ -4268,19 +4268,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(
                 PayloadBidError::NoProposerPreferences { .. }
+                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentExecutionPayloadUnknown { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
-                | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
                 | PayloadBidError::UnableToReadSlot,
             ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            // These variants are direct-only (see their docs) and are matched here only because
+            // `PayloadBidError` is shared. Reaching this arm is a wiring bug: log it, and ignore
+            // rather than penalize the peer.
+            Err(
+                PayloadBidError::InvalidParentBlockHash { .. }
+                | PayloadBidError::InvalidParentBlockRoot { .. }
+                | PayloadBidError::UnexpectedBuilder { .. },
+            ) => {
+                error!("Direct-bid validation error from gossip payload bid verification");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }
