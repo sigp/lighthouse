@@ -90,9 +90,40 @@ impl TAggregatePublicKey<PublicKey> for AggregatePublicKey {
         GenericPublicKey::from_point(PublicKey(self.0))
     }
 
-    fn aggregate(_pubkeys: &[GenericPublicKey<PublicKey>]) -> Result<Self, Error> {
-        Ok(Self(INFINITY_PUBLIC_KEY))
+    /// The state commits to this via `SyncCommittee::aggregate_pubkey`, and the spec vectors
+    /// aggregate for real even with signatures stubbed out, so faking it breaks state roots.
+    /// Keys from `SecretKey::public_key` are not curve points, hence the infinity fallback.
+    fn aggregate(pubkeys: &[GenericPublicKey<PublicKey>]) -> Result<Self, Error> {
+        Ok(Self(
+            aggregate_real_pubkeys(pubkeys).unwrap_or(INFINITY_PUBLIC_KEY),
+        ))
     }
+}
+
+#[cfg(feature = "supranational")]
+fn aggregate_real_pubkeys(
+    pubkeys: &[GenericPublicKey<PublicKey>],
+) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+    use blst::min_pk as blst_core;
+
+    let points = pubkeys
+        .iter()
+        .map(|pubkey| blst_core::PublicKey::key_validate(&pubkey.serialize()))
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let point_refs = points.iter().collect::<Vec<_>>();
+
+    // Public keys have been validated above.
+    blst_core::AggregatePublicKey::aggregate(&point_refs, false)
+        .ok()
+        .map(|aggregate| aggregate.to_public_key().compress())
+}
+
+#[cfg(not(feature = "supranational"))]
+fn aggregate_real_pubkeys(
+    _pubkeys: &[GenericPublicKey<PublicKey>],
+) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+    None
 }
 
 impl Eq for AggregatePublicKey {}
