@@ -129,7 +129,7 @@ impl BuilderHttpClient {
         &self,
         builder_url: &SensitiveUrl,
         slot: Slot,
-        parent_hash: ExecutionBlockHash,
+        executed_ancestor_hash: ExecutionBlockHash,
         parent_root: Hash256,
         proposer_pubkey: &PublicKeyBytes,
         signed_request_auth: &SignedRequestAuth,
@@ -144,7 +144,8 @@ impl BuilderHttpClient {
             .push("builder")
             .push("execution_payload_bid")
             .push(slot.to_string().as_str())
-            .push(format!("{parent_hash:?}").as_str())
+            // The spec names this path parameter `parent_hash`.
+            .push(format!("{executed_ancestor_hash:?}").as_str())
             .push(format!("{parent_root:?}").as_str())
             .push(proposer_pubkey.as_hex_string().as_str());
 

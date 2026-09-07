@@ -27,7 +27,7 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
+    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -178,6 +178,11 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /// execution requests with the generated payload ID.
     next_execution_requests: Option<ExecutionRequests<E>>,
     generate_blobs: bool,
+    /*
+     * Inclusion lists (heze+)
+     */
+    /// The transactions returned by `getInclusionList`.
+    inclusion_list: ProgressiveTransactions,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -221,6 +226,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             execution_requests: <_>::default(),
             next_execution_requests: None,
             generate_blobs: true,
+            inclusion_list: <_>::default(),
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -487,6 +493,16 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     /// Set execution requests to be returned alongside the next generated payload.
     pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
         self.next_execution_requests = Some(requests);
+    }
+
+    /// Return the configured inclusion list transactions
+    pub fn get_inclusion_list(&self) -> ProgressiveTransactions {
+        self.inclusion_list.clone()
+    }
+
+    /// Set the transactions returned by `getInclusionList`.
+    pub fn set_inclusion_list(&mut self, transactions: ProgressiveTransactions) {
+        self.inclusion_list = transactions;
     }
 
     /// Look up a blob and proof by versioned hash across all stored bundles.

@@ -1,13 +1,11 @@
 use super::*;
 use crate::VerifySignatures;
-use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signature_cached};
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -1048,23 +1046,6 @@ fn process_builder_exit_request<E: EthSpec>(
     initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
-}
-
-/// Check if there is a pending deposit for a new validator with the given pubkey.
-///
-/// Signature verification results are looked up in the `builder_onboarding_cache` when one is
-/// provided, so only cache misses pay for BLS verification. The linear scan over
-/// `pending_deposits` remains, but only performs pubkey comparisons for non-matching entries.
-pub fn is_pending_validator<'a>(
-    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
-    pubkey: &PublicKeyBytes,
-    builder_onboarding_cache: Option<&OnboardBuildersCache>,
-    spec: &ChainSpec,
-) -> bool {
-    pending_deposits.into_iter().any(|deposit| {
-        deposit.pubkey == *pubkey
-            && is_valid_deposit_signature_cached(builder_onboarding_cache, deposit, spec)
-    })
 }
 
 // Make sure to build the pubkey cache before calling this function
