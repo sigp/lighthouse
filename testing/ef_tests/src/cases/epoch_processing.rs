@@ -452,31 +452,19 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
 
         if let Some(pre_epoch_state) = &self.pre_epoch {
-            // fake_crypto aggregates pubkeys to INFINITY_PUBLIC_KEY, so a transition that rotates
-            // the sync committee can't reproduce `post_epoch`. Covered by the blst run.
-            let rotates_sync_committee = pre_epoch_state.fork_name_unchecked().altair_enabled()
-                && pre_epoch_state.next_epoch().unwrap().as_u64()
-                    % spec.epochs_per_sync_committee_period.as_u64()
-                    == 0;
+            let mut pre_epoch_state = pre_epoch_state.clone();
+            // No `post_epoch` means the spec expects the transition to abort (the `invalid_*` cases).
+            let mut expected_post_epoch_state = self.post_epoch.clone();
 
-            let skip_full_epoch_transition =
-                cfg!(feature = "fake_crypto") && rotates_sync_committee;
+            // Proposer index computation (e.g. proposer lookahead) requires the slashings cache post-Gloas
+            pre_epoch_state.build_slashings_cache().unwrap();
 
-            if !skip_full_epoch_transition {
-                let mut pre_epoch_state = pre_epoch_state.clone();
-                // No `post_epoch` means the spec expects the transition to abort (the `invalid_*` cases).
-                let mut expected_post_epoch_state = self.post_epoch.clone();
-
-                // Proposer index computation (e.g. proposer lookahead) requires the slashings cache post-Gloas
-                pre_epoch_state.build_slashings_cache().unwrap();
-
-                let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
-                compare_beacon_state_results_without_caches(
-                    &mut result,
-                    &mut expected_post_epoch_state,
-                )
-                .map_err(|e| Error::NotEqual(format!("full epoch transition: {e:?}")))?;
-            }
+            let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
+            compare_beacon_state_results_without_caches(
+                &mut result,
+                &mut expected_post_epoch_state,
+            )
+            .map_err(|e| Error::NotEqual(format!("full epoch transition: {e:?}")))?;
         }
 
         Ok(())

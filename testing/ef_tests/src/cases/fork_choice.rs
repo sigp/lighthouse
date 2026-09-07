@@ -406,13 +406,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // These cases run past a sync committee period boundary. The vectors contain a real
-        // `next_sync_committee.aggregate_pubkey`, but `fake_crypto` aggregation returns the
-        // infinity pubkey, so the state roots cannot match.
-        const IGNORED_FAST_CONFIRMATION_CASES: &[&str] = &[
-            "is_one_confirmed_passes_with_new_validator_activated_in_head_state",
-            "is_one_confirmed_fails_recently_activated_validator_voting_in_empty_slot",
-        ];
         // Lighthouse permits epoch-boundary proposer re-orgs on all forks. The proposer lookahead
         // introduced in Fulu makes this consistent with the specification from Fulu onward.
         // See: https://github.com/ethereum/consensus-specs/pull/5547
@@ -424,9 +417,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             "on_block_parent_full_accepts_verified_payload",
         ];
 
-        if IGNORED_FAST_CONFIRMATION_CASES.contains(&self.description.as_str())
-            || (!fork_name.fulu_enabled()
-                && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
+        if (!fork_name.fulu_enabled()
+            && IGNORED_PRE_FULU_CASES.contains(&self.description.as_str()))
             || (fork_name == ForkName::Gloas
                 && IGNORED_STALE_GLOAS_CASES.contains(&self.description.as_str()))
         {
