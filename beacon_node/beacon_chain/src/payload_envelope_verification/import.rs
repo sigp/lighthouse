@@ -7,7 +7,10 @@ use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use types::{
+    BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope,
+};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
@@ -70,6 +73,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_REQUESTS);
 
+        // Take the bid from the block we already hold. The cache can evict its entry before
+        // execution finishes, and this path must not block on a store read.
+        let bid = Arc::new(
+            unverified_envelope
+                .block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(BeaconChainError::BeaconStateError)?
+                .clone(),
+        );
+
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_envelope = async move {
@@ -101,7 +116,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .set_time_executed(block_root, block_slot, timestamp);
             }
 
-            self.check_envelope_availability_and_import(executed_envelope)
+            self.check_envelope_availability_and_import(executed_envelope, bid)
                 .await
         };
 
@@ -141,11 +156,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = envelope.envelope.slot();
         let availability = self
             .pending_payload_cache
-            .put_executed_payload_envelope(envelope)?;
+            .put_executed_payload_envelope(envelope, &bid)?;
         self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
     }

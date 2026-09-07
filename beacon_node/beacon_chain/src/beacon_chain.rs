@@ -27,7 +27,8 @@ use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
     KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
-    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
+    PartialColumnVerificationResult, load_gloas_payload_bid,
+    validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
@@ -3498,9 +3499,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
                 // Gloas: merge directly into the pending payload cache.
+                let bid = self.load_payload_bid_for_cache(block_root).await?;
                 let (availability, merge_result) = self
                     .pending_payload_cache
-                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .merge_partial_data_columns(block_root, &[verified_partial], &bid)
                     .map_err(BlockError::from)?;
                 (merge_result, Some(availability))
             }
@@ -3740,10 +3742,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if is_gloas {
             let pending_payload_cache = self.pending_payload_cache.clone();
+            let bid = self.load_payload_bid_for_cache(block_root).await?;
             let result = self
                 .task_executor
                 .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                    pending_payload_cache.reconstruct_data_columns(&block_root)
+                    pending_payload_cache.reconstruct_data_columns(&block_root, &bid)
                 })
                 .await
                 .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
@@ -4050,6 +4053,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
+    /// Resolve the payload bid for `block_root` on an async path.
+    ///
+    /// The store read is blocking, so it runs on a blocking thread, and only on a cache miss.
+    async fn load_payload_bid_for_cache(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<Arc<SignedExecutionPayloadBid<T::EthSpec>>, BlockError> {
+        if let Some(bid) = self.pending_payload_cache.get_bid(&block_root) {
+            return Ok(bid);
+        }
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || load_gloas_payload_bid(block_root, &chain),
+            "pending_payload_cache_bid_load",
+        )
+        .await??
+        .ok_or_else(|| BlockError::InternalError(format!("no block for {block_root}")))
+    }
+
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the data column in the data availability checker.
     /// Check gossip data columns for availability and import. Only accepts full columns.
@@ -4076,9 +4098,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_payload_bid_for_cache(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_gossip_verified_data_columns(block_root, data_columns)?;
+                .put_gossip_verified_data_columns(block_root, data_columns, &bid)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, publish_fn)
                 .await?)
@@ -4164,9 +4187,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_payload_bid_for_cache(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_kzg_verified_custody_data_columns(block_root, &engine_get_blobs_output)
+                .put_kzg_verified_custody_data_columns(block_root, &engine_get_blobs_output, &bid)
                 .map_err(BlockError::from)?;
             self.process_payload_envelope_availability(slot, availability, || Ok(()))
                 .await
@@ -4202,9 +4226,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.load_payload_bid_for_cache(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, custody_columns)
+                .put_rpc_custody_columns(block_root, custody_columns, &bid)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))
@@ -4226,9 +4251,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_proof: GossipVerifiedExecutionProof,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
+        let bid = self
+            .load_payload_bid_for_cache(proof.beacon_block_root())
+            .await?;
         let availability = self
             .pending_payload_cache
-            .put_execution_proof(proof)
+            .put_execution_proof(proof, &bid)
             .map_err(BlockError::from)?;
         self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
             .await
