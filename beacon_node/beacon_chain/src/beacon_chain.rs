@@ -37,6 +37,7 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
+use crate::inclusion_list_verification::verify_inclusion_list_transactions_bounds;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -1974,7 +1975,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if the `request_slot` is too far behind the head state.
-    #[instrument(name = "lh_produce_unaggregated_attestation", skip_all, fields(%request_slot, %request_index), level = "debug")]
+    #[instrument(name = "lh_produce_unaggregated_attestation", skip_all, fields(%request_slot, %request_index
+    ), level = "debug")]
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -2251,8 +2253,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Produce the inclusion list transactions for `request_slot`.
     ///
-    /// The transactions are requested from the execution layer via
-    /// `getInclusionListV1`, built on top of the current head.
+    /// The transactions are requested from the execution layer via `getInclusionListV1`.
+    /// An empty list is a valid answer (nothing to include) and is returned as such,
+    /// a list that violates the spec's bounds is an execution layer fault and is rejected
     pub async fn produce_inclusion_list(
         &self,
         request_slot: Slot,
@@ -2268,10 +2271,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
-        execution_layer
+        let inclusion_list_transactions = execution_layer
             .get_inclusion_list_v1()
             .await
-            .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))
+            .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
+
+        verify_inclusion_list_transactions_bounds(&inclusion_list_transactions, &self.spec)
+            .inspect_err(|e| {
+                warn!(
+                    error = ?e,
+                    %request_slot,
+                    "Execution layer returned an invalid inclusion list"
+                )
+            })
+            .map_err(Error::InvalidInclusionListFromExecutionLayer)?;
+
+        Ok(inclusion_list_transactions)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
