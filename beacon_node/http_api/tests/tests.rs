@@ -6014,7 +6014,7 @@ impl ApiTester {
         // The endpoint should return a 400 error for pre-Heze forks.
         match self.client.get_validator_inclusion_list(slot).await {
             Ok(result) => panic!("query for a pre-Heze slot should fail, got: {result:?}"),
-            Err(e) => assert_eq!(e.status().unwrap(), 400),
+            Err(e) => assert_eq!(e.status(), Some(StatusCode::BAD_REQUEST)),
         }
 
         self
@@ -10085,12 +10085,6 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
         .await;
 }
 
-// TODO(heze): add IL fetching tests for:
-// - happy-path
-// - bad-slot
-// - EL call failure
-//
-// The above tests should be added once the harness supports building a Heze chain.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_inclusion_list_pre_heze() {
     if fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
