@@ -1097,45 +1097,17 @@ impl ProtoArray {
         /*
          * Step 2:
          *
-         * Collect `Pn` and all its descendants, except those on `Pn`'s `EMPTY` edge: `Pn` is
-         * the one node invalid without an invalid payload in its own state lineage, so a
-         * descendant that skipped its payload stays viable. Every other collected parent
+         * Invalidate `Pn` and all its descendants, walking the children index. The only
+         * exception: descendants on `Pn`'s `EMPTY` edge stay viable — `Pn` is the one node
+         * invalid without an invalid payload in its own state lineage. Every deeper parent
          * poisons its descendants whichever edge they took, and a `PreGloas` edge never
          * escapes: that parent carries its payload inside the block.
          */
 
-        let mut invalidated_indices: HashSet<usize> = <_>::default();
-        invalidated_indices.insert(deepest_executed_index);
+        // Each node has one parent, so it sits in exactly one children list: the walk visits
+        // every condemned node exactly once with no bookkeeping.
         let mut to_invalidate: Vec<usize> = vec![deepest_executed_index];
-        // Insertion order is parent-before-child, so one forward pass reaches every descendant.
-        for index in deepest_executed_index + 1..self.nodes.len() {
-            let node = self
-                .nodes
-                .get(index)
-                .ok_or(Error::InvalidNodeIndex(index))?;
-            let Some(parent_index) = node.parent() else {
-                continue;
-            };
-            if !invalidated_indices.contains(&parent_index) {
-                continue;
-            }
-            if parent_index == deepest_executed_index
-                && let ProtoNode::V29(gloas_node) = node
-                && gloas_node.parent_payload_status == ParentPayloadStatus::Empty
-            {
-                continue;
-            }
-            invalidated_indices.insert(index);
-            to_invalidate.push(index);
-        }
-
-        /*
-         * Step 3:
-         *
-         * Invalidate all of them.
-         */
-
-        for index in to_invalidate {
+        while let Some(index) = to_invalidate.pop() {
             let node = self
                 .nodes
                 .get_mut(index)
@@ -1168,6 +1140,30 @@ impl ProtoArray {
                         }
                     }
                 }
+            }
+
+            for &child_index in self
+                .children
+                .get(index)
+                .ok_or(Error::InvalidNodeIndex(index))?
+            {
+                let child = self
+                    .nodes
+                    .get(child_index)
+                    .ok_or(Error::InvalidNodeIndex(child_index))?;
+
+                // deepest_executed_index is the oldest ancestor INVALID. We know
+                // parent(deepest_executed_index) is VALID. So EMPTY childs of
+                // deepest_executed_index are descendant of the VALID parent.
+                if index == deepest_executed_index {
+                    match child.get_parent_payload_status() {
+                        ParentPayloadStatus::Empty => continue,
+                        // `Full` executed the invalid payload; a `PreGloas` edge carries the
+                        // parent's payload inside the block.
+                        ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {}
+                    }
+                }
+                to_invalidate.push(child_index);
             }
         }
 
