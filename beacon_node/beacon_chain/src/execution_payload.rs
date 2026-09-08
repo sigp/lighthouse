@@ -238,7 +238,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             // Parent has valid or optimistic execution status.
             ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // Pre-merge blocks have irrelevant execution status.
-            ExecutionStatus::Irrelevant(_) => false,
+            // A pre-Gloas block cannot have a Gloas parent, so `NotYetRevealed` is unreachable.
+            ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => false,
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
             ExecutionStatus::Invalid(_) => {

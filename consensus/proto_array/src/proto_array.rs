@@ -662,8 +662,7 @@ impl ProtoArray {
                 full_payload_weight: 0,
                 execution_payload_block_hash,
                 execution_payload_parent_hash,
-                // The payload is revealed later, in an envelope.
-                execution_status: ExecutionStatus::Irrelevant(false),
+                execution_status: ExecutionStatus::NotYetRevealed(execution_payload_block_hash),
                 payload_timeliness_votes: BitVector::default(),
                 payload_data_availability_votes: BitVector::default(),
                 ptc_participation: BitVector::default(),
@@ -1121,24 +1120,19 @@ impl ProtoArray {
                         payload_block_hash: hash,
                     });
                 }
-                ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
+                // A `NotYetRevealed` payload never arrived, but the block committed to the
+                // invalid ancestry: no reveal can rescue a payload whose parent chain is
+                // condemned.
+                ExecutionStatus::Optimistic(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::NotYetRevealed(hash) => {
                     *node.execution_status_mut() = ExecutionStatus::Invalid(hash);
                 }
+                // A pre-merge descendant of an executed block is a contradiction.
                 ExecutionStatus::Irrelevant(_) => {
-                    // In Gloas this means only that the payload is not revealed yet. The block
-                    // did commit to the invalid ancestry. Pre-Gloas this state is a
-                    // contradiction.
-                    match node {
-                        ProtoNode::V29(gloas_node) => {
-                            gloas_node.execution_status =
-                                ExecutionStatus::Invalid(gloas_node.execution_payload_block_hash);
-                        }
-                        ProtoNode::V17(_) => {
-                            return Err(Error::IrrelevantDescendant {
-                                block_root: node.root(),
-                            });
-                        }
-                    }
+                    return Err(Error::IrrelevantDescendant {
+                        block_root: node.root(),
+                    });
                 }
             }
 

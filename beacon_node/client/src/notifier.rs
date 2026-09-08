@@ -369,6 +369,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Ok(ExecutionStatus::NotYetRevealed(hash)) => {
+                        debug!(
+                            bid_block_hash = ?hash,
+                            "Head execution payload is not yet revealed"
+                        );
+                        format!("{} (unrevealed)", hash)
+                    }
                     Ok(ExecutionStatus::Valid(hash)) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
                         format!("{} (verified)", hash)
