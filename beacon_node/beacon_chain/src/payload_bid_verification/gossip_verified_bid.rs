@@ -12,6 +12,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
+use proto_array::Block as ProtoBlock;
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
@@ -131,6 +132,38 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
     }
 
     Ok(())
+}
+
+/// Returns `true` if the bid builds on the parent's full payload and that payload carries an exit
+/// request for the bid's builder.
+pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
+    bid: &ExecutionPayloadBid<T::EthSpec>,
+    parent_block: &ProtoBlock,
+    head_state: &BeaconState<T::EthSpec>,
+    store: &BeaconStore<T>,
+) -> Result<bool, PayloadBidError> {
+    if parent_block.execution_payload_block_hash != Some(bid.parent_block_hash) {
+        return Ok(false);
+    }
+
+    let builder = head_state.get_builder(bid.builder_index)?;
+    let parent_envelope = store
+        .get_payload_envelope(&bid.parent_block_root)
+        .map_err(|e| {
+            PayloadBidError::InternalError(format!("failed to load parent payload envelope: {e:?}"))
+        })?
+        .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
+            parent_block_hash: bid.parent_block_hash,
+        })?;
+
+    Ok(parent_envelope
+        .message
+        .execution_requests
+        .builder_exits
+        .iter()
+        .any(|request| {
+            request.pubkey == builder.pubkey && request.source_address == builder.execution_address
+        }))
 }
 
 /// Checks if `bid` is compatible with the head branch
@@ -280,7 +313,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         verify_bid_payment_and_blobs(&signed_bid.message, ctx.spec)?;
 
-        parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
+        let parent_block = parent_block.ok_or(PayloadBidError::ParentBlockRootUnknown {
             parent_block_root: bid_parent_block_root,
         })?;
         drop(fork_choice);
@@ -378,6 +411,17 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         }
 
         verify_bid_state_conditions(&signed_bid.message, head_state, ctx.spec)?;
+
+        if parent_payload_exits_builder::<T>(
+            &signed_bid.message,
+            &parent_block,
+            head_state,
+            ctx.store,
+        )? {
+            return Err(PayloadBidError::BuilderExitPending {
+                builder_index: signed_bid.message.builder_index,
+            });
+        }
 
         execution_payload_bid_signature_set(
             head_state,

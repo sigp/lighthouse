@@ -4275,6 +4275,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentExecutionPayloadUnknown { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::BuilderExitPending { .. }
                 | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
