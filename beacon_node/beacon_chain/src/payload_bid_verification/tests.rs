@@ -881,6 +881,64 @@ fn bid_state_conditions_reject_uncoverable_bid() {
 }
 
 #[test]
+fn bid_state_conditions_reject_inactive_builder_before_coverage() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let head = ctx.canonical_head.cached_head();
+    let state = &head.snapshot.beacon_state;
+
+    let bid = ctx.make_signed_bid(
+        Slot::new(1),
+        ctx.inactive_builder_index,
+        Address::ZERO,
+        30_000_000,
+        u64::MAX,
+        ctx.genesis_block_root,
+    );
+    assert!(matches!(
+        verify_bid_state_conditions(&bid.message, state, &ctx.spec),
+        Err(PayloadBidError::InvalidBuilder { .. })
+    ));
+}
+
+#[test]
+fn bid_state_conditions_reject_wrong_version_before_coverage() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let head = ctx.canonical_head.cached_head();
+    let mut state = head.snapshot.beacon_state.clone();
+
+    let keypair = &ctx.keypairs[NUM_BUILDERS + 1];
+    let builder_index = state
+        .add_builder_to_registry(
+            PublicKeyBytes::from(keypair.pk.clone()),
+            PAYLOAD_BUILDER_VERSION + 1,
+            builder_withdrawal_credentials(&keypair.pk, &ctx.spec),
+            BUILDER_BALANCE,
+            Slot::new(0),
+            &ctx.spec,
+        )
+        .expect("should register builder");
+
+    let bid = ctx.make_signed_bid(
+        Slot::new(1),
+        builder_index,
+        Address::ZERO,
+        30_000_000,
+        u64::MAX,
+        ctx.genesis_block_root,
+    );
+    assert!(matches!(
+        verify_bid_state_conditions(&bid.message, &state, &ctx.spec),
+        Err(PayloadBidError::InvalidBuilderVersion { .. })
+    ));
+}
+
+#[test]
 fn parent_block_root_unknown() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
