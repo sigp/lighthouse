@@ -160,7 +160,10 @@ impl ExecutionStatus {
             ExecutionStatus::Valid(hash)
             | ExecutionStatus::Invalid(hash)
             | ExecutionStatus::Optimistic(hash) => Some(*hash),
-            ExecutionStatus::Irrelevant(_) => None,
+            // The bid hash of a `NotYetRevealed` payload is known, but callers of this method
+            // treat `Some` as "a payload an EL was told about" (e.g. the latest valid ancestor
+            // lookup), which an unrevealed payload never was.
+            ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => None,
         }
     }
 

@@ -372,7 +372,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     Ok(ExecutionStatus::NotYetRevealed(hash)) => {
                         debug!(
                             bid_block_hash = ?hash,
-                            "Head execution payload is not yet revealed"
+                            "Head excution payload is not yet revealed"
                         );
                         format!("{} (unrevealed)", hash)
                     }

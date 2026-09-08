@@ -51,6 +51,7 @@ pub enum Error {
         parent_root: Hash256,
     },
     Arith(ArithError),
+    Unexpected(String),
     InvalidNodeVariant {
         block_root: Hash256,
     },
