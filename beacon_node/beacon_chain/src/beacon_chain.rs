@@ -2268,16 +2268,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
-        let fcu_params = self
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters();
-        let head_hash = fcu_params
-            .head_hash
-            .ok_or(Error::ExecutionHashMissingFromHead(fcu_params.head_root))?;
-
         execution_layer
-            .get_inclusion_list_v1(head_hash)
+            .get_inclusion_list_v1()
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))
     }

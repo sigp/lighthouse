@@ -153,7 +153,6 @@ pub enum BeaconChainError {
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, Box<execution_layer::Error>),
     ExecutionLayerGetBlockByNumberFailed(Box<execution_layer::Error>),
     ExecutionLayerGetInclusionListFailed(Box<execution_layer::Error>),
-    ExecutionHashMissingFromHead(Hash256),
     BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
     InconsistentPayloadReconstructed {
         slot: Slot,
