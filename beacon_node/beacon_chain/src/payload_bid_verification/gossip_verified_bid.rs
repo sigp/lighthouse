@@ -19,8 +19,9 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas,
+    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), PayloadBidError> {
@@ -156,14 +157,19 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
             parent_block_hash: bid.parent_block_hash,
         })?;
 
-    Ok(parent_envelope
-        .message
-        .execution_requests
-        .builder_exits
-        .iter()
-        .any(|request| {
-            request.pubkey == builder.pubkey && request.source_address == builder.execution_address
-        }))
+    Ok(builder_exit_requested(
+        builder,
+        &parent_envelope.message.execution_requests,
+    ))
+}
+
+pub(crate) fn builder_exit_requested<E: EthSpec>(
+    builder: &Builder,
+    execution_requests: &ExecutionRequestsGloas<E>,
+) -> bool {
+    execution_requests.builder_exits.iter().any(|request| {
+        request.pubkey == builder.pubkey && request.source_address == builder.execution_address
+    })
 }
 
 /// Checks if `bid` is compatible with the head branch
