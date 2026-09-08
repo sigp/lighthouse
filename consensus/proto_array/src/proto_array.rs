@@ -959,33 +959,33 @@ impl ProtoArray {
 
             // Only a `FULL` node has a payload of its own in the execution ancestry of this
             // branch. A pre-Gloas block carries its payload inside itself, so it is executed.
-            match status {
-                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
-                    match node.execution_status() {
-                        // We have reached a node that we already know is valid. No need to iterate further
-                        // since we assume an ancestors have already been set to valid.
-                        ExecutionStatus::Valid(_) => return Ok(()),
-                        // We have reached an irrelevant node, this node is prior to a terminal execution
-                        // block. There's no need to iterate further, it's impossible for this block to have
-                        // any relevant ancestors.
-                        ExecutionStatus::Irrelevant(_) => return Ok(()),
-                        // The block has an unknown status, set it to valid since any ancestor of a valid
-                        // payload can be considered valid.
-                        ExecutionStatus::Optimistic(hash)
-                        | ExecutionStatus::NotYetRevealed(hash) => {
-                            *node.execution_status_mut() = ExecutionStatus::Valid(hash);
-                        }
-                        // An ancestor of the valid payload was invalid. This is a serious error which
-                        // indicates a consensus failure in the execution node. This is unrecoverable.
-                        ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
-                            return Err(Error::InvalidAncestorOfValidPayload {
-                                ancestor_block_root: node.root(),
-                                ancestor_payload_block_hash,
-                            });
-                        }
+            let executed = match status {
+                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => true,
+                ParentPayloadStatus::Empty => false,
+            };
+            if executed {
+                match node.execution_status() {
+                    // We have reached a node that we already know is valid. No need to iterate further
+                    // since we assume an ancestors have already been set to valid.
+                    ExecutionStatus::Valid(_) => return Ok(()),
+                    // We have reached an irrelevant node, this node is prior to a terminal execution
+                    // block. There's no need to iterate further, it's impossible for this block to have
+                    // any relevant ancestors.
+                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    // The block has an unknown status, set it to valid since any ancestor of a valid
+                    // payload can be considered valid.
+                    ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
+                        *node.execution_status_mut() = ExecutionStatus::Valid(hash);
+                    }
+                    // An ancestor of the valid payload was invalid. This is a serious error which
+                    // indicates a consensus failure in the execution node. This is unrecoverable.
+                    ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                        return Err(Error::InvalidAncestorOfValidPayload {
+                            ancestor_block_root: node.root(),
+                            ancestor_payload_block_hash,
+                        });
                     }
                 }
-                ParentPayloadStatus::Empty => {}
             }
 
             let Some(parent_index) = node.parent() else {

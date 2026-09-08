@@ -680,7 +680,12 @@ async fn latest_valid_hash_will_not_validate() {
         if slot > LATEST_VALID_SLOT {
             assert!(execution_status.is_invalid())
         } else if slot == 0 {
-            assert!(execution_status.is_irrelevant())
+            // A Gloas genesis commits to a payload no envelope ever reveals.
+            if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+                assert!(execution_status.is_not_yet_revealed())
+            } else {
+                assert!(execution_status.is_irrelevant())
+            }
         } else if slot == 1 {
             assert!(execution_status.is_valid_and_post_bellatrix())
         } else {

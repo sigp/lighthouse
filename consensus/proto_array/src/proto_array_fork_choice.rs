@@ -207,10 +207,13 @@ impl ExecutionStatus {
     ///     - Has a payload that has not yet been verified by an EL, OR.
     ///     - Has a payload that has been deemed invalid by an EL.
     pub fn is_optimistic_or_invalid(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
-        )
+        match self {
+            // An unrevealed payload has no EL verdict, so it is not fully verified.
+            ExecutionStatus::Optimistic(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::NotYetRevealed(_) => true,
+            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => false,
+        }
     }
 
     /// Returns `true` if the block:
@@ -226,6 +229,16 @@ impl ExecutionStatus {
     /// - Does not have execution enabled (before or after Bellatrix fork)
     pub fn is_irrelevant(&self) -> bool {
         matches!(self, ExecutionStatus::Irrelevant(_))
+    }
+
+    pub fn is_not_yet_revealed(&self) -> bool {
+        match self {
+            ExecutionStatus::NotYetRevealed(_) => true,
+            ExecutionStatus::Valid(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::Optimistic(_)
+            | ExecutionStatus::Irrelevant(_) => false,
+        }
     }
 }
 
