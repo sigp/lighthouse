@@ -107,11 +107,19 @@ fn get_harness_generic(
     harness
 }
 
+// Regression test for incorrect parent_root calculation in Gloas block production.
+// Previously we had a bug where we were using a stale `state.block_roots` read to determine
+// `should_build_on_full`.
 #[tokio::test]
 async fn gloas_block_production_parent_root_with_unadvanced_state() {
+    // Post-Gloas test.
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
     // Check the advanced-state control first, then the unadvanced-state regression.
     for cache_advanced_state in [true, false] {
-        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let db_path = tempdir().unwrap();
         let store = get_store(&db_path, spec.clone());
         let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -133,8 +141,9 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
         let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
         assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
 
-        // The head's full branch has attestation weight, but negative PTC votes should make
-        // the next proposer build on empty. Looking up the grandparent instead skips this check.
+        // The head's full branch has attestation weight, but negative PTC votes should make the
+        // next proposer build on empty. Looking up the grandparent (as the buggy code did) instead
+        // skips this check.
         let (messages, _) = harness.make_payload_attestation_messages(
             &parent_state,
             parent_root,
@@ -187,13 +196,17 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
             .produce_block_with_verification_gloas(
                 randao_reveal,
                 slot,
-                GraffitiSettings::new(None, None),
+                GraffitiSettings::Unspecified,
                 ProduceBlockVerification::VerifyRandao,
                 eth2::types::BuilderConfig::empty(),
             )
             .await
             .unwrap();
         assert_eq!(block.parent_root(), parent_root);
+
+        // The block should build on the Empty variant of the parent due to the PTC vote for empty.
+        // Prior to fixing the bug, we would build on the full variant because we would look up
+        // the grandparent.
         assert_eq!(
             block
                 .body()
@@ -202,7 +215,6 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
                 .message
                 .parent_block_hash,
             parent_bid.parent_block_hash,
-            "PTC votes must be checked against the parent with cache_advanced_state={cache_advanced_state}"
         );
         let (envelope, _, _) = payload_contents.unwrap();
         assert_eq!(envelope.parent_beacon_block_root, parent_root);
