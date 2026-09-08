@@ -594,6 +594,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_payload_attestation_data_no_block() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        // We have PTC duties
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        // However, the beacon node has not received a block for the slot, so it returns a 204
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data_no_content(attestation_slot);
+
+        // A 204 is not an error, data production returns `None` so there is nothing to publish
+        let data = test_harness
+            .service
+            .produce_payload_attestation_data(attestation_slot)
+            .await
+            .unwrap();
+        assert!(
+            data.is_none(),
+            "Expected no data to be produced when there is no block for the slot"
+        );
+    }
+
+    #[tokio::test]
     async fn test_get_payload_attestation_data_error() {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 

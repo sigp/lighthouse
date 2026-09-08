@@ -205,6 +205,18 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `GET /eth/v1/validator/payload_attestation_data?slot` returning 204 when no block
+    /// has been received for the requested slot
+    pub fn mock_get_validator_payload_attestation_data_no_content(&mut self, slot: Slot) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/payload_attestation_data$").unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::UrlEncoded("slot".into(), slot.to_string()))
+            .with_status(204)
+            .create()
+    }
+
     /// Mocks `GET /eth/v1/validator/payload_attestation_data?slot` returning error
     pub fn mock_get_validator_payload_attestation_data_error(&mut self, slot: Slot) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/validator/payload_attestation_data$").unwrap();
