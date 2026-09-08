@@ -156,7 +156,6 @@ pub enum Error {
     ZeroLengthTransaction,
     PayloadBodiesByHashV2NotSupported,
     PayloadBodiesByRangeNotSupported,
-    PayloadBodiesByRangeV2NotSupported,
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),

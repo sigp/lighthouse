@@ -859,52 +859,6 @@ pub async fn handle_rpc<E: EthSpec>(
 
             Ok(serde_json::to_value(response).unwrap())
         }
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2 => {
-            #[derive(Deserialize)]
-            #[serde(transparent)]
-            struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
-
-            let start = get_param::<Quantity>(params, 0)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-            let count = get_param::<Quantity>(params, 1)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-
-            let mut response = vec![];
-            for block_num in start..(start + count) {
-                let maybe_payload = ctx
-                    .execution_block_generator
-                    .read()
-                    .execution_payload_by_number(block_num);
-
-                match maybe_payload {
-                    Some(payload) => {
-                        let payload_body = ExecutionPayloadBodyV2 {
-                            transactions: ProgressiveTransactions::new(
-                                payload
-                                    .transactions()
-                                    .iter()
-                                    .map(|transaction| {
-                                        ssz_types::ProgressiveVariableList::new(
-                                            transaction.to_vec(),
-                                        )
-                                    })
-                                    .collect(),
-                            ),
-                            withdrawals: payload.withdrawals().ok().map(|withdrawals| {
-                                ProgressiveWithdrawals::new(withdrawals.to_vec())
-                            }),
-                            block_access_list: payload.block_access_list().ok().cloned(),
-                        };
-                        response.push(Some(JsonExecutionPayloadBodyV2::from(payload_body)));
-                    }
-                    None => response.push(None),
-                }
-            }
-
-            Ok(serde_json::to_value(response).unwrap())
-        }
         other => Err((
             format!("The method {} does not exist/is not available", other),
             METHOD_NOT_FOUND_CODE,
