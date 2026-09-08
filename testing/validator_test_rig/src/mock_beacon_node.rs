@@ -207,7 +207,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
     /// Mocks `GET /eth/v1/validator/payload_attestation_data?slot` returning 204 when no block
     /// has been received for the requested slot
-    pub fn mock_get_validator_payload_attestation_data_no_content(&mut self, slot: Slot) -> Mock {
+    pub fn mock_get_validator_payload_attestation_data_no_block(&mut self, slot: Slot) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/validator/payload_attestation_data$").unwrap();
 
         self.server

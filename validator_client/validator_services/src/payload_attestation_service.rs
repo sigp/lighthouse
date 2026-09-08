@@ -605,7 +605,7 @@ mod tests {
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_payload_attestation_data_no_content(attestation_slot);
+            .mock_get_validator_payload_attestation_data_no_block(attestation_slot);
 
         // A 204 is not an error, data production returns `None` so there is nothing to publish
         let data = test_harness
