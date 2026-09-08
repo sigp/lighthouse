@@ -237,6 +237,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     DeletePayloadEnvelope(Hash256),
+    DeletePayloadEnvelopePayload(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -310,6 +311,10 @@ pub enum DBColumn {
     /// Post-gloas execution payload envelopes.
     #[strum(serialize = "pay")]
     PayloadEnvelope,
+    /// Reduced information database object `SignedExecutionPayloadEnvelopeSummary` mapped to
+    /// `SignedExecutionPayloadEnvelope`.
+    #[strum(serialize = "pys")]
+    PayloadSummary,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -422,7 +427,8 @@ impl DBColumn {
             | Self::DhtEnrs
             | Self::CustodyContext
             | Self::OptimisticTransitionBlock
-            | Self::PayloadEnvelope => 32,
+            | Self::PayloadEnvelope
+            | Self::PayloadSummary => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
@@ -469,6 +475,7 @@ mod tests {
     use crate::database::interface::BeaconNodeBackend;
 
     use super::*;
+    use bls::Signature;
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
     use tempfile::tempdir;
@@ -551,5 +558,71 @@ mod tests {
         let key = get_key_for_col(DBColumn::BeaconBlock, &[1u8; 32]);
         let col = get_col_from_key(&key).unwrap();
         assert_eq!(col, "blk");
+    }
+
+    #[test]
+    fn payload_envelope_summary_survives_payload_pruning() {
+        type E = MinimalEthSpec;
+
+        let store = HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(
+            StoreConfig::default(),
+            Arc::new(E::default_spec()),
+        )
+        .unwrap();
+        let block_root = Hash256::repeat_byte(0x11);
+        let payload_hash = ExecutionBlockHash::repeat_byte(0x22);
+        let slot = Slot::new(42);
+        let envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope {
+                payload: ExecutionPayloadGloas {
+                    block_hash: payload_hash,
+                    slot_number: slot,
+                    ..Default::default()
+                },
+                execution_requests: Default::default(),
+                builder_index: 42,
+                beacon_block_root: block_root,
+                parent_beacon_block_root: Hash256::repeat_byte(0x33),
+            },
+            signature: Signature::empty(),
+        };
+
+        store.put_payload_envelope(&block_root, &envelope).unwrap();
+        let summary = store
+            .get_payload_envelope_summary(&block_root)
+            .unwrap()
+            .expect("summary should exist");
+        assert_eq!(summary.block_hash(), payload_hash);
+        assert_eq!(summary.slot(), slot);
+        assert!(store.get_envelope_payload(&block_root).unwrap().is_some());
+        assert!(store.get_payload_envelope(&block_root).unwrap().is_some());
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
+                block_root,
+            )])
+            .unwrap();
+        assert!(
+            store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_some()
+        );
+        assert!(store.get_envelope_payload(&block_root).unwrap().is_none());
+        assert!(store.get_payload_envelope(&block_root).unwrap().is_none());
+        assert!(store.payload_envelope_exists(&block_root).unwrap());
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelope(
+                block_root,
+            )])
+            .unwrap();
+        assert!(
+            store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_none()
+        );
+        assert!(!store.payload_envelope_exists(&block_root).unwrap());
     }
 }

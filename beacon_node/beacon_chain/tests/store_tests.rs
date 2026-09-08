@@ -37,7 +37,7 @@ use rand::rngs::StdRng;
 use rand_xorshift::XorShiftRng;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
@@ -4404,7 +4404,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = SchemaVersion(29);
+    let min_version = SchemaVersion(30);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -4603,6 +4603,67 @@ async fn light_client_update_schema_v30_migration() {
             "LE key for period {period} should be restored by the downgrade"
         );
     }
+}
+
+#[tokio::test]
+async fn payload_envelope_schema_v31_migration() {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
+    let block_root = Hash256::repeat_byte(0x11);
+    let envelope = SignedExecutionPayloadEnvelope {
+        message: ExecutionPayloadEnvelope {
+            payload: ExecutionPayloadGloas {
+                block_hash: ExecutionBlockHash::repeat_byte(0x22),
+                ..Default::default()
+            },
+            execution_requests: Default::default(),
+            builder_index: 42,
+            beacon_block_root: block_root,
+            parent_beacon_block_root: Hash256::repeat_byte(0x33),
+        },
+        signature: Signature::empty(),
+    };
+
+    // Write the v30 full-envelope representation directly into `PayloadEnvelope`.
+    store
+        .hot_db
+        .put_bytes(
+            DBColumn::PayloadEnvelope,
+            block_root.as_slice(),
+            &envelope.as_ssz_bytes(),
+        )
+        .unwrap();
+
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(31))
+        .expect("schema upgrade to v31 should succeed");
+    assert!(
+        store
+            .get_payload_envelope_summary(&block_root)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        store.get_payload_envelope(&block_root).unwrap(),
+        Some(envelope.clone())
+    );
+
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(31), SchemaVersion(30))
+        .expect("schema downgrade to v30 should succeed");
+    assert!(
+        store
+            .get_payload_envelope_summary(&block_root)
+            .unwrap()
+            .is_none()
+    );
+    let envelope_bytes = store
+        .hot_db
+        .get_bytes(DBColumn::PayloadEnvelope, block_root.as_slice())
+        .unwrap()
+        .expect("v30 envelope should exist");
+    assert_eq!(
+        SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(&envelope_bytes).unwrap(),
+        envelope
+    );
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.
