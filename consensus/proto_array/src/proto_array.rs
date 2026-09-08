@@ -472,49 +472,54 @@ impl ProtoArray {
             // during the virtual tree walk in `get_weight`, matching the spec's
             // `get_weight` which adds boost separately from `get_attestation_score`.
 
-            // Apply the delta to the node and return the mass to back-propagate to its parent.
-            // A pre-Gloas invalid block loses all of its weight; a Gloas invalid payload kills
-            // only its `FULL` virtual node, so only its viable (`empty + pending`) mass propagates.
+            // Apply this round's delta and return the mass to back-propagate. An invalid node's
+            // dead weight was removed when it was invalidated, so move only its viable mass;
+            // deltas aimed at the dead part are absorbed (they'd otherwise underflow it).
             let backprop_delta = match node {
                 ProtoNode::V17(node) => {
-                    node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
-
                     if execution_status_is_invalid {
-                        // An invalid pre-Gloas node is entirely dead: remove its whole weight.
+                        // Whole node is dead: pin to zero, absorb the delta.
                         let removed = node.weight;
                         node.weight = 0;
-                        node_delta
-                            .delta
-                            .checked_sub(removed as i64)
+                        0i64.checked_sub(removed as i64)
                             .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
                     } else {
+                        node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
                         node_delta.delta
                     }
                 }
                 ProtoNode::V29(node) => {
-                    node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
+                    // The empty side and equivocation score stay live whatever the verdict.
+                    node.equivocating_attestation_score = node
+                        .equivocating_attestation_score
+                        .saturating_add(node_delta.equivocating_attestation_delta);
                     node.empty_payload_weight = apply_delta(
                         node.empty_payload_weight,
                         node_delta.empty_delta,
                         node_index,
                     )?;
-                    node.full_payload_weight =
-                        apply_delta(node.full_payload_weight, node_delta.full_delta, node_index)?;
-                    node.equivocating_attestation_score = node
-                        .equivocating_attestation_score
-                        .saturating_add(node_delta.equivocating_attestation_delta);
 
                     if execution_status_is_invalid {
-                        // An invalid payload kills only the `FULL` virtual node. Drop its mass
-                        // from the aggregate (leaving `empty + pending`) and zero the full bucket.
+                        // Only the full side is dead: move the viable `delta - full_delta`, zero
+                        // the full bucket, and drop its accumulated mass.
                         let full_removed = node.full_payload_weight;
-                        node.weight = node.weight.saturating_sub(full_removed);
                         node.full_payload_weight = 0;
-                        node_delta
+                        let viable_delta = node_delta
                             .delta
+                            .checked_sub(node_delta.full_delta)
+                            .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?;
+                        node.weight = apply_delta(node.weight, viable_delta, node_index)?
+                            .saturating_sub(full_removed);
+                        viable_delta
                             .checked_sub(full_removed as i64)
                             .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
                     } else {
+                        node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
+                        node.full_payload_weight = apply_delta(
+                            node.full_payload_weight,
+                            node_delta.full_delta,
+                            node_index,
+                        )?;
                         node_delta.delta
                     }
                 }
