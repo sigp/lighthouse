@@ -27,6 +27,15 @@ pub struct VerifiedFinalizedHeader<E: EthSpec> {
 impl<E: EthSpec> VerifiedFinalizedHeader<E> {
     /// The caller must have validated the header, its trusted root and the bootstrap committee.
     pub(crate) fn from_trusted_bootstrap(header: LightClientHeader<E>, fork: ForkName) -> Self {
+        Self::new(header, fork)
+    }
+
+    /// The caller must have verified the finality proof and a supermajority signature.
+    pub(crate) fn from_verified_finality(header: LightClientHeader<E>, fork: ForkName) -> Self {
+        Self::new(header, fork)
+    }
+
+    fn new(header: LightClientHeader<E>, fork: ForkName) -> Self {
         Self {
             beacon_block_root: beacon_header(&header).canonical_root(),
             header,

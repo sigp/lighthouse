@@ -1,4 +1,5 @@
 use super::*;
+
 use crate::initialize_light_client_store;
 use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKeyBytes};
 use merkle_proof::MerkleTree;
@@ -37,6 +38,8 @@ macro_rules! with_update {
         }
     };
 }
+
+mod processing;
 
 fn hash(value: u8) -> Hash256 {
     Hash256::from([value; 32])
