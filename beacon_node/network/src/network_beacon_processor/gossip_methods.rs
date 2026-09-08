@@ -4088,7 +4088,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Inform the reprocess queue that a fully available block (or its payload envelope, post-gloas)
     /// has been imported, so any attestations waiting on it can be released.
-    fn notify_import_after_column(&self, slot: Slot, block_root: Hash256) {
+    pub(super) fn notify_import_after_column(&self, slot: Slot, block_root: Hash256) {
         if self
             .chain
             .spec

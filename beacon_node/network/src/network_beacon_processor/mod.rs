@@ -954,13 +954,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(..) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
                         "Block components retrieved from EL"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(slot, block_root);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
