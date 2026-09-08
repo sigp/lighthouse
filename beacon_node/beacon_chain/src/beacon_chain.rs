@@ -1975,8 +1975,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if the `request_slot` is too far behind the head state.
-    #[instrument(name = "lh_produce_unaggregated_attestation", skip_all, fields(%request_slot, %request_index
-    ), level = "debug")]
+    #[instrument(name = "lh_produce_unaggregated_attestation", skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -2265,6 +2264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if request_slot != current_slot {
             return Err(Error::InvalidSlot(request_slot));
         }
+        let _timer = metrics::start_timer(&metrics::INCLUSION_LIST_PRODUCTION_SECONDS);
 
         let execution_layer = self
             .execution_layer

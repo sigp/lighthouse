@@ -3,9 +3,9 @@ use types::{ChainSpec, ProgressiveTransactions};
 
 #[derive(Debug, PartialEq, Eq, AsRefStr)]
 pub enum InclusionListTransactionsError {
-    // A transaction in the inclusion list has zero length
+    /// A transaction in the inclusion list has zero length
     EmptyTransaction { index: usize },
-    // The inclusion list exceeds the maximum allowed size
+    /// The inclusion list exceeds the maximum allowed size
     ListExceedsSizeLimit { size: u64, max: u64 },
 }
 
