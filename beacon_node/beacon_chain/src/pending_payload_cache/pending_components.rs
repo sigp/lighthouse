@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
+use types::execution::{ProofType, SignedExecutionProof};
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
@@ -27,6 +28,9 @@ pub struct PendingComponents<E: EthSpec> {
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
+    /// Execution proofs keyed by proof type, so repeats from one prover count once. Empty
+    /// without a proof engine.
+    pub execution_proofs: HashMap<ProofType, Arc<SignedExecutionProof>>,
     pub reconstruction_started: bool,
     /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
     /// returned anything. Until then, republished partials request no cells, because the EL
@@ -197,6 +201,19 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
+    /// Inserts an execution proof, returning the distinct proof type count, or `None` if we
+    /// already had this type.
+    pub fn insert_execution_proof(&mut self, proof: Arc<SignedExecutionProof>) -> Option<usize> {
+        if self
+            .execution_proofs
+            .insert(proof.proof_type(), proof)
+            .is_some()
+        {
+            return None;
+        }
+        Some(self.execution_proofs.len())
+    }
+
     /// Inserts an executed payload envelope into the cache.
     pub fn insert_executed_payload_envelope(
         &mut self,
@@ -215,10 +232,11 @@ impl<E: EthSpec> PendingComponents<E> {
         self.num_completed_columns() >= num_expected_columns
     }
 
-    /// Returns `Some` if the envelope and all required data columns have been received.
+    /// Returns `Some` once the envelope, the required columns and enough proofs have arrived.
     pub fn make_available<T>(
         &self,
         custody_context: &CustodyContext<T>,
+        required_execution_proofs: usize,
     ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -227,6 +245,11 @@ impl<E: EthSpec> PendingComponents<E> {
         let Some(envelope) = &self.envelope else {
             return Ok(None);
         };
+
+        // Proofs are recursive, so we only need them for this payload, not its ancestors.
+        if self.execution_proofs.len() < required_execution_proofs {
+            return Ok(None);
+        }
 
         let AvailabilityPendingExecutedEnvelope {
             envelope,
@@ -287,23 +310,38 @@ impl<E: EthSpec> PendingComponents<E> {
             bid,
             envelope: None,
             verified_data_columns: HashMap::new(),
+            execution_proofs: HashMap::new(),
             reconstruction_started: false,
             local_fetch_settled: false,
             span,
         }
     }
 
-    pub fn status_str<T>(&self, custody_context: &CustodyContext<T>) -> String
+    pub fn status_str<T>(
+        &self,
+        custody_context: &CustodyContext<T>,
+        required_execution_proofs: usize,
+    ) -> String
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         let num_columns_required = self.num_columns_required(custody_context);
-        format!(
-            "envelope {}, data_columns {}/{}",
-            self.envelope.is_some(),
-            self.num_completed_columns(),
-            num_columns_required
-        )
+        if required_execution_proofs == 0 {
+            format!(
+                "envelope {}, data_columns {}/{}",
+                self.envelope.is_some(),
+                self.num_completed_columns(),
+                num_columns_required
+            )
+        } else {
+            format!(
+                "envelope {}, data_columns {}/{}, execution_proofs {}",
+                self.envelope.is_some(),
+                self.num_completed_columns(),
+                num_columns_required,
+                self.execution_proofs.len()
+            )
+        }
     }
 }
 
