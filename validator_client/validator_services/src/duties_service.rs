@@ -1457,17 +1457,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             let lookahead_slot = current_slot + selection_lookahead;
 
-            let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
-                // Remove old slot duties and only keep current duties in distributed mode
-                duties_by_slot
-                    .remove(&lookahead_slot)
-                    .map(|duties| BTreeMap::from([(lookahead_slot, duties)]))
-                    .unwrap_or_default()
-            } else {
-                let mut duties = duties_by_slot.split_off(&lookahead_slot);
-                std::mem::swap(&mut duties, &mut duties_by_slot);
-                duties
-            };
+            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
+            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
@@ -1554,19 +1545,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     }
 }
 
-/// Exchange the partial selection proofs for the `duties` of `epoch` for full selection proofs via
-/// the selections endpoint of the DVT middleware and add them to the `attesters` map.
-///
-/// As required by the beacon API spec, the selections endpoint is queried at the start of an epoch
-/// for all slots of the current epoch and, in a separate request, for all slots of the next epoch.
-/// Since the duties for the next epoch are downloaded at the start of the current epoch, this task
-/// makes the request for `epoch` immediately (the next epoch request, or the current epoch request
-/// on startup) and then again once `epoch` starts (the current epoch request). Requesting the
-/// proofs an epoch in advance ensures that the aggregator status is known before the attestation
-/// subscriptions for the first slots of the epoch are sent to the BN.
-///
-/// A failed request is retried at the next slot. If a re-org is detected then the process will
-/// terminate early as it is assumed the selection proofs from `duties` are no longer relevant.
+/// fill_in_selection_proofs involving middleware (DVT mode)
 async fn fill_in_selection_proofs_selections_endpoint<
     S: ValidatorStore + 'static,
     T: SlotClock + 'static,
