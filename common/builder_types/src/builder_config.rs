@@ -25,7 +25,9 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct BuilderConfig {
-    /// Minimum total payment (Gwei) accepted from a bid that matches no entry (a p2p bid).
+    /// Minimum total payment (Gwei) for a bid that matches no entry (a p2p bid) to rank as
+    /// acceptable — a ranking floor, not a filter: a below-floor bid is ranked behind every
+    /// floor-clearing candidate and wins only when nothing else is viable.
     #[serde(with = "serde_utils::quoted_u64")]
     pub min_bid: u64,
     /// Percentage multiplier applied to a bid that matches no entry (a p2p bid).

@@ -1304,6 +1304,7 @@ dependencies = [
  "beacon_chain",
  "bitvec",
  "bls",
+ "builder_client",
  "criterion",
  "educe",
  "eth2",
@@ -2016,6 +2017,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "beacon_processor",
+ "builder_client",
  "directory",
  "dirs",
  "environment",
