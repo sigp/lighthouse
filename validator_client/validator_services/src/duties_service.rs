@@ -1603,38 +1603,30 @@ async fn fill_in_selection_proofs_selections_endpoint<
             })
             .collect::<HashMap<_, _>>();
 
-        // Add all duties of the epoch to the attesters store at once. The write lock is scoped so
-        // that it is released before sleeping below.
-        {
-            let mut attesters = duties_service.attesters.write();
-            for duty in &duties {
-                let key = (duty.validator_index, duty.slot);
-                let result = match selection_hashmap.remove(&key) {
-                    Some(selection_proof) => match selection_proof
-                        .is_aggregator(duty.committee_length as usize, &duties_service.spec)
-                    {
-                        // Aggregator, return the result
-                        Ok(true) => Ok((duty.clone(), Some(selection_proof))),
-                        // Not an aggregator, do nothing and continue
-                        Ok(false) => continue,
-                        Err(e) => Err(Error::InvalidModulo(e)),
-                    },
-                    None => Err(Error::FailedToProduceSelectionProof(
-                        ValidatorStoreError::Middleware(format!(
-                            "Missing selection proof for validator {} slot {}",
-                            duty.validator_index, duty.slot
-                        )),
+        for duty in &duties {
+            let key = (duty.validator_index, duty.slot);
+            let result = match selection_hashmap.remove(&key) {
+                Some(selection_proof) => match selection_proof
+                    .is_aggregator(duty.committee_length as usize, &duties_service.spec)
+                {
+                    // Aggregator, return the result
+                    Ok(true) => Ok((duty.clone(), Some(selection_proof))),
+                    // Not an aggregator, do nothing and continue
+                    Ok(false) => continue,
+                    Err(e) => Err(Error::InvalidModulo(e)),
+                },
+                None => Err(Error::FailedToProduceSelectionProof(
+                    ValidatorStoreError::Middleware(format!(
+                        "Missing selection proof for validator {} slot {}",
+                        duty.validator_index, duty.slot
                     )),
-                };
+                )),
+            };
 
-                if !process_duty_and_proof::<S>(
-                    &mut attesters,
-                    result,
-                    dependent_root,
-                    current_slot,
-                ) {
-                    return;
-                }
+            let mut attesters = duties_service.attesters.write();
+            // if process_duty_and_proof returns false, exit the loop
+            if !process_duty_and_proof::<S>(&mut attesters, result, dependent_root, current_slot) {
+                return;
             }
         }
 
