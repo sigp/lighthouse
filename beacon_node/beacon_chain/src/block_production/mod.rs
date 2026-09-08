@@ -104,13 +104,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %slot,
                 "Producing block that conflicts with head"
             );
-            let state = self
+            let mut state = self
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+            let state_root = state.update_tree_hash_cache()?;
+            // This historical state builds on an ancestor of the current head.
+            let parent_root = state.get_latest_block_root(state_root);
 
             BlockProductionState {
                 state,
-                state_root: None,
+                state_root: Some(state_root),
                 parent_root,
                 parent_payload_status: head_payload_status,
                 parent_envelope: head_envelope,
