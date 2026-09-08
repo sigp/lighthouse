@@ -1,18 +1,18 @@
 #![cfg(not(debug_assertions))]
 
-//! Tests for divergence between fork choice and the store when the db fails
-//! during block import.
+//! Tests for the handling of database write failures during block import.
 //!
-//! If the database write for a block fails after the block has been added to
-//! fork choice, and the recovery step `handle_import_block_db_write_error` also fails,
-//! then fork choice contains a block that the store does not. These tests check for the
-//! following behaviour:
+//! If the node fails to write a block to disk after its been imported to fork choice, this puts
+//! fork choice in an inconsistent state. We call this missing block a "phantom" block.
+//! A node that continues running in this state is stuck
 //!
-//! - The node refuses to re-import the missing block.
-//! - Children of the missing block fail with `MissingBeaconBlock` instead of `ParentUnknown`.
-//! - Head recomputation fails and the head cannot advance.
-//! - A graceful shutdown persists the diverged fork choice, making the next startup fail
-//!   with "Head block not found in store".
+//! - the node refuses to re-import the phantom block.
+//! - children of the phantom block fail with `MissingBeaconBlock` instead of `ParentUnknown`,
+//! - head recomputation fails and the head cannot advance.
+//!
+//! On a failed write we mark fork choice as poisoned and initiate a forced shutdown. The poisoned
+//! fork choice is never persisted to disk, so a restart recovers the last valid fork choice from
+//! disk.
 
 use beacon_chain::{
     BeaconChainError, BlockError,
@@ -22,7 +22,7 @@ use beacon_chain::{
     },
 };
 use eth2::types::SignedBlockContentsTuple;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -45,9 +45,8 @@ struct WedgedChain {
 
 /// Build a chain, then import a block while every store operation fails.
 ///
-/// The import adds the block to fork choice, then fails the database write, then fails
-/// the recovery read. The returned chain has a fork choice containing `phantom_root`
-/// while the store does not.
+/// The import adds the block to fork choice, then fails the database write. The returned
+/// chain has a fork choice containing `phantom_root` while the store does not.
 async fn wedged_chain() -> WedgedChain {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
@@ -98,11 +97,8 @@ async fn wedged_chain() -> WedgedChain {
     }
 }
 
-// TODO: this test asserts the *broken* behaviour. Once the divergence is fixed (e.g. by
-// reverting fork choice in memory or refusing to run diverged), this test should FAIL.
-// Flip the assertions to the healed behaviour as part of the fix.
 #[tokio::test]
-async fn db_write_failure_diverges_fork_choice_from_store() {
+async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
     if incompatible_fork() {
         return;
     }
@@ -132,8 +128,22 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
         "the store should not contain the phantom block"
     );
 
-    // The node refuses to re-import the phantom block, because duplicate detection only
-    // checks fork choice.
+    // The failure poisons fork choice and requests shutdown.
+    assert!(
+        harness.chain.canonical_head.fork_choice_poisoned(),
+        "fork choice should be poisoned"
+    );
+    assert_eq!(
+        harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            "Database write failure during block import"
+        )],
+        "the chain should request shutdown"
+    );
+
+    // The assertions below pin the "stuck node" behaviour that makes shutdown the only safe
+    // option. Until the process exits the node refuses to re-import the phantom block, because
+    // duplicate detection only checks fork choice.
     let err = harness
         .process_block(phantom_slot, phantom_root, phantom_contents)
         .await
@@ -160,8 +170,8 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
         other => panic!("expected MissingBeaconBlock for the child block, got: {other:?}"),
     }
 
-    // Head recomputation cannot load the fork choice head from the store, so the head
-    // never advances to the phantom block.
+    // Head recomputation is a no-op while fork choice is poisoned, so the head never
+    // advances to the phantom block.
     harness.chain.recompute_head_at_current_slot().await;
     assert_ne!(
         harness.chain.canonical_head.cached_head().head_block_root(),
@@ -170,44 +180,49 @@ async fn db_write_failure_diverges_fork_choice_from_store() {
     );
 }
 
-// TODO: this test asserts the *broken* behaviour. Once shutdown stops persisting a
-// known-diverged fork choice (or startup self-heals), this test should FAIL. Flip the
-// assertions to the healed behaviour as part of the fix.
 #[tokio::test]
-async fn restart_after_db_write_failure_is_fatal() {
+async fn restart_after_db_write_failure_recovers() {
     if incompatible_fork() {
         return;
     }
-    let WedgedChain { harness, .. } = wedged_chain().await;
+    let WedgedChain {
+        harness,
+        phantom_root,
+        ..
+    } = wedged_chain().await;
 
     let store = harness.chain.store.clone();
     let slot_clock = harness.chain.slot_clock.clone();
 
-    // A graceful shutdown persists the diverged fork choice (see `Drop` for
-    // `BeaconChain`).
-    harness.chain.persist_fork_choice().unwrap();
+    // A graceful shutdown refuses to persist the poisoned fork choice.
+    let err = harness.chain.persist_fork_choice().unwrap_err();
+    assert!(
+        matches!(err, BeaconChainError::ForkChoicePoisoned),
+        "persisting should refuse due to the poisoned fork choice, got: {err:?}"
+    );
     drop(harness);
 
-    // Rebooting from the same database fails, because the persisted fork choice resolves
-    // a head block that was never written to the store.
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        BeaconChainHarness::builder(MinimalEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .resumed_ephemeral_store(store)
-            .mock_execution_layer()
-            .testing_slot_clock(slot_clock)
-            .build()
-    }));
+    // Rebooting from the same database succeeds, resolving the head from the last
+    // consistent fork choice on disk.
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .testing_slot_clock(slot_clock)
+        .build();
 
-    let panic_payload = result.expect_err("the beacon chain should fail to start");
-    let message = panic_payload
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| panic_payload.downcast_ref::<&str>().map(|s| s.to_string()))
-        .unwrap_or_default();
+    let head_root = harness.chain.canonical_head.cached_head().head_block_root();
+    assert_ne!(
+        head_root, phantom_root,
+        "the recovered head should not be the phantom block"
+    );
     assert!(
-        message.contains("Head block not found in store"),
-        "startup should fail on the missing head block, got: {message}"
+        harness
+            .chain
+            .get_blinded_block(&head_root)
+            .unwrap()
+            .is_some(),
+        "the recovered head must exist in the store"
     );
 }
