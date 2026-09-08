@@ -1208,11 +1208,51 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonBlockAccessList(
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")] pub BlockAccessList,
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2 {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
+    #[serde(default)]
+    pub block_access_list: Option<JsonBlockAccessList>,
+}
+
+impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
+    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(|list| list.0),
+        }
+    }
+}
+
+impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
+    fn from(value: ExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(JsonBlockAccessList),
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1650,5 +1690,48 @@ mod tests {
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));
+    }
+
+    #[test]
+    fn payload_body_block_access_list_round_trip() {
+        use serde_json::json;
+
+        // Present `blockAccessList` -> `Some`.
+        let with_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": "0x010203",
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(
+            internal.block_access_list,
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
+
+        // Explicit `null` -> `None`, retained as `null` on re-serialize.
+        let null_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": null,
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(internal.block_access_list, None);
+        assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
+
+        // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
+        let body: JsonExecutionPayloadBodyV2 =
+            serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
+        assert!(body.block_access_list.is_none());
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({
+                "transactions": [],
+                "withdrawals": null,
+                "blockAccessList": null,
+            })
+        );
     }
 }
