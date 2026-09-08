@@ -154,7 +154,8 @@ pub enum Error {
         transactions_root: Hash256,
     },
     ZeroLengthTransaction,
-    PayloadBodiesByRangeNotSupported,
+    PayloadBodiesByHashV2NotSupported,
+    PayloadBodiesByHashNotSupported,
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),
@@ -1674,18 +1675,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_bodies_by_range(
+    /// Fetch execution payload bodies using the Gloas V2 response format.
+    pub async fn get_payload_bodies_by_hash_v2(
         &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_hash_v2 {
+            return Err(Error::PayloadBodiesByHashV2NotSupported);
+        }
+
         self.engine()
             .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
+                engine.api.get_payload_bodies_by_hash_v2(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1694,14 +1696,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     /// Fetch a full payload from the execution node.
     ///
-    /// This will fail if the payload is not from the finalized portion of the chain.
+    /// Returns `Ok(None)` if the execution engine does not have the body.
     pub async fn get_payload_for_header(
         &self,
         header: &ExecutionPayloadHeader<E>,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        let block_number = header.block_number();
-
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
             let payload = match fork {
@@ -1723,10 +1723,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             return Ok(Some(payload));
         }
 
-        // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
-            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+        if capabilities.get_payload_bodies_by_hash_v1 {
+            let mut payload_bodies = self
+                .get_payload_bodies_by_hash(vec![header.block_hash()])
+                .await?;
 
             if payload_bodies.len() != 1 {
                 return Ok(None);
@@ -1740,7 +1741,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 })
                 .transpose()
         } else {
-            Err(Error::PayloadBodiesByRangeNotSupported)
+            Err(Error::PayloadBodiesByHashNotSupported)
         }
     }
 
@@ -2175,7 +2176,7 @@ fn noop<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
@@ -2191,6 +2192,55 @@ mod test {
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
+    async fn get_gloas_payload_bodies_v2() {
+        let runtime = TestRuntime::default();
+        let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
+        let block_hash = ExecutionBlockHash::repeat_byte(0x42);
+        let block_number = 42;
+        let payload = ExecutionPayloadGloas {
+            block_hash,
+            block_number,
+            transactions: ProgressiveTransactions::new(vec![
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
+            ]),
+            withdrawals: types::ProgressiveWithdrawals::new(vec![Withdrawal {
+                index: 1,
+                validator_index: 2,
+                address: Address::from([0x33; 20]),
+                amount: 3,
+            }]),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]),
+            ..Default::default()
+        };
+        let expected_body = ExecutionPayloadBodyV2 {
+            transactions: payload.transactions.clone(),
+            withdrawals: Some(payload.withdrawals.clone()),
+            block_access_list: Some(payload.block_access_list.clone()),
+        };
+        let mut block_generator = mock.server.execution_block_generator();
+        block_generator.insert_block_without_checks(Block::PoS(payload.into()));
+        block_generator
+            .forkchoice_updated(
+                ForkchoiceState {
+                    head_block_hash: block_hash,
+                    safe_block_hash: block_hash,
+                    finalized_block_hash: block_hash,
+                },
+                None,
+            )
+            .expect("block should become the mock execution head");
+        drop(block_generator);
+
+        let bodies_by_hash = mock
+            .el
+            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
+            .await
+            .expect("payload body request by hash should succeed");
+        assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
     }
 
     #[tokio::test]
