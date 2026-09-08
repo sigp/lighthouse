@@ -18,8 +18,8 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid, Slot,
-    consts::gloas::PAYLOAD_BUILDER_VERSION,
+    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
+    SignedProposerPreferences, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 pub(crate) fn verify_bid_slot(bid_slot: Slot, current_slot: Slot) -> Result<(), PayloadBidError> {
@@ -34,8 +34,6 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
-    let bid_slot = bid.slot;
-
     // Execution payments are used by off protocol builders. In protocol bids
     // should always have this value set to zero.
     if bid.execution_payment != 0 {
@@ -44,8 +42,22 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
         });
     }
 
+    if bid.block_hash == bid.parent_block_hash {
+        return Err(PayloadBidError::BlockHashEqualsParentBlockHash {
+            slot: bid.slot,
+            block_hash: bid.block_hash,
+        });
+    }
+
+    verify_bid_blobs(bid, spec)
+}
+
+fn verify_bid_blobs<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     let max_blobs_per_block =
-        spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
+        spec.max_blobs_per_block(bid.slot.epoch(E::slots_per_epoch())) as usize;
 
     if bid.blob_kzg_commitments.len() > max_blobs_per_block {
         return Err(PayloadBidError::InvalidBlobKzgCommitments {
@@ -57,7 +69,36 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
     Ok(())
 }
 
-fn verify_builder<E: EthSpec>(
+/// Verify that an execution payload bid is consistent with the current chain state
+/// and proposer preferences.
+///
+/// These checks are shared by gossip and direct bids. Source-specific checks (e.g. the gossip-only
+/// requirement that `execution_payment == 0`) are applied by the caller.
+pub(crate) fn verify_bid_consistency<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+    current_slot: Slot,
+    proposer_preferences: &SignedProposerPreferences,
+    head_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
+    verify_bid_slot(bid.slot, current_slot)?;
+
+    if bid.fee_recipient != proposer_preferences.message.fee_recipient {
+        return Err(PayloadBidError::InvalidFeeRecipient);
+    }
+
+    verify_bid_blobs(bid, spec)?;
+
+    verify_bid_state_conditions(bid, head_state, spec)
+}
+
+/// Verify the bid conditions that depend on the beacon `state`: the builder is active, is a payload
+/// builder, and can cover the bid. These are exactly the state-dependent checks
+/// `process_execution_payload_bid` re-applies in `per_block_processing`, and the only bid conditions
+/// that can go stale between gossip verification and block production (e.g. the builder's balance
+/// dropping). Re-running them against the production state lets bid selection drop a gossip bid that
+/// has since become invalid, rather than committing to it and failing the whole block.
+pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
@@ -336,7 +377,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
-        verify_builder(&signed_bid.message, head_state, ctx.spec)?;
+        verify_bid_state_conditions(&signed_bid.message, head_state, ctx.spec)?;
 
         execution_payload_bid_signature_set(
             head_state,
@@ -353,10 +394,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
         ctx.gossip_verified_payload_bid_cache
-            .insert_seen_builder_bid(&gossip_verified_bid);
-
-        ctx.gossip_verified_payload_bid_cache
-            .insert_highest_bid(gossip_verified_bid.clone());
+            .observe_bid(gossip_verified_bid.clone());
 
         Ok(gossip_verified_bid)
     }

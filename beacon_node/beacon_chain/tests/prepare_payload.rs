@@ -398,6 +398,7 @@ async fn prepare_payload_generic(
         _consensus_block_value,
         _execution_payload_value,
         payload_contents,
+        _builder_url,
     ) = harness
         .chain
         .produce_block_with_verification_gloas(
@@ -405,7 +406,7 @@ async fn prepare_payload_generic(
             prepare_slot,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();
@@ -726,7 +727,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents, _builder_url) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
@@ -737,7 +738,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             randao_reveal,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();
