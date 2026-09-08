@@ -5,6 +5,7 @@ mod no_votes;
 mod votes;
 
 use crate::error::Error;
+use crate::proto_array::ParentPayloadStatus;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
@@ -98,7 +99,7 @@ pub enum Operation {
     },
     AssertParentPayloadStatus {
         block_root: Hash256,
-        expected_status: PayloadStatus,
+        expected_status: ParentPayloadStatus,
     },
     SetPayloadTiebreak {
         block_root: Hash256,

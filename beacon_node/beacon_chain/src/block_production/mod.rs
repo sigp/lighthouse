@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use fork_choice::PayloadStatus;
-use proto_array::{ProposerHeadError, ReOrgThreshold};
+use proto_array::{ParentPayloadStatus, ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
 use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
@@ -245,7 +245,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The head uniquely determines the parent payload status for the re-org block, whichever
         // variant (full or empty) it builds on must have more weight, or else we would have already
         // re-orged away from this block naturally, and it would not be the head, by definition.
-        let parent_payload_status = proposer_head.head_node.get_parent_payload_status();
+        // Resolved to a `PayloadStatus` here because `produce_block_on_state_gloas` is shared
+        // with the head-based path, whose value is the head's own side and can be `Pending`. A
+        // pre-Gloas parent has no separate payload to extend: build on the empty node.
+        let parent_payload_status = match proposer_head.head_node.get_parent_payload_status() {
+            ParentPayloadStatus::Full => PayloadStatus::Full,
+            ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+        };
 
         let (state_root, state) = self
             .store

@@ -55,11 +55,11 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(1),
-            expected_status: PayloadStatus::Full,
+            expected_status: ParentPayloadStatus::Full,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         // With equal full/empty parent weights, tiebreak decides which chain to follow.
         Operation::SetPayloadTiebreak {
@@ -510,7 +510,7 @@ pub fn get_gloas_parent_empty_when_child_points_to_grandparent_test_definition()
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
     ];
 
@@ -704,15 +704,15 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         // Verify parent_payload_status is set correctly.
         Operation::AssertParentPayloadStatus {
             block_root: get_root(1),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: PayloadStatus::Full,
+            expected_status: ParentPayloadStatus::Full,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         // Genesis does NOT have payload_received (no payload at genesis).
         Operation::AssertPayloadReceived {
@@ -1058,11 +1058,10 @@ mod tests {
             execution_payload_block_hash: Some(get_hash(2)),
         });
 
-        // Parent payload status of fork boundary block should always be Empty.
-        let expected_parent_status = PayloadStatus::Empty;
+        // The fork boundary block extends a pre-Gloas parent, which has no separate payload.
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: expected_parent_status,
+            expected_status: ParentPayloadStatus::PreGloas,
         });
 
         // Mark root 2's execution payload as received so the Full virtual child exists.
@@ -1100,9 +1099,9 @@ mod tests {
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
             expected_status: if first_gloas_block_full {
-                PayloadStatus::Full
+                ParentPayloadStatus::Full
             } else {
-                PayloadStatus::Empty
+                ParentPayloadStatus::Empty
             },
         });
 

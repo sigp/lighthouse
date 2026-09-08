@@ -131,7 +131,7 @@ pub struct ProtoNode {
 
     /// We track the parent payload status from which the current node was extended.
     #[superstruct(only(V29), partial_getter(copy))]
-    pub parent_payload_status: PayloadStatus,
+    pub parent_payload_status: ParentPayloadStatus,
     #[superstruct(only(V29), partial_getter(copy))]
     pub empty_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
@@ -177,19 +177,35 @@ pub struct ProtoNode {
     pub equivocating_attestation_score: u64,
 }
 
+/// The stored edge to the parent: which node of the parent this block extends. `PreGloas` is
+/// the fork-boundary edge to a V17 parent, whose payload rides inside the block itself. Each
+/// consumer decides what that means for its own question. Never `Pending`.
+///
+/// `Empty` and `Full` keep the tag values this field stored before `PreGloas` existed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[ssz(enum_behaviour = "tag")]
+#[repr(u8)]
+pub enum ParentPayloadStatus {
+    Empty = 0,
+    Full = 1,
+    PreGloas = 2,
+}
+
 impl ProtoNode {
     pub fn is_gloas(&self) -> bool {
         self.as_v29().is_ok()
     }
 
-    /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
-    /// considering their parents Empty.
-    pub fn get_parent_payload_status(&self) -> PayloadStatus {
-        self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
+    /// The stored edge to the parent. A V17 node has no edge of its own; its parent, one fork
+    /// deeper still, carried its payload inside the block just the same.
+    pub fn get_parent_payload_status(&self) -> ParentPayloadStatus {
+        self.parent_payload_status()
+            .unwrap_or(ParentPayloadStatus::PreGloas)
     }
 
     pub fn is_parent_node_full(&self) -> bool {
-        self.get_parent_payload_status() == PayloadStatus::Full
+        self.get_parent_payload_status() == ParentPayloadStatus::Full
     }
 
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
@@ -507,16 +523,21 @@ impl ProtoArray {
                 // direction). If this child is on the FULL path from the parent,
                 // all weight supports the parent's FULL virtual node, and vice versa.
                 if let Ok(child_v29) = node.as_v29() {
-                    if child_v29.parent_payload_status == PayloadStatus::Full {
-                        parent_delta.full_delta = parent_delta
-                            .full_delta
-                            .checked_add(delta)
-                            .ok_or(Error::DeltaOverflow(parent_index))?;
-                    } else {
-                        parent_delta.empty_delta = parent_delta
-                            .empty_delta
-                            .checked_add(delta)
-                            .ok_or(Error::DeltaOverflow(parent_index))?;
+                    match child_v29.parent_payload_status {
+                        ParentPayloadStatus::Full => {
+                            parent_delta.full_delta = parent_delta
+                                .full_delta
+                                .checked_add(delta)
+                                .ok_or(Error::DeltaOverflow(parent_index))?;
+                        }
+                        ParentPayloadStatus::Empty => {
+                            parent_delta.empty_delta = parent_delta
+                                .empty_delta
+                                .checked_add(delta)
+                                .ok_or(Error::DeltaOverflow(parent_index))?;
+                        }
+                        // A pre-Gloas parent has no payload buckets.
+                        ParentPayloadStatus::PreGloas => {}
                     }
                 } else {
                     // This is a v17 node with a v17 parent.
@@ -592,7 +613,7 @@ impl ProtoArray {
                         block_root: block.root,
                     })?;
 
-            let parent_payload_status: PayloadStatus =
+            let parent_payload_status: ParentPayloadStatus =
                 if let Some(parent_node) = parent_index.and_then(|idx| self.nodes.get(idx)) {
                     match parent_node {
                         ProtoNode::V29(v29) => {
@@ -600,22 +621,22 @@ impl ProtoArray {
                             // block hash in the parent node matches the parent block hash in the
                             // child bid.
                             if execution_payload_parent_hash == v29.execution_payload_block_hash {
-                                PayloadStatus::Full
+                                ParentPayloadStatus::Full
                             } else {
-                                PayloadStatus::Empty
+                                ParentPayloadStatus::Empty
                             }
                         }
                         ProtoNode::V17(_) => {
-                            // Parent is pre-Gloas, pre-Gloas blocks are treated as having Empty
-                            // payload status. This case is reached during the fork transition.
-                            PayloadStatus::Empty
+                            // Parent is pre-Gloas: its payload rides inside the block, so there
+                            // is no node to pick. Reached during the fork transition.
+                            ParentPayloadStatus::PreGloas
                         }
                     }
                 } else {
                     // Parent is missing (genesis or pruned due to finalization). This code path
                     // should only be hit at Gloas genesis. Default to empty, the genesis block
                     // has no payload enevelope.
-                    PayloadStatus::Empty
+                    ParentPayloadStatus::Empty
                 };
 
             // The spec does something slightly strange where it initialises the payload timeliness
@@ -694,8 +715,10 @@ impl ProtoArray {
         if let Some(parent_index) = node.parent()
             && matches!(block.execution_status, ExecutionStatus::Valid(_))
         {
-            let parent_status = node.parent_payload_status().unwrap_or(PayloadStatus::Full);
-            self.propagate_execution_payload_validation_from(parent_index, parent_status)?;
+            self.propagate_execution_payload_validation_from(
+                parent_index,
+                node.get_parent_payload_status(),
+            )?;
         }
 
         Ok(())
@@ -854,16 +877,20 @@ impl ProtoArray {
                 return Ok(node.execution_status());
             };
 
-            // Reached an ancestor whose payload this branch executed.
-            if gloas_node.parent_payload_status == PayloadStatus::Full {
-                let Some(parent_index) = gloas_node.parent else {
-                    return Ok(ExecutionStatus::irrelevant());
-                };
-                let parent = self
-                    .nodes
-                    .get(parent_index)
-                    .ok_or(Error::InvalidNodeIndex(parent_index))?;
-                return Ok(parent.execution_status());
+            // Reached an ancestor whose payload this branch executed. A pre-Gloas parent
+            // carries its payload inside the block, so it counts as executed too.
+            match gloas_node.parent_payload_status {
+                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                    let Some(parent_index) = gloas_node.parent else {
+                        return Ok(ExecutionStatus::irrelevant());
+                    };
+                    let parent = self
+                        .nodes
+                        .get(parent_index)
+                        .ok_or(Error::InvalidNodeIndex(parent_index))?;
+                    return Ok(parent.execution_status());
+                }
+                ParentPayloadStatus::Empty => {}
             }
 
             match gloas_node.parent {
@@ -887,7 +914,8 @@ impl ProtoArray {
             .indices
             .get(&block_root)
             .ok_or(Error::NodeUnknown(block_root))?;
-        self.propagate_execution_payload_validation_from(index, PayloadStatus::Full)
+        // Pre-Gloas only entry: the verified node carries its payload inside itself.
+        self.propagate_execution_payload_validation_from(index, ParentPayloadStatus::PreGloas)
     }
 
     /// Promotes `start_index` and every payload that its branch executed to `Valid`.
@@ -902,7 +930,7 @@ impl ProtoArray {
     fn propagate_execution_payload_validation_from(
         &mut self,
         start_index: usize,
-        start_status: PayloadStatus,
+        start_status: ParentPayloadStatus,
     ) -> Result<(), Error> {
         let mut index = start_index;
         let mut status = start_status;
@@ -912,39 +940,43 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            // Only a `FULL` node has a payload of its own in the execution ancestry of this branch.
-            if status == PayloadStatus::Full {
-                match node.execution_status() {
-                    // We have reached a node that we already know is valid. No need to iterate further
-                    // since we assume an ancestors have already been set to valid.
-                    ExecutionStatus::Valid(_) => return Ok(()),
-                    // We have reached an irrelevant node, this node is prior to a terminal execution
-                    // block. There's no need to iterate further, it's impossible for this block to have
-                    // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(()),
-                    // The block has an unknown status, set it to valid since any ancestor of a valid
-                    // payload can be considered valid.
-                    ExecutionStatus::Optimistic(payload_block_hash) => {
-                        *node.execution_status_mut() = ExecutionStatus::Valid(payload_block_hash);
-                    }
-                    // An ancestor of the valid payload was invalid. This is a serious error which
-                    // indicates a consensus failure in the execution node. This is unrecoverable.
-                    ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
-                        return Err(Error::InvalidAncestorOfValidPayload {
-                            ancestor_block_root: node.root(),
-                            ancestor_payload_block_hash,
-                        });
+            // Only a `FULL` node has a payload of its own in the execution ancestry of this
+            // branch. A pre-Gloas block carries its payload inside itself, so it is executed.
+            match status {
+                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                    match node.execution_status() {
+                        // We have reached a node that we already know is valid. No need to iterate further
+                        // since we assume an ancestors have already been set to valid.
+                        ExecutionStatus::Valid(_) => return Ok(()),
+                        // We have reached an irrelevant node, this node is prior to a terminal execution
+                        // block. There's no need to iterate further, it's impossible for this block to have
+                        // any relevant ancestors.
+                        ExecutionStatus::Irrelevant(_) => return Ok(()),
+                        // The block has an unknown status, set it to valid since any ancestor of a valid
+                        // payload can be considered valid.
+                        ExecutionStatus::Optimistic(payload_block_hash) => {
+                            *node.execution_status_mut() =
+                                ExecutionStatus::Valid(payload_block_hash);
+                        }
+                        // An ancestor of the valid payload was invalid. This is a serious error which
+                        // indicates a consensus failure in the execution node. This is unrecoverable.
+                        ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                            return Err(Error::InvalidAncestorOfValidPayload {
+                                ancestor_block_root: node.root(),
+                                ancestor_payload_block_hash,
+                            });
+                        }
                     }
                 }
+                ParentPayloadStatus::Empty => {}
             }
 
             let Some(parent_index) = node.parent() else {
                 // We have reached the root block, iteration complete.
                 return Ok(());
             };
-            // Which of the two nodes of the parent this block extends. Pre-Gloas the chain
-            // is all `FULL`.
-            status = node.parent_payload_status().unwrap_or(PayloadStatus::Full);
+            // Which of the two nodes of the parent this block extends.
+            status = node.get_parent_payload_status();
             index = parent_index;
         }
     }
@@ -992,29 +1024,17 @@ impl ProtoArray {
 
         // Collect all *ancestors* which were declared invalid since they reside between the
         // `head_block_root` and the `latest_valid_ancestor_root`.
-        let mut status = PayloadStatus::Full;
         loop {
             let node = self
                 .nodes
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            // An `EMPTY` edge is a gap in the execution ancestry of the branch, not the end of it.
-            // This branch never ran the payload of this block, so the walk steps over it.
-            if status != PayloadStatus::Full {
-                let Some(parent_index) = node.parent() else {
-                    break;
-                };
-                status = node.parent_payload_status().unwrap_or(PayloadStatus::Full);
-                index = parent_index;
-                continue;
-            }
-
             let node_execution_status = node.execution_status();
             match node_execution_status {
-                ExecutionStatus::Valid(hash)
-                | ExecutionStatus::Invalid(hash)
-                | ExecutionStatus::Optimistic(hash) => {
+                Ok(ExecutionStatus::Valid(hash))
+                | Ok(ExecutionStatus::Invalid(hash))
+                | Ok(ExecutionStatus::Optimistic(hash)) => {
                     // If we're no longer processing the `head_block_root` and the last valid
                     // ancestor is unknown, exit this loop and proceed to invalidate and
                     // descendants of `head_block_root`/`latest_valid_ancestor_root`.
@@ -1030,7 +1050,8 @@ impl ProtoArray {
                         break;
                     }
                 }
-                ExecutionStatus::Irrelevant(_) => break,
+                Ok(ExecutionStatus::Irrelevant(_)) => break,
+                Err(_) => break,
             }
 
             // Only invalidate the head block if either:
@@ -1044,27 +1065,29 @@ impl ProtoArray {
                 match node.execution_status() {
                     // It's illegal for an execution client to declare that some previously-valid block
                     // is now invalid. This is a consensus failure on their behalf.
-                    ExecutionStatus::Valid(hash) => {
+                    Ok(ExecutionStatus::Valid(hash)) => {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
                             block_root: node.root(),
                             payload_block_hash: hash,
                         });
                     }
-                    ExecutionStatus::Optimistic(hash) => {
+                    Ok(ExecutionStatus::Optimistic(hash)) => {
                         invalidated_indices.insert(index);
-                        *node.execution_status_mut() = ExecutionStatus::Invalid(hash);
+                        if let ProtoNode::V17(node) = node {
+                            node.execution_status = ExecutionStatus::Invalid(hash);
+                        }
                     }
                     // The block is already invalid, but keep going backwards to ensure all ancestors
                     // are updated.
-                    ExecutionStatus::Invalid(_) => (),
+                    Ok(ExecutionStatus::Invalid(_)) => (),
                     // This block is pre-merge, therefore it has no execution status. Nor do its
                     // ancestors.
-                    ExecutionStatus::Irrelevant(_) => break,
+                    Ok(ExecutionStatus::Irrelevant(_)) => break,
+                    Err(_) => break,
                 }
             }
 
             if let Some(parent_index) = node.parent() {
-                status = node.parent_payload_status().unwrap_or(PayloadStatus::Full);
                 index = parent_index
             } else {
                 // The root of the block tree has been reached (aka the finalized block), without
@@ -1101,40 +1124,24 @@ impl ProtoArray {
             if let Some(parent_index) = node.parent()
                 && invalidated_indices.contains(&parent_index)
             {
-                // A Gloas descendant becomes invalid only when it built on the payload of the
-                // ancestor. A descendant that took the `EMPTY` edge stays viable.
-                if let ProtoNode::V29(gloas_node) = node
-                    && gloas_node.parent_payload_status != PayloadStatus::Full
-                {
-                    continue;
-                }
-
                 match node.execution_status() {
-                    ExecutionStatus::Valid(hash) => {
+                    Ok(ExecutionStatus::Valid(hash)) => {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
                             block_root: node.root(),
                             payload_block_hash: hash,
                         });
                     }
-                    ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
-                        *node.execution_status_mut() = ExecutionStatus::Invalid(hash);
-                    }
-                    ExecutionStatus::Irrelevant(_) => {
-                        // In Gloas this means only that the payload is not revealed yet. The block did
-                        // commit to the invalid ancestry. Pre-Gloas this state is a contradiction.
-                        match node {
-                            ProtoNode::V29(gloas_node) => {
-                                gloas_node.execution_status = ExecutionStatus::Invalid(
-                                    gloas_node.execution_payload_block_hash,
-                                );
-                            }
-                            ProtoNode::V17(_) => {
-                                return Err(Error::IrrelevantDescendant {
-                                    block_root: node.root(),
-                                });
-                            }
+                    Ok(ExecutionStatus::Optimistic(hash)) | Ok(ExecutionStatus::Invalid(hash)) => {
+                        if let ProtoNode::V17(node) = node {
+                            node.execution_status = ExecutionStatus::Invalid(hash)
                         }
                     }
+                    Ok(ExecutionStatus::Irrelevant(_)) => {
+                        return Err(Error::IrrelevantDescendant {
+                            block_root: node.root(),
+                        });
+                    }
+                    Err(_) => (),
                 }
 
                 invalidated_indices.insert(index);
@@ -1580,7 +1587,13 @@ impl ProtoArray {
                 return Ok(IndexedForkChoiceNode {
                     root: current.root(),
                     proto_node_index: current_index,
-                    payload_status: child.get_parent_payload_status(),
+                    payload_status: match child.get_parent_payload_status() {
+                        ParentPayloadStatus::Full => PayloadStatus::Full,
+                        // A pre-Gloas parent has a single virtual node, conventionally `EMPTY`.
+                        ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => {
+                            PayloadStatus::Empty
+                        }
+                    },
                 });
             }
 
@@ -1621,7 +1634,14 @@ impl ProtoArray {
                         .ok_or(Error::InvalidNodeIndex(i))
                         .map(|child| {
                             // Spec: node.payload_status == get_parent_payload_status(store, blocks[root])
-                            (child.get_parent_payload_status() == node.payload_status).then(|| {
+                            let child_side = match child.get_parent_payload_status() {
+                                ParentPayloadStatus::Full => PayloadStatus::Full,
+                                ParentPayloadStatus::Empty => PayloadStatus::Empty,
+                                // A pre-Gloas parent has a single virtual node - set to EMPTY to
+                                // match the unconditional children push at the top of this function
+                                ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+                            };
+                            (child_side == node.payload_status).then(|| {
                                 (
                                     IndexedForkChoiceNode {
                                         root: child.root(),

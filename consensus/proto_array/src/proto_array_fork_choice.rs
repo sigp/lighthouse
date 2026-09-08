@@ -1,3 +1,4 @@
+use crate::proto_array::ParentPayloadStatus;
 use crate::{
     JustifiedBalances,
     error::Error,
@@ -1044,7 +1045,11 @@ impl ProtoArrayForkChoice {
         let fc_node = IndexedForkChoiceNode {
             root: proto_node.root(),
             proto_node_index: *block_index,
-            payload_status: proto_node.get_parent_payload_status(),
+            payload_status: match proto_node.get_parent_payload_status() {
+                ParentPayloadStatus::Full => PayloadStatus::Full,
+                // A pre-Gloas parent has a single virtual node, conventionally `EMPTY`.
+                ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+            },
         };
         self.proto_array
             .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
