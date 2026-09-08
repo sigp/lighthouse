@@ -92,8 +92,8 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     verify_bid_state_conditions(bid, head_state, spec)
 }
 
-/// Verify the bid conditions that depend on the beacon `state`: the builder is active, is a payload
-/// builder, and can cover the bid. These are exactly the state-dependent checks
+/// Verify the bid conditions that depend on the beacon `state`: the builder is a payload builder,
+/// is active, and can cover the bid. These are exactly the state-dependent checks
 /// `process_execution_payload_bid` re-applies in `per_block_processing`, and the only bid conditions
 /// that can go stale between gossip verification and block production (e.g. the builder's balance
 /// dropping). Re-running them against the production state lets bid selection drop a gossip bid that
@@ -109,10 +109,10 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?
         .version;
 
-    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
-        return Err(PayloadBidError::BuilderCantCoverBid {
+    if builder_version != PAYLOAD_BUILDER_VERSION {
+        return Err(PayloadBidError::InvalidBuilderVersion {
             builder_index,
-            builder_bid: bid.value,
+            version: builder_version,
         });
     }
 
@@ -123,10 +123,10 @@ pub(crate) fn verify_bid_state_conditions<E: EthSpec>(
         return Err(PayloadBidError::InvalidBuilder { builder_index });
     }
 
-    if builder_version != PAYLOAD_BUILDER_VERSION {
-        return Err(PayloadBidError::InvalidBuilderVersion {
+    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
+        return Err(PayloadBidError::BuilderCantCoverBid {
             builder_index,
-            version: builder_version,
+            builder_bid: bid.value,
         });
     }
 
