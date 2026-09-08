@@ -63,9 +63,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            let parent_root = self.block.message().parent_root();
+            // The EE judged this block's own payload, so invalidate the block, not its parent.
+            let block_root = self.block.canonical_root();
             let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
-            notify_new_payload(&self.chain, self.envelope.slot(), parent_root, request).await
+            notify_new_payload(&self.chain, self.envelope.slot(), block_root, request).await
         }
     }
 
