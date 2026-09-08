@@ -1713,30 +1713,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    /// Fetch execution payload bodies by range using the Gloas V2 response format.
-    pub async fn get_payload_bodies_by_range_v2(
-        &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
-        if !capabilities.get_payload_bodies_by_range_v2 {
-            return Err(Error::PayloadBodiesByRangeV2NotSupported);
-        }
-
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
-        self.engine()
-            .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v2(start, count)
-                    .await
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
     /// Fetch a full payload from the execution node.
     ///
     /// This will fail if the payload is not from the finalized portion of the chain.
@@ -2285,13 +2261,6 @@ mod test {
             .await
             .expect("payload body request by hash should succeed");
         assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
-
-        let bodies_by_range = mock
-            .el
-            .get_payload_bodies_by_range_v2(block_number, 2)
-            .await
-            .expect("payload body request by range should succeed");
-        assert_eq!(bodies_by_range, vec![Some(expected_body), None]);
     }
 
     #[tokio::test]

@@ -79,6 +79,8 @@ pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-prote
 /// (verified geth, nethermind, erigon, besu)
 pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
 
+// We never actually use getPayloadBodiesByRangeV2, but it seems harmless to include it in
+// our supported capabilities to avoid scaring the EL.
 pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
@@ -1254,30 +1256,6 @@ impl HttpJsonRpc {
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()
-    }
-
-    pub async fn get_payload_bodies_by_range_v2(
-        &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
-        #[derive(Serialize)]
-        #[serde(transparent)]
-        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
-
-        let params = json!([Quantity(start), Quantity(count)]);
-        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
-            .rpc_request(
-                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
-                params,
-                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response
-            .into_iter()
-            .map(|body| body.map(Into::into))
-            .collect())
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
