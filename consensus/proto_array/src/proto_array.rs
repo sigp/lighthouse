@@ -468,43 +468,57 @@ impl ProtoArray {
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
 
-            let delta = if execution_status_is_invalid {
-                // If the node has an invalid execution payload, reduce its weight to zero.
-                0_i64
-                    .checked_sub(node.weight() as i64)
-                    .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
-            } else {
-                node_delta.delta
-            };
-
-            let (node_empty_delta, node_full_delta) = if node.as_v29().is_ok() {
-                (node_delta.empty_delta, node_delta.full_delta)
-            } else {
-                (0, 0)
-            };
-
             // Proposer boost is NOT applied here. It is computed on-the-fly
             // during the virtual tree walk in `get_weight`, matching the spec's
             // `get_weight` which adds boost separately from `get_attestation_score`.
 
-            // Apply the delta to the node.
-            if execution_status_is_invalid {
-                // Invalid nodes always have a weight of 0.
-                *node.weight_mut() = 0;
-            } else {
-                *node.weight_mut() = apply_delta(node.weight(), delta, node_index)?;
-            }
+            // Apply the delta to the node and return the mass to back-propagate to its parent.
+            // A pre-Gloas invalid block loses all of its weight; a Gloas invalid payload kills
+            // only its `FULL` virtual node, so only its viable (`empty + pending`) mass propagates.
+            let backprop_delta = match node {
+                ProtoNode::V17(node) => {
+                    node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
 
-            // Apply post-Gloas score deltas.
-            if let Ok(node) = node.as_v29_mut() {
-                node.empty_payload_weight =
-                    apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
-                node.full_payload_weight =
-                    apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
-                node.equivocating_attestation_score = node
-                    .equivocating_attestation_score
-                    .saturating_add(node_delta.equivocating_attestation_delta);
-            }
+                    if execution_status_is_invalid {
+                        // An invalid pre-Gloas node is entirely dead: remove its whole weight.
+                        let removed = node.weight;
+                        node.weight = 0;
+                        node_delta
+                            .delta
+                            .checked_sub(removed as i64)
+                            .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
+                    } else {
+                        node_delta.delta
+                    }
+                }
+                ProtoNode::V29(node) => {
+                    node.weight = apply_delta(node.weight, node_delta.delta, node_index)?;
+                    node.empty_payload_weight = apply_delta(
+                        node.empty_payload_weight,
+                        node_delta.empty_delta,
+                        node_index,
+                    )?;
+                    node.full_payload_weight =
+                        apply_delta(node.full_payload_weight, node_delta.full_delta, node_index)?;
+                    node.equivocating_attestation_score = node
+                        .equivocating_attestation_score
+                        .saturating_add(node_delta.equivocating_attestation_delta);
+
+                    if execution_status_is_invalid {
+                        // An invalid payload kills only the `FULL` virtual node. Drop its mass
+                        // from the aggregate (leaving `empty + pending`) and zero the full bucket.
+                        let full_removed = node.full_payload_weight;
+                        node.weight = node.weight.saturating_sub(full_removed);
+                        node.full_payload_weight = 0;
+                        node_delta
+                            .delta
+                            .checked_sub(full_removed as i64)
+                            .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
+                    } else {
+                        node_delta.delta
+                    }
+                }
+            };
 
             // Update the parent delta (if any).
             if let Some(parent_index) = node.parent() {
@@ -515,7 +529,7 @@ impl ProtoArray {
                 // Back-propagate the node's delta to its parent.
                 parent_delta.delta = parent_delta
                     .delta
-                    .checked_add(delta)
+                    .checked_add(backprop_delta)
                     .ok_or(Error::DeltaOverflow(parent_index))?;
 
                 // Route ALL child weight into the parent's FULL or EMPTY bucket
@@ -527,13 +541,13 @@ impl ProtoArray {
                         ParentPayloadStatus::Full => {
                             parent_delta.full_delta = parent_delta
                                 .full_delta
-                                .checked_add(delta)
+                                .checked_add(backprop_delta)
                                 .ok_or(Error::DeltaOverflow(parent_index))?;
                         }
                         ParentPayloadStatus::Empty => {
                             parent_delta.empty_delta = parent_delta
                                 .empty_delta
-                                .checked_add(delta)
+                                .checked_add(backprop_delta)
                                 .ok_or(Error::DeltaOverflow(parent_index))?;
                         }
                         // A pre-Gloas parent has no payload buckets.
