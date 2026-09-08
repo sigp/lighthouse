@@ -19,7 +19,8 @@ pub use gloas::PayloadEnvelopeContents;
 /// State loaded from the database for block production.
 pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state: BeaconState<E>,
-    pub state_root: Hash256,
+    pub state_root: Option<Hash256>,
+    pub parent_root: Hash256,
     pub parent_payload_status: PayloadStatus,
     pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
 }
@@ -28,6 +29,7 @@ pub(crate) struct BlockProductionState<E: EthSpec> {
 struct ReOrgInputs<E: EthSpec> {
     state: BeaconState<E>,
     state_root: Hash256,
+    parent_root: Hash256,
     parent_payload_status: PayloadStatus,
     parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
 }
@@ -72,7 +74,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 BlockProductionState {
                     state: inputs.state,
-                    state_root: inputs.state_root,
+                    state_root: Some(inputs.state_root),
+                    parent_root: inputs.parent_root,
                     parent_payload_status: inputs.parent_payload_status,
                     parent_envelope: inputs.parent_envelope,
                 }
@@ -89,7 +92,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 BlockProductionState {
                     state,
-                    state_root,
+                    state_root: Some(state_root),
+                    parent_root: head_block_root,
                     parent_payload_status: head_payload_status,
                     parent_envelope: head_envelope,
                 }
@@ -100,14 +104,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %slot,
                 "Producing block that conflicts with head"
             );
-            let mut state = self
+            let state = self
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-            let state_root = state.update_tree_hash_cache()?;
 
             BlockProductionState {
                 state,
-                state_root,
+                state_root: None,
+                parent_root,
                 parent_payload_status: head_payload_status,
                 parent_envelope: head_envelope,
             }
@@ -291,6 +295,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Some(ReOrgInputs {
             state,
             state_root,
+            parent_root: re_org_parent_block,
             parent_payload_status,
             parent_envelope,
         })

@@ -5148,7 +5148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
-        let (state, state_root) = (
+        let (state, state_root_opt) = (
             block_production_state.state,
             block_production_state.state_root,
         );
@@ -5158,7 +5158,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Produce the block upon the state
         self.produce_block_on_state(
             state,
-            Some(state_root),
+            state_root_opt,
             slot,
             randao_reveal,
             graffiti_settings,

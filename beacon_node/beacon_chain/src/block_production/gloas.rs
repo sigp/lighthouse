@@ -140,7 +140,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)??;
         let BlockProductionState {
             state,
-            state_root,
+            state_root: state_root_opt,
+            parent_root,
             parent_payload_status,
             parent_envelope,
         } = block_production_state;
@@ -150,7 +151,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Produce the block upon the state
         self.produce_block_on_state_gloas(
             state,
-            state_root,
+            state_root_opt,
+            parent_root,
             parent_payload_status,
             parent_envelope,
             slot,
@@ -167,7 +169,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_block_on_state_gloas(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
-        state_root: Hash256,
+        state_root_opt: Option<Hash256>,
+        parent_root: Hash256,
         parent_payload_status: PayloadStatus,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
@@ -182,9 +185,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Producing Gloas block"
         );
 
-        // An unadvanced post-state's block_roots omit the parent itself.
-        // Resolve its root from the latest header and the loaded state root.
-        let parent_root = state.get_latest_block_root(state_root);
         let should_build_on_full = self
             .canonical_head
             .fork_choice_read_lock()
@@ -193,7 +193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
             })?;
 
-        // Extract the parent's execution requests if building on full.
+        // Extract the parent's execution requests from the envelope (if building on full).
         let parent_execution_requests = if should_build_on_full {
             parent_envelope
                 .as_ref()
@@ -218,7 +218,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.produce_partial_beacon_block_gloas(
                         state,
-                        state_root,
+                        state_root_opt,
                         parent_root,
                         produce_at_slot,
                         randao_reveal,
@@ -353,7 +353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn produce_partial_beacon_block_gloas(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
-        state_root: Hash256,
+        state_root_opt: Option<Hash256>,
         parent_root: Hash256,
         produce_at_slot: Slot,
         randao_reveal: Signature,
@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Ensure the state has performed a complete transition into the required slot.
         complete_state_advance(
             &mut state,
-            Some(state_root),
+            state_root_opt,
             produce_at_slot,
             self.builder_onboarding_cache.as_deref(),
             &self.spec,
@@ -385,17 +385,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         state.apply_pending_mutations()?;
-
-        // Block production never targets slot 0, so the advanced state must contain the parent.
-        let state_parent_root = *state
-            .get_block_root(state.slot() - 1)
-            .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?;
-        if parent_root != state_parent_root {
-            return Err(BlockProductionError::ParentRootMismatch {
-                parent_root,
-                state_parent_root,
-            });
-        }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 

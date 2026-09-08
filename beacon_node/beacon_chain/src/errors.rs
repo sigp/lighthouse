@@ -310,10 +310,6 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
-    ParentRootMismatch {
-        parent_root: Hash256,
-        state_parent_root: Hash256,
-    },
     ExecutionLayerMissing,
     BlockingFailed(execution_layer::Error),
     TerminalPoWBlockLookupFailed(execution_layer::Error),
