@@ -2827,7 +2827,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
         let head_snapshot = self.head().snapshot;
         let head_state = &head_snapshot.beacon_state;
-        let wall_clock_epoch = self.epoch()?;
+        let wall_clock_epoch = self
+            .slot_clock
+            .now_with_future_tolerance(self.spec.maximum_gossip_clock_disparity())
+            .ok_or(Error::UnableToReadSlot)?
+            .epoch(T::EthSpec::slots_per_epoch());
 
         Ok(self
             .observed_voluntary_exits
