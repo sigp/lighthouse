@@ -2,7 +2,7 @@ use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use types::{
-    AttestationData, BeaconState, BeaconStateError as Error, ChainSpec, EthSpec,
+    AttestationData, BeaconState, BeaconStateError as Error, ChainSpec, EthSpec, Slot,
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
@@ -21,6 +21,7 @@ use types::{
 pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     state: &BeaconState<E>,
     data: &AttestationData,
+    parent_slot: Option<Slot>,
     inclusion_delay: u64,
     spec: &ChainSpec,
 ) -> Result<SmallVec<[usize; NUM_FLAG_INDICES]>, Error> {
@@ -37,6 +38,8 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
 
     // [New in Gloas:EIP7732]
     let payload_matches = if state.fork_name_unchecked().gloas_enabled() {
+        let parent_slot = parent_slot.ok_or(Error::MissingParentSlot)?;
+
         if state.is_attestation_same_slot(data)? {
             // For same-slot attestations, data.index must be 0
             if data.index != 0 {
@@ -45,8 +48,7 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
             true
         } else {
             // For non same-slot attestations, check execution payload availability
-            let slot_index = data
-                .slot
+            let slot_index = parent_slot
                 .as_usize()
                 .safe_rem(E::slots_per_historical_root())?;
             let payload_index = state

@@ -102,6 +102,8 @@ struct MessageMeta {
     subnet_id: Option<u64>,
     #[serde(default)]
     offset_ms: Option<u64>,
+    #[serde(default)]
+    current_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -431,10 +433,7 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let block = Arc::new(load_beacon_block(path, &message_meta.message, &self.spec)?);
-        let time_ms = self
-            .current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
+        let time_ms = self.message_time_ms(message_meta)?;
         let seen_duration = self.set_time_ms(time_ms)?;
 
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
@@ -582,11 +581,18 @@ impl<E: EthSpec> GossipTester<E> {
     }
 
     fn set_message_time(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
-        let time_ms = self
-            .current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
+        let time_ms = self.message_time_ms(message_meta)?;
         self.set_time_ms(time_ms)
+    }
+
+    fn message_time_ms(&self, message_meta: &MessageMeta) -> Result<u64, Error> {
+        if let Some(current_time_ms) = message_meta.current_time_ms {
+            return Ok(current_time_ms);
+        }
+
+        self.current_time_ms
+            .checked_add(message_meta.offset_ms.unwrap_or_default())
+            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))
     }
 
     fn validation_result(

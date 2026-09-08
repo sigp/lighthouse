@@ -38,7 +38,6 @@ mod rewards;
 mod sanity_blocks;
 mod sanity_slots;
 mod shuffling;
-mod ssz_generic;
 mod ssz_static;
 mod transition;
 
@@ -76,7 +75,6 @@ pub use rewards::RewardsTest;
 pub use sanity_blocks::*;
 pub use sanity_slots::*;
 pub use shuffling::*;
-pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
 

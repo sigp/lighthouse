@@ -289,14 +289,15 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         let status = info.status();
-        // Ensure elapsed time is in milliseconds.
-        let elapsed = info.elapsed().as_secs_f64() * 1000.0;
+        // Round to 3 decimal places (microsecond resolution) so the logged value doesn't carry
+        // binary floating-point noise (e.g. `5.601420999999999`).
+        let elapsed_ms = format!("{:.3}", info.elapsed().as_secs_f64() * 1000.0);
         let path = info.path();
         let method = info.method().to_string();
 
         if status.is_success() {
             debug!(
-                elapsed_ms = %elapsed,
+                elapsed_ms = %elapsed_ms,
                 status = %status,
                 path = %path,
                 method = %method,
@@ -304,7 +305,7 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
             );
         } else {
             warn!(
-                elapsed_ms = %elapsed,
+                elapsed_ms = %elapsed_ms,
                 status = %status,
                 path = %path,
                 method = %method,

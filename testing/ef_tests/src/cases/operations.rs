@@ -131,12 +131,14 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         if state.fork_name_unchecked().gloas_enabled() {
+            let parent_slot = Some(state.latest_execution_payload_bid()?.slot);
             gloas::process_attestation(
                 state,
                 self.to_ref(),
                 0,
-                &mut ctxt,
                 VerifySignatures::True,
+                parent_slot,
+                &mut ctxt,
                 spec,
             )
         } else if state.fork_name_unchecked().altair_enabled() {

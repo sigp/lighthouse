@@ -390,15 +390,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             )
             .ok_or("Failed to spawn attestation data task")?;
 
-        // If a validator needs to publish an aggregate attestation, they must do so at 2/3
-        // through the slot. This delay triggers at this time
+        // If a validator needs to publish an aggregate attestation, trigger it at the
+        // fork-appropriate aggregate due time.
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_slot(slot + 1)
             .ok_or("Unable to determine duration to next slot")?;
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_add(self.chain_spec.get_aggregate_attestation_due())
+                .checked_add(self.chain_spec.get_aggregate_attestation_due::<S::E>(slot))
                 .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 

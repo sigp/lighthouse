@@ -537,7 +537,7 @@ impl<E: EthSpec> PeerManager<E> {
         direction: ConnectionDirection,
     ) {
         let client = self.network_globals.client(peer_id);
-        let score = self.network_globals.peers.read().score(peer_id);
+        let score = format!("{:.2}", self.network_globals.peers.read().score(peer_id));
         debug!(%protocol, %err, %client, %peer_id, %score, ?direction, "RPC Error");
         metrics::inc_counter_vec(
             &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,

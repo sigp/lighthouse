@@ -6,6 +6,7 @@ use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use tracing::debug;
+use types::{ProgressiveTransactions, ProgressiveWithdrawals};
 
 pub const GENERIC_ERROR_CODE: i64 = -1234;
 pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
@@ -62,41 +63,6 @@ pub async fn handle_rpc<E: EthSpec>(
                     format!("The tag {} is not supported", other),
                     BAD_PARAMS_ERROR_CODE,
                 )),
-            }
-        }
-        ETH_GET_BLOCK_BY_HASH => {
-            let hash = params
-                .get(0)
-                .and_then(JsonValue::as_str)
-                .ok_or_else(|| "missing/invalid params[0] value".to_string())
-                .and_then(|s| {
-                    s.parse()
-                        .map_err(|e| format!("unable to parse hash: {:?}", e))
-                })
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-
-            // If we have a static response set, just return that.
-            if let Some(response) = *ctx.static_get_block_by_hash_response.lock() {
-                return Ok(serde_json::to_value(response).unwrap());
-            }
-
-            let full_tx = params
-                .get(1)
-                .and_then(JsonValue::as_bool)
-                .ok_or_else(|| "missing/invalid params[1] value".to_string())
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
-            if full_tx {
-                Err((
-                    "full_tx support has been removed".to_string(),
-                    BAD_PARAMS_ERROR_CODE,
-                ))
-            } else {
-                Ok(serde_json::to_value(
-                    ctx.execution_block_generator
-                        .read()
-                        .execution_block_by_hash(hash),
-                )
-                .unwrap())
             }
         }
         ENGINE_NEW_PAYLOAD_V1
@@ -563,6 +529,11 @@ pub async fn handle_rpc<E: EthSpec>(
             let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
             Ok(serde_json::to_value(response).unwrap())
         }
+        ENGINE_GET_INCLUSION_LIST_V1 => {
+            let transactions = ctx.execution_block_generator.read().get_inclusion_list();
+
+            Ok(serde_json::to_value(JsonInclusionListV1(transactions)).unwrap())
+        }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3
@@ -791,6 +762,44 @@ pub async fn handle_rpc<E: EthSpec>(
                         let json_payload_body: JsonExecutionPayloadBodyV1<E> =
                             payload_body.try_into().unwrap();
                         response.push(Some(json_payload_body));
+                    }
+                    None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2 => {
+            let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+
+            let mut response = vec![];
+            for block_hash in block_hashes {
+                let maybe_payload = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_payload_by_hash(block_hash);
+
+                match maybe_payload {
+                    Some(payload) => {
+                        let payload_body = ExecutionPayloadBodyV2 {
+                            transactions: ProgressiveTransactions::new(
+                                payload
+                                    .transactions()
+                                    .iter()
+                                    .map(|transaction| {
+                                        ssz_types::ProgressiveVariableList::new(
+                                            transaction.to_vec(),
+                                        )
+                                    })
+                                    .collect(),
+                            ),
+                            withdrawals: payload.withdrawals().ok().map(|withdrawals| {
+                                ProgressiveWithdrawals::new(withdrawals.to_vec())
+                            }),
+                            block_access_list: payload.block_access_list().ok().cloned(),
+                        };
+                        response.push(Some(JsonExecutionPayloadBodyV2::from(payload_body)));
                     }
                     None => response.push(None),
                 }

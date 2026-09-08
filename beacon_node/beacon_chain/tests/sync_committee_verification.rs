@@ -766,7 +766,14 @@ async fn unaggregated_gossip_verification() {
 
         // Advance the state to simulate a pre-state for block production.
         let slot = valid_sync_committee_message.slot + 1;
-        complete_state_advance(&mut state, Some(block.state_root()), slot, &chain.spec).unwrap();
+        complete_state_advance(
+            &mut state,
+            Some(block.state_root()),
+            slot,
+            None,
+            &chain.spec,
+        )
+        .unwrap();
 
         // Get an aggregate that would be included in a block.
         let aggregate_for_inclusion = chain.op_pool.get_sync_aggregate(&state).unwrap().unwrap();

@@ -1,6 +1,7 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
 use eth2::types::PtcDuty;
+use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -210,20 +211,30 @@ where
 
     /// Sign `attestation_data` for each duty and publish the resulting messages, preferring SSZ
     /// and falling back to JSON.
+    ///
+    /// All signatures are requested concurrently, with no cap: `ValidatorStore` implementations
+    /// backed by remote signers (e.g. distributed validators awaiting a threshold of co-signers)
+    /// may not resolve any signature until all are requested.
     async fn sign_and_publish(
         &self,
         slot: Slot,
         duties: Vec<PtcDuty>,
         attestation_data: PayloadAttestationData,
     ) -> Result<(), String> {
-        let mut messages = Vec::with_capacity(duties.len());
+        let signing_futures = duties.iter().map(|duty| {
+            let data = attestation_data.clone();
+            async move {
+                let result = self
+                    .validator_store
+                    .sign_payload_attestation(duty.pubkey, data)
+                    .await;
+                (duty, result)
+            }
+        });
 
-        for duty in &duties {
-            match self
-                .validator_store
-                .sign_payload_attestation(duty.pubkey, attestation_data.clone())
-                .await
-            {
+        let mut messages = Vec::with_capacity(duties.len());
+        for (duty, result) in join_all(signing_futures).await {
+            match result {
                 Ok(message) => {
                     messages.push(message);
                 }
@@ -289,11 +300,15 @@ where
 mod tests {
     use super::*;
     use crate::duties_service::DutiesServiceBuilder;
+    use bls::{PublicKeyBytes, Signature};
     use eth2::types::PtcDuty;
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Epoch, ForkName, Hash256, PayloadAttestationData, Slot};
+    use types::{
+        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot,
+    };
+    use validator_test_rig::mock_validator_store::MockValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     struct TestHarness {
@@ -304,47 +319,60 @@ mod tests {
     impl TestHarness {
         async fn new_with_validators(num_validators: usize) -> Self {
             let harness = ValidatorClientHarness::new(num_validators).await;
-
-            let duties_service = Arc::new(
-                DutiesServiceBuilder::new()
-                    .validator_store(harness.validator_store.clone())
-                    .slot_clock(harness.slot_clock.clone())
-                    .beacon_nodes(harness.beacon_nodes.clone())
-                    .executor(harness.test_runtime.task_executor.clone())
-                    .spec(harness.spec.clone())
-                    .build()
-                    .unwrap(),
-            );
-
-            let service = PayloadAttestationService::new(
-                duties_service,
-                harness.validator_store.clone(),
-                harness.slot_clock.clone(),
-                harness.beacon_nodes.clone(),
-                harness.test_runtime.task_executor.clone(),
-                harness.spec.clone(),
-            );
-
+            let service = build_service(&harness, harness.validator_store.clone());
             Self { harness, service }
         }
 
         fn insert_ptc_duties(&self, slot: Slot) {
-            let duties = self
-                .harness
-                .pubkeys
-                .iter()
-                .enumerate()
-                .map(|(i, pubkey)| PtcDuty {
-                    pubkey: *pubkey,
-                    validator_index: i as u64,
-                    slot,
-                })
-                .collect();
-            self.service
-                .duties_service
-                .ptc_duties
-                .write()
-                .insert(Epoch::new(0), (Hash256::ZERO, duties));
+            self.service.duties_service.ptc_duties.write().insert(
+                Epoch::new(0),
+                (Hash256::ZERO, ptc_duties(&self.harness.pubkeys, slot)),
+            );
+        }
+    }
+
+    fn build_service<S: ValidatorStore + 'static>(
+        harness: &ValidatorClientHarness,
+        store: Arc<S>,
+    ) -> PayloadAttestationService<S, ManualSlotClock> {
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(store.clone())
+                .slot_clock(harness.slot_clock.clone())
+                .beacon_nodes(harness.beacon_nodes.clone())
+                .executor(harness.test_runtime.task_executor.clone())
+                .spec(harness.spec.clone())
+                .build()
+                .unwrap(),
+        );
+        PayloadAttestationService::new(
+            duties_service,
+            store,
+            harness.slot_clock.clone(),
+            harness.beacon_nodes.clone(),
+            harness.test_runtime.task_executor.clone(),
+            harness.spec.clone(),
+        )
+    }
+
+    fn ptc_duties(pubkeys: &[PublicKeyBytes], slot: Slot) -> Vec<PtcDuty> {
+        pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| PtcDuty {
+                pubkey: *pubkey,
+                validator_index: i as u64,
+                slot,
+            })
+            .collect()
+    }
+
+    fn attestation_data(slot: Slot) -> PayloadAttestationData {
+        PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot,
+            payload_present: true,
+            blob_data_available: true,
         }
     }
 
@@ -671,6 +699,101 @@ mod tests {
         );
         // mock_ssz is only hit once
         // this is to verify that a single call to the POST endpoint can publish multiple messages in one go
+        mock_ssz.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn failed_signer_does_not_block_siblings() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let attestation_slot = Slot::new(1);
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        // The unknown pubkey fails signing; listed first so a failure cannot mask the
+        // sibling's publish.
+        let duties = vec![
+            PtcDuty {
+                pubkey: PublicKeyBytes::empty(),
+                validator_index: 99,
+                slot: attestation_slot,
+            },
+            PtcDuty {
+                pubkey: test_harness.harness.pubkeys[0],
+                validator_index: 0,
+                slot: attestation_slot,
+            },
+        ];
+
+        test_harness
+            .service
+            .sign_and_publish(attestation_slot, duties, attestation_data(attestation_slot))
+            .await
+            .unwrap();
+
+        let messages = test_harness
+            .harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "the known validator should still publish"
+        );
+        mock_ssz.expect(1).assert();
+    }
+
+    /// A slot's duties must all be signed concurrently. With a serial per-duty loop this
+    /// deadlocks (the first signature cannot resolve until the others are requested) and
+    /// the test fails via timeout.
+    #[tokio::test]
+    async fn multi_duty_slot_signs_concurrently() {
+        let mut harness = ValidatorClientHarness::new(3).await;
+
+        let attestation_slot = Slot::new(1);
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        // No signature resolves until all three are requested, emulating an external signer.
+        let barrier = Arc::new(tokio::sync::Barrier::new(3));
+        let service = build_service(
+            &harness,
+            Arc::new(MockValidatorStore::with_sign_payload_attestation(
+                move |_, data| {
+                    let barrier = barrier.clone();
+                    async move {
+                        barrier.wait().await;
+                        Ok(PayloadAttestationMessage {
+                            validator_index: 0,
+                            data,
+                            signature: Signature::empty(),
+                        })
+                    }
+                },
+            )),
+        );
+        let duties = ptc_duties(&harness.pubkeys, attestation_slot);
+        let data = attestation_data(attestation_slot);
+
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            service.sign_and_publish(attestation_slot, duties, data),
+        )
+        .await
+        .expect("signing must not deadlock when signatures resolve only after all are requested")
+        .unwrap();
+
+        let messages = harness
+            .mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+        assert_eq!(messages.len(), 3, "all duties should publish");
         mock_ssz.expect(1).assert();
     }
 }

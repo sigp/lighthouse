@@ -10,7 +10,7 @@ use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
 use bls::{PublicKeyBytes, Signature};
-use builder_client::BuilderHttpClient;
+use builder_client::PreGloasBuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
@@ -48,7 +48,8 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, SignedBlindedBeaconBlock,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -138,7 +139,8 @@ pub enum Error {
     NoEngine,
     NoPayloadBuilder,
     ApiError(ApiError),
-    Builder(builder_client::Error),
+    // The pre-Gloas builder client uses the beacon-node API client's error type.
+    Builder(eth2::Error),
     NoHeaderFromBuilder,
     CannotProduceHeader,
     EngineError(Box<EngineError>),
@@ -152,8 +154,10 @@ pub enum Error {
         transactions_root: Hash256,
     },
     ZeroLengthTransaction,
+    PayloadBodiesByHashV2NotSupported,
     PayloadBodiesByRangeNotSupported,
     GetBlobsNotSupported,
+    GetInclusionListNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -464,7 +468,7 @@ type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a Bl
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
-    builder: ArcSwapOption<BuilderHttpClient>,
+    builder: ArcSwapOption<PreGloasBuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -603,7 +607,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self.inner.engine
     }
 
-    pub fn builder(&self) -> Option<Arc<BuilderHttpClient>> {
+    pub fn builder(&self) -> Option<Arc<PreGloasBuilderHttpClient>> {
         self.inner.builder.load_full()
     }
 
@@ -618,7 +622,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder_header_timeout: Option<Duration>,
         disable_ssz: bool,
     ) -> Result<(), Error> {
-        let builder_client = BuilderHttpClient::new(
+        let builder_client = PreGloasBuilderHttpClient::new(
             builder_url.clone(),
             builder_user_agent,
             builder_header_timeout,
@@ -1045,11 +1049,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Fetches local and builder paylaods concurrently, Logs and returns results.
     async fn fetch_builder_and_local_payloads(
         &self,
-        builder: &BuilderHttpClient,
+        builder: &PreGloasBuilderHttpClient,
         builder_params: &BuilderParams,
         payload_parameters: PayloadParameters<'_>,
     ) -> (
-        Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, builder_client::Error>,
+        Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, eth2::Error>,
         Result<GetPayloadResponse<E>, Error>,
     ) {
         let slot = builder_params.slot;
@@ -1671,6 +1675,25 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
+    /// Fetch execution payload bodies using the Gloas V2 response format.
+    pub async fn get_payload_bodies_by_hash_v2(
+        &self,
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_hash_v2 {
+            return Err(Error::PayloadBodiesByHashV2NotSupported);
+        }
+
+        self.engine()
+            .request(|engine: &Engine| async move {
+                engine.api.get_payload_bodies_by_hash_v2(hashes).await
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     pub async fn get_payload_bodies_by_range(
         &self,
         start: u64,
@@ -1772,6 +1795,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::EngineError)
         } else {
             Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_inclusion_list_v1 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_inclusion_list_v1().await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetInclusionListNotSupported)
         }
     }
 
@@ -2158,7 +2195,7 @@ fn noop<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
@@ -2174,6 +2211,55 @@ mod test {
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
+    async fn get_gloas_payload_bodies_v2() {
+        let runtime = TestRuntime::default();
+        let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
+        let block_hash = ExecutionBlockHash::repeat_byte(0x42);
+        let block_number = 42;
+        let payload = ExecutionPayloadGloas {
+            block_hash,
+            block_number,
+            transactions: ProgressiveTransactions::new(vec![
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
+            ]),
+            withdrawals: types::ProgressiveWithdrawals::new(vec![Withdrawal {
+                index: 1,
+                validator_index: 2,
+                address: Address::from([0x33; 20]),
+                amount: 3,
+            }]),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]),
+            ..Default::default()
+        };
+        let expected_body = ExecutionPayloadBodyV2 {
+            transactions: payload.transactions.clone(),
+            withdrawals: Some(payload.withdrawals.clone()),
+            block_access_list: Some(payload.block_access_list.clone()),
+        };
+        let mut block_generator = mock.server.execution_block_generator();
+        block_generator.insert_block_without_checks(Block::PoS(payload.into()));
+        block_generator
+            .forkchoice_updated(
+                ForkchoiceState {
+                    head_block_hash: block_hash,
+                    safe_block_hash: block_hash,
+                    finalized_block_hash: block_hash,
+                },
+                None,
+            )
+            .expect("block should become the mock execution head");
+        drop(block_generator);
+
+        let bodies_by_hash = mock
+            .el
+            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
+            .await
+            .expect("payload body request by hash should succeed");
+        assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
     }
 
     #[tokio::test]
