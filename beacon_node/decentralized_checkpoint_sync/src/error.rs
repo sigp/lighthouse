@@ -2,7 +2,7 @@ use crate::LightClientStoreSchema;
 use safe_arith::ArithError;
 use types::{ForkName, Hash256, Slot};
 
-/// An error produced while validating light-client data for checkpoint sync.
+/// An error produced while validating or processing light-client data for checkpoint sync.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LightClientSyncError {
     #[error("light-client sync is unsupported for fork {0}")]
@@ -93,7 +93,18 @@ pub enum LightClientSyncError {
     #[error("sync committee aggregate signature is invalid")]
     InvalidSyncCommitteeSignature,
 
-    #[error("arithmetic error during light-client validation: {0:?}")]
+    #[error("failed to compare light-client updates: {0}")]
+    UpdateRankingFailed(String),
+
+    #[error(
+        "cannot apply finalized period {finalized_period} with unknown next committee in store period {store_period}"
+    )]
+    InvalidFinalizedPeriod {
+        store_period: u64,
+        finalized_period: u64,
+    },
+
+    #[error("arithmetic error during light-client sync: {0:?}")]
     Arithmetic(ArithError),
 }
 

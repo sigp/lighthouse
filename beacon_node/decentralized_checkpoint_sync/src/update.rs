@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     ChainSpec, Domain, EthSpec, ForkName, Hash256, LightClientHeader, LightClientUpdate,
-    SignedRoot, Slot,
+    SignedRoot, Slot, SyncCommittee,
     light_client::consts::{
         FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, FINALIZED_ROOT_PROOF_LEN,
         FINALIZED_ROOT_PROOF_LEN_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX,
@@ -64,7 +64,17 @@ pub struct ValidatedLightClientUpdate<'store, 'update, E: EthSpec> {
     data_fork: ForkName,
 }
 
-impl<E: EthSpec> ValidatedLightClientUpdate<'_, '_, E> {
+impl<'store, 'update, E: EthSpec> ValidatedLightClientUpdate<'store, 'update, E> {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        &'store mut LightClientStore<E>,
+        &'update LightClientUpdate<E>,
+        &'store ChainSpec,
+    ) {
+        (self.store, self.update, self.spec)
+    }
+
     pub fn store(&self) -> &LightClientStore<E> {
         self.store
     }
@@ -211,12 +221,7 @@ pub fn validate_light_client_update<'store, 'update, E: EthSpec>(
 
     let update_committee = update.next_sync_committee().as_ref();
     if !has_next_committee {
-        if update_committee.aggregate_pubkey != PublicKeyBytes::empty()
-            || update_committee
-                .pubkeys
-                .iter()
-                .any(|key| *key != PublicKeyBytes::empty())
-        {
+        if !is_default_sync_committee(update_committee) {
             return Err(LightClientSyncError::NonDefaultNextSyncCommittee);
         }
     } else {
@@ -282,23 +287,34 @@ pub fn validate_light_client_update<'store, 'update, E: EthSpec>(
     })
 }
 
-fn sync_committee_period<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, ArithError> {
+pub(crate) fn sync_committee_period<E: EthSpec>(
+    slot: Slot,
+    spec: &ChainSpec,
+) -> Result<u64, ArithError> {
     slot.as_u64()
         .safe_div(E::slots_per_epoch())?
         .safe_div(spec.epochs_per_sync_committee_period.as_u64())
 }
 
+pub(crate) fn is_default_sync_committee<E: EthSpec>(committee: &SyncCommittee<E>) -> bool {
+    committee.aggregate_pubkey == PublicKeyBytes::empty()
+        && committee
+            .pubkeys
+            .iter()
+            .all(|key| *key == PublicKeyBytes::empty())
+}
+
 /// The header variants are retained so upgraded headers keep their full default-field semantics.
-struct UpdateView<'a, E: EthSpec> {
-    attested_header: LightClientHeader<E>,
-    finalized_header: LightClientHeader<E>,
+pub(crate) struct UpdateView<'a, E: EthSpec> {
+    pub(crate) attested_header: LightClientHeader<E>,
+    pub(crate) finalized_header: LightClientHeader<E>,
     finalized_is_default: bool,
-    finality_branch: &'a [Hash256],
-    next_committee_branch: &'a [Hash256],
+    pub(crate) finality_branch: &'a [Hash256],
+    pub(crate) next_committee_branch: &'a [Hash256],
 }
 
 impl<'a, E: EthSpec> UpdateView<'a, E> {
-    fn new(update: &'a LightClientUpdate<E>) -> Self {
+    pub(crate) fn new(update: &'a LightClientUpdate<E>) -> Self {
         macro_rules! view {
             ($inner:ident, $variant:ident) => {
                 Self {

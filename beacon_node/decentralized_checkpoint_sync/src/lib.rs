@@ -17,6 +17,6 @@ pub use bootstrap::initialize_light_client_store;
 pub use error::LightClientSyncError;
 pub use fork::LightClientStoreSchema;
 pub use header::{beacon_header, validate_light_client_header};
-pub use store::LightClientStore;
+pub use store::{LightClientStore, process_light_client_update};
 pub use update::{ValidatedLightClientUpdate, validate_light_client_update};
 pub use verified::VerifiedFinalizedHeader;
