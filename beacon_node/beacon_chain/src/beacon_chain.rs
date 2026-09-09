@@ -123,6 +123,7 @@ use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
     VerifyBlockRoot, VerifyOperation,
@@ -2827,7 +2828,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
         let head_snapshot = self.head().snapshot;
         let head_state = &head_snapshot.beacon_state;
-        let wall_clock_epoch = self.epoch()?;
+        let wall_clock_epoch = self
+            .slot_clock
+            .now_with_future_tolerance(self.spec.maximum_gossip_clock_disparity())
+            .ok_or(Error::UnableToReadSlot)?
+            .epoch(T::EthSpec::slots_per_epoch());
+
+        let validator_index = exit.message.validator_index;
+        if exit.message.epoch > wall_clock_epoch {
+            return Err(ExitValidationError::invalid(ExitInvalid::FutureEpoch {
+                state: wall_clock_epoch,
+                exit: exit.message.epoch,
+            })
+            .into());
+        }
+        if let Some(validator) = head_state.validators().get(validator_index as usize)
+            && validator.exit_epoch != self.spec.far_future_epoch
+        {
+            return Err(
+                ExitValidationError::invalid(ExitInvalid::AlreadyExited(validator_index)).into(),
+            );
+        }
 
         Ok(self
             .observed_voluntary_exits

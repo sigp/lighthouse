@@ -46,7 +46,9 @@ use sensitive_url::SensitiveUrl;
 use crate::block_production::bid_selection::{self, BidCandidate, BidSource, ExecutionPayloadData};
 use crate::payload_bid_verification::PayloadBidError;
 use crate::payload_bid_verification::direct_verified_bid::verify_direct_bid;
-use crate::payload_bid_verification::gossip_verified_bid::verify_bid_state_conditions;
+use crate::payload_bid_verification::gossip_verified_bid::{
+    builder_exit_requested, verify_bid_state_conditions,
+};
 use crate::payload_bid_verification::payload_bid_cache::BidParent;
 use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
@@ -288,6 +290,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &builder_config,
             proposer_preferences.as_deref(),
             &state,
+            &parent_execution_requests,
         );
         let local_fut = self.clone().produce_execution_payload_bid(
             &state,
@@ -1007,6 +1010,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         builder_config: &BuilderConfig,
         proposer_preferences: Option<&SignedProposerPreferences>,
         state: &BeaconState<T::EthSpec>,
+        parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
         let mut externals = Vec::new();
 
@@ -1060,6 +1064,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
+
+        // The parent's exit requests apply to the state before this block's bid is processed, so a
+        // bid from a builder the parent payload exits fails `process_execution_payload_bid`.
+        externals.retain(|candidate| {
+            let builder_index = candidate.signed_bid.message.builder_index;
+            let exit_requested = state
+                .get_builder(builder_index)
+                .is_ok_and(|builder| builder_exit_requested(builder, parent_execution_requests));
+            if exit_requested {
+                warn!(
+                    builder_index,
+                    "Skipping bid from a builder the parent payload exits"
+                );
+            }
+            !exit_requested
+        });
 
         externals
     }

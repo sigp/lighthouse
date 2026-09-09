@@ -20,7 +20,7 @@ use beacon_chain::payload_envelope_verification::{
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ExitInvalid,
     ExitValidationError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
@@ -2061,19 +2061,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Dropping invalid exit"
                 );
-                let validation_result = if matches!(
-                    e,
-                    BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_))
-                ) {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::HighToleranceError,
-                        "invalid_gossip_exit",
-                    );
-                    MessageAcceptance::Reject
-                } else {
+                let validation_result = match e {
+                    BeaconChainError::ExitValidationError(ExitValidationError::Invalid(
+                        ExitInvalid::FutureEpoch { .. } | ExitInvalid::AlreadyExited(_),
+                    )) => MessageAcceptance::Ignore,
+                    BeaconChainError::ExitValidationError(ExitValidationError::Invalid(_)) => {
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "invalid_gossip_exit",
+                        );
+                        MessageAcceptance::Reject
+                    }
                     // Other errors do not prove that the peer sent an invalid message.
-                    MessageAcceptance::Ignore
+                    _ => MessageAcceptance::Ignore,
                 };
                 self.propagate_validation_result(message_id, peer_id, validation_result);
                 return;
@@ -4288,6 +4289,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentExecutionPayloadUnknown { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::BuilderExitPending { .. }
                 | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
@@ -4334,6 +4336,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 ProposerPreferencesError::AlreadySeen { .. }
                 | ProposerPreferencesError::InvalidProposalEpoch { .. }
+                | ProposerPreferencesError::ProposalEpochPreGloas { .. }
                 | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
