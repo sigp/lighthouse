@@ -90,9 +90,44 @@ impl TAggregatePublicKey<PublicKey> for AggregatePublicKey {
         GenericPublicKey::from_point(PublicKey(self.0))
     }
 
-    fn aggregate(_pubkeys: &[GenericPublicKey<PublicKey>]) -> Result<Self, Error> {
-        Ok(Self(INFINITY_PUBLIC_KEY))
+    /// The state commits to this via `SyncCommittee::aggregate_pubkey`, and the spec vectors
+    /// aggregate for real even with signatures stubbed out, so faking it breaks state roots.
+    /// Keys from `SecretKey::public_key` are not curve points, hence the infinity fallback.
+    fn aggregate(pubkeys: &[GenericPublicKey<PublicKey>]) -> Result<Self, Error> {
+        Ok(Self(
+            aggregate_real_pubkeys(pubkeys).unwrap_or(INFINITY_PUBLIC_KEY),
+        ))
     }
+}
+
+#[cfg(feature = "supranational")]
+fn aggregate_real_pubkeys(
+    pubkeys: &[GenericPublicKey<PublicKey>],
+) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+    use blst::min_pk as blst_core;
+
+    let serialized = pubkeys
+        .iter()
+        .map(|pubkey| pubkey.serialize())
+        .collect::<Vec<_>>();
+    let refs = serialized
+        .iter()
+        .map(|bytes| bytes.as_slice())
+        .collect::<Vec<_>>();
+
+    // Aggregate without the subgroup check, which costs ~4x the aggregation itself and proves
+    // nothing for a backend that verifies no signatures. Keys from `SecretKey::public_key` still
+    // fail to decode, which is what selects the infinity fallback.
+    blst_core::AggregatePublicKey::aggregate_serialized(&refs, false)
+        .ok()
+        .map(|aggregate| aggregate.to_public_key().compress())
+}
+
+#[cfg(not(feature = "supranational"))]
+fn aggregate_real_pubkeys(
+    _pubkeys: &[GenericPublicKey<PublicKey>],
+) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+    None
 }
 
 impl Eq for AggregatePublicKey {}
