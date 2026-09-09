@@ -9,6 +9,7 @@ use beacon_chain::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
 };
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -928,6 +929,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
         publish_blobs: bool,
+        source: EnvelopeSource,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
@@ -961,7 +963,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Block components retrieved from EL"
                     );
                     self.chain.recompute_head_at_current_slot().await;
-                    self.notify_import_after_column(slot, block_root);
+                    self.notify_import_after_column(slot, block_root, source);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(

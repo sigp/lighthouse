@@ -1406,6 +1406,7 @@ async fn attestation_to_unknown_block_processed_after_rpc_block() {
 #[tokio::test]
 async fn attestation_to_unknown_block_processed_after_engine_blobs() {
     use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+    use beacon_chain::payload_envelope_verification::EnvelopeSource;
     use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
     use types::block::BlockImportSource;
 
@@ -1446,6 +1447,7 @@ async fn attestation_to_unknown_block_processed_after_engine_blobs() {
             PartialHeaderOrBid::try_from_block(rig.next_block.as_ref()).unwrap(),
             block_root,
             false,
+            EnvelopeSource::Gossip,
         )
         .await;
     assert_eq!(rig.head_root(), block_root);
