@@ -681,7 +681,9 @@ impl ProtoArrayForkChoice {
             .apply_score_changes::<E>(deltas)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *old_balances = new_balances.clone();
+        if old_balances != new_balances {
+            *old_balances = new_balances.clone();
+        }
 
         self.proto_array
             .find_head::<E>(
@@ -2309,5 +2311,86 @@ mod test_compute_deltas {
         assert_eq!(deltas[0].delta, 0);
         assert_eq!(deltas[0].empty_delta, 0);
         assert_eq!(deltas[0].full_delta, 0);
+    }
+}
+
+#[cfg(test)]
+mod test_find_head {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn justified_balances_updates() {
+        let spec = MainnetEthSpec::default_spec();
+        let checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: Hash256::from_low_u64_be(1),
+        };
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Slot::new(0),
+            Hash256::zero(),
+            checkpoint,
+            checkpoint,
+            shuffling_id.clone(),
+            shuffling_id,
+            ExecutionStatus::irrelevant(),
+            None,
+            None,
+            0,
+            &spec,
+        )
+        .unwrap();
+        let mut balances = JustifiedBalances::from_effective_balances(vec![32, 32]).unwrap();
+        let equivocating_indices = BTreeSet::new();
+
+        // Each call adds a vote with the same balances, so skipping the copy must still apply votes.
+        for validator_index in 0..2 {
+            fork_choice
+                .process_attestation(validator_index, checkpoint.root, Slot::new(1), false)
+                .unwrap();
+            let allocation = fork_choice.balances.effective_balances.as_ptr();
+            let head = fork_choice
+                .find_head::<MainnetEthSpec>(
+                    checkpoint,
+                    checkpoint,
+                    &balances,
+                    Hash256::zero(),
+                    &equivocating_indices,
+                    Slot::new(1),
+                    &spec,
+                )
+                .unwrap();
+            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(
+                fork_choice.get_weight(&checkpoint.root),
+                Some(32 * (validator_index as u64 + 1))
+            );
+            assert_eq!(fork_choice.balances, balances);
+            if validator_index == 1 {
+                assert_eq!(fork_choice.balances.effective_balances.as_ptr(), allocation);
+            }
+        }
+
+        // Comparing only effective balances would leave stale metadata.
+        for (total_effective_balance, num_active_validators) in [(65, 2), (65, 3)] {
+            balances.total_effective_balance = total_effective_balance;
+            balances.num_active_validators = num_active_validators;
+            let head = fork_choice
+                .find_head::<MainnetEthSpec>(
+                    checkpoint,
+                    checkpoint,
+                    &balances,
+                    Hash256::zero(),
+                    &equivocating_indices,
+                    Slot::new(1),
+                    &spec,
+                )
+                .unwrap();
+            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(fork_choice.get_weight(&checkpoint.root), Some(64));
+            assert_eq!(fork_choice.balances, balances);
+        }
     }
 }
