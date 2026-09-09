@@ -141,6 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let BlockProductionState {
             state,
             state_root: state_root_opt,
+            parent_root,
             parent_payload_status,
             parent_envelope,
         } = block_production_state;
@@ -151,6 +152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.produce_block_on_state_gloas(
             state,
             state_root_opt,
+            parent_root,
             parent_payload_status,
             parent_envelope,
             slot,
@@ -168,6 +170,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
+        parent_root: Hash256,
         parent_payload_status: PayloadStatus,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
@@ -181,14 +184,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             direct_builders = builder_config.builders.len(),
             "Producing Gloas block"
         );
-
-        let parent_root = if state.slot() > 0 {
-            *state
-                .get_block_root(state.slot() - 1)
-                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
-        } else {
-            state.latest_block_header().canonical_root()
-        };
 
         let should_build_on_full = self
             .canonical_head
@@ -224,6 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.produce_partial_beacon_block_gloas(
                         state,
                         state_root_opt,
+                        parent_root,
                         produce_at_slot,
                         randao_reveal,
                         graffiti,
@@ -358,6 +354,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
+        parent_root: Hash256,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
@@ -388,14 +385,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         state.apply_pending_mutations()?;
-
-        let parent_root = if state.slot() > 0 {
-            *state
-                .get_block_root(state.slot() - 1)
-                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
-        } else {
-            state.latest_block_header().canonical_root()
-        };
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
