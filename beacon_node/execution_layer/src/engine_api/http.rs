@@ -38,6 +38,7 @@ pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
 pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
+pub const ENGINE_NEW_PAYLOAD_V6: &str = "engine_newPayloadV6";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -87,6 +88,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V3,
     ENGINE_NEW_PAYLOAD_V4,
     ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_NEW_PAYLOAD_V6,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
@@ -1275,6 +1277,7 @@ impl HttpJsonRpc {
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
             new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
             new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
+            new_payload_v6: capabilities.contains(ENGINE_NEW_PAYLOAD_V6),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
@@ -1397,6 +1400,33 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // new_payload that the execution engine supports
+    pub async fn new_payload_v6_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            types::ExecutionRequestsRef::Gloas(new_payload_request_heze.execution_requests)
+                .get_execution_requests_list(),
+            JsonInclusionListV1(new_payload_request_heze.inclusion_list_transactions),
+        ]);
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+        Ok(response.into())
+    }
+
     pub async fn new_payload<E: EthSpec>(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
@@ -1443,11 +1473,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
-            // TODO(heze): implement the Heze newPayload path once the engine API for Heze
-            // is specified.
-            NewPayloadRequest::Heze(_) => Err(Error::UnsupportedForkVariant(
-                "newPayload not implemented for Heze".to_string(),
-            )),
+            NewPayloadRequest::Heze(new_payload_request_heze) => {
+                if engine_capabilities.new_payload_v6 {
+                    self.new_payload_v6_heze(new_payload_request_heze).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV6"))
+                }
+            }
         }
     }
 
@@ -2190,6 +2222,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id:
                             Some(str_to_payload_id("0xa247243752eb10b4")),
@@ -2329,6 +2362,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         }
                     );
                 },
@@ -2392,6 +2426,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id: None,
                     });

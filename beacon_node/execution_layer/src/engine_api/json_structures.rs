@@ -1112,6 +1112,7 @@ pub struct JsonPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
+    pub inclusion_list_satisfied: Option<bool>,
 }
 
 impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
@@ -1144,12 +1145,14 @@ impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
+            inclusion_list_satisfied,
         } = p;
 
         Self {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1161,12 +1164,14 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
+            inclusion_list_satisfied,
         } = j;
 
         Self {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1732,6 +1737,43 @@ mod tests {
                 "withdrawals": null,
                 "blockAccessList": null,
             })
+        );
+    }
+}
+
+#[cfg(test)]
+mod payload_status_tests {
+    use super::*;
+
+    /// Engine responses before `engine_newPayloadV6` do not carry `inclusionListSatisfied`.
+    #[test]
+    fn deserializes_without_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, None);
+    }
+
+    #[test]
+    fn round_trips_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+            "inclusionListSatisfied": true,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, Some(true));
+        assert_eq!(
+            PayloadStatusV1::from(status).inclusion_list_satisfied,
+            Some(true)
         );
     }
 }

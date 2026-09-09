@@ -545,6 +545,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             };
         };
 
@@ -553,6 +554,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
                 validation_error: Some("invalid block number".to_string()),
+                inclusion_list_satisfied: None,
             };
         }
 
@@ -563,6 +565,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(valid_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -630,6 +633,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     status: JsonPayloadStatusV1Status::Syncing,
                     latest_valid_hash: None,
                     validation_error: None,
+                    inclusion_list_satisfied: None,
                 },
                 payload_id: None,
             });
@@ -672,6 +676,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: JsonPayloadStatusV1Status::Valid,
                 latest_valid_hash: Some(forkchoice_state.head_block_hash),
                 validation_error: None,
+                inclusion_list_satisfied: None,
             },
             payload_id: id.map(Into::into),
         })
