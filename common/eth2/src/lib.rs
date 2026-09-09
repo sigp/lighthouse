@@ -2234,11 +2234,13 @@ impl BeaconNodeHttpClient {
     /// Ask the beacon node to submit builder preferences ahead of the bid request (beacon-APIs #630).
     /// The body is a flat list of entries, each naming its own `proposer_pubkey`, so one request may
     /// cover several proposers. `fork_name` is sent as the required `Eth-Consensus-Version` header.
+    /// Returns the HTTP response, including error responses, so callers can distinguish its status
+    /// from an application-specific error code in the body.
     pub async fn post_validator_builder_preferences(
         &self,
         entries: &SubmittedBuilderPreferences,
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<Response, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2246,23 +2248,25 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("builder_preferences");
 
-        self.post_with_timeout_and_consensus_header(
-            path,
-            &entries,
-            self.timeouts.default,
-            fork_name,
-        )
-        .await?;
-
-        Ok(())
+        self.client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+            .json(entries)
+            .send()
+            .await
+            .map_err(Into::into)
     }
 
     /// `POST validator/builder_preferences` (SSZ)
+    ///
+    /// Returns the HTTP response, including error responses, as in
+    /// [`Self::post_validator_builder_preferences`].
     pub async fn post_validator_builder_preferences_ssz(
         &self,
         entries: &SubmittedBuilderPreferences,
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<Response, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2270,11 +2274,15 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("builder_preferences");
 
-        let ssz_body = entries.as_ssz_bytes();
-        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
-            .await?;
-
-        Ok(())
+        self.client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+            .header(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+            .body(entries.as_ssz_bytes())
+            .send()
+            .await
+            .map_err(Into::into)
     }
 
     /// `GET config/fork_schedule`

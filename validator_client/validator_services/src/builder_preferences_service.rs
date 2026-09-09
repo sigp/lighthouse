@@ -9,7 +9,7 @@ use eth2::types::{
     SubmittedBuilderPreferences,
 };
 use eth2::{BeaconNodeHttpClient, Error as BeaconNodeError};
-use reqwest::StatusCode;
+use reqwest::{Response, StatusCode};
 use slot_clock::SlotClock;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -291,8 +291,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
             let mut result =
                 Self::post_builder_preferences_ssz(&beacon_node, &entries, fork_name).await;
 
-            if result.as_ref().err().and_then(BeaconNodeError::status)
-                == Some(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+            if result
+                .as_ref()
+                .is_ok_and(|response| response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE)
             {
                 let current_slot = self.inner.slot_clock.now().unwrap_or(poll_slot);
                 pending_entries.retain(|entry| entry.auth.message.slot >= current_slot);
@@ -311,6 +312,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                     Self::post_builder_preferences_json(&beacon_node, &entries, fork_name).await;
             }
 
+            let status = result.as_ref().ok().map(Response::status);
+            let result = match result {
+                Ok(response) => eth2::success_or_error(response).await.map(|_| ()),
+                Err(e) => Err(e),
+            };
+
             match result {
                 Ok(()) => {
                     for entry in pending_entries.drain(..) {
@@ -318,7 +325,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                     }
                     return;
                 }
-                Err(BeaconNodeError::ServerIndexedMessage(indexed_error)) => {
+                Err(BeaconNodeError::ServerIndexedMessage(indexed_error))
+                    if status == Some(StatusCode::BAD_REQUEST) =>
+                {
                     let Some(failed_indices) =
                         valid_failure_indices(&indexed_error, pending_entries.len())
                     else {
@@ -366,12 +375,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         beacon_node: &BeaconNodeHttpClient,
         entries: &SubmittedBuilderPreferences,
         fork_name: ForkName,
-    ) -> Result<(), BeaconNodeError> {
+    ) -> Result<Response, BeaconNodeError> {
         inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
         let result = beacon_node
             .post_validator_builder_preferences_ssz(entries, fork_name)
             .await;
-        if result.is_err() {
+        if result
+            .as_ref()
+            .map_or(true, |response| !response.status().is_success())
+        {
             inc_counter_vec(&ENDPOINT_ERRORS, &[beacon_node.server().redacted()]);
         }
         result
@@ -381,12 +393,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         beacon_node: &BeaconNodeHttpClient,
         entries: &SubmittedBuilderPreferences,
         fork_name: ForkName,
-    ) -> Result<(), BeaconNodeError> {
+    ) -> Result<Response, BeaconNodeError> {
         inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
         let result = beacon_node
             .post_validator_builder_preferences(entries, fork_name)
             .await;
-        if result.is_err() {
+        if result
+            .as_ref()
+            .map_or(true, |response| !response.status().is_success())
+        {
             inc_counter_vec(&ENDPOINT_ERRORS, &[beacon_node.server().redacted()]);
         }
         result
@@ -397,7 +412,7 @@ fn valid_failure_indices(
     error: &IndexedErrorMessage,
     entry_count: usize,
 ) -> Option<HashSet<usize>> {
-    if error.code != StatusCode::BAD_REQUEST.as_u16() || error.failures.is_empty() {
+    if error.failures.is_empty() {
         return None;
     }
 
@@ -424,7 +439,7 @@ mod tests {
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     const INDEXED_FAILURE_AT_INDEX_ONE: &str = r#"{
-        "code": 400,
+        "code": 1001,
         "message": "one entry failed",
         "failures": [{"index": 1, "message": "failed"}]
     }"#;
@@ -623,35 +638,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_failure_index_retries_the_complete_batch() {
-        let current_slot = Slot::new(0);
-        let mut test_harness = TestHarness::new(2, Epoch::new(0)).await;
-        test_harness.insert_duties(Epoch::new(0), vec![(0, Slot::new(1)), (1, Slot::new(2))]);
+    async fn invalid_partial_failure_retries_the_complete_batch() {
+        for (status, body) in [
+            (400, INDEXED_FAILURE_OUT_OF_BOUNDS),
+            (500, INDEXED_FAILURE_AT_INDEX_ONE),
+        ] {
+            let current_slot = Slot::new(0);
+            let mut test_harness = TestHarness::new(2, Epoch::new(0)).await;
+            test_harness.insert_duties(Epoch::new(0), vec![(0, Slot::new(1)), (1, Slot::new(2))]);
 
-        let first = test_harness
-            .harness
-            .mock_beacon_node_1
-            .mock_post_validator_builder_preferences_ssz(
-                ForkName::Gloas,
-                400,
-                INDEXED_FAILURE_OUT_OF_BOUNDS,
+            let first = test_harness
+                .harness
+                .mock_beacon_node_1
+                .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, status, body);
+            let second = test_harness
+                .harness
+                .mock_beacon_node_2
+                .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 200, "");
+            let mut published = PublishedBuilderPreferencesCache::new();
+            test_harness
+                .service
+                .poll_and_publish_preferences(current_slot, &mut published)
+                .await;
+
+            first.expect(1).assert();
+            second.expect(1).assert();
+            assert_eq!(
+                test_harness.received_slots(2),
+                vec![vec![Slot::new(1), Slot::new(2)]]
             );
-        let second = test_harness
-            .harness
-            .mock_beacon_node_2
-            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 200, "");
-        let mut published = PublishedBuilderPreferencesCache::new();
-        test_harness
-            .service
-            .poll_and_publish_preferences(current_slot, &mut published)
-            .await;
-
-        first.expect(1).assert();
-        second.expect(1).assert();
-        assert_eq!(
-            test_harness.received_slots(2),
-            vec![vec![Slot::new(1), Slot::new(2)]]
-        );
+        }
     }
 
     #[tokio::test]
@@ -663,7 +679,15 @@ mod tests {
         let first = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, SERVER_ERROR);
+            .mock_post_validator_builder_preferences_ssz(
+                ForkName::Gloas,
+                500,
+                UNSUPPORTED_MEDIA_TYPE,
+            );
+        let json = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_builder_preferences_json(ForkName::Gloas, 200, "");
         let second = test_harness
             .harness
             .mock_beacon_node_2
@@ -676,6 +700,7 @@ mod tests {
 
         first.expect(1).assert();
         second.expect(1).assert();
+        json.expect(0).assert();
     }
 
     #[tokio::test]
@@ -691,7 +716,7 @@ mod tests {
             .mock_post_validator_builder_preferences_ssz_with_hook(
                 ForkName::Gloas,
                 415,
-                UNSUPPORTED_MEDIA_TYPE,
+                SERVER_ERROR,
                 move || slot_clock.advance_slot(),
             );
         let json = test_harness
