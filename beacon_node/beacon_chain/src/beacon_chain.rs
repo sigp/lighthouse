@@ -2374,7 +2374,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified: &VerifiedPayloadAttestationMessage<T>,
     ) -> Result<(), Error> {
         self.op_pool
-            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .insert_payload_attestation(verified.payload_attestation_message(), verified.ptc())
             .map_err(Error::OpPoolError)?;
         Ok(())
     }

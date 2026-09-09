@@ -362,14 +362,23 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
         3
     );
 
-    let pool_count_before = ctx.harness.chain.op_pool.num_payload_attestation_messages();
+    let packed_bits = || -> usize {
+        ctx.harness
+            .chain
+            .op_pool
+            .get_payload_attestations(slot, beacon_block_root)
+            .iter()
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
+    };
+
+    let bits_before = packed_bits();
     ctx.harness
         .import_payload_attestation_messages(messages)
         .expect("payload attestation messages should import");
-    assert_eq!(
-        ctx.harness.chain.op_pool.num_payload_attestation_messages(),
-        pool_count_before + attesters.len()
-    );
+
+    let expected_bits: usize = attesters.iter().map(|v| ptc_weights[v]).sum();
+    assert_eq!(packed_bits(), bits_before + expected_bits);
 }
 
 #[tokio::test]

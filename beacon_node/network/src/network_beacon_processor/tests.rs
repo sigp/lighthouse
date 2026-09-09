@@ -1494,7 +1494,7 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let initial_messages = rig.chain.op_pool.num_payload_attestations();
 
     rig.enqueue_next_block_payload_attestation();
 
@@ -1502,7 +1502,7 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
+        rig.chain.op_pool.num_payload_attestations(),
         initial_messages,
         "Payload attestation should not have been included."
     );
@@ -1543,7 +1543,7 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     rig.assert_event_journal_contains_ordered(&events).await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
+        rig.chain.op_pool.num_payload_attestations(),
         initial_messages + 1,
         "Payload attestation should have been included."
     );
@@ -1602,7 +1602,7 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let initial_messages = rig.chain.op_pool.num_payload_attestations();
 
     rig.enqueue_next_block_payload_attestation();
 
@@ -1610,7 +1610,7 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
+        rig.chain.op_pool.num_payload_attestations(),
         initial_messages,
         "Payload attestation should not have been included."
     );
@@ -1630,7 +1630,7 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
+        rig.chain.op_pool.num_payload_attestations(),
         initial_messages,
         "Payload attestation should not have been included."
     );

@@ -3212,7 +3212,7 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let pool_count_before = self.chain.op_pool.num_payload_attestations();
 
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
@@ -3225,7 +3225,7 @@ impl ApiTester {
         );
 
         assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
+            self.chain.op_pool.num_payload_attestations(),
             pool_count_before + 1,
             "payload attestation should be added to op pool"
         );
@@ -3237,7 +3237,7 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(1);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let pool_count_before = self.chain.op_pool.num_payload_attestations();
 
         self.client
             .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
@@ -3250,7 +3250,7 @@ impl ApiTester {
         );
 
         assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
+            self.chain.op_pool.num_payload_attestations(),
             pool_count_before + 1,
             "payload attestation should be added to op pool"
         );
