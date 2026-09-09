@@ -7,6 +7,7 @@ edition = { workspace = true }
 [dependencies]
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
+builder_client = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 environment = { workspace = true }

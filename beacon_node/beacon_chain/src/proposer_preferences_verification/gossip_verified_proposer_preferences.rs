@@ -11,6 +11,7 @@ use crate::{
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::{Mutex, RwLock};
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use tracing::debug;
 use types::{ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPreferences, Slot};
 
@@ -23,6 +24,12 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     let proposal_slot = preferences.proposal_slot;
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
+
+    if let Some(gloas_fork_epoch) = spec.gloas_fork_epoch
+        && proposal_epoch < gloas_fork_epoch
+    {
+        return Err(ProposerPreferencesError::ProposalEpochPreGloas { proposal_epoch });
+    }
 
     if proposal_epoch < current_epoch
         || proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead)
@@ -48,6 +55,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub store: &'a BeaconStore<T>,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub genesis_validators_root: Hash256,
 }
 
@@ -157,6 +165,7 @@ impl GossipVerifiedProposerPreferences {
 
                 Ok::<_, ProposerPreferencesError>((state_root, state))
             },
+            ctx.builder_onboarding_cache,
             ctx.spec,
         )?;
 
@@ -209,6 +218,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             store: &self.store,
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             genesis_validators_root: self.genesis_validators_root,
         }
     }

@@ -4,8 +4,8 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::{
-    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
-    per_block_processing, per_slot_processing,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, GloasVerificationContext,
+    VerifyBlockRoot, per_block_processing, per_slot_processing,
 };
 use types::{BeaconState, RelativeEpoch, SignedBeaconBlock};
 
@@ -19,6 +19,7 @@ pub struct Metadata {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct SanityBlocks<E: EthSpec> {
+    pub case_name: String,
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub blocks: Vec<SignedBeaconBlock<E>>,
@@ -44,8 +45,13 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         } else {
             None
         };
+        let case_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
         Ok(Self {
+            case_name,
             metadata,
             pre,
             blocks,
@@ -79,8 +85,20 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .try_for_each(|signed_block| {
                 let block = signed_block.message();
                 while bulk_state.slot() < block.slot() {
-                    per_slot_processing(&mut bulk_state, None, spec).unwrap();
-                    per_slot_processing(&mut indiv_state, None, spec).unwrap();
+                    per_slot_processing(
+                        &mut bulk_state,
+                        None,
+                        GloasVerificationContext::FullVerification,
+                        spec,
+                    )
+                    .unwrap();
+                    per_slot_processing(
+                        &mut indiv_state,
+                        None,
+                        GloasVerificationContext::FullVerification,
+                        spec,
+                    )
+                    .unwrap();
                 }
 
                 bulk_state
