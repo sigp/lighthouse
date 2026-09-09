@@ -19,7 +19,6 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
-use bls::Signature;
 use itertools::Itertools;
 use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
@@ -43,8 +42,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256,
-    MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
+    Hash256, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
     SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, data::BlobIdentifier,
 };
@@ -2437,26 +2435,6 @@ async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
     );
 }
 
-/// Create a test `SignedExecutionPayloadEnvelope` with the given slot and beacon block root.
-fn make_test_payload_envelope(
-    slot: Slot,
-    beacon_block_root: Hash256,
-) -> SignedExecutionPayloadEnvelope<E> {
-    SignedExecutionPayloadEnvelope {
-        message: ExecutionPayloadEnvelope {
-            payload: ExecutionPayloadGloas {
-                slot_number: slot,
-                ..ExecutionPayloadGloas::default()
-            },
-            execution_requests: ExecutionRequestsGloas::default(),
-            builder_index: 0,
-            beacon_block_root,
-            parent_beacon_block_root: Hash256::ZERO,
-        },
-        signature: Signature::empty(),
-    }
-}
-
 #[tokio::test]
 async fn test_payload_envelopes_by_range() {
     // Only test when Gloas fork is scheduled
@@ -2468,7 +2446,7 @@ async fn test_payload_envelopes_by_range() {
     let start_slot = 0;
     let slot_count = 32;
 
-    // Manually store payload envelopes for each block in the range
+    // The harness stores a valid payload envelope for every produced Gloas block.
     let mut expected_roots = Vec::new();
     for slot in start_slot..slot_count {
         // Genesis (slot 0) has no canonical execution payload, so the by-range handler filters it
@@ -2481,11 +2459,6 @@ async fn test_payload_envelopes_by_range() {
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap()
         {
-            let envelope = make_test_payload_envelope(Slot::new(slot), root);
-            rig.chain
-                .store
-                .put_payload_envelope(&root, &envelope)
-                .unwrap();
             expected_roots.push(root);
         }
     }
@@ -2528,13 +2501,6 @@ async fn test_payload_envelopes_by_root() {
         .chain
         .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
         .unwrap()
-        .unwrap();
-
-    // Manually store a payload envelope for this block
-    let envelope = make_test_payload_envelope(Slot::new(1), block_root);
-    rig.chain
-        .store
-        .put_payload_envelope(&block_root, &envelope)
         .unwrap();
 
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
@@ -2609,21 +2575,6 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
 
     let start_slot = 0u64;
     let slot_count = 10u64;
-
-    // Store payload envelopes for all blocks in the range (skipping the skip slots)
-    for slot in start_slot..slot_count {
-        if let Some(root) = rig
-            .chain
-            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
-            .unwrap()
-        {
-            let envelope = make_test_payload_envelope(Slot::new(slot), root);
-            rig.chain
-                .store
-                .put_payload_envelope(&root, &envelope)
-                .unwrap();
-        }
-    }
 
     rig.enqueue_payload_envelopes_by_range_request(start_slot, slot_count);
 
