@@ -1,6 +1,6 @@
 # To download/extract nightly tests, run:
 # CONSENSUS_SPECS_TEST_VERSION=nightly make
-CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-alpha.14
+CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-beta.0
 REPO_NAME := consensus-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
 
