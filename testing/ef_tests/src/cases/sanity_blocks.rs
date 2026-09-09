@@ -66,27 +66,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // TODO(gloas): Remove once the EF test vectors include the fix from
-        // https://github.com/ethereum/consensus-specs/pull/5594.
-        const IGNORED_STALE_GLOAS_CASES: &[&str] = &[
-            "epoch_boundary_full_parent_all_requests_gap_5_epochs",
-            "epoch_boundary_full_parent_gap_1_epoch",
-            "epoch_boundary_full_parent_gap_2_epochs",
-            "epoch_boundary_full_parent_gap_5_epochs",
-            "many_partial_withdrawals_in_epoch_transition",
-            "missed_payload_recovery_resumes_with_remaining_withdrawals",
-            "missed_payload_recovery_resumes_without_remaining_withdrawals",
-            "partial_withdrawal_in_epoch_transition",
-            "switch_to_compounding_across_epoch_boundary",
-            "withdrawal_success_two_blocks",
-        ];
-
-        if fork_name == ForkName::Gloas
-            && IGNORED_STALE_GLOAS_CASES.contains(&self.case_name.as_str())
-        {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
         let mut bulk_state = self.pre.clone();
