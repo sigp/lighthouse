@@ -3,8 +3,7 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
     ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
     ENGINE_NEW_PAYLOAD_V5,
@@ -450,8 +449,7 @@ pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub withdrawals: Option<Withdrawals<E>>,
 }
 
-/// The execution payload body returned by `engine_getPayloadBodiesByHashV2` and
-/// `engine_getPayloadBodiesByRangeV2`.
+/// The execution payload body returned by `engine_getPayloadBodiesByHashV2`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionPayloadBodyV2 {
     pub transactions: ProgressiveTransactions,
@@ -616,8 +614,6 @@ pub struct EngineCapabilities {
     pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_hash_v2: bool,
-    pub get_payload_bodies_by_range_v1: bool,
-    pub get_payload_bodies_by_range_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
@@ -665,12 +661,6 @@ impl EngineCapabilities {
         }
         if self.get_payload_bodies_by_hash_v2 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
-        }
-        if self.get_payload_bodies_by_range_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
-        }
-        if self.get_payload_bodies_by_range_v2 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);
