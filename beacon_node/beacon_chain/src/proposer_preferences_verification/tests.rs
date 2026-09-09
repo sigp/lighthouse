@@ -10,8 +10,8 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences,
-    SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
+    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
 };
 
 use crate::{
@@ -573,7 +573,7 @@ fn dependent_root_valid_via_boundary_crossing_child() {
 
 #[test]
 fn pre_gloas_proposal_epoch_ignored() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
         return;
     }
     let mut spec = test_spec::<E>();
@@ -593,7 +593,7 @@ fn pre_gloas_proposal_epoch_ignored() {
 
 #[test]
 fn gloas_proposal_epoch_passes_fork_check() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
         return;
     }
     let mut spec = test_spec::<E>();
