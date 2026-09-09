@@ -1262,11 +1262,15 @@ impl ProtoArray {
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
-            let children: Vec<_> = self
-                .get_node_children(&head)?
-                .into_iter()
-                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
-                .collect();
+            let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
+                // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
+                self.get_node_children(&head)?
+            } else {
+                self.get_node_children(&head)?
+                    .into_iter()
+                    .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 return Ok(head);

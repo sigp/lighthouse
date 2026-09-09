@@ -19,6 +19,7 @@ pub struct Metadata {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct SanityBlocks<E: EthSpec> {
+    pub case_name: String,
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub blocks: Vec<SignedBeaconBlock<E>>,
@@ -44,8 +45,13 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         } else {
             None
         };
+        let case_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
         Ok(Self {
+            case_name,
             metadata,
             pre,
             blocks,
