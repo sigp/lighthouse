@@ -5,7 +5,7 @@ use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::pending_payload_cache::{Availability, PendingPayloadCache};
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{
-    BlobAndProofV2, BlobAndProofV3, BlobCellsAndProofsV1, CustodyColumnsBitArray,
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List,
 };
 use kzg::Kzg;
 #[cfg(test)]
@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self,
         versioned_hashes: Vec<Hash256>,
         custody_columns: CustodyColumnsBitArray,
-    ) -> Result<Vec<Option<BlobCellsAndProofsV1<T::EthSpec>>>, FetchEngineBlobError> {
+    ) -> Result<Option<GetBlobsV4List<T::EthSpec>>, FetchEngineBlobError> {
         let execution_layer = self
             .chain
             .execution_layer

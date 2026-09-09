@@ -274,7 +274,7 @@ mod get_blobs_v4 {
     use crate::test_utils::{
         NumBlobs, generate_data_column_indices_rand_order, generate_rand_block_and_blobs,
     };
-    use execution_layer::json_structures::{BlobCellsAndProofsV1, JsonCell};
+    use execution_layer::json_structures::{BlobCellsAndProofsV1, GetBlobsV4List, JsonCell};
     use kzg::KzgProof;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
@@ -291,8 +291,8 @@ mod get_blobs_v4 {
         num_blobs: usize,
         num_custody_cols: usize,
         present: impl Fn(usize, usize) -> bool,
-    ) -> Vec<Option<BlobCellsAndProofsV1<E>>> {
-        (0..num_blobs)
+    ) -> Option<GetBlobsV4List<E>> {
+        let list = (0..num_blobs)
             .map(|blob_idx| {
                 let blob_cells = (0..num_custody_cols)
                     .map(|col_pos| {
@@ -304,7 +304,8 @@ mod get_blobs_v4 {
                     .collect();
                 Some(BlobCellsAndProofsV1 { blob_cells, proofs })
             })
-            .collect()
+            .collect();
+        Some(list)
     }
 
     fn fulu_header(block: &SignedBeaconBlock<E>) -> PartialHeaderOrBid<E> {

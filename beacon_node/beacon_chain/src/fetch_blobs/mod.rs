@@ -439,6 +439,15 @@ async fn fetch_and_process_blobs_v4<T: BeaconChainTypes>(
             inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
         })?;
 
+    let Some(response) = response else {
+        warn!(
+            num_expected_blobs,
+            "engine_getBlobsV4 returned null, EL might be syncing"
+        );
+        inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+        return Ok(None);
+    };
+
     if response.len() != num_expected_blobs {
         warn!(
             response_len = response.len(),

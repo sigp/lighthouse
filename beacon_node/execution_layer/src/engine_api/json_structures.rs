@@ -1115,6 +1115,8 @@ pub struct BlobCellsAndProofsV1<E: EthSpec> {
     pub proofs: Vec<Option<KzgProof>>,
 }
 
+pub type GetBlobsV4List<E> = Vec<Option<BlobCellsAndProofsV1<E>>>;
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {

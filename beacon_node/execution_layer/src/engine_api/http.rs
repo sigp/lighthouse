@@ -763,7 +763,7 @@ impl HttpJsonRpc {
         &self,
         versioned_hashes: Vec<Hash256>,
         indices_bitarray: CustodyColumnsBitArray,
-    ) -> Result<Vec<Option<BlobCellsAndProofsV1<E>>>, Error> {
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
         let params = json!([versioned_hashes, indices_bitarray]);
 
         self.rpc_request(

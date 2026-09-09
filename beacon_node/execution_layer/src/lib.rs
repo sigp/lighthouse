@@ -5,7 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use crate::json_structures::{
-    BlobAndProofV2, BlobAndProofV3, BlobCellsAndProofsV1, CustodyColumnsBitArray,
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List,
 };
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
@@ -1785,7 +1785,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         query: Vec<Hash256>,
         custody_columns: CustodyColumnsBitArray,
-    ) -> Result<Vec<Option<BlobCellsAndProofsV1<E>>>, Error> {
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v4 {
