@@ -2,7 +2,7 @@ use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use tracing::debug;
@@ -807,58 +807,6 @@ pub async fn handle_rpc<E: EthSpec>(
                             block_access_list: payload.block_access_list().ok().cloned(),
                         };
                         response.push(Some(JsonExecutionPayloadBodyV2::from(payload_body)));
-                    }
-                    None => response.push(None),
-                }
-            }
-
-            Ok(serde_json::to_value(response).unwrap())
-        }
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
-            #[derive(Deserialize)]
-            #[serde(transparent)]
-            struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
-
-            let start = get_param::<Quantity>(params, 0)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-            let count = get_param::<Quantity>(params, 1)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-
-            let mut response = vec![];
-            for block_num in start..(start + count) {
-                let maybe_payload = ctx
-                    .execution_block_generator
-                    .read()
-                    .execution_payload_by_number(block_num);
-
-                match maybe_payload {
-                    Some(payload) => {
-                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
-                            transactions: payload
-                                .transactions()
-                                .iter()
-                                .map(|tx| {
-                                    types::Transaction::<E::MaxBytesPerTransaction>::new(
-                                        tx.to_vec(),
-                                    )
-                                })
-                                .collect::<Result<Vec<_>, _>>()
-                                .and_then(ssz_types::VariableList::new)
-                                .unwrap(),
-                            withdrawals: payload
-                                .withdrawals()
-                                .ok()
-                                .map(|withdrawals| {
-                                    ssz_types::VariableList::new(withdrawals.to_vec())
-                                })
-                                .transpose()
-                                .unwrap(),
-                        };
-                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
-                            payload_body.try_into().unwrap();
-                        response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
                 }
