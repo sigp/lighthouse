@@ -16,7 +16,9 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot};
+use types::{
+    BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]
@@ -492,6 +494,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // Check if Gloas fork is active at this slot
         let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
 
+        let mut publish_envelope = false;
         let (block_proposer, unsigned_block, builder_url) = if fork_name.gloas_enabled() {
             // Resolve the validator's builder config for this proposal, signing each builder's
             // request auth via the cache. Sent in the POST `produceBlockV4` body below (the same
@@ -588,6 +591,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 }
             };
 
+            let signed_execution_payload_bid = block_response
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(|e| {
+                    BlockError::Recoverable(format!(
+                        "Gloas block response is missing its execution payload bid: {e:?}"
+                    ))
+                })?;
+            publish_envelope =
+                signed_execution_payload_bid.message.builder_index == BUILDER_INDEX_SELF_BUILD;
+
             // Gloas blocks don't have blobs (they're in the execution layer)
             let block_contents = eth2::types::FullBlockContents::Block(block_response);
             (
@@ -680,9 +694,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         }
 
         // Capture before `sign_and_publish_block` moves `unsigned_block`.
-        let produced_block_root = fork_name
-            .gloas_enabled()
-            .then(|| unsigned_block.block_root());
+        let payload_envelope_block_root = if publish_envelope {
+            Some(unsigned_block.block_root())
+        } else {
+            None
+        };
 
         self_ref
             .sign_and_publish_block(
@@ -695,10 +711,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             )
             .await?;
 
-        // TODO(gloas) we only need to fetch, sign and publish the envelope in the local building case.
-        // Right now we always default to local building. Once we implement trustless/trusted builder logic
-        // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
-        if let Some(beacon_block_root) = produced_block_root {
+        if let Some(beacon_block_root) = payload_envelope_block_root {
             self_ref
                 .fetch_sign_and_publish_payload_envelope(
                     &proposer_fallback,
@@ -901,7 +914,10 @@ mod tests {
     use super::*;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Slot};
+    use types::{
+        BeaconBlock, ExecutionPayloadEnvelope, ForkName, MainnetEthSpec, Slot,
+        consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    };
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     struct TestHarness {
@@ -1009,7 +1025,15 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        let mut block = BeaconBlock::empty(&test_harness.harness.spec);
+        let BeaconBlock::Gloas(gloas_block) = &mut block else {
+            panic!("expected Gloas block");
+        };
+        gloas_block
+            .body
+            .signed_execution_payload_bid
+            .message
+            .builder_index = BUILDER_INDEX_SELF_BUILD;
         let envelope = ExecutionPayloadEnvelope::empty();
 
         test_harness
@@ -1064,6 +1088,76 @@ mod tests {
             .lock()
             .unwrap();
         assert_eq!(received_envelopes.len(), 1, "Expected one envelope");
+    }
+
+    #[tokio::test]
+    async fn external_builder_block_does_not_fetch_payload_envelope() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_blocks_v4_ssz(&block, ForkName::Gloas, slot);
+        let mock_post_block = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_envelope = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_execution_payload_envelope_ssz();
+
+        let result = test_harness
+            .service
+            .clone()
+            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Block production failed: {:?}",
+            result.err()
+        );
+        mock_post_block.expect(1).assert();
+        mock_post_envelope.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn non_gloas_block_response_is_not_published() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        let mut pre_gloas_spec = test_harness.harness.spec.as_ref().clone();
+        pre_gloas_spec.gloas_fork_epoch = None;
+        let block = BeaconBlock::empty(&pre_gloas_spec);
+        let response_fork = pre_gloas_spec.fork_name_at_slot::<MainnetEthSpec>(slot);
+        assert!(block.body().signed_execution_payload_bid().is_err());
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_blocks_v4_ssz(&block, response_fork, slot);
+        let mock_post_block = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+
+        let result = test_harness
+            .service
+            .clone()
+            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
+            .await;
+
+        let Err(BlockError::Recoverable(msg)) = result else {
+            panic!("Expected Recoverable error, got: {result:?}");
+        };
+        assert!(msg.contains("Gloas block response is missing its execution payload bid"));
+        mock_post_block.expect(0).assert();
     }
 
     #[tokio::test]
