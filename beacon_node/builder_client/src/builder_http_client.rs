@@ -41,6 +41,11 @@ const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds
 #[derive(Clone)]
 pub struct BuilderHttpClient {
     client: reqwest::Client,
+    /// Client for `submitSignedBeaconBlock` only. The target URL arrives over the wire (the
+    /// `Eth-Builder-Url` request header echoed by the VC) and is an SSRF risk, so beacon-APIs
+    /// `publishBlock` requires that the forwarding request "MUST NOT follow redirects" — reqwest's
+    /// redirect policy is client-wide, hence a dedicated client with redirects disabled.
+    no_redirect_client: reqwest::Client,
     user_agent: String,
     /// Only use json for all request/response types.
     disable_ssz: bool,
@@ -50,8 +55,13 @@ impl BuilderHttpClient {
     pub fn new(user_agent: Option<String>, disable_ssz: bool) -> Result<Self, Error> {
         let user_agent = user_agent.unwrap_or_else(|| DEFAULT_USER_AGENT.to_string());
         let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
+        let no_redirect_client = reqwest::Client::builder()
+            .user_agent(&user_agent)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         Ok(Self {
             client,
+            no_redirect_client,
             user_agent,
             disable_ssz,
         })
@@ -234,6 +244,10 @@ impl BuilderHttpClient {
     ///
     /// `ssz_request` selects the request-body encoding: SSZ when `true` and the client has SSZ
     /// enabled, otherwise JSON.
+    ///
+    /// Sent via [`Self::no_redirect_client`]: `builder_url` is wire input (`Eth-Builder-Url`), and
+    /// the spec forbids following redirects on this request. A redirect response surfaces as
+    /// [`Error::StatusCode`] like any other non-202.
     pub async fn submit_signed_beacon_block<E: EthSpec>(
         &self,
         builder_url: &SensitiveUrl,
@@ -263,7 +277,7 @@ impl BuilderHttpClient {
                 HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER)
                     .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
             );
-            self.client
+            self.no_redirect_client
                 .post(path)
                 .timeout(timeout)
                 .headers(headers)
@@ -274,7 +288,7 @@ impl BuilderHttpClient {
                 HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER)
                     .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
             );
-            self.client
+            self.no_redirect_client
                 .post(path)
                 .timeout(timeout)
                 .headers(headers)
