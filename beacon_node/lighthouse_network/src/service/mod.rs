@@ -2186,8 +2186,8 @@ impl<E: EthSpec> Network<E> {
 
 /// Fork digest used when publishing a gossip message.
 ///
-/// `ProposerPreferences` uses the digest for `proposal_slot`'s epoch so pre-fork prefs land on the
-/// Gloas topic. All other messages use the current ENR fork digest.
+/// `ProposerPreferences` uses the digest for `proposal_slot`'s epoch. All other messages use the
+/// current ENR fork digest.
 fn gossip_fork_digest_for_publish<E: EthSpec>(
     message: &PubsubMessage<E>,
     fork_context: &ForkContext,
