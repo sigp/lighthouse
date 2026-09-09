@@ -3259,22 +3259,14 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             ))?;
 
         // The finalized block may or may not have its execution payload stored, depending on
-        // whether it was at a skipped slot. However for a fully pruned database its parent
-        // should *always* have been pruned. In case of a long split (no parent found) we
-        // continue as if the payloads are pruned, as the node probably has other things to worry
-        // about.
+        // whether it was at a skipped slot. Check the newest prior block that could have payload
+        // data. In Gloas, a WITHHELD block has no envelope summary or payload, so its absence does
+        // not prove that older envelope payloads have already been pruned.
         let split_block_root = split_state.get_latest_block_root(split.state_root);
 
         let already_pruned =
-            process_results(split_state.rev_iter_block_roots(&self.spec), |mut iter| {
-                iter.find(|(_, block_root)| *block_root != split_block_root)
-                    .map_or(Ok::<bool, Error>(true), |(_, split_parent_root)| {
-                        let execution_payload_exists =
-                            self.execution_payload_exists(&split_parent_root)?;
-                        let envelope_payload_exists =
-                            self.get_envelope_payload(&split_parent_root)?.is_some();
-                        Ok(!execution_payload_exists && !envelope_payload_exists)
-                    })
+            process_results(split_state.rev_iter_block_roots(&self.spec), |iter| {
+                self.finalized_payloads_are_pruned(split_block_root, iter)
             })??;
 
         if already_pruned && !force {
@@ -3335,6 +3327,41 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.do_atomically_with_block_and_blobs_cache(ops)?;
         info!(%payloads_pruned, "Execution payload pruning complete");
         Ok(())
+    }
+
+    /// Check the newest canonical block before `split_block_root` that could have stored payload
+    /// data. Payload pruning proceeds backwards, so its state indicates whether there is any work
+    /// left to do.
+    fn finalized_payloads_are_pruned(
+        &self,
+        split_block_root: Hash256,
+        block_roots: impl Iterator<Item = (Slot, Hash256)>,
+    ) -> Result<bool, Error> {
+        for (slot, block_root) in block_roots {
+            if block_root == split_block_root {
+                continue;
+            }
+
+            if self.execution_payload_exists(&block_root)? {
+                return Ok(false);
+            }
+
+            if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+                // A canonical Gloas block without a summary was WITHHELD and never had an
+                // envelope payload. Continue backwards until we find a FULL block.
+                if self.payload_envelope_exists(&block_root)? {
+                    return Ok(self.get_envelope_payload(&block_root)?.is_none());
+                }
+            } else {
+                // Before Gloas, an absent execution payload means this part of the chain has
+                // already been pruned (or predates Bellatrix).
+                return Ok(true);
+            }
+        }
+
+        // In case of a long split with no suitable parent, continue as if payloads are pruned. The
+        // node probably has other things to worry about and a forced prune remains available.
+        Ok(true)
     }
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
@@ -4160,5 +4187,71 @@ impl BytesKey {
 
     pub fn from_vec(key: Vec<u8>) -> Self {
         Self { key }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bls::Signature;
+
+    #[test]
+    fn payload_pruning_fast_path_skips_withheld_gloas_blocks() {
+        type E = MinimalEthSpec;
+
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        let store = HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(
+            StoreConfig::default(),
+            Arc::new(spec),
+        )
+        .expect("store should open");
+
+        let split_block_root = Hash256::repeat_byte(0x11);
+        let withheld_block_root = Hash256::repeat_byte(0x22);
+        let full_block_root = Hash256::repeat_byte(0x33);
+        let envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope {
+                payload: ExecutionPayloadGloas {
+                    slot_number: Slot::new(2),
+                    ..Default::default()
+                },
+                execution_requests: Default::default(),
+                builder_index: 0,
+                beacon_block_root: full_block_root,
+                parent_beacon_block_root: Hash256::ZERO,
+            },
+            signature: Signature::empty(),
+        };
+        store
+            .put_payload_envelope(&full_block_root, &envelope)
+            .expect("envelope should be stored");
+
+        let block_roots = || {
+            [
+                (Slot::new(4), split_block_root),
+                (Slot::new(3), withheld_block_root),
+                (Slot::new(2), full_block_root),
+            ]
+            .into_iter()
+        };
+
+        assert!(
+            !store
+                .finalized_payloads_are_pruned(split_block_root, block_roots())
+                .expect("pruning state should be detected")
+        );
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
+                full_block_root,
+            )])
+            .expect("envelope payload should be pruned");
+
+        assert!(
+            store
+                .finalized_payloads_are_pruned(split_block_root, block_roots())
+                .expect("pruning state should be detected")
+        );
     }
 }

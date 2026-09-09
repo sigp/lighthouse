@@ -1,11 +1,14 @@
-use crate::engine_api::{
-    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
-    json_structures::{
-        BlobAndProof, BlobAndProofV1, BlobAndProofV2, JsonForkchoiceUpdatedV1Response,
-        JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+use crate::engines::ForkchoiceState;
+use crate::{
+    calculate_execution_block_hash,
+    engine_api::{
+        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+        json_structures::{
+            BlobAndProof, BlobAndProofV1, BlobAndProofV2, JsonForkchoiceUpdatedV1Response,
+            JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+        },
     },
 };
-use crate::engines::ForkchoiceState;
 use alloy_consensus::TxEnvelope;
 use alloy_rpc_types_eth::Transaction as AlloyTransaction;
 use eth2::types::BlobsBundle;
@@ -27,7 +30,8 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
+    ExecutionRequestsRef, ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction,
+    Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -845,7 +849,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         };
 
         // Store execution requests for this payload if configured.
-        if let Some(requests) = self.next_execution_requests.take() {
+        let execution_requests = self.next_execution_requests.take();
+        if let Some(requests) = execution_requests.clone() {
             self.execution_requests.insert(id, requests);
         }
 
@@ -884,8 +889,25 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             self.blobs_bundles.insert(id, bundle);
         }
 
-        *execution_payload.block_hash_mut() =
-            ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
+        let block_hash = if let PayloadAttributes::V4(attributes) = attributes {
+            let default_execution_requests = ExecutionRequests::Gloas(Default::default());
+            let execution_requests = execution_requests
+                .as_ref()
+                .unwrap_or(&default_execution_requests);
+            let execution_requests_ref = match execution_requests {
+                ExecutionRequests::Electra(requests) => ExecutionRequestsRef::Electra(requests),
+                ExecutionRequests::Gloas(requests) => ExecutionRequestsRef::Gloas(requests),
+            };
+            calculate_execution_block_hash(
+                execution_payload.to_ref(),
+                Some(attributes.parent_beacon_block_root),
+                Some(execution_requests_ref),
+            )
+            .0
+        } else {
+            ExecutionBlockHash::from_root(execution_payload.tree_hash_root())
+        };
+        *execution_payload.block_hash_mut() = block_hash;
         Ok(execution_payload)
     }
 }
