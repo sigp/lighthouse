@@ -459,12 +459,11 @@ impl<E: EthSpec> MockBeaconNode<E> {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let path_pattern = Regex::new(r"^/eth/v1/validator/builder_preferences$").unwrap();
         let received_builder_preferences = Arc::clone(&self.received_builder_preferences);
         let response_body = response_body.as_bytes().to_vec();
 
         self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", "/eth/v1/validator/builder_preferences")
             .match_header("content-type", "application/octet-stream")
             .match_header(
                 CONSENSUS_VERSION_HEADER,
@@ -493,12 +492,11 @@ impl<E: EthSpec> MockBeaconNode<E> {
         status: u16,
         response_body: &str,
     ) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/validator/builder_preferences$").unwrap();
         let received_builder_preferences = Arc::clone(&self.received_builder_preferences);
         let response_body = response_body.as_bytes().to_vec();
 
         self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", "/eth/v1/validator/builder_preferences")
             .match_header("content-type", "application/json")
             .match_header(
                 CONSENSUS_VERSION_HEADER,

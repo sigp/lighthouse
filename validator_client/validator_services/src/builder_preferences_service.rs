@@ -348,9 +348,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                         }
                     }
                     pending_entries = failed_entries;
-                    if pending_entries.is_empty() {
-                        return;
-                    }
                 }
                 Err(e) => {
                     debug!(
@@ -362,13 +359,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
             }
         }
 
-        if !pending_entries.is_empty() {
-            error!(
-                remaining = pending_entries.len(),
-                %fork_name,
-                "Failed to publish builder preferences"
-            );
-        }
+        error!(
+            remaining = pending_entries.len(),
+            %fork_name,
+            "Failed to publish builder preferences"
+        );
     }
 
     async fn post_builder_preferences_ssz(
@@ -448,8 +443,8 @@ mod tests {
         "message": "invalid failure index",
         "failures": [{"index": 2, "message": "failed"}]
     }"#;
-    const SERVER_ERROR: &str = r#"{"code":500,"message":"server error"}"#;
-    const UNSUPPORTED_MEDIA_TYPE: &str = r#"{"code":415,"message":"unsupported media type"}"#;
+    const ERROR_BODY_500: &str = r#"{"code":500,"message":"server error"}"#;
+    const ERROR_BODY_415: &str = r#"{"code":415,"message":"unsupported media type"}"#;
 
     #[test]
     fn empty_failure_indices_are_invalid() {
@@ -679,11 +674,7 @@ mod tests {
         let first = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_post_validator_builder_preferences_ssz(
-                ForkName::Gloas,
-                500,
-                UNSUPPORTED_MEDIA_TYPE,
-            );
+            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, ERROR_BODY_415);
         let json = test_harness
             .harness
             .mock_beacon_node_1
@@ -691,7 +682,7 @@ mod tests {
         let second = test_harness
             .harness
             .mock_beacon_node_2
-            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, SERVER_ERROR);
+            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, ERROR_BODY_500);
         let mut published = PublishedBuilderPreferencesCache::new();
         test_harness
             .service
@@ -716,7 +707,7 @@ mod tests {
             .mock_post_validator_builder_preferences_ssz_with_hook(
                 ForkName::Gloas,
                 415,
-                SERVER_ERROR,
+                ERROR_BODY_500,
                 move || slot_clock.advance_slot(),
             );
         let json = test_harness
@@ -726,7 +717,7 @@ mod tests {
         let second_node = test_harness
             .harness
             .mock_beacon_node_2
-            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, SERVER_ERROR);
+            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 500, ERROR_BODY_500);
         let mut published = PublishedBuilderPreferencesCache::new();
         test_harness
             .service
