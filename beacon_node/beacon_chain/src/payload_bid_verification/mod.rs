@@ -72,6 +72,8 @@ pub enum PayloadBidError {
         builder_index: u64,
         builder_bid: u64,
     },
+    /// The parent's payload contains an exit request for this builder.
+    BuilderExitPending { builder_index: u64 },
     /// The bids fee recipient doesn't match the proposer preferences fee recipient.
     InvalidFeeRecipient,
     /// The bid's gas limit is not compatible with the proposer's target gas limit.
