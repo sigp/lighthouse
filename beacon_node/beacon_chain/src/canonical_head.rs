@@ -54,7 +54,7 @@ use fast_confirmation::{
 };
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
-    ProtoBlock, ResetPayloadStatuses,
+    ProtoBlock,
 };
 use itertools::process_results;
 
@@ -66,6 +66,7 @@ use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::complete_state_advance;
 use std::ops::{Deref, DerefMut};
 use std::panic::Location;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use store::{
@@ -458,6 +459,8 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
     /// Per-validator committee slot assignments across the last 3 epochs.
     pub slot_assignments: Mutex<SlotAssignments>,
+    /// Set when fork choice has diverged from the store. Poisoned fork choice is never persisted.
+    fork_choice_poisoned: AtomicBool,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -507,89 +510,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             recompute_head_lock: Mutex::new(()),
             fast_confirmation: fcr,
             slot_assignments: Mutex::new(slot_assignments),
+            fork_choice_poisoned: AtomicBool::new(false),
         })
     }
 
-    /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
-    /// state.
-    ///
-    /// This is useful if some database corruption is expected and we wish to go back to our last
-    /// save-point.
-    pub(crate) fn restore_from_store(
-        &self,
-        // We don't actually need this value, however it's always present when we call this function
-        // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
-        // defensive programming.
-        mut fork_choice_write_lock: ForkChoiceWriteGuard<T>,
-        reset_payload_statuses: ResetPayloadStatuses,
-        store: &BeaconStore<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let mut fork_choice =
-            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
-                .ok_or(Error::MissingPersistedForkChoice)?;
-        let current_slot_for_head = fork_choice.fc_store().get_current_slot();
-        let (_, head_payload_status) = fork_choice.get_head(current_slot_for_head, spec)?;
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let beacon_block_root = fork_choice_view.head_block_root;
-        let beacon_block = store
-            .get_full_block(&beacon_block_root)?
-            .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let current_slot = fork_choice.fc_store().get_current_slot();
+    /// Mark fork choice as poisoned so it is never persisted.
+    pub fn poison_fork_choice(&self) {
+        self.fork_choice_poisoned.store(true, Ordering::Relaxed);
+    }
 
-        let (_, beacon_state) = store
-            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
-            .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
-
-        // Load the execution envelope from the store if the head has a Full payload.
-        let execution_envelope = if head_payload_status == PayloadStatus::Full {
-            store
-                .get_payload_envelope(&beacon_block_root)?
-                .map(Arc::new)
-        } else {
-            None
-        };
-
-        let snapshot = Arc::new(BeaconSnapshot {
-            beacon_block_root,
-            execution_envelope,
-            beacon_block: Arc::new(beacon_block),
-            beacon_state,
-        });
-
-        let slot_assignments = SlotAssignments::new(&snapshot.beacon_state, spec, None)
-            .map_err(|e| Error::DBInconsistent(format!("slot assignments reset: {e:?}")))?;
-
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
-        let cached_head = CachedHead {
-            snapshot: snapshot.clone(),
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_payload_status,
-            head_hash: forkchoice_update_params.head_hash,
-            justified_hash: forkchoice_update_params.justified_hash,
-            finalized_hash: forkchoice_update_params.finalized_hash,
-        };
-
-        *fork_choice_write_lock = fork_choice;
-        // Avoid interleaving the fork choice and cached head locks.
-        drop(fork_choice_write_lock);
-        *self.cached_head.write() = cached_head;
-
-        // Reset FCR to the restored finalized checkpoint so it doesn't carry stale state.
-        if let Some(ref fcr_mutex) = self.fast_confirmation {
-            *fcr_mutex.lock() = <BeaconChain<T>>::new_fast_confirmation_rule(
-                fork_choice_view.finalized_checkpoint,
-                &snapshot,
-                slot_assignments.clone(),
-                store,
-                spec,
-            )
-            .map_err(|e| Error::DBInconsistent(format!("fast confirmation rule reset: {e:?}")))?;
-        }
-        *self.slot_assignments.lock() = slot_assignments;
-
-        Ok(())
+    /// Returns `true` if fork choice has diverged from the store.
+    pub fn fork_choice_poisoned(&self) -> bool {
+        self.fork_choice_poisoned.load(Ordering::Relaxed)
     }
 
     /// Returns the execution status of the block at the head of the beacon chain.
@@ -859,6 +791,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
+        if self.canonical_head.fork_choice_poisoned() {
+            debug!("Skipping head recomputation: fork choice is poisoned");
+            return Ok(None);
+        }
+
         let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
         // Take a clone of the current ("old") head.
@@ -1709,8 +1646,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Persist fork choice to disk, writing immediately.
+    ///
+    /// Fails if fork choice is poisoned.
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+
+        if self.canonical_head.fork_choice_poisoned() {
+            crit!(
+                advice = "restarting the node will recover the last consistent fork choice \
+                          from disk",
+                "Refusing to persist poisoned fork choice"
+            );
+            return Err(Error::ForkChoicePoisoned);
+        }
+
         let batch = vec![self.persist_fork_choice_in_batch()?];
         self.store.hot_db.do_atomically(batch)?;
         Ok(())
