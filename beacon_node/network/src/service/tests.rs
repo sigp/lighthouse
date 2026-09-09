@@ -275,7 +275,7 @@ fn gloas_topic(kind: GossipKind, gloas_digest: [u8; 4]) -> GossipTopic {
     GossipTopic::new(kind, GossipEncoding::default(), gloas_digest)
 }
 
-/// Startup inside the early-subscribe window must join only Gloas `proposer_preferences`.
+/// Startup in the early-subscribe window subscribes only to `proposer_preferences`.
 #[test]
 fn early_proposer_preferences_subscribed_when_built_in_window() {
     let runtime = Arc::new(Runtime::new().unwrap());
@@ -291,15 +291,15 @@ fn early_proposer_preferences_subscribed_when_built_in_window() {
 
     assert!(
         subscriptions.contains(&prefs_topic),
-        "expected early subscribe to Gloas proposer_preferences, subscriptions={subscriptions:?}"
+        "expected early subscribe to proposer_preferences, subscriptions={subscriptions:?}"
     );
-    // Selective: do not early-join the rest of the Gloas topic set.
+    // Do not early-subscribe the rest of the Gloas topic set.
     assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayload, gloas_digest)));
     assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayloadBid, gloas_digest)));
     assert!(!subscriptions.contains(&gloas_topic(GossipKind::PayloadAttestation, gloas_digest)));
 }
 
-/// Startup before the early-subscribe window must not join Gloas `proposer_preferences` yet.
+/// Startup before the early-subscribe window does not subscribe to `proposer_preferences`.
 #[test]
 fn early_proposer_preferences_not_subscribed_before_window() {
     let runtime = Arc::new(Runtime::new().unwrap());
@@ -315,7 +315,7 @@ fn early_proposer_preferences_not_subscribed_before_window() {
 
     assert!(
         !subscriptions.contains(&prefs_topic),
-        "must not early-subscribe before gloas_epoch - 1, subscriptions={subscriptions:?}"
+        "must not early-subscribe before the window, subscriptions={subscriptions:?}"
     );
     assert!(!subscriptions.contains(&gloas_topic(GossipKind::ExecutionPayload, gloas_digest)));
 }
