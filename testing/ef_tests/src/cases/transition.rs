@@ -132,7 +132,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
             .iter()
             .try_for_each(|block| {
                 // Advance to block slot.
-                complete_state_advance(&mut state, None, block.slot(), spec)
+                complete_state_advance(&mut state, None, block.slot(), None, spec)
                     .map_err(|e| format!("Failed to advance: {:?}", e))?;
 
                 // Apply block.

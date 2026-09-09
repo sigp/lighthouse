@@ -855,8 +855,7 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
 
 // POST validator/builder_preferences
 //
-// Accepts the `BuilderPreferenceEntry` list as either JSON or SSZ, selected by the request's
-// `Content-Type` (`application/octet-stream` => SSZ, otherwise JSON). A required
+// Accepts the `BuilderPreferenceEntry` list as either JSON or SSZ. A required
 // `Eth-Consensus-Version` header carries the consensus version the preferences belong to (per
 // beacon-APIs #630); it is not needed to decode the (currently single-fork) body, so it is only
 // logged.

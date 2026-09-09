@@ -4167,6 +4167,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // This may be the proof the block's envelope was waiting on.
+                match self
+                    .chain
+                    .check_execution_proof_availability_and_import(verified)
+                    .await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
+                        info!(
+                            ?block_root,
+                            %slot,
+                            "Execution payload envelope imported after execution proof"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                        // The payload envelope is imported (`is_payload_received` is now true);
+                        // release any attestations awaiting this block's payload.
+                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
+                    }
+                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
+                    Err(error) => {
+                        debug!(
+                            %beacon_block_root,
+                            proof_type,
+                            ?error,
+                            "Could not cache execution proof"
+                        );
+                    }
+                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4226,6 +4254,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidBuilderVersion { .. }
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::BlockHashEqualsParentBlockHash { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
                 | PayloadBidError::InvalidPrevRandao { .. },
@@ -4243,6 +4272,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::ParentExecutionPayloadUnknown { .. }
                 | PayloadBidError::BidNotCompatibleWithHead { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::InvalidGasLimit
@@ -4253,13 +4283,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            // `InvalidParentBlockHash` / `InvalidParentBlockRoot` are equality checks against the
-            // producer's selected parent, and `UnexpectedBuilder` is the `BuilderEntry`
-            // `builder_pubkeys` response filter — all produced only by direct (block-production)
-            // verification, never by gossip, which instead does parent fork-choice *membership*
-            // checks (the `ParentBlockRoot*` variants above) and has no requesting entry. They're
-            // handled here only because `PayloadBidError` is shared; reaching this arm indicates a
-            // wiring bug, so log it, and ignore rather than penalize the peer.
+            // These variants are direct-only (see their docs) and are matched here only because
+            // `PayloadBidError` is shared. Reaching this arm is a wiring bug: log it, and ignore
+            // rather than penalize the peer.
             Err(
                 PayloadBidError::InvalidParentBlockHash { .. }
                 | PayloadBidError::InvalidParentBlockRoot { .. }

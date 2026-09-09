@@ -41,6 +41,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
+use state_processing::GloasVerificationContext;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -6292,7 +6293,13 @@ impl ApiTester {
 
         let mut head = self.chain.head_snapshot().as_ref().clone();
         while head.beacon_state.current_epoch() < epoch {
-            per_slot_processing(&mut head.beacon_state, None, &self.chain.spec).unwrap();
+            per_slot_processing(
+                &mut head.beacon_state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &self.chain.spec,
+            )
+            .unwrap();
         }
         head.beacon_state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
@@ -8897,6 +8904,7 @@ impl ApiTester {
                 &mut state,
                 Some(state_root),
                 proposal_slot,
+                None,
                 &self.chain.spec,
             );
         }

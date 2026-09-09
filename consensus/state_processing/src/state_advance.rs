@@ -4,6 +4,7 @@
 //! These functions are not in the specification, however they're defined here to reduce code
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
 
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::*;
 use fixed_bytes::FixedBytesExtended;
 use tracing::instrument;
@@ -31,6 +32,7 @@ pub fn complete_state_advance<E: EthSpec>(
     state: &mut BeaconState<E>,
     mut state_root_opt: Option<Hash256>,
     target_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     check_target_slot(state.slot(), target_slot)?;
@@ -40,7 +42,13 @@ pub fn complete_state_advance<E: EthSpec>(
         // future iterations.
         let state_root_opt = state_root_opt.take();
 
-        per_slot_processing(state, state_root_opt, spec).map_err(Error::PerSlotProcessing)?;
+        per_slot_processing(
+            state,
+            state_root_opt,
+            GloasVerificationContext::from_cache(builder_onboarding_cache),
+            spec,
+        )
+        .map_err(Error::PerSlotProcessing)?;
     }
 
     Ok(())
@@ -65,6 +73,7 @@ pub fn partial_state_advance<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     target_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     check_target_slot(state.slot(), target_slot)?;
@@ -95,7 +104,13 @@ pub fn partial_state_advance<E: EthSpec>(
         // with the correct state root.
         let state_root = initial_state_root.take().unwrap_or_else(Hash256::zero);
 
-        per_slot_processing(state, Some(state_root), spec).map_err(Error::PerSlotProcessing)?;
+        per_slot_processing(
+            state,
+            Some(state_root),
+            GloasVerificationContext::from_cache(builder_onboarding_cache),
+            spec,
+        )
+        .map_err(Error::PerSlotProcessing)?;
     }
 
     Ok(())
