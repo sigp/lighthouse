@@ -267,6 +267,23 @@ impl<E: EthSpec> OperationPool<E> {
         result
     }
 
+    /// Returns all known `PayloadAttestation` objects, optionally filtered by slot.
+    /// Unlike `get_payload_attestations` this applies no block-root filter and no cap
+    pub fn get_all_payload_attestations(
+        &self,
+        target_slot: Option<Slot>,
+    ) -> Vec<PayloadAttestation<E>> {
+        self
+            .payload_attestations
+            .read()
+            .values()
+            .filter(|attestation| {
+                target_slot.is_none_or(|slot| attestation.data.slot == slot)
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Remove payload attestations that are too old for block inclusion.
     pub fn prune_payload_attestations(&self, current_slot: Slot) {
         self.payload_attestations
@@ -2418,6 +2435,77 @@ mod release_tests {
 
         op_pool.prune_payload_attestations(Slot::new(5));
         assert_eq!(op_pool.num_payload_attestations(), 0);
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_get_all_filters_by_slot() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let (harness, spec) = payload_attestation_test_harness().await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let other_root = Hash256::repeat_byte(0xbb);
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+
+        // Slot 1: two block roots voting every boolean combo, for eight distinct data.
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+        for root in [parent_root, other_root] {
+            for (payload_present, blob_data_available) in
+                [(true, true), (true, false), (false, true), (false, false)]
+            {
+                let msg = make_payload_attestation_message_with_flags(
+                    target_slot,
+                    ptc.0[0] as u64,
+                    root,
+                    payload_present,
+                    blob_data_available,
+                );
+                op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+            }
+        }
+
+        for slot in [Slot::new(2), Slot::new(3)] {
+            let ptc = state.get_ptc(slot, &spec).unwrap();
+            let msg = make_payload_attestation_message(slot, ptc.0[0] as u64, parent_root);
+            op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+        }
+
+        let all = op_pool.get_all_payload_attestations(None);
+        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), op_pool.num_payload_attestations());
+
+        let at_target = op_pool.get_all_payload_attestations(Some(target_slot));
+        assert_eq!(at_target.len(), 8);
+        assert!(at_target.len() > MinimalEthSpec::max_payload_attestations());
+        assert!(
+            at_target
+                .iter()
+                .any(|att| att.data.beacon_block_root == other_root)
+        );
+
+        let at_slot_2 = op_pool.get_all_payload_attestations(Some(Slot::new(2)));
+        assert_eq!(at_slot_2.len(), 1);
+        assert_eq!(at_slot_2[0].data.slot, Slot::new(2));
+
+        assert!(
+            op_pool
+                .get_all_payload_attestations(Some(Slot::new(9)))
+                .is_empty()
+        );
+
+        // Block production keeps the root filter.
+        assert_eq!(
+            op_pool
+                .get_payload_attestations(target_slot, parent_root)
+                .len(),
+            4
+        );
     }
 
     #[tokio::test]
