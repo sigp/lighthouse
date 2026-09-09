@@ -273,13 +273,10 @@ impl<E: EthSpec> OperationPool<E> {
         &self,
         target_slot: Option<Slot>,
     ) -> Vec<PayloadAttestation<E>> {
-        self
-            .payload_attestations
+        self.payload_attestations
             .read()
             .values()
-            .filter(|attestation| {
-                target_slot.is_none_or(|slot| attestation.data.slot == slot)
-            })
+            .filter(|attestation| target_slot.is_none_or(|slot| attestation.data.slot == slot))
             .cloned()
             .collect()
     }
