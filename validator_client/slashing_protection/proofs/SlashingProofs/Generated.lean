@@ -17,16 +17,16 @@ set_option maxRecDepth 2048
 
 namespace slashing_protection
 
-/-- [slashing_protection::attestation_rules::AttRow]
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 28:0-32:1
+/-- [slashing_protection::attestation_rules::AttestationRecord]
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 27:0-31:1
     Visibility: public -/
-structure attestation_rules.AttRow where
-  source : Std.U64
-  target : Std.U64
-  root : Array Std.U8 32#usize
+structure attestation_rules.AttestationRecord where
+  source_epoch : Std.U64
+  target_epoch : Std.U64
+  signing_root : Array Std.U8 32#usize
 
 /-- [slashing_protection::attestation_rules::Verdict]
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 36:0-45:1
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 35:0-44:1
     Visibility: public -/
 @[discriminant isize]
 inductive attestation_rules.Verdict where
@@ -40,190 +40,209 @@ inductive attestation_rules.Verdict where
 | TargetLessThanOrEqLowerBound : attestation_rules.Verdict
 
 /-- [slashing_protection::attestation_rules::roots_eq]: loop body 0:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 59:4-67:5 -/
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 57:4-65:5 -/
 @[rust_loop_body]
 def attestation_rules.roots_eq_loop.body
-  (a : Array Std.U8 32#usize) (b : Array Std.U8 32#usize) (a_is_null : Bool)
+  (stored_root : Array Std.U8 32#usize)
+  (candidate_root : Array Std.U8 32#usize) (stored_root_is_null : Bool)
   (equal : Bool) (i : Std.Usize) :
   Result (ControlFlow (Bool × Bool × Std.Usize) (Bool × Bool))
   := do
   if i < 32#usize
   then
-    let i1 ← Array.index_usize a i
-    let a_is_null1 ← if i1 != 0#u8
-                       then ok false
-                       else ok a_is_null
-    let i2 ← Array.index_usize b i
+    let i1 ← Array.index_usize stored_root i
+    let stored_root_is_null1 ←
+      if i1 != 0#u8
+      then ok false
+      else ok stored_root_is_null
+    let i2 ← Array.index_usize candidate_root i
     let equal1 ← if i1 != i2
                    then ok false
                    else ok equal
     let i3 ← i + 1#usize
-    ok (cont (a_is_null1, equal1, i3))
-  else ok (done (a_is_null, equal))
+    ok (cont (stored_root_is_null1, equal1, i3))
+  else ok (done (stored_root_is_null, equal))
 
 /-- [slashing_protection::attestation_rules::roots_eq]: loop 0:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 59:4-67:5 -/
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 57:4-65:5 -/
 @[rust_loop]
 def attestation_rules.roots_eq_loop
-  (a : Array Std.U8 32#usize) (b : Array Std.U8 32#usize) (a_is_null : Bool)
+  (stored_root : Array Std.U8 32#usize)
+  (candidate_root : Array Std.U8 32#usize) (stored_root_is_null : Bool)
   (equal : Bool) (i : Std.Usize) :
   Result (Bool × Bool)
   := do
   loop
-    (fun (a_is_null1, equal1, i1) => attestation_rules.roots_eq_loop.body a b
-      a_is_null1 equal1 i1)
-    (a_is_null, equal, i)
+    (fun (stored_root_is_null1, equal1, i1) =>
+      attestation_rules.roots_eq_loop.body stored_root candidate_root
+      stored_root_is_null1 equal1 i1)
+    (stored_root_is_null, equal, i)
 
 /-- [slashing_protection::attestation_rules::roots_eq]:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 55:0-69:1 -/
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 53:0-67:1 -/
 def attestation_rules.roots_eq
-  (a : Array Std.U8 32#usize) (b : Array Std.U8 32#usize) : Result Bool := do
-  let (a_is_null, equal) ← attestation_rules.roots_eq_loop a b true true 0#usize
+  (stored_root : Array Std.U8 32#usize)
+  (candidate_root : Array Std.U8 32#usize) :
+  Result Bool
+  := do
+  let (stored_root_is_null, equal) ←
+    attestation_rules.roots_eq_loop stored_root candidate_root true true
+      0#usize
   if equal
-  then ok (¬ a_is_null)
+  then ok (¬ stored_root_is_null)
   else ok false
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop body 0:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 86:4-94:5
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 91:4-99:5
     Visibility: public -/
 @[rust_loop_body]
 def attestation_rules.check_attestation_loop0.body
-  (history : Slice attestation_rules.AttRow) (i : Std.U64) (a : Array Std.U8 32#usize)
-  (n : Std.Usize) (same_target_found : Bool) (same_root : Bool)
-  (i1 : Std.Usize) :
+  (candidate : attestation_rules.AttestationRecord)
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (same_target_found : Bool) (same_root : Bool)
+  (i : Std.Usize) :
   Result (ControlFlow (Bool × Bool × Std.Usize) (Bool × Bool))
   := do
-  if i1 < n
+  if i < history_len
   then
-    let ar ← Slice.index_usize history i1
+    let ar ← Slice.index_usize history i
     let (same_target_found1, same_root1) ←
-      if ar.target = i
+      if ar.target_epoch = candidate.target_epoch
       then
         do
-        let b ← attestation_rules.roots_eq ar.root a
+        let b ←
+          attestation_rules.roots_eq ar.signing_root candidate.signing_root
         let b1 ← if b
                    then ok true
                    else ok same_root
         ok (true, b1)
       else ok (same_target_found, same_root)
-    let i2 ← i1 + 1#usize
-    ok (cont (same_target_found1, same_root1, i2))
+    let i1 ← i + 1#usize
+    ok (cont (same_target_found1, same_root1, i1))
   else ok (done (same_target_found, same_root))
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop 0:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 86:4-94:5
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 91:4-99:5
     Visibility: public -/
 @[rust_loop]
 def attestation_rules.check_attestation_loop0
-  (history : Slice attestation_rules.AttRow) (i : Std.U64) (a : Array Std.U8 32#usize)
-  (n : Std.Usize) (same_target_found : Bool) (same_root : Bool)
-  (i1 : Std.Usize) :
+  (candidate : attestation_rules.AttestationRecord)
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (same_target_found : Bool) (same_root : Bool)
+  (i : Std.Usize) :
   Result (Bool × Bool)
   := do
   loop
-    (fun (same_target_found1, same_root1, i2) =>
-      attestation_rules.check_attestation_loop0.body history i a n
-      same_target_found1 same_root1 i2)
-    (same_target_found, same_root, i1)
+    (fun (same_target_found1, same_root1, i1) =>
+      attestation_rules.check_attestation_loop0.body candidate history
+      history_len same_target_found1 same_root1 i1)
+    (same_target_found, same_root, i)
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop body 1:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 107:4-115:5
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 113:4-123:5
     Visibility: public -/
 @[rust_loop_body]
 def attestation_rules.check_attestation_loop1.body
-  (history : Slice attestation_rules.AttRow) (i : Std.U64) (i1 : Std.U64)
-  (n : Std.Usize) (prev_surrounds : Bool) (new_surrounds : Bool)
-  (i2 : Std.Usize) :
+  (candidate : attestation_rules.AttestationRecord)
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (prev_surrounds : Bool) (new_surrounds : Bool)
+  (i : Std.Usize) :
   Result (ControlFlow (Bool × Bool × Std.Usize) (Bool × Bool))
   := do
-  if i2 < n
+  if i < history_len
   then
-    let ar ← Slice.index_usize history i2
+    let ar ← Slice.index_usize history i
     let prev_surrounds1 ←
-      if ar.source < i
-      then if ar.target > i1
-           then ok true
-           else ok prev_surrounds
+      if ar.source_epoch < candidate.source_epoch
+      then
+        if ar.target_epoch > candidate.target_epoch
+        then ok true
+        else ok prev_surrounds
       else ok prev_surrounds
     let new_surrounds1 ←
-      if ar.source > i
-      then if ar.target < i1
-           then ok true
-           else ok new_surrounds
+      if ar.source_epoch > candidate.source_epoch
+      then
+        if ar.target_epoch < candidate.target_epoch
+        then ok true
+        else ok new_surrounds
       else ok new_surrounds
-    let i3 ← i2 + 1#usize
-    ok (cont (prev_surrounds1, new_surrounds1, i3))
+    let i1 ← i + 1#usize
+    ok (cont (prev_surrounds1, new_surrounds1, i1))
   else ok (done (prev_surrounds, new_surrounds))
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop 1:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 107:4-115:5
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 113:4-123:5
     Visibility: public -/
 @[rust_loop]
 def attestation_rules.check_attestation_loop1
-  (history : Slice attestation_rules.AttRow) (i : Std.U64) (i1 : Std.U64)
-  (n : Std.Usize) (prev_surrounds : Bool) (new_surrounds : Bool)
-  (i2 : Std.Usize) :
+  (candidate : attestation_rules.AttestationRecord)
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (prev_surrounds : Bool) (new_surrounds : Bool)
+  (i : Std.Usize) :
   Result (Bool × Bool)
   := do
   loop
-    (fun (prev_surrounds1, new_surrounds1, i3) =>
-      attestation_rules.check_attestation_loop1.body history i i1 n
-      prev_surrounds1 new_surrounds1 i3)
-    (prev_surrounds, new_surrounds, i2)
+    (fun (prev_surrounds1, new_surrounds1, i1) =>
+      attestation_rules.check_attestation_loop1.body candidate history
+      history_len prev_surrounds1 new_surrounds1 i1)
+    (prev_surrounds, new_surrounds, i)
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop body 2:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 130:8-138:9
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 140:8-148:9
     Visibility: public -/
 @[rust_loop_body]
 def attestation_rules.check_attestation_loop2.body
-  (history : Slice attestation_rules.AttRow) (n : Std.Usize) (min_source : Std.U64)
-  (min_target : Std.U64) (i : Std.Usize) :
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (min_source : Std.U64) (min_target : Std.U64)
+  (i : Std.Usize) :
   Result (ControlFlow (Std.U64 × Std.U64 × Std.Usize) (Std.U64 × Std.U64))
   := do
-  if i < n
+  if i < history_len
   then
     let ar ← Slice.index_usize history i
     let min_source1 ←
-      if ar.source < min_source
-      then ok ar.source
+      if ar.source_epoch < min_source
+      then ok ar.source_epoch
       else ok min_source
     let min_target1 ←
-      if ar.target < min_target
-      then ok ar.target
+      if ar.target_epoch < min_target
+      then ok ar.target_epoch
       else ok min_target
     let i1 ← i + 1#usize
     ok (cont (min_source1, min_target1, i1))
   else ok (done (min_source, min_target))
 
 /-- [slashing_protection::attestation_rules::check_attestation]: loop 2:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 130:8-138:9
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 140:8-148:9
     Visibility: public -/
 @[rust_loop]
 def attestation_rules.check_attestation_loop2
-  (history : Slice attestation_rules.AttRow) (n : Std.Usize) (min_source : Std.U64)
-  (min_target : Std.U64) (i : Std.Usize) :
+  (history : Slice attestation_rules.AttestationRecord)
+  (history_len : Std.Usize) (min_source : Std.U64) (min_target : Std.U64)
+  (i : Std.Usize) :
   Result (Std.U64 × Std.U64)
   := do
   loop
     (fun (min_source1, min_target1, i1) =>
-      attestation_rules.check_attestation_loop2.body history n min_source1
-      min_target1 i1)
+      attestation_rules.check_attestation_loop2.body history history_len
+      min_source1 min_target1 i1)
     (min_source, min_target, i)
 
 /-- [slashing_protection::attestation_rules::check_attestation]:
-    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 74:0-148:1
+    Source: 'validator_client/slashing_protection/src/attestation_rules.rs', lines 72:0-159:1
     Visibility: public -/
 def attestation_rules.check_attestation
-  (history : Slice attestation_rules.AttRow) (candidate : attestation_rules.AttRow) :
+  (history : Slice attestation_rules.AttestationRecord)
+  (candidate : attestation_rules.AttestationRecord) :
   Result attestation_rules.Verdict
   := do
-  if candidate.source > candidate.target
+  if candidate.source_epoch > candidate.target_epoch
   then ok attestation_rules.Verdict.SourceExceedsTarget
   else
-    let n := Slice.len history
+    let history_len := Slice.len history
     let (same_target_found, same_root) ←
-      attestation_rules.check_attestation_loop0 history candidate.target
-        candidate.root n false false 0#usize
+      attestation_rules.check_attestation_loop0 candidate history history_len
+        false false 0#usize
     if same_target_found
     then
       if same_root
@@ -231,24 +250,24 @@ def attestation_rules.check_attestation
       else ok attestation_rules.Verdict.DoubleVote
     else
       let (prev_surrounds, new_surrounds) ←
-        attestation_rules.check_attestation_loop1 history candidate.source
-          candidate.target n false false 0#usize
+        attestation_rules.check_attestation_loop1 candidate history history_len
+          false false 0#usize
       if prev_surrounds
       then ok attestation_rules.Verdict.PrevSurroundsNew
       else
         if new_surrounds
         then ok attestation_rules.Verdict.NewSurroundsPrev
         else
-          if n > 0#usize
+          if history_len > 0#usize
           then
             let ar ← Slice.index_usize history 0#usize
             let (min_source, min_target) ←
-              attestation_rules.check_attestation_loop2 history n ar.source
-                ar.target 1#usize
-            if candidate.source < min_source
+              attestation_rules.check_attestation_loop2 history history_len
+                ar.source_epoch ar.target_epoch 1#usize
+            if candidate.source_epoch < min_source
             then ok attestation_rules.Verdict.SourceLessThanLowerBound
             else
-              if candidate.target <= min_target
+              if candidate.target_epoch <= min_target
               then ok attestation_rules.Verdict.TargetLessThanOrEqLowerBound
               else ok attestation_rules.Verdict.Valid
           else ok attestation_rules.Verdict.Valid

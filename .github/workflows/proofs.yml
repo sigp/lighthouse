@@ -28,15 +28,13 @@ permissions:
   contents: read
 
 env:
-  CRATE: validator_client/slashing_protection
-  PROOFS: validator_client/slashing_protection/proofs
-  ENTRYPOINT: slashing_protection::attestation_rules::check_attestation
+  PROOFS_DIR: validator_client/slashing_protection/proofs
   # Charon is pinned to the commit this Aeneas revision expects. Aeneas itself is pinned in
   # proofs/lakefile.toml, which is the single source of truth and is read below.
   CHARON_REV: fea3fc68d445181cf4ce094855a43a17192a2b12
 
 jobs:
-  slashing-protection:
+  slashing-protection-proofs:
     name: slashing protection proofs
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -46,9 +44,9 @@ jobs:
       - name: Read the pinned Aeneas revision from lakefile.toml
         run: |
           set -euo pipefail
-          rev=$(sed -n '/name = "aeneas"/,/^$/s/^rev = "\(.*\)"/\1/p' "$PROOFS/lakefile.toml")
+          rev=$(sed -n '/name = "aeneas"/,/^$/s/^rev = "\(.*\)"/\1/p' "$PROOFS_DIR/lakefile.toml")
           if [ -z "$rev" ]; then
-            echo "::error::could not read the aeneas rev from $PROOFS/lakefile.toml"
+            echo "::error::could not read the aeneas rev from $PROOFS_DIR/lakefile.toml"
             exit 1
           fi
           echo "AENEAS_REV=$rev" >> "$GITHUB_ENV"
@@ -67,11 +65,11 @@ jobs:
       - name: Cache the Lean build
         uses: actions/cache@v4
         with:
-          path: ${{ env.PROOFS }}/.lake
-          key: lake-${{ runner.os }}-${{ hashFiles(format('{0}/lakefile.toml', env.PROOFS), format('{0}/lake-manifest.json', env.PROOFS), format('{0}/lean-toolchain', env.PROOFS)) }}
+          path: ${{ env.PROOFS_DIR }}/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles(format('{0}/lakefile.toml', env.PROOFS_DIR), format('{0}/lake-manifest.json', env.PROOFS_DIR), format('{0}/lean-toolchain', env.PROOFS_DIR)) }}
 
       - name: Build the proofs
-        working-directory: ${{ env.PROOFS }}
+        working-directory: ${{ env.PROOFS_DIR }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
@@ -82,31 +80,12 @@ jobs:
           done
           lake build
 
-      - name: Check the axiom dependencies
-        working-directory: ${{ env.PROOFS }}
-        run: |
-          set -euo pipefail
-          # `#print axioms` only reports, and a `sorry` is only a warning, so `lake build`
-          # passes either way. Run the audit file directly, since Lake may replay cached logs
-          # instead of re-elaborating, and assert on what it prints. A `sorry` anywhere
-          # beneath an audited theorem shows up here as `sorryAx`.
-          lake env lean SlashingProofs/Axioms.lean 2>&1 | tee axioms.log
-
-          want=$(grep -c '^#print axioms' SlashingProofs/Axioms.lean)
-          got=$(grep -cE 'depends on axioms|does not depend on any axioms' axioms.log || true)
-          if [ "$got" -ne "$want" ]; then
-            echo "::error::SlashingProofs/Axioms.lean audits $want theorems but $got reported"
-            exit 1
-          fi
-
-          bad=$(grep 'depends on axioms' axioms.log \
-            | sed 's/.*depends on axioms: \[\(.*\)\]/\1/' \
-            | tr ',' '\n' | sed 's/^ *//' \
-            | grep -vxE 'propext|Classical\.choice|Quot\.sound' || true)
-          if [ -n "$bad" ]; then
-            echo "::error::a theorem depends on an axiom outside the allowlist: $bad"
-            exit 1
-          fi
+      # AxiomAudit.lean walks every theorem and fails elaboration on a disallowed axiom or a
+      # `sorry`. Run it directly as well as through `lake build`, since Lake can replay a
+      # cached log instead of re-elaborating.
+      - name: Run the axiom audit
+        working-directory: ${{ env.PROOFS_DIR }}
+        run: lake env lean SlashingProofs/AxiomAudit.lean
 
       # Charon and Aeneas are built once and cached. `charon-driver` is a rustc driver linked
       # against the nightly in Charon's rust-toolchain file, so that toolchain is cached with
@@ -139,22 +118,18 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq opam
           opam init -y --bare --disable-sandboxing
           opam switch create aeneas 5.2.0 -y
-          # Take the dependency list from Aeneas itself so it cannot drift from the pinned rev.
-          (cd ~/verif/aeneas/src && opam install -y --switch=aeneas --assume-depexts --deps-only \
-            ./aeneas.opam ./aeneas.ppx.opam)
+          # The list from the Aeneas README. Its .opam files are dune-generated and list only dune.
+          opam install -y --switch=aeneas --assume-depexts \
+            calendar core_unix domainslib easy_logging menhir ocamlformat.0.27.0 ocamlgraph odoc \
+            ppx_deriving ppx_deriving_yojson progress unionFind visitors yojson zarith
           (cd ~/verif/aeneas/src && opam exec --switch=aeneas -- dune build)
 
       # Re-derive the model from the Rust. This is what ties the theorem to the current source.
       - name: Regenerate Generated.lean and diff
-        working-directory: ${{ env.CRATE }}
         run: |
           set -euo pipefail
-          export PATH="$HOME/verif/charon/charon/target/release:$PATH"
-          # `-- --lib`: without it Charon translates the crate's binaries into opaque bodies.
-          charon cargo --preset=aeneas --start-from "$ENTRYPOINT" --dest-file pure.llbc -- --lib
-          ~/verif/aeneas/src/_build/default/main.exe -backend lean pure.llbc -dest "$RUNNER_TEMP/regen"
-          # Aeneas names the output after the llbc file. Compare from the namespace down, which
-          # skips the header and its comments.
-          diff <(sed -n '/^namespace/,$p' "$RUNNER_TEMP/regen/Pure.lean") \
-               <(sed -n '/^namespace/,$p' proofs/SlashingProofs/Generated.lean) \
-            || { echo "::error::proofs/SlashingProofs/Generated.lean is stale. Regenerate it (see proofs/README.md)."; exit 1; }
+          export CHARON="$HOME/verif/charon/charon/target/release/charon"
+          export AENEAS="$HOME/verif/aeneas/src/_build/default/main.exe"
+          "$PROOFS_DIR/regenerate.sh"
+          git diff --exit-code -- "$PROOFS_DIR/SlashingProofs/Generated.lean" \
+            || { echo "::error::$PROOFS_DIR/SlashingProofs/Generated.lean is stale. Run $PROOFS_DIR/regenerate.sh and commit the result."; exit 1; }

@@ -6,9 +6,9 @@
 //! read, test and formally verify.
 //!
 //! A machine checked proof that this function never returns `Verdict::Valid` for a slashable
-//! attestation lives in `../proofs`. The proof is about this file, not a hand written model.
-//! Charon and Aeneas generate the Lean definition directly from this Rust. If you edit this
-//! file, the proof no longer matches and the CI job in `.github/workflows/proofs.yml` fails.
+//! attestation lives in `../proofs`. Charon and Aeneas generate the Lean definition directly
+//! from this Rust. If you edit this file, the proof no longer matches and the CI job in
+//! `.github/workflows/proofs.yml` fails.
 //!
 //! # Why this is written the way it is
 //!

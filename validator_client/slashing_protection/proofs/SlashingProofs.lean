@@ -1,3 +1,4 @@
 import SlashingProofs.Generated
+import SlashingProofs.Spec
 import SlashingProofs.Soundness
-import SlashingProofs.Axioms
+import SlashingProofs.AxiomAudit
