@@ -91,6 +91,7 @@ use crate::{
     CachedHead, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
+use builder_client::Builders;
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
@@ -122,6 +123,7 @@ use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
     VerifyBlockRoot, VerifyOperation,
@@ -462,6 +464,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
     pub proof_engine: Option<Arc<ProofEngine>>,
+    /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
+    /// API. Present only when the Gloas fork is scheduled.
+    pub builders: Option<Arc<Builders>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -2823,7 +2828,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
         let head_snapshot = self.head().snapshot;
         let head_state = &head_snapshot.beacon_state;
-        let wall_clock_epoch = self.epoch()?;
+        let wall_clock_epoch = self
+            .slot_clock
+            .now_with_future_tolerance(self.spec.maximum_gossip_clock_disparity())
+            .ok_or(Error::UnableToReadSlot)?
+            .epoch(T::EthSpec::slots_per_epoch());
+
+        let validator_index = exit.message.validator_index;
+        if exit.message.epoch > wall_clock_epoch {
+            return Err(ExitValidationError::invalid(ExitInvalid::FutureEpoch {
+                state: wall_clock_epoch,
+                exit: exit.message.epoch,
+            })
+            .into());
+        }
+        if let Some(validator) = head_state.validators().get(validator_index as usize)
+            && validator.exit_epoch != self.spec.far_future_epoch
+        {
+            return Err(
+                ExitValidationError::invalid(ExitInvalid::AlreadyExited(validator_index)).into(),
+            );
+        }
 
         Ok(self
             .observed_voluntary_exits
@@ -4653,14 +4678,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg = "Restoring fork choice from disk",
                 error = ?e,
                 "Database write failed!"
             );
-            return Err(self
-                .handle_import_block_db_write_error(fork_choice)
-                .err()
-                .unwrap_or(e.into()));
+            self.handle_import_block_db_write_error(fork_choice, block_root);
+            return Err(e.into());
         }
 
         drop(db_span);
@@ -4734,36 +4756,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
+    /// Handle a database write failure during block import, which causes fork choice
+    /// to contain a block that the store does not.
+    ///
+    /// Poison fork choice so the diverged version is never persisted, and shut down the
+    /// node. On restart, the normal startup procedure loads the last consistent fork
+    /// choice from disk.
     fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
-    ) -> Result<(), BlockError> {
+        block_root: Hash256,
+    ) {
+        drop(fork_choice_write_lock);
+
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        // Since the write failed, try to revert the canonical head back to what was stored
-        // in the database. This attempts to prevent inconsistency between the database and
-        // fork choice.
-        if let Err(e) = self.canonical_head.restore_from_store(
-            fork_choice_write_lock,
-            ResetPayloadStatuses::always_reset_conditionally(
-                self.config.always_reset_payload_statuses,
-            ),
-            &self.store,
-            &self.spec,
-        ) {
-            crit!(
-                error = ?e,
-                warning = "The database is likely corrupt now, consider --purge-db",
-                "No stored fork choice found to restore from"
-            );
-            Err(BlockError::BeaconChainError(Box::new(e)))
-        } else {
-            Ok(())
+        self.canonical_head.poison_fork_choice();
+        crit!(
+            ?block_root,
+            advice = "restart the node to recover the last consistent fork choice from disk",
+            "Shutting down due to database write failure"
+        );
+        if let Err(e) = self.shutdown_sender().try_send(ShutdownReason::Failure(
+            "Database write failure during block import",
+        )) {
+            crit!(error = ?e, "Failed to send shutdown signal");
         }
     }
 
@@ -7844,10 +7866,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
+        if self.canonical_head.fork_choice_poisoned() {
+            warn!("Skipping persistence on drop: fork choice is poisoned");
+            return;
+        }
+
         let drop = || -> Result<(), Error> {
-            self.persist_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_custody_context()
+            self.persist_custody_context()?;
+            self.persist_fork_choice()
         };
 
         if let Err(e) = drop() {

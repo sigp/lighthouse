@@ -2,7 +2,8 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    PayloadAttestationVote, test_spec,
 };
 use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
@@ -104,6 +105,121 @@ fn get_harness_generic(
         .build();
     harness.advance_slot();
     harness
+}
+
+// Regression test for incorrect parent_root calculation in Gloas block production.
+// Previously we had a bug where we were using a stale `state.block_roots` read to determine
+// `should_build_on_full`.
+#[tokio::test]
+async fn gloas_block_production_parent_root_with_unadvanced_state() {
+    // Post-Gloas test.
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    // Check the advanced-state control first, then the unadvanced-state regression.
+    for cache_advanced_state in [true, false] {
+        let db_path = tempdir().unwrap();
+        let store = get_store(&db_path, spec.clone());
+        let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness
+            .extend_chain(
+                2,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let parent_root = harness.head_block_root();
+        let parent_state = harness.get_current_state();
+        let parent_slot = parent_state.slot();
+        let slot = parent_slot + 1;
+        let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+        assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+
+        // The head's full branch has attestation weight, but negative PTC votes should make the
+        // next proposer build on empty. Looking up the grandparent (as the buggy code did) instead
+        // skips this check.
+        let (messages, _) = harness.make_payload_attestation_messages(
+            &parent_state,
+            parent_root,
+            parent_slot,
+            vec![PayloadAttestationVote {
+                validator_count: E::ptc_size(),
+                payload_present: false,
+                blob_data_available: false,
+            }],
+        );
+        harness
+            .import_payload_attestation_messages(messages)
+            .unwrap();
+        harness.set_current_slot(slot);
+        harness.chain.recompute_head_at_current_slot().await;
+        let head = harness.chain.canonical_head.cached_head();
+        assert_eq!(head.head_block_root(), parent_root);
+        assert_eq!(head.head_payload_status(), PayloadStatus::Full);
+
+        let (state_root, mut state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.slot(), parent_slot);
+        complete_state_advance(&mut state, Some(state_root), slot, None, &spec).unwrap();
+        let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
+        let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+        if cache_advanced_state {
+            // Model the state advance timer completing before the proposal request.
+            let state_root = state.update_tree_hash_cache().unwrap();
+            store.put_state(&state_root, &state).unwrap();
+        }
+        let (_, loaded_state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded_state.slot(),
+            if cache_advanced_state {
+                slot
+            } else {
+                parent_slot
+            }
+        );
+        drop(head);
+
+        // Pass no state to production: it must load the correct parent through the public API.
+        let (block, _, _, _, payload_contents, _) = harness
+            .chain
+            .produce_block_with_verification_gloas(
+                randao_reveal,
+                slot,
+                GraffitiSettings::Unspecified,
+                ProduceBlockVerification::VerifyRandao,
+                eth2::types::BuilderConfig::empty(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(block.parent_root(), parent_root);
+
+        // The block should build on the Empty variant of the parent due to the PTC vote for empty.
+        // Prior to fixing the bug, we would build on the full variant because we would look up
+        // the grandparent.
+        assert_eq!(
+            block
+                .body()
+                .signed_execution_payload_bid()
+                .unwrap()
+                .message
+                .parent_block_hash,
+            parent_bid.parent_block_hash,
+        );
+        let (envelope, _, _) = payload_contents.unwrap();
+        assert_eq!(envelope.parent_beacon_block_root, parent_root);
+        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash);
+    }
 }
 
 #[tokio::test]
@@ -398,6 +514,7 @@ async fn prepare_payload_generic(
         _consensus_block_value,
         _execution_payload_value,
         payload_contents,
+        _builder_url,
     ) = harness
         .chain
         .produce_block_with_verification_gloas(
@@ -405,7 +522,7 @@ async fn prepare_payload_generic(
             prepare_slot,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();
@@ -713,9 +830,10 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
     let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
     let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
 
-    let (parent_payload_status, parent_envelope) = {
+    let (parent_root, parent_payload_status, parent_envelope) = {
         let head = harness.chain.canonical_head.cached_head();
         (
+            head.head_block_root(),
             head.head_payload_status(),
             head.snapshot.execution_envelope.clone(),
         )
@@ -726,18 +844,19 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents, _builder_url) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
             None,
+            parent_root,
             parent_payload_status,
             parent_envelope,
             slot,
             randao_reveal,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();

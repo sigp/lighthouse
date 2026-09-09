@@ -1276,14 +1276,10 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            let parent_root = *state
+                .get_block_root(state.slot() - 1)
+                .expect("should get parent block root");
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-                let parent_root = if state.slot() > 0 {
-                    *state
-                        .get_block_root(state.slot() - 1)
-                        .expect("should get parent block root")
-                } else {
-                    state.latest_block_header().canonical_root()
-                };
                 self.chain
                     .store
                     .get_payload_envelope(&parent_root)
@@ -1299,18 +1295,20 @@ where
                 _consensus_block_value,
                 _execution_payload_value,
                 _payload_contents,
+                _builder_url,
             ) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_root,
                     parent_payload_status,
                     parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
-                    None,
+                    eth2::types::BuilderConfig::empty(),
                 )
                 .await
                 .unwrap();
