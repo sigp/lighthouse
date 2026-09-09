@@ -19,8 +19,6 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-pub type ReceivedBuilderPreferenceRequest = (ForkName, Vec<BuilderPreferenceEntry>);
-
 pub struct MockBeaconNode<E: EthSpec> {
     server: ServerGuard,
     pub beacon_api_client: BeaconNodeHttpClient,
@@ -29,7 +27,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
     pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
-    pub received_builder_preferences: Arc<Mutex<Vec<ReceivedBuilderPreferenceRequest>>>,
+    pub received_builder_preferences: Arc<Mutex<Vec<Vec<BuilderPreferenceEntry>>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -478,7 +476,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 received_builder_preferences
                     .lock()
                     .unwrap()
-                    .push((fork_name, entries.to_vec()));
+                    .push(entries.to_vec());
                 hook();
                 response_body.clone()
             })
@@ -511,7 +509,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 received_builder_preferences
                     .lock()
                     .unwrap()
-                    .push((fork_name, entries.to_vec()));
+                    .push(entries.to_vec());
                 response_body.clone()
             })
             .create()

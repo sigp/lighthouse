@@ -4,11 +4,11 @@ use beacon_node_fallback::BeaconNodeFallback;
 use bls::PublicKeyBytes;
 use builder_store::BuilderStore;
 use builder_types::{BuilderEntry, BuilderUrl, RequestAuthData};
+use eth2::Error as BeaconNodeError;
 use eth2::types::{
     BuilderPreferenceEntry, IndexedErrorMessage, MAX_SUBMITTED_BUILDER_PREFERENCES,
     SubmittedBuilderPreferences,
 };
-use eth2::{BeaconNodeHttpClient, Error as BeaconNodeError};
 use reqwest::{Response, StatusCode};
 use slot_clock::SlotClock;
 use std::collections::{BTreeMap, HashSet};
@@ -276,41 +276,50 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         let candidates = self.inner.beacon_nodes.candidates.read().await.clone();
 
         for candidate in candidates {
-            let current_slot = self.inner.slot_clock.now().unwrap_or(poll_slot);
-            pending_entries.retain(|entry| entry.auth.message.slot >= current_slot);
-            if pending_entries.is_empty() {
-                return;
-            }
-
-            let Ok(entries) = SubmittedBuilderPreferences::new(pending_entries.clone()) else {
-                // Unreachable: the caller bounds each chunk by the list limit, and retries only
-                // remove entries.
-                return;
-            };
             let beacon_node = candidate.beacon_node;
-            let mut result =
-                Self::post_builder_preferences_ssz(&beacon_node, &entries, fork_name).await;
-
-            if result
-                .as_ref()
-                .is_ok_and(|response| response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE)
-            {
+            let mut use_json = false;
+            let result = loop {
                 let current_slot = self.inner.slot_clock.now().unwrap_or(poll_slot);
                 pending_entries.retain(|entry| entry.auth.message.slot >= current_slot);
                 if pending_entries.is_empty() {
                     return;
                 }
                 let Ok(entries) = SubmittedBuilderPreferences::new(pending_entries.clone()) else {
-                    // Unreachable: retries only remove entries from the bounded chunk.
+                    // Unreachable: the caller bounds each chunk, and retries only remove entries.
                     return;
                 };
-                debug!(
-                    endpoint = %beacon_node,
-                    "Beacon node does not support SSZ builder preferences, falling back to JSON"
-                );
-                result =
-                    Self::post_builder_preferences_json(&beacon_node, &entries, fork_name).await;
-            }
+
+                inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
+                let result = if use_json {
+                    debug!(
+                        endpoint = %beacon_node,
+                        "Beacon node does not support SSZ builder preferences, falling back to JSON"
+                    );
+                    beacon_node
+                        .post_validator_builder_preferences(&entries, fork_name)
+                        .await
+                } else {
+                    beacon_node
+                        .post_validator_builder_preferences_ssz(&entries, fork_name)
+                        .await
+                };
+                if result
+                    .as_ref()
+                    .map_or(true, |response| !response.status().is_success())
+                {
+                    inc_counter_vec(&ENDPOINT_ERRORS, &[beacon_node.server().redacted()]);
+                }
+
+                if !use_json
+                    && result.as_ref().is_ok_and(|response| {
+                        response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+                    })
+                {
+                    use_json = true;
+                } else {
+                    break result;
+                }
+            };
 
             let status = result.as_ref().ok().map(Response::status);
             let result = match result {
@@ -364,42 +373,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
             %fork_name,
             "Failed to publish builder preferences"
         );
-    }
-
-    async fn post_builder_preferences_ssz(
-        beacon_node: &BeaconNodeHttpClient,
-        entries: &SubmittedBuilderPreferences,
-        fork_name: ForkName,
-    ) -> Result<Response, BeaconNodeError> {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
-        let result = beacon_node
-            .post_validator_builder_preferences_ssz(entries, fork_name)
-            .await;
-        if result
-            .as_ref()
-            .map_or(true, |response| !response.status().is_success())
-        {
-            inc_counter_vec(&ENDPOINT_ERRORS, &[beacon_node.server().redacted()]);
-        }
-        result
-    }
-
-    async fn post_builder_preferences_json(
-        beacon_node: &BeaconNodeHttpClient,
-        entries: &SubmittedBuilderPreferences,
-        fork_name: ForkName,
-    ) -> Result<Response, BeaconNodeError> {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
-        let result = beacon_node
-            .post_validator_builder_preferences(entries, fork_name)
-            .await;
-        if result
-            .as_ref()
-            .map_or(true, |response| !response.status().is_success())
-        {
-            inc_counter_vec(&ENDPOINT_ERRORS, &[beacon_node.server().redacted()]);
-        }
-        result
     }
 }
 
@@ -537,7 +510,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(_, entries)| {
+                .map(|entries| {
                     entries
                         .iter()
                         .map(|entry| entry.auth.message.slot)
