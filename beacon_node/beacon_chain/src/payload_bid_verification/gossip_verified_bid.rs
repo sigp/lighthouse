@@ -44,14 +44,26 @@ fn verify_bid_payment_and_blobs<E: EthSpec>(
         });
     }
 
+    verify_bid_block_hash_not_parent(bid)?;
+
+    verify_bid_blobs(bid, spec)
+}
+
+/// Reject a bid whose `block_hash` equals its `parent_block_hash`.
+///
+/// `process_execution_payload_bid` enforces this in `per_block_processing`, so every bid intake —
+/// gossip *and* direct (builder-API) — must front-run it: a bid that fails only at block
+/// processing has already won selection and costs the proposer the slot.
+pub(crate) fn verify_bid_block_hash_not_parent<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+) -> Result<(), PayloadBidError> {
     if bid.block_hash == bid.parent_block_hash {
         return Err(PayloadBidError::BlockHashEqualsParentBlockHash {
             slot: bid.slot,
             block_hash: bid.block_hash,
         });
     }
-
-    verify_bid_blobs(bid, spec)
+    Ok(())
 }
 
 fn verify_bid_blobs<E: EthSpec>(
@@ -71,12 +83,17 @@ fn verify_bid_blobs<E: EthSpec>(
     Ok(())
 }
 
-/// Verify that an execution payload bid is consistent with the current chain state
-/// and proposer preferences.
+/// Verify that a direct (builder-API) bid is consistent with the current chain state
+/// and proposer preferences: the direct path's bundle of the shared bid checks.
 ///
-/// These checks are shared by gossip and direct bids. Source-specific checks (e.g. the gossip-only
-/// requirement that `execution_payment == 0`) are applied by the caller.
-pub(crate) fn verify_bid_consistency<E: EthSpec>(
+/// The individual checks are shared with gossip, but this bundle's only caller is
+/// [`verify_direct_bid`](crate::payload_bid_verification::direct_verified_bid::verify_direct_bid):
+/// the gossip verifier applies the same helpers (`verify_bid_slot`, `verify_bid_blobs`,
+/// `verify_bid_block_hash_not_parent`, `verify_bid_state_conditions`) piecewise, in gossip-spec
+/// order, interleaved with gossip-only work (cache checks, the preferences lookup, fork-choice
+/// rules). A check that must cover both intakes belongs in one of those shared helpers — adding
+/// it only here leaves gossip uncovered.
+pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
     current_slot: Slot,
     proposer_preferences: &SignedProposerPreferences,
@@ -88,6 +105,11 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     if bid.fee_recipient != proposer_preferences.message.fee_recipient {
         return Err(PayloadBidError::InvalidFeeRecipient);
     }
+
+    // Mirrors the consensus assert in `process_execution_payload_bid`. The gossip path applies
+    // this earlier (via `verify_bid_payment_and_blobs`); repeating it here keeps the direct path
+    // covered without depending on the gossip caller's composition.
+    verify_bid_block_hash_not_parent(bid)?;
 
     verify_bid_blobs(bid, spec)?;
 
