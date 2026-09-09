@@ -96,14 +96,13 @@ impl KeyValueStore for MemoryStore {
 
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         self.check_fault()?;
-        if self.fault_armed.load(Ordering::SeqCst)
-            && batch.iter().any(|op| {
-                matches!(
-                    op,
-                    KeyValueStoreOp::PutKeyValue(DBColumn::BeaconBlock, _, _)
-                )
-            })
-        {
+        let writes_block = batch.iter().any(|op| {
+            matches!(
+                op,
+                KeyValueStoreOp::PutKeyValue(DBColumn::BeaconBlock, _, _)
+            )
+        });
+        if writes_block && self.fault_armed.load(Ordering::SeqCst) {
             self.fault_armed.store(false, Ordering::SeqCst);
             self.fault.store(true, Ordering::SeqCst);
             return self.check_fault();
