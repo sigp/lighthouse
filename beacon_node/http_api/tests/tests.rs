@@ -47,6 +47,7 @@ use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
 use std::convert::TryInto;
 use std::sync::Arc;
+use store::StoreOp;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
@@ -5120,6 +5121,29 @@ impl ApiTester {
             .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name, None)
             .await
             .unwrap();
+
+        // Simulate payload pruning after finalization. The HTTP API should reconstruct the full
+        // envelope from the retained summary and the payload body returned by the mock EL.
+        self.chain
+            .store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
+                block_root,
+            )])
+            .unwrap();
+        assert!(
+            self.chain
+                .store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            self.chain
+                .store
+                .get_envelope_payload(&block_root)
+                .unwrap()
+                .is_none()
+        );
 
         let json_envelope = self
             .client
