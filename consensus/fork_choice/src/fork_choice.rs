@@ -675,6 +675,7 @@ where
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 max_epochs_since_finalization,
+                *self.fc_store.finalized_checkpoint(),
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
@@ -695,6 +696,7 @@ where
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 max_epochs_since_finalization,
+                *self.fc_store.finalized_checkpoint(),
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
