@@ -186,7 +186,8 @@ pub enum InvalidAttestation {
     /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
-    /// The attestation is for the current or a future slot. Only returned in spec test mode.
+    /// The attestation is for the current or a future slot.
+    #[cfg(feature = "test-utils")]
     AttestationFromFutureSlot { attestation: Slot, current: Slot },
 }
 
@@ -381,10 +382,9 @@ pub struct ForkChoice<T, E> {
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
-    /// When `true`, `on_attestation` rejects an attestation from the current or a future slot
-    /// rather than queueing it, as the spec's `validate_on_attestation` assert does. Queueing
-    /// applies the vote on a later tick, which the spec store never counts. Always `false` in
-    /// production.
+    /// Rejects attestations from the current or a future slot instead of queueing them, as the
+    /// spec does.
+    #[cfg(feature = "test-utils")]
     spec_test_mode: bool,
     _phantom: PhantomData<E>,
 }
@@ -481,6 +481,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            #[cfg(feature = "test-utils")]
             spec_test_mode: false,
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
@@ -1374,6 +1375,7 @@ where
             // Attestations can only affect the fork choice of subsequent slots.
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
+            #[cfg(feature = "test-utils")]
             if self.spec_test_mode {
                 return Err(Error::InvalidAttestation(
                     InvalidAttestation::AttestationFromFutureSlot {
@@ -1852,7 +1854,8 @@ where
         &self.queued_attestations
     }
 
-    /// Enable spec test mode. See `spec_test_mode`. Never call this in production.
+    /// Reject current and future slot attestations when running abstract specification tests.
+    #[cfg(feature = "test-utils")]
     pub fn set_spec_test_mode(&mut self, enabled: bool) {
         self.spec_test_mode = enabled;
     }
@@ -1939,6 +1942,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            #[cfg(feature = "test-utils")]
             spec_test_mode: false,
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
