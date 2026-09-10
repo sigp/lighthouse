@@ -86,12 +86,12 @@ Options:
           both IPv4 and IPv6. Defaults to `port6`
       --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available. Enabled by default; set to "false" to disable.
-          [default: true]
+          both are available. Disabled by default; set to "true" to enable.
+          [default: false]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
-          of data sent over the network. Enabled by default on Hoodi and
-          Sepolia; set to "false" to opt out.
+          of data sent over the network. Enabled by default on Hoodi, Sepolia
+          and custom networks; set to "false" to opt out.
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -313,6 +313,10 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
+      --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
+          Server endpoint for an EIP-8025 proof engine used to verify execution
+          proofs. When present, the node subscribes to the execution_proof
+          gossip topic and propagates proofs that verify. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>

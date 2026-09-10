@@ -61,7 +61,8 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(heze): use `ForkName::latest()` once Heze block production is wired up.
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -586,7 +587,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .withdrawals()
         .to_vec();
-    complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
+    complete_state_advance(&mut state_b, None, slot_c, None, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
@@ -668,7 +669,14 @@ pub async fn proposer_boost_re_org_test(
     // advanced state.
     let expected_withdrawals = if should_re_org {
         let mut state_a_advanced = state_a.clone();
-        complete_state_advance(&mut state_a_advanced, None, slot_c, &harness.chain.spec).unwrap();
+        complete_state_advance(
+            &mut state_a_advanced,
+            None,
+            slot_c,
+            None,
+            &harness.chain.spec,
+        )
+        .unwrap();
         get_expected_withdrawals(&state_a_advanced, &harness.chain.spec)
     } else {
         get_expected_withdrawals(&state_b, &harness.chain.spec)
@@ -805,14 +813,33 @@ pub async fn fork_choice_before_proposal() {
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_d)
         .into();
-    let block_d = tester
-        .client
-        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
-        .await
-        .unwrap()
-        .into_data()
-        .deconstruct()
-        .0;
+    // Post-Gloas, block production is only supported via the v4 endpoint.
+    let block_d = if harness.spec.fork_name_at_slot::<E>(slot_d).gloas_enabled() {
+        tester
+            .client
+            .post_validator_blocks_v4::<E>(
+                slot_d,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
+            .await
+            .unwrap()
+            .0
+            .into_block()
+    } else {
+        tester
+            .client
+            .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
+            .await
+            .unwrap()
+            .into_data()
+            .deconstruct()
+            .0
+    };
 
     // Head is now B.
     assert_eq!(

@@ -2,13 +2,14 @@ use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
-use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::data::BlobsList;
+use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
-    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
+    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
+    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType, WithdrawalRequests,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -67,7 +68,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -100,20 +101,32 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub base_fee_per_gas: Uint256,
 
     pub block_hash: ExecutionBlockHash,
+    #[superstruct(
+        only(Bellatrix, Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "transactions_bounded")
+    )]
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "transactions_progressive"))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    #[superstruct(
+        only(Capella, Deneb, Electra, Fulu),
+        partial_getter(rename = "withdrawals_bounded")
+    )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Gloas))]
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")]
+    pub block_access_list: BlockAccessList,
+    #[superstruct(only(Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
 }
@@ -258,7 +271,35 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_to_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -288,6 +329,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Gloas(payload) => {
                 Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
             }
+            ExecutionPayload::Heze(payload) => Ok(JsonExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -433,7 +475,35 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: withdrawals_from_json(payload.withdrawals)?,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number.into(),
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadHeze<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadHeze {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -463,6 +533,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Gloas(payload) => {
                 Ok(ExecutionPayload::Gloas(payload.try_into()?))
             }
+            JsonExecutionPayload::Heze(payload) => Ok(ExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -624,18 +695,21 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
             parse_execution_requests::<E>(value)?;
+        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
+        // re-type the parsed bounded lists.
         Ok(ExecutionRequestsGloas {
-            deposits,
-            withdrawals,
-            consolidations,
-            builder_deposits,
-            builder_exits,
+            deposits: deposits.iter().cloned().collect(),
+            withdrawals: withdrawals.iter().cloned().collect(),
+            consolidations: consolidations.iter().cloned().collect(),
+            builder_deposits: builder_deposits.iter().cloned().collect(),
+            builder_exits: builder_exits.iter().cloned().collect(),
+            _phantom: std::marker::PhantomData,
         })
     }
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
@@ -661,13 +735,15 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub execution_payload: JsonExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: JsonExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: JsonExecutionPayloadHeze<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: JsonExecutionRequests,
 }
 
@@ -727,6 +803,19 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
+                    should_override_builder: response.should_override_builder,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests: {:?}", e)
+                    })?,
+                }))
+            }
+            JsonGetPayloadResponse::Heze(response) => {
+                Ok(GetPayloadResponse::Heze(GetPayloadResponseHeze {
                     execution_payload: response.execution_payload.try_into().map_err(|e| {
                         format!("Failed to convert json to execution payload: {:?}", e)
                     })?,
@@ -962,6 +1051,72 @@ pub struct BlobAndProof<E: EthSpec> {
 /// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
 pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
 
+/// CELLS_PER_EXT_BLOB per EIP-7594; the `custodyColumns` and `indices_bitarray`
+/// EIP-8070 parameters are 128-bit bitarrays (=16 bytes).
+pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
+
+/// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
+/// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
+/// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4`.
+///  The TryFrom impl safeguards against invalid input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CustodyColumnsBitArray(
+    #[serde(with = "serde_utils::fixed_bytes_hex::bytes_16_hex")]
+    [u8; CUSTODY_COLUMNS_BITARRAY_BYTES],
+);
+
+impl CustodyColumnsBitArray {
+    pub fn iter_set_bits(&self) -> impl Iterator<Item = ColumnIndex> + '_ {
+        (0..CUSTODY_COLUMNS_BITARRAY_BYTES * 8).filter_map(move |i| {
+            let byte = self.0[i / 8];
+            ((byte >> (i % 8)) & 1 == 1).then_some(i as ColumnIndex)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnIndexTooHighError(pub ColumnIndex);
+
+impl TryFrom<&[ColumnIndex]> for CustodyColumnsBitArray {
+    type Error = ColumnIndexTooHighError;
+
+    fn try_from(indices: &[ColumnIndex]) -> Result<Self, ColumnIndexTooHighError> {
+        let mut buf = [0u8; CUSTODY_COLUMNS_BITARRAY_BYTES];
+        for i in indices {
+            let byte_idx = *i as usize / 8;
+            let bit_idx = i % 8;
+            if byte_idx < CUSTODY_COLUMNS_BITARRAY_BYTES {
+                buf[byte_idx] |= 1u8 << bit_idx;
+            } else {
+                return Err(ColumnIndexTooHighError(*i));
+            }
+        }
+        Ok(Self(buf))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", transparent)]
+pub struct JsonCell<E: EthSpec>(
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")] pub Cell<E>,
+);
+
+/// `blob_cells` is the partial column matrix slice for one blob, indexed
+/// positionally over the bits set in the request's `indices_bitarray`
+/// (lowest set bit first). An entry is `null` when the EL doesn't have
+/// that cell. `proofs[i]` is the KZG cell proof for `blob_cells[i]` and
+/// is only meaningful when the matching cell is `Some`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlobCellsAndProofsV1<E: EthSpec> {
+    pub blob_cells: Vec<Option<JsonCell<E>>>,
+    pub proofs: Vec<Option<KzgProof>>,
+}
+
+pub type GetBlobsV4List<E> = Vec<Option<BlobCellsAndProofsV1<E>>>;
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
@@ -1119,11 +1274,51 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonBlockAccessList(
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")] pub BlockAccessList,
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2 {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
+    #[serde(default)]
+    pub block_access_list: Option<JsonBlockAccessList>,
+}
+
+impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
+    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(|list| list.0),
+        }
+    }
+}
+
+impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
+    fn from(value: ExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(JsonBlockAccessList),
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1224,6 +1419,13 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonInclusionListV1(
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub  ProgressiveTransactions,
+);
+
 #[cfg(test)]
 mod tests {
     use bls::{PublicKeyBytes, SignatureBytes};
@@ -1245,6 +1447,10 @@ mod tests {
 
     fn singleton_list<T: Clone, N: Unsigned>(x: &T) -> VariableList<T, N> {
         VariableList::try_from(vec![x.clone()]).unwrap()
+    }
+
+    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
+        ProgressiveVariableList::new(vec![x.clone()])
     }
 
     /// Tests all error conditions except ssz decoding errors
@@ -1465,11 +1671,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
-                withdrawals: singleton_list(&withdrawal_request),
-                consolidations: singleton_list(&consolidation_request),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                deposits: singleton_progressive_list(&deposit_request),
+                withdrawals: singleton_progressive_list(&withdrawal_request),
+                consolidations: singleton_progressive_list(&consolidation_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1480,11 +1687,12 @@ mod tests {
             ]))
             .unwrap(),
             ExecutionRequestsGloas {
-                deposits: singleton_list(&deposit_request),
+                deposits: singleton_progressive_list(&deposit_request),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1502,8 +1710,9 @@ mod tests {
                 deposits: Default::default(),
                 withdrawals: Default::default(),
                 consolidations: Default::default(),
-                builder_deposits: singleton_list(&builder_deposit_request),
-                builder_exits: singleton_list(&builder_exit_request),
+                builder_deposits: singleton_progressive_list(&builder_deposit_request),
+                builder_exits: singleton_progressive_list(&builder_exit_request),
+                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1547,5 +1756,48 @@ mod tests {
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));
+    }
+
+    #[test]
+    fn payload_body_block_access_list_round_trip() {
+        use serde_json::json;
+
+        // Present `blockAccessList` -> `Some`.
+        let with_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": "0x010203",
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(
+            internal.block_access_list,
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
+
+        // Explicit `null` -> `None`, retained as `null` on re-serialize.
+        let null_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": null,
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(internal.block_access_list, None);
+        assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
+
+        // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
+        let body: JsonExecutionPayloadBodyV2 =
+            serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
+        assert!(body.block_access_list.is_none());
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({
+                "transactions": [],
+                "withdrawals": null,
+                "blockAccessList": null,
+            })
+        );
     }
 }

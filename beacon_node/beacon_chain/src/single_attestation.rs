@@ -1,7 +1,9 @@
 use crate::attestation_verification::Error;
+use ssz::ProgressiveBitList;
 use ssz_types::{BitList, BitVector};
 use types::{
-    Attestation, AttestationBase, AttestationElectra, EthSpec, ForkName, SingleAttestation,
+    Attestation, AttestationBase, AttestationElectra, AttestationGloas, EthSpec, ForkName,
+    SingleAttestation,
 };
 
 pub fn single_attestation_to_attestation<E: EthSpec>(
@@ -28,7 +30,24 @@ pub fn single_attestation_to_attestation<E: EthSpec>(
             slot,
         })?;
 
-    if fork_name.electra_enabled() {
+    if fork_name.gloas_enabled() {
+        // [Modified in Gloas:EIP7688] Gloas attestations use a progressive aggregation bitfield.
+        let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+        committee_bits
+            .set(committee_index as usize, true)
+            .map_err(|e| Error::Invalid(e.into()))?;
+
+        let mut aggregation_bits = ProgressiveBitList::with_capacity(committee.len());
+        aggregation_bits
+            .set(aggregation_bit, true)
+            .map_err(|e| Error::Invalid(e.into()))?;
+        Ok(Attestation::Gloas(AttestationGloas {
+            aggregation_bits,
+            committee_bits,
+            data: single_attestation.data.clone(),
+            signature: single_attestation.signature.clone(),
+        }))
+    } else if fork_name.electra_enabled() {
         let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
         committee_bits
             .set(committee_index as usize, true)

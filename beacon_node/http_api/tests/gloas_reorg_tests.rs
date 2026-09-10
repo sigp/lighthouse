@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256, MinimalEthSpec,
     ProposerPreparationData, Slot,
 };
 
@@ -715,7 +715,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .withdrawals()
         .to_vec();
-    complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
+    complete_state_advance(&mut state_b, None, slot_c, None, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
@@ -727,11 +727,19 @@ pub async fn proposer_boost_re_org_test(
     let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
-            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot_c,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         (
-            Arc::new(harness.sign_beacon_block(response.data, &state_b)),
+            Arc::new(harness.sign_beacon_block(response.into_block(), &state_b)),
             None,
         )
     };
@@ -828,16 +836,12 @@ pub async fn proposer_boost_re_org_test(
     // by the path that produced the matching fcU.
     let parent_state_advanced = if should_re_org {
         let mut state = state_a.clone();
-        complete_state_advance(&mut state, None, slot_c, &harness.chain.spec).unwrap();
+        complete_state_advance(&mut state, None, slot_c, None, &harness.chain.spec).unwrap();
         state
     } else {
         state_b.clone()
     };
-    let expected_withdrawals = if matches!(
-        expected_first_update_lookahead,
-        ExpectedFirstUpdateLookahead::BlockProduction
-    ) && expected_parent_payload_status == PayloadStatus::Empty
-    {
+    let expected_withdrawals = if expected_parent_payload_status == PayloadStatus::Empty {
         parent_state_advanced
             .payload_expected_withdrawals()
             .unwrap()

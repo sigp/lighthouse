@@ -537,6 +537,16 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 )
             }
+            PubsubMessage::ExecutionProof(execution_proof) => {
+                trace!(%peer_id, "Received an execution proof");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_proof(
+                        message_id,
+                        peer_id,
+                        execution_proof,
+                    ),
+                )
+            }
             PubsubMessage::PayloadAttestation(payload_attestation_message) => {
                 trace!(%peer_id, "Received a payload attestation message");
                 self.handle_beacon_processor_send_result(

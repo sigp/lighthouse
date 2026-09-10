@@ -612,6 +612,35 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_hold_seconds",
+        "Time the fork-choice read lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_hold_seconds",
+        "Time the fork-choice write lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_hold_seconds",
+            "Time the fork-choice upgradable read lock was held before being released or upgraded.",
+            decimal_buckets(-4, 1),
+        )
+    });
+pub static FORK_CHOICE_UPGRADE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_upgrade_seconds",
+        "Time taken to upgrade the fork-choice upgradable read lock to a write lock.",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_encode_seconds",
@@ -666,6 +695,13 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
+pub static SLOT_ASSIGNMENTS_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_slot_assignments_errors_total",
+        "Count of slot assignments cache update errors by error category",
+        &["error"],
+    )
+});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
@@ -1857,6 +1893,38 @@ pub static BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS: LazyLock<Result<
         try_create_histogram(
             "beacon_engine_getBlobsV3_request_duration_seconds",
             "Duration of engine_getBlobsV3 requests to the execution layer in seconds",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_requests_total",
+            "Total number of engine_getBlobsV4 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_COMPLETE_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_complete_responses_total",
+            "Total number of engine_getBlobsV4 responses with all requested cells present",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_partial_responses_total",
+            "Total number of engine_getBlobsV4 responses with at least one missing cell",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV4_request_duration_seconds",
+            "Duration of engine_getBlobsV4 requests to the execution layer in seconds",
         )
     });
 

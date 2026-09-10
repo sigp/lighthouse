@@ -1,14 +1,14 @@
 use bls::{SecretKey, Signature};
-use context_deserialize::context_deserialize;
-use serde::{Deserialize, Serialize};
+use context_deserialize::{ContextDeserialize, context_deserialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::{
-        AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
-        Attestation, AttestationRef, SelectionProof,
+        AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofGloas,
+        AggregateAndProofRef, Attestation, AttestationRef, SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
@@ -19,7 +19,7 @@ use crate::{
 ///
 /// Spec v0.12.1
 #[superstruct(
-    variants(Base, Electra),
+    variants(Base, Electra, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -107,6 +107,9 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
                     signature,
                 })
             }
+            AggregateAndProof::Gloas(message) => {
+                SignedAggregateAndProof::Gloas(SignedAggregateAndProofGloas { message, signature })
+            }
         }
     }
 
@@ -122,5 +125,28 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         map_signed_aggregate_and_proof_into_attestation!(self, |inner, cons| {
             cons(inner.message.aggregate)
         })
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedAggregateAndProof<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // [Modified in Gloas:EIP7688] Electra and Gloas serialize identically in JSON, so the
+        // fork context must pick the variant.
+        if context.gloas_enabled() {
+            SignedAggregateAndProofGloas::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SignedAggregateAndProof::Gloas)
+        } else if context.electra_enabled() {
+            SignedAggregateAndProofElectra::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SignedAggregateAndProof::Electra)
+        } else {
+            SignedAggregateAndProofBase::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SignedAggregateAndProof::Base)
+        }
     }
 }

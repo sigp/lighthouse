@@ -131,12 +131,14 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         if state.fork_name_unchecked().gloas_enabled() {
+            let parent_slot = Some(state.latest_execution_payload_bid()?.slot);
             gloas::process_attestation(
                 state,
                 self.to_ref(),
                 0,
-                &mut ctxt,
                 VerifySignatures::True,
+                parent_slot,
+                &mut ctxt,
                 spec,
             )
         } else if state.fork_name_unchecked().altair_enabled() {
@@ -168,7 +170,9 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            Ok(Self::Gloas(ssz_decode_file(path)?))
+        } else if fork_name.electra_enabled() {
             Ok(Self::Electra(ssz_decode_file(path)?))
         } else {
             Ok(Self::Base(ssz_decode_file(path)?))

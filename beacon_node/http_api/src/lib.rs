@@ -12,6 +12,7 @@ mod beacon;
 mod block_id;
 mod build_block_contents;
 mod builder_states;
+mod builders;
 mod caches;
 mod custody;
 mod database;
@@ -67,7 +68,9 @@ use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
     ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
-use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use eth2::{
+    BUILDER_URL_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+};
 use health_metrics::observe::Observe;
 use lighthouse_network::Enr;
 use lighthouse_network::NetworkGlobals;
@@ -105,7 +108,7 @@ use types::{
 };
 use validator::execution_payload_envelopes::get_validator_execution_payload_envelopes;
 use version::{
-    ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, V4, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
     unsupported_version_rejection,
 };
@@ -288,14 +291,15 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         let status = info.status();
-        // Ensure elapsed time is in milliseconds.
-        let elapsed = info.elapsed().as_secs_f64() * 1000.0;
+        // Round to 3 decimal places (microsecond resolution) so the logged value doesn't carry
+        // binary floating-point noise (e.g. `5.601420999999999`).
+        let elapsed_ms = format!("{:.3}", info.elapsed().as_secs_f64() * 1000.0);
         let path = info.path();
         let method = info.method().to_string();
 
         if status.is_success() {
             debug!(
-                elapsed_ms = %elapsed,
+                elapsed_ms = %elapsed_ms,
                 status = %status,
                 path = %path,
                 method = %method,
@@ -303,7 +307,7 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
             );
         } else {
             warn!(
-                elapsed_ms = %elapsed,
+                elapsed_ms = %elapsed_ms,
                 status = %status,
                 path = %path,
                 method = %method,
@@ -382,6 +386,7 @@ pub async fn serve<T: BeaconChainTypes>(
 
     let eth_v1 = single_version(any_version.clone(), V1);
     let eth_v2 = single_version(any_version.clone(), V2);
+    let eth_v4 = single_version(any_version.clone(), V4);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -626,6 +631,9 @@ pub async fn serve<T: BeaconChainTypes>(
     let post_beacon_state_validators =
         states::post_beacon_state_validators(beacon_states_path.clone());
 
+    // POST beacon/states/{state_id}/builders
+    let post_beacon_state_builders = states::post_beacon_state_builders(beacon_states_path.clone());
+
     // GET beacon/states/{state_id}/validators/{validator_id}
     let get_beacon_state_validators_id =
         states::get_beacon_state_validators_id(beacon_states_path.clone());
@@ -814,6 +822,9 @@ pub async fn serve<T: BeaconChainTypes>(
      */
     let consensus_version_header_filter =
         warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER).boxed();
+    // The winning builder's URL echoed by the VC on a Gloas block publish (beacon-APIs #630), so the
+    // node forwards the block to that builder. Optional: absent for self-build / p2p-won blocks.
+    let builder_url_header_filter = warp::header::optional::<String>(BUILDER_URL_HEADER).boxed();
 
     let optional_consensus_version_header_filter =
         warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER).boxed();
@@ -850,6 +861,8 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
+                        None,
                     )
                     .await
                 })
@@ -887,6 +900,8 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
+                        None,
                     )
                     .await
                 })
@@ -904,13 +919,15 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -927,6 +944,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        builder_url,
                     )
                     .await
                 })
@@ -944,13 +962,15 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -966,6 +986,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        builder_url,
                     )
                     .await
                 })
@@ -1537,6 +1558,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_envelopes (SSZ)
@@ -1545,6 +1567,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        not_while_syncing_filter.clone(),
     );
 
     // POST beacon/execution_payload_bids
@@ -2563,6 +2586,14 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // POST v4/validator/blocks/{slot}
+    let post_validator_blocks_v4 = post_validator_blocks_v4(
+        eth_v4.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
         eth_v1.clone(),
@@ -2672,6 +2703,12 @@ pub async fn serve<T: BeaconChainTypes>(
 
     // POST validator/register_validator
     let post_validator_register_validator = post_validator_register_validator(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+    // POST validator/builder_preferences
+    let post_validator_builder_preferences = post_validator_builder_preferences(
         eth_v1.clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
@@ -3200,6 +3237,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
+                                api_types::EventTopic::HeadV2 => event_handler.subscribe_head_v2(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()
@@ -3227,9 +3265,6 @@ pub async fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::PayloadAttributes => {
                                     event_handler.subscribe_payload_attributes()
-                                }
-                                api_types::EventTopic::LateHead => {
-                                    event_handler.subscribe_late_head()
                                 }
                                 api_types::EventTopic::LightClientFinalityUpdate => {
                                     event_handler.subscribe_light_client_finality_update()
@@ -3477,6 +3512,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_execution_payload_envelopes)
                     .uor(post_beacon_execution_payload_bids)
                     .uor(post_beacon_state_validators)
+                    .uor(post_beacon_state_builders)
                     .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_state_validator_identities)
                     .uor(post_beacon_rewards_attestations)
@@ -3490,6 +3526,8 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_sync_committee_subscriptions)
                     .uor(post_validator_prepare_beacon_proposer)
                     .uor(post_validator_register_validator)
+                    .uor(post_validator_builder_preferences)
+                    .uor(post_validator_blocks_v4)
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)

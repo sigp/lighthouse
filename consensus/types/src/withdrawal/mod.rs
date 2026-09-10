@@ -6,7 +6,7 @@ mod withdrawal_request;
 
 pub use expected_withdrawals::{
     ExpectedWithdrawals, ExpectedWithdrawalsCapella, ExpectedWithdrawalsElectra,
-    ExpectedWithdrawalsGloas,
+    ExpectedWithdrawalsGloas, ExpectedWithdrawalsHeze,
 };
 pub use pending_partial_withdrawal::PendingPartialWithdrawal;
 pub use withdrawal::{Withdrawal, Withdrawals};

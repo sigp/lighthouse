@@ -91,7 +91,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let builder_bid = match fork_name {
-            ForkName::Altair | ForkName::Base | ForkName::Gloas => {
+            ForkName::Altair | ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "unsupported fork for ExecutionPayloadHeader: {fork_name}",
                 )));
@@ -158,7 +158,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Base | ForkName::Altair | ForkName::Gloas => {
+            ForkName::Base | ForkName::Altair | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",
                     context

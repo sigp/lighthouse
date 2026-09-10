@@ -714,6 +714,91 @@ async fn test_rewards_electra() {
     assert_eq!(expected_balances, balances);
 }
 
+/// Checks that the computed block reward matches the proposer's actual balance change when the
+/// block includes attestations from a skipped slot that vote for an available payload
+/// (`data.index == 1`).
+#[tokio::test]
+async fn test_rewards_gloas_non_same_slot_attestations() {
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let harness = get_harness(spec.clone());
+
+    harness.extend_slots(2).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_root = head.beacon_block_root;
+    let head_slot = head.beacon_block.slot();
+
+    // Skip a slot and attest to the head. These attestations are not same-slot, and the
+    // head's payload is available, so `data.index == 1`.
+    harness.advance_slot();
+    let attestation_slot = head_slot + 1;
+    let attestations = harness.make_attestations(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        head_root.into(),
+        attestation_slot,
+    );
+    assert!(
+        attestations
+            .iter()
+            .flat_map(|(unaggregated, _)| unaggregated.iter())
+            .all(|(attestation, _)| attestation.data().index == 1),
+        "attestations for the skipped slot should vote for an available payload"
+    );
+    harness.process_attestations(attestations, &head.beacon_state);
+
+    // Produce the next block, which includes those attestations.
+    harness.advance_slot();
+    let block_slot = head_slot + 2;
+    let ((signed_block, _), mut pre_state) = harness
+        .make_block_return_pre_state(harness.get_current_state(), block_slot)
+        .await;
+    assert!(
+        signed_block
+            .message()
+            .body()
+            .attestations()
+            .any(|attestation| attestation.data().index == 1),
+        "the block should include attestations with data.index == 1"
+    );
+
+    let proposer_index = signed_block.message().proposer_index();
+    let balance_before = *pre_state.balances().get(proposer_index as usize).unwrap();
+
+    let block_reward = harness
+        .chain
+        .compute_beacon_block_reward(signed_block.message(), &mut pre_state)
+        .unwrap();
+    let proposer_sync_reward: i64 = harness
+        .chain
+        .compute_sync_committee_rewards(signed_block.message(), &mut pre_state)
+        .unwrap()
+        .iter()
+        .filter(|reward| reward.validator_index == proposer_index)
+        .map(|reward| reward.reward)
+        .sum();
+
+    harness
+        .process_block(
+            block_slot,
+            signed_block.canonical_root(),
+            (signed_block.clone(), None),
+        )
+        .await
+        .unwrap();
+
+    let balance_after = *harness
+        .get_current_state()
+        .balances()
+        .get(proposer_index as usize)
+        .unwrap();
+    assert_eq!(
+        balance_after as i64 - balance_before as i64,
+        block_reward.total as i64 + proposer_sync_reward
+    );
+}
+
 #[tokio::test]
 async fn test_rewards_base_subset_only() {
     let spec = ForkName::Base.make_genesis_spec(E::default_spec());

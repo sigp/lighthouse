@@ -26,14 +26,14 @@ pub fn all_benches(c: &mut Criterion) {
         let mut target_state = source_state.clone();
         // Change all balances
         for i in 0..n {
-            let balance = target_state.balances_mut().get_mut(i).unwrap();
+            let balance = target_state.balances_mut().into_get_mut(i).unwrap();
             *balance += rng.random_range(1..=1_000_000);
         }
         // And some validator records
         for _ in 0..validator_mutations {
             let index = rng.random_range(1..n);
             // TODO: Only change a few things, and not the pubkey
-            *target_state.validators_mut().get_mut(index).unwrap() = rand_validator(&mut rng);
+            *target_state.validators_mut().into_get_mut(index).unwrap() = rand_validator(&mut rng);
         }
         for _ in 0..validator_additions {
             append_validator(&mut target_state, &mut rng);
@@ -99,7 +99,7 @@ fn append_validator(state: &mut BeaconState<E>, mut rng: impl Rng) {
         .balances_mut()
         .push(32_000_000_000 + rng.random_range(1..=1_000_000_000))
         .unwrap();
-    if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+    if let Ok(mut inactivity_scores) = state.inactivity_scores_mut() {
         inactivity_scores.push(0).unwrap();
     }
     state

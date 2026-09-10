@@ -7,27 +7,30 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{error, trace};
+use types::PartialDataColumnSidecarError;
 use types::core::{EthSpec, Hash256};
 use types::data::{
-    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
-    PartialDataColumnSidecar, PartialDataColumnSidecarRef,
+    CellBitmap, PartialDataColumnFulu, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    PartialDataColumnSidecar, PartialDataColumnViewFulu,
 };
+use types::{PartialDataColumnGloas, PartialDataColumnGroupId, PartialDataColumnRef};
 
-const PARTIAL_COLUMNS_VERSION_BYTE: u8 = 0;
+pub(crate) const PARTIAL_COLUMNS_VERSION_BYTE_FULU: u8 = 0;
+pub(crate) const PARTIAL_COLUMNS_VERSION_BYTE_GLOAS: u8 = 1;
 
 pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;
 
 #[derive(Debug, Clone)]
-pub struct OutgoingPartialColumn<E: EthSpec> {
-    partial_column: Arc<PartialDataColumn<E>>,
+pub struct OutgoingPartialColumnFulu<E: EthSpec> {
+    partial_column: Arc<PartialDataColumnFulu<E>>,
     metadata: MaybeKnownMetadata<E>,
     header_message: Vec<u8>,
     header_sent_set: HeaderSentSet,
 }
 
-impl<E: EthSpec> OutgoingPartialColumn<E> {
+impl<E: EthSpec> OutgoingPartialColumnFulu<E> {
     pub fn new(
-        partial_column: Arc<PartialDataColumn<E>>,
+        partial_column: Arc<PartialDataColumnFulu<E>>,
         header: &PartialDataColumnHeader<E>,
         header_sent_set: HeaderSentSet,
         requests: CellBitmap<E>,
@@ -59,7 +62,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         }
         .into();
 
-        let header_message = PartialDataColumnSidecarRef {
+        let header_message = PartialDataColumnViewFulu {
             cells_present_bitmap: partial_column.sidecar.cells_present_bitmap.clone_zeroed(),
             column: vec![],
             kzg_proofs: vec![],
@@ -67,7 +70,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         }
         .as_ssz_bytes();
 
-        OutgoingPartialColumn {
+        OutgoingPartialColumnFulu {
             partial_column,
             metadata,
             header_message,
@@ -145,8 +148,8 @@ impl<E: EthSpec> Metadata for MaybeKnownMetadata<E> {
             .map_err(|_| PartialError::InvalidFormat)?;
 
         self.do_update(PartialDataColumnPartsMetadata {
-            available: sidecar.cells_present_bitmap.clone(),
-            requests: sidecar.cells_present_bitmap,
+            available: sidecar.cells_present_bitmap().clone(),
+            requests: sidecar.cells_present_bitmap().clone(),
         })
         .map(|_| ())
     }
@@ -161,10 +164,10 @@ impl<E: EthSpec> From<PartialDataColumnPartsMetadata<E>> for MaybeKnownMetadata<
     }
 }
 
-impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
+impl<E: EthSpec> Partial for OutgoingPartialColumnFulu<E> {
     fn group_id(&self) -> Vec<u8> {
         let mut group_id = Vec::with_capacity(Hash256::len_bytes() + 1);
-        group_id.push(PARTIAL_COLUMNS_VERSION_BYTE);
+        group_id.push(PARTIAL_COLUMNS_VERSION_BYTE_FULU);
         group_id.extend_from_slice(self.partial_column.block_root.as_slice());
         group_id
     }
@@ -204,64 +207,137 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
             Some(metadata) => {
                 // The peer is apparently aware of the header, make sure we track that:
                 self.header_sent_set.lock().insert(peer_id);
+                action_from_present_metadata(peer_id, metadata, self.partial_column.as_ref().into())
+            }
+        }
+    }
+}
 
-                let peer_metadata = PartialDataColumnPartsMetadata::<E>::from_ssz_bytes(metadata)
-                    .map_err(|_| PartialError::InvalidFormat)?;
-                let expected_len = self.partial_column.sidecar.cells_present_bitmap.len();
-                if peer_metadata.available.len() != expected_len
-                    || peer_metadata.requests.len() != expected_len
-                {
-                    return Err(PartialError::InvalidFormat);
-                }
+fn action_from_present_metadata<E: EthSpec>(
+    peer_id: PeerId,
+    metadata: &[u8],
+    partial_column: PartialDataColumnRef<E>,
+) -> Result<PartialAction, PartialError> {
+    let peer_metadata = PartialDataColumnPartsMetadata::<E>::from_ssz_bytes(metadata)
+        .map_err(|_| PartialError::InvalidFormat)?;
+    let expected_len = partial_column.sidecar().cells_present_bitmap().len();
+    if peer_metadata.available.len() != expected_len || peer_metadata.requests.len() != expected_len
+    {
+        return Err(PartialError::InvalidFormat);
+    }
 
-                let need = !peer_metadata
-                    .available
-                    .is_subset(&self.partial_column.sidecar.cells_present_bitmap);
-                let want = peer_metadata.requests.difference(&peer_metadata.available);
+    let need = !peer_metadata
+        .available
+        .is_subset(partial_column.sidecar().cells_present_bitmap());
+    let want = peer_metadata.requests.difference(&peer_metadata.available);
 
-                let send = self
-                    .partial_column
-                    .sidecar
-                    .filter(|idx| want.get(idx).unwrap_or(false))
-                    .map_err(|err| {
-                        error!(?err, "Unexpected error filtering sidecar");
-                        PartialError::InvalidFormat
-                    })?
-                    .map(|sidecar| {
-                        trace!(
-                            peer=%peer_id,
-                            group_id=%self.partial_column.block_root,
-                            column_index=self.partial_column.index,
-                            metadata=%peer_metadata,
-                            sending=%sidecar.cells_present_bitmap,
-                            "Partial send: Sending"
-                        );
-                        (
-                            sidecar.as_ssz_bytes(),
-                            Box::new(MaybeKnownMetadata::<E>::from(
-                                PartialDataColumnPartsMetadata {
-                                    available: peer_metadata
-                                        .available
-                                        .union(&sidecar.cells_present_bitmap),
-                                    requests: peer_metadata
-                                        .requests
-                                        .union(&sidecar.cells_present_bitmap),
-                                },
-                            )) as Box<dyn Metadata + 'static>,
-                        )
-                    });
+    let filtered = match partial_column
+        .sidecar()
+        .try_filter::<_, PartialDataColumnSidecarError>(|idx, _, _| {
+            Ok(want.get(idx).unwrap_or(false))
+        }) {
+        Ok(filtered) => filtered,
+        Err(err) => {
+            error!(?err, "Unexpected error filtering sidecar");
+            return Err(PartialError::InvalidFormat);
+        }
+    };
 
-                if send.is_none() {
-                    trace!(
-                        peer=%peer_id,
-                        group_id=%self.partial_column.block_root,
-                        column_index=self.partial_column.index,
-                        metadata=%peer_metadata,
-                        "Partial send: Nothing to send"
-                    );
-                }
+    let send = if let Some(sidecar) = filtered {
+        trace!(
+            peer=%peer_id,
+            group_id=%partial_column.block_root(),
+            column_index=partial_column.index(),
+            metadata=%peer_metadata,
+            sending=%sidecar.cells_present_bitmap(),
+            "Partial send: Sending"
+        );
+        Some((
+            sidecar.as_ssz_bytes(),
+            Box::new(MaybeKnownMetadata::<E>::from(
+                PartialDataColumnPartsMetadata {
+                    available: peer_metadata
+                        .available
+                        .union(sidecar.cells_present_bitmap()),
+                    requests: peer_metadata.requests.union(sidecar.cells_present_bitmap()),
+                },
+            )) as Box<dyn Metadata + 'static>,
+        ))
+    } else {
+        trace!(
+            peer=%peer_id,
+            group_id=%partial_column.block_root(),
+            column_index=partial_column.index(),
+            metadata=%peer_metadata,
+            "Partial send: Nothing to send"
+        );
+        None
+    };
 
-                Ok(PartialAction { need, send })
+    Ok(PartialAction { need, send })
+}
+
+#[derive(Debug, Clone)]
+pub struct OutgoingPartialColumnGloas<E: EthSpec> {
+    partial_column: Arc<PartialDataColumnGloas<E>>,
+    group_id: Vec<u8>,
+    metadata: MaybeKnownMetadata<E>,
+}
+
+impl<E: EthSpec> OutgoingPartialColumnGloas<E> {
+    pub fn new(partial_column: Arc<PartialDataColumnGloas<E>>, requests: CellBitmap<E>) -> Self {
+        // For consistency, we always set the request bit for available cells. The spec allows both,
+        // but it is nicer to ensure that a bit once set does not disappear in future messages.
+        // `requests` is always derived from this column's `cells_present_bitmap`, so the two share
+        // the same length here (`union` itself takes the max of the two lengths and does not
+        // validate equality).
+        let requests = requests.union(&partial_column.sidecar.cells_present_bitmap);
+        let metadata = PartialDataColumnPartsMetadata::<E> {
+            available: partial_column.sidecar.cells_present_bitmap.clone(),
+            requests,
+        }
+        .into();
+
+        let group_id = PartialDataColumnGroupId {
+            slot: partial_column.slot,
+            beacon_block_root: partial_column.block_root,
+        };
+        let mut encoded_group_id = Vec::with_capacity(group_id.ssz_bytes_len() + 1);
+        encoded_group_id.push(PARTIAL_COLUMNS_VERSION_BYTE_GLOAS);
+        group_id.ssz_append(&mut encoded_group_id);
+
+        OutgoingPartialColumnGloas {
+            partial_column,
+            group_id: encoded_group_id,
+            metadata,
+        }
+    }
+}
+
+impl<E: EthSpec> Partial for OutgoingPartialColumnGloas<E> {
+    fn group_id(&self) -> Vec<u8> {
+        self.group_id.clone()
+    }
+
+    fn metadata(&self) -> Box<dyn Metadata> {
+        Box::new(self.metadata.clone())
+    }
+
+    fn partial_action_from_metadata(
+        &self,
+        peer_id: PeerId,
+        metadata: Option<&[u8]>,
+    ) -> Result<PartialAction, PartialError> {
+        match metadata {
+            // A Gloas group has no header to push, so a peer with no metadata gets nothing
+            // here. It bootstraps itself from the request-all placeholders that
+            // `publish_partial_data_columns` sends.
+            None | Some([]) => Ok(PartialAction {
+                need: false,
+                send: None,
+            }),
+            Some(metadata) => {
+                action_from_present_metadata(peer_id, metadata, self.partial_column.as_ref().into())
             }
         }
     }
@@ -278,6 +354,8 @@ mod tests {
     use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
     use types::core::{MinimalEthSpec, Slot};
     use types::data::PartialDataColumnHeader;
+    use types::data::PartialDataColumnSidecarFulu;
+    use types::data::PartialDataColumnSidecarGloas;
 
     type E = MinimalEthSpec;
 
@@ -313,16 +391,16 @@ mod tests {
         block_root: Hash256,
         total_blobs: usize,
         present_indices: &[usize],
-    ) -> Arc<PartialDataColumn<E>> {
+    ) -> Arc<PartialDataColumnFulu<E>> {
         let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
         for &idx in present_indices {
             bitmap.set(idx, true).unwrap();
         }
 
-        Arc::new(PartialDataColumn {
+        Arc::new(PartialDataColumnFulu {
             block_root,
             index: 0,
-            sidecar: PartialDataColumnSidecar {
+            sidecar: PartialDataColumnSidecarFulu {
                 cells_present_bitmap: bitmap,
                 column: present_indices
                     .iter()
@@ -342,11 +420,38 @@ mod tests {
     }
 
     fn make_all_one_bitmap(len: usize) -> CellBitmap<E> {
-        let mut request_cells = CellBitmap::<E>::with_capacity(len).unwrap();
-        for idx in 0..request_cells.len() {
-            request_cells.set(idx, true).unwrap();
+        CellBitmap::<E>::with_capacity(len).unwrap().not()
+    }
+
+    fn make_partial_column_gloas(
+        block_root: Hash256,
+        slot: Slot,
+        total_blobs: usize,
+        present_indices: &[usize],
+    ) -> Arc<PartialDataColumnGloas<E>> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &idx in present_indices {
+            bitmap.set(idx, true).unwrap();
         }
-        request_cells
+
+        Arc::new(PartialDataColumnGloas {
+            block_root,
+            slot,
+            index: 0,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: bitmap,
+                column: present_indices
+                    .iter()
+                    .map(|&idx| make_cell(idx as u8))
+                    .collect::<Vec<_>>()
+                    .into(),
+                kzg_proofs: present_indices
+                    .iter()
+                    .map(|_| types::KzgProof::empty())
+                    .collect::<Vec<_>>()
+                    .into(),
+            },
+        })
     }
 
     fn random_peer_id() -> PeerId {
@@ -441,7 +546,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // -- OutgoingPartialColumn::partial_action_from_metadata tests --
+    // -- OutgoingPartialColumnFulu::partial_action_from_metadata tests --
 
     #[test]
     fn no_metadata_sends_header_once() {
@@ -450,7 +555,7 @@ mod tests {
         let partial = make_partial_column(root, 4, &[0, 1]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
         let requests = make_all_one_bitmap(4);
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
+        let outgoing = OutgoingPartialColumnFulu::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -471,7 +576,7 @@ mod tests {
         let partial = make_partial_column(root, 4, &[0, 2, 3]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
         let requests = make_all_one_bitmap(4);
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
+        let outgoing = OutgoingPartialColumnFulu::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -504,7 +609,7 @@ mod tests {
         let partial = make_partial_column(root, 4, &[0]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
         let requests = make_all_one_bitmap(4);
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
+        let outgoing = OutgoingPartialColumnFulu::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -523,5 +628,27 @@ mod tests {
             .partial_action_from_metadata(peer, Some(&encoded))
             .unwrap();
         assert!(action.need);
+    }
+
+    // -- OutgoingPartialColumnGloas::partial_action_from_metadata tests --
+
+    #[test]
+    fn gloas_no_metadata_does_not_send() {
+        let root = Hash256::repeat_byte(2);
+        let partial = make_partial_column_gloas(root, Slot::new(7), 4, &[0, 1]);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumnGloas::new(partial, requests);
+
+        let peer = random_peer_id();
+
+        let action = outgoing.partial_action_from_metadata(peer, None).unwrap();
+        assert!(!action.need);
+        assert!(action.send.is_none());
+
+        let action_empty = outgoing
+            .partial_action_from_metadata(peer, Some(&[]))
+            .unwrap();
+        assert!(!action_empty.need);
+        assert!(action_empty.send.is_none());
     }
 }

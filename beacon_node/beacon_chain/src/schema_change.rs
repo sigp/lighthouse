@@ -1,8 +1,10 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v29;
+mod migration_schema_v30;
 
 use crate::beacon_chain::BeaconChainTypes;
 use migration_schema_v29::{downgrade_from_v29, upgrade_to_v29};
+use migration_schema_v30::{downgrade_from_v30, upgrade_to_v30};
 use std::sync::Arc;
 use store::Error as StoreError;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
@@ -28,6 +30,16 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Downgrade from v29 to v28.
         (SchemaVersion(29), SchemaVersion(28)) => {
             let ops = downgrade_from_v29::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // Upgrade from v29 to v30.
+        (SchemaVersion(29), SchemaVersion(30)) => {
+            let ops = upgrade_to_v30::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // Downgrade from v30 to v29.
+        (SchemaVersion(30), SchemaVersion(29)) => {
+            let ops = downgrade_from_v30::<T>(&db)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

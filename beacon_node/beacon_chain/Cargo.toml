@@ -24,6 +24,7 @@ alloy-primitives = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
+builder_client = { workspace = true }
 educe = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
@@ -51,6 +52,7 @@ once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+proof_engine = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }

@@ -1,6 +1,7 @@
 use crate::EpochCacheError;
 use crate::common::{
-    attesting_indices_base, attesting_indices_electra, get_indexed_payload_attestation,
+    attesting_indices_base, attesting_indices_electra, attesting_indices_gloas,
+    get_indexed_payload_attestation,
 };
 use crate::per_block_processing::errors::{
     AttestationInvalid, BlockOperationError, PayloadAttestationInvalid,
@@ -178,6 +179,14 @@ impl<E: EthSpec> ConsensusContext<E> {
                 Entry::Vacant(vacant) => {
                     let indexed_attestation =
                         attesting_indices_electra::get_indexed_attestation_from_state(state, attn)?;
+                    Ok(vacant.insert(indexed_attestation))
+                }
+            },
+            AttestationRef::Gloas(attn) => match self.indexed_attestations.entry(key) {
+                Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                Entry::Vacant(vacant) => {
+                    let indexed_attestation =
+                        attesting_indices_gloas::get_indexed_attestation_from_state(state, attn)?;
                     Ok(vacant.insert(indexed_attestation))
                 }
             },

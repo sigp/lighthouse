@@ -30,7 +30,8 @@ pub use verify_attestation::{
 };
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
-    get_existing_validator_index, is_valid_deposit_signature, verify_deposit_merkle_proof,
+    get_existing_validator_index, is_valid_deposit_signature, is_valid_deposit_signature_batch,
+    verify_deposit_merkle_proof,
 };
 pub use verify_exit::verify_exit;
 pub use withdrawals::get_expected_withdrawals;
@@ -185,6 +186,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
+    let mut parent_slot = None;
     // The call to the `process_execution_payload` must happen before the call to the
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
@@ -193,6 +195,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             let signed_bid = block.body().signed_execution_payload_bid()?;
+            parent_slot = Some(state.latest_execution_payload_bid()?.slot);
             process_execution_payload_bid(state, signed_bid, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
@@ -208,7 +211,14 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), verify_signatures, ctxt, spec)?;
+    process_operations(
+        state,
+        block.body(),
+        verify_signatures,
+        parent_slot,
+        ctxt,
+        spec,
+    )?;
 
     if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
@@ -599,6 +609,8 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_slot = parent_bid.slot;
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
+    verify_execution_request_list_lengths(requests)?;
+
     // Process execution requests from the parent's payload
     process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
     process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
@@ -641,6 +653,42 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     // Update latest_block_hash to the parent bid's block_hash
     *state.latest_block_hash_mut()? = parent_bid.block_hash;
 
+    Ok(())
+}
+
+/// Deposit requests are deliberately unbounded (see the `deposit_requests_greater_than_electra_max`
+/// spec test).
+pub fn verify_execution_request_list_lengths<E: EthSpec>(
+    requests: &ExecutionRequestsGloas<E>,
+) -> Result<(), BlockProcessingError> {
+    let checks = [
+        (
+            "withdrawal_requests",
+            requests.withdrawals.len(),
+            E::MaxWithdrawalRequestsPerPayload::to_usize(),
+        ),
+        (
+            "consolidation_requests",
+            requests.consolidations.len(),
+            E::MaxConsolidationRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::MaxBuilderDepositRequestsPerPayload::to_usize(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::MaxBuilderExitRequestsPerPayload::to_usize(),
+        ),
+    ];
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
+    }
     Ok(())
 }
 
@@ -768,6 +816,15 @@ pub fn process_execution_payload_bid<E: EthSpec>(
         ExecutionPayloadBidInvalid::ParentBlockHashMismatch {
             state_block_hash: *latest_block_hash,
             bid_parent_hash: bid.parent_block_hash,
+        }
+        .into()
+    );
+
+    // Verify that the bid's block hash differs from its parent block hash
+    block_verify!(
+        bid.block_hash != bid.parent_block_hash,
+        ExecutionPayloadBidInvalid::BlockHashEqualsParentBlockHash {
+            block_hash: bid.block_hash,
         }
         .into()
     );

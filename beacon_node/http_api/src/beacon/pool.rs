@@ -12,6 +12,8 @@ use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::payload_attestation_verification::Error as PayloadAttestationError;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
+use eth2::CONSENSUS_VERSION_HEADER;
 use eth2::types::{AttestationPoolQuery, EndpointVersion, Failure, GenericResponse};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -347,10 +349,13 @@ pub fn get_beacon_pool_attester_slashings<T: BeaconChainTypes>(
                     let slashings = slashings
                         .into_iter()
                         .filter(|slashing| {
-                            (fork_name.electra_enabled()
-                                && matches!(slashing, AttesterSlashing::Electra(_)))
-                                || (!fork_name.electra_enabled()
-                                    && matches!(slashing, AttesterSlashing::Base(_)))
+                            if fork_name.gloas_enabled() {
+                                matches!(slashing, AttesterSlashing::Gloas(_))
+                            } else if fork_name.electra_enabled() {
+                                matches!(slashing, AttesterSlashing::Electra(_))
+                            } else {
+                                matches!(slashing, AttesterSlashing::Base(_))
+                            }
                         })
                         .collect::<Vec<_>>();
 
@@ -381,17 +386,42 @@ pub fn post_beacon_pool_attester_slashings<T: BeaconChainTypes>(
         .and(warp::path("attester_slashings"))
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(network_tx_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
+            // The header (or, failing that, the fork at the current wall-clock slot) decides which
+            // slashing variant to deserialize: from Gloas onwards (EIP-7688) the variants are
+            // structurally identical in JSON but merkleize differently, so untagged deserialization
+            // cannot distinguish them.
             |_endpoint_version: EndpointVersion,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             slashing: AttesterSlashing<T::EthSpec>,
+             slashing_json: serde_json::Value,
+             consensus_version: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    let fork_name = match consensus_version {
+                        Some(fork_name) => fork_name,
+                        None => chain
+                            .slot_clock
+                            .now()
+                            .map(|slot| chain.spec.fork_name_at_slot::<T::EthSpec>(slot))
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "unable to read slot clock".to_string(),
+                                )
+                            })?,
+                    };
+                    let slashing = AttesterSlashing::<T::EthSpec>::context_deserialize(
+                        &slashing_json,
+                        fork_name,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "invalid attester slashing: {e:?}"
+                        ))
+                    })?;
                     let outcome = chain
                         .verify_attester_slashing_for_gossip(slashing.clone())
                         .map_err(|e| {
@@ -472,9 +502,13 @@ pub fn get_beacon_pool_attestations<T: BeaconChainTypes>(
                     let attestations = attestations
                         .into_iter()
                         .filter(|att| {
-                            (fork_name.electra_enabled() && matches!(att, Attestation::Electra(_)))
-                                || (!fork_name.electra_enabled()
-                                    && matches!(att, Attestation::Base(_)))
+                            if fork_name.gloas_enabled() {
+                                matches!(att, Attestation::Gloas(_))
+                            } else if fork_name.electra_enabled() {
+                                matches!(att, Attestation::Electra(_))
+                            } else {
+                                matches!(att, Attestation::Base(_))
+                            }
                         })
                         .collect::<Vec<_>>();
 

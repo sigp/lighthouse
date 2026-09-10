@@ -58,6 +58,8 @@ pub struct ExecutionBlockHeader {
     pub excess_blob_gas: Option<u64>,
     pub parent_beacon_block_root: Option<Hash256>,
     pub requests_root: Option<Hash256>,
+    pub block_access_list_hash: Option<Hash256>,
+    pub slot_number: Option<u64>,
 }
 
 impl ExecutionBlockHeader {
@@ -71,6 +73,8 @@ impl ExecutionBlockHeader {
         rlp_excess_blob_gas: Option<u64>,
         rlp_parent_beacon_block_root: Option<Hash256>,
         rlp_requests_root: Option<Hash256>,
+        rlp_block_access_list_hash: Option<Hash256>,
+        slot_number: Option<u64>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -96,6 +100,8 @@ impl ExecutionBlockHeader {
             excess_blob_gas: rlp_excess_blob_gas,
             parent_beacon_block_root: rlp_parent_beacon_block_root,
             requests_root: rlp_requests_root,
+            block_access_list_hash: rlp_block_access_list_hash,
+            slot_number,
         }
     }
 }
@@ -124,6 +130,8 @@ pub struct EncodableExecutionBlockHeader<'a> {
     pub excess_blob_gas: Option<u64>,
     pub parent_beacon_block_root: Option<&'a [u8]>,
     pub requests_root: Option<&'a [u8]>,
+    pub block_access_list_hash: Option<&'a [u8]>,
+    pub slot_number: Option<u64>,
 }
 
 impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
@@ -150,6 +158,8 @@ impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
             excess_blob_gas: header.excess_blob_gas,
             parent_beacon_block_root: None,
             requests_root: None,
+            block_access_list_hash: None,
+            slot_number: header.slot_number,
         };
         if let Some(withdrawals_root) = &header.withdrawals_root {
             encodable.withdrawals_root = Some(withdrawals_root.as_slice());
@@ -159,6 +169,9 @@ impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
         }
         if let Some(requests_root) = &header.requests_root {
             encodable.requests_root = Some(requests_root.as_slice())
+        }
+        if let Some(block_access_list_hash) = &header.block_access_list_hash {
+            encodable.block_access_list_hash = Some(block_access_list_hash.as_slice())
         }
         encodable
     }

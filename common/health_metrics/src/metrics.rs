@@ -9,28 +9,10 @@ pub static PROCESS_NUM_THREADS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
         "Number of threads used by the current process",
     )
 });
-pub static PROCESS_RES_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "process_resident_memory_bytes",
-        "Resident memory used by the current process",
-    )
-});
-pub static PROCESS_VIRT_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "process_virtual_memory_bytes",
-        "Virtual memory used by the current process",
-    )
-});
 pub static PROCESS_SHR_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "process_shared_memory_bytes",
         "Shared memory used by the current process",
-    )
-});
-pub static PROCESS_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "process_cpu_seconds_total",
-        "Total cpu time taken by the current process",
     )
 });
 pub static SYSTEM_VIRT_MEM_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
@@ -128,14 +110,15 @@ pub fn scrape_health_metrics() {
 }
 
 pub fn scrape_process_health_metrics() {
+    // Exports `process_cpu_seconds_total`, `process_resident_memory_bytes`,
+    // `process_virtual_memory_bytes` and friends with the correct metric types.
+    register_process_collector();
+
     // This will silently fail if we are unable to observe the health. This is desired behaviour
     // since we don't support `Health` for all platforms.
     if let Ok(health) = ProcessHealth::observe() {
         set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads);
-        set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
-        set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&PROCESS_SHR_MEM, health.pid_mem_shared_memory_size as i64);
-        set_gauge(&PROCESS_SECONDS, health.pid_process_seconds_total as i64);
     }
 }
 
@@ -186,5 +169,21 @@ pub fn scrape_system_health_metrics() {
             &NETWORK_BYTES_SENT,
             health.network_node_bytes_total_transmit as i64,
         );
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_cpu_seconds_total_is_a_counter() {
+        scrape_process_health_metrics();
+
+        let metric = gather()
+            .into_iter()
+            .find(|metric| metric.get_name() == "process_cpu_seconds_total")
+            .expect("process_cpu_seconds_total should be registered");
+        assert_eq!(metric.get_field_type(), MetricType::COUNTER);
     }
 }

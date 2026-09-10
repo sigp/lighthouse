@@ -223,6 +223,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.new_current_lookup(block_root, None, None, peer_source, &PeerType::Block, cx)
     }
 
+    /// Search the payload envelope of a known block. `peer_source` peers claim the payload for
+    /// `bid_block_hash` has been imported (e.g. via an `index == 1` attestation), so they can
+    /// serve this block's payload envelope and data columns.
+    ///
+    /// Returns true if the lookup is created or already exists
+    #[must_use = "only reference the new lookup if returns true"]
+    pub fn search_payload_envelope(
+        &mut self,
+        block_root: Hash256,
+        bid_block_hash: ExecutionBlockHash,
+        peer_source: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
+    ) -> bool {
+        self.new_current_lookup(
+            block_root,
+            None,
+            None,
+            peer_source,
+            &PeerType::PayloadEnvelope(bid_block_hash),
+            cx,
+        )
+    }
+
     /// A block or blob triggers the search of a parent.
     /// Check if this new lookup extends a bad chain:
     /// - Extending `child_block_root_trigger` would exceed the max depth

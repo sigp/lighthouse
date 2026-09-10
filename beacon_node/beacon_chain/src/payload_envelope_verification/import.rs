@@ -242,15 +242,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = fork_choice_reader.upgrade();
 
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice
             .on_valid_payload_envelope_received(block_root)
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
-
-        // TODO(gloas) emit SSE event if the payload became the new head payload
 
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
@@ -301,6 +299,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+
+        self.observed_execution_payloads.insert(
+            signed_envelope.message.payload.block_hash,
+            signed_envelope.message.payload.gas_limit,
+        );
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.

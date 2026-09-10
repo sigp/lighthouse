@@ -41,7 +41,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
     *post.consolidation_balance_to_consume_mut()? = post.get_consolidation_churn_limit(spec)?;
 
     // Add validators that are not yet active to pending balance deposits
-    let validators = post.validators().clone();
+    let validators = post.validators();
     let pre_activation = validators
         .iter()
         .enumerate()
@@ -54,14 +54,14 @@ pub fn upgrade_to_electra<E: EthSpec>(
     for index in pre_activation {
         let balance = post
             .balances_mut()
-            .get_mut(index)
+            .into_get_mut(index)
             .ok_or(Error::UnknownValidator(index))?;
         let balance_copy = *balance;
         *balance = 0_u64;
 
         let validator = post
             .validators_mut()
-            .get_mut(index)
+            .into_get_mut(index)
             .ok_or(Error::UnknownValidator(index))?;
         validator.effective_balance = 0;
         validator.activation_eligibility_epoch = spec.far_future_epoch;
@@ -80,7 +80,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
     }
 
     // Ensure early adopters of compounding credentials go through the activation churn
-    let validators = post.validators().clone();
+    let validators = post.validators().to_owned_list();
     for (index, validator) in validators.iter().enumerate() {
         if validator.has_compounding_withdrawal_credential(spec) {
             post.queue_excess_active_balance(index, spec)?;

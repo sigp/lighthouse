@@ -40,18 +40,18 @@
 mod balance_source;
 pub mod metrics;
 pub mod optimizations;
-mod slot_assignments;
 
 pub use balance_source::{BalanceSourceData, BalanceSourceKey};
 pub use optimizations::CheckpointAndBalance;
 use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
-use slot_assignments::{SlotAssignments, WindowEpoch, attestation_shuffling_id};
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
-use types::{BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, Slot, SlotAssignments,
+};
 
 #[derive(Debug, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -72,8 +72,7 @@ pub enum Error {
     BlockRootsOutOfBounds(String),
     SlashingsOutOfBounds(String),
     IndexOutOfBounds(usize),
-    AttestationShufflingIdError(BeaconStateError),
-    CommitteeCacheError(BeaconStateError),
+    SlotAssignmentsError(BeaconStateError),
     ArithError(ArithError),
 }
 
@@ -86,11 +85,11 @@ impl From<ArithError> for Error {
 /// Rich outcome of `is_one_confirmed` to track metrics in case of `BelowThreshold`..
 enum Confirmation {
     Confirmed,
-    NotConfirmed(Unconfirmed),
+    NotConfirmed(NotConfirmedReason),
 }
 
 /// Why a block failed `is_one_confirmed`.
-enum Unconfirmed {
+enum NotConfirmedReason {
     /// The block's execution status is optimistic or invalid.
     Optimistic,
     /// Attestation support did not exceed the safety threshold.
@@ -162,21 +161,17 @@ impl FastConfirmationRule {
     /// Maximum valid value for `byzantine_threshold` (25%).
     const MAX_BYZANTINE_THRESHOLD: u64 = 25;
 
-    /// Initialize FCR from the finalized checkpoint, its checkpoint state and the head state,
-    /// building the balance sources and committee assignments up front (each tagged with its own
-    /// `BalanceSourceKey` derived from the state). The spec seeds both observed-justified
-    /// checkpoints with the finalized checkpoint, so both balance sources come from
-    /// `checkpoint_state` (spec: `store.checkpoint_states[finalized_checkpoint]`); the
-    /// head-derived caches come from `head_state`, whose block root is `head_root`.
-    /// `byzantine_threshold` is clamped to [0, 25].
+    /// Initialize FCR from the finalized checkpoint, seeding both observed-justified balance
+    /// sources from `checkpoint_state` as the spec does. `byzantine_threshold` is clamped
+    /// to [0, 25].
     pub fn new<E: EthSpec>(
         head_root: Hash256,
         head_state: &BeaconState<E>,
+        slot_assignments: SlotAssignments,
         finalized_checkpoint: Checkpoint,
         checkpoint_state: &BeaconState<E>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
-        spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let byzantine_threshold = byzantine_threshold.min(Self::MAX_BYZANTINE_THRESHOLD);
         // Sanity: the supplied state must be the checkpoint's state, advanced to the
@@ -201,7 +196,7 @@ impl FastConfirmationRule {
             current_slot_head: finalized_checkpoint.root,
             byzantine_threshold,
             proposer_score_boost,
-            slot_assignments: SlotAssignments::new(head_state, spec, None)?,
+            slot_assignments,
             head_balance_source: BalanceSourceData::new(head_state, head_root)?,
             last_update_slot: None,
             spec_test_mode: false,
@@ -240,8 +235,8 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
         head_state: &BeaconState<E>,
+        slot_assignments: &SlotAssignments,
         checkpoint_state: Option<&BeaconState<E>>,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
 
@@ -250,8 +245,8 @@ impl FastConfirmationRule {
             unrealized_justified_checkpoint,
             current_slot,
             head_state,
+            slot_assignments,
             checkpoint_state,
-            spec,
         )?;
 
         if !self.spec_test_mode {
@@ -312,22 +307,12 @@ impl FastConfirmationRule {
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
         head_state: &BeaconState<E>,
+        slot_assignments: &SlotAssignments,
         checkpoint_state: Option<&BeaconState<E>>,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
-        // Rebuild the head-derived caches when the head changes (including within a slot, e.g. a
-        // late block or reorg). Each cache is rebuilt from scratch, independently, when its own
-        // key is stale.
-        let head_current_epoch_shuffling_id =
-            attestation_shuffling_id(head_state, WindowEpoch::Current)?;
-
-        if *self.slot_assignments.key() != head_current_epoch_shuffling_id {
-            let _span = debug_span!("fcr_rebuild_assignments").entered();
-            self.slot_assignments =
-                SlotAssignments::new(head_state, spec, Some(&self.slot_assignments))?;
-        }
+        self.slot_assignments = slot_assignments.clone();
 
         let head_balance_key = BalanceSourceKey::compute(head_state, head_root)?;
         if self.head_balance_source.key != head_balance_key {
@@ -399,8 +384,8 @@ impl FastConfirmationRule {
 
         let confirmed_block_epoch_result = get_block_epoch::<E>(confirmed_root, proto_array);
 
-        // Revert to finalized block if either of the following is true:
-        let should_revert_to_finalized_reason = if confirmed_block_epoch_result
+        // Fall back to the finalized block if either of the following is true:
+        let should_fall_back_reason = if confirmed_block_epoch_result
             .as_ref()
             .map_or(true, |block_epoch| {
                 block_epoch.saturating_add(1u64) < current_epoch
@@ -432,16 +417,22 @@ impl FastConfirmationRule {
         } else {
             None
         };
-        if let Some(reason) = should_revert_to_finalized_reason {
-            debug!(
-                prev_confirmed = %confirmed_root,
-                finalized = %finalized_checkpoint.root,
-                slot = %current_slot,
-                reason = reason,
-                "FCR reverted to finalized"
-            );
+        if let Some(reason) = should_fall_back_reason {
+            // Report only a fallback that moves the confirmed root. FCR starts out at the
+            // finalized block, so `epoch_too_old` matches on every run until it first confirms
+            // something, and again whenever it falls back here.
+            if confirmed_root != finalized_checkpoint.root {
+                debug!(
+                    prev_confirmed = %confirmed_root,
+                    finalized = %finalized_checkpoint.root,
+                    slot = %current_slot,
+                    reason = reason,
+                    "FCR fell back to finalized"
+                );
+                metrics::inc_counter(&metrics::FAST_CONFIRMATION_FALLBACKS);
+                metrics::inc_counter_vec(&metrics::FAST_CONFIRMATION_FALLBACK_REASONS, &[reason]);
+            }
             confirmed_root = finalized_checkpoint.root;
-            metrics::inc_counter_vec(&metrics::FCR_REVERT_TO_FINALIZED, &[reason]);
         }
 
         // Restart the confirmation chain if each of the following conditions are true:
@@ -473,7 +464,7 @@ impl FastConfirmationRule {
                 "FCR restarted from observed justified"
             );
             confirmed_root = self.current_epoch_observed_justified.checkpoint().root;
-            metrics::inc_counter(&metrics::FCR_RESTART_FROM_JUSTIFIED);
+            metrics::inc_counter(&metrics::FAST_CONFIRMATION_RESTARTS);
         }
 
         // Attempt to further advance the latest confirmed block
@@ -659,7 +650,7 @@ impl FastConfirmationRule {
                 prev = %latest_confirmed_root,
                 "FCR advanced"
             );
-            metrics::inc_counter(&metrics::FCR_ADVANCE);
+            metrics::inc_counter(&metrics::FAST_CONFIRMATION_ADVANCES);
         }
         Ok(confirmed_root)
     }
@@ -670,7 +661,7 @@ impl FastConfirmationRule {
     /// precomputes scores once and uses `is_one_confirmed_with_score`.
     ///
     /// `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
-    /// isn't, with `reason` naming which check failed (surfaced as the revert metric label).
+    /// isn't, with `reason` naming which check failed (surfaced as the fallback metric label).
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
@@ -729,7 +720,7 @@ impl FastConfirmationRule {
         )?;
 
         for root in &chain_roots {
-            if let Confirmation::NotConfirmed(unconfirmed) = self.is_one_confirmed::<E>(
+            if let Confirmation::NotConfirmed(reason) = self.is_one_confirmed::<E>(
                 self.get_previous_balance_source(),
                 *root,
                 &attestation_scores,
@@ -738,22 +729,22 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                // `root` is not confirmed; surface why for the revert metric.
-                match unconfirmed {
-                    Unconfirmed::BelowThreshold {
+                // `root` is not confirmed; surface why for the fallback metric.
+                match reason {
+                    NotConfirmedReason::BelowThreshold {
                         support,
                         safety_threshold,
                     } => {
                         if safety_threshold > 0 {
                             metrics::observe(
-                                &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                                &metrics::FAST_CONFIRMATION_FALLBACK_SUPPORT_RATIO,
                                 support as f64 / safety_threshold as f64,
                             );
                         }
-                        return Ok(Some("unconfirmed_below_threshold"));
+                        return Ok(Some("below_safety_threshold"));
                     }
-                    Unconfirmed::Optimistic => {
-                        return Ok(Some("unconfirmed_optimistic"));
+                    NotConfirmedReason::Optimistic => {
+                        return Ok(Some("optimistic_or_invalid"));
                     }
                 }
             }
@@ -789,7 +780,8 @@ impl FastConfirmationRule {
             if balance > 0
                 && self
                     .slot_assignments
-                    .is_in_range(val_idx, start_slot, end_slot)?
+                    .is_in_range(val_idx, start_slot, end_slot)
+                    .map_err(Error::SlotAssignmentsError)?
                 && vote.current_root() == block_root
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
@@ -999,7 +991,8 @@ impl FastConfirmationRule {
             let idx = idx as usize;
             if self
                 .slot_assignments
-                .is_in_range(idx, start_slot, end_slot)?
+                .is_in_range(idx, start_slot, end_slot)
+                .map_err(Error::SlotAssignmentsError)?
             {
                 score = score.safe_add(balance_source.balance(idx))?;
             }
@@ -1182,7 +1175,7 @@ impl FastConfirmationRule {
     ) -> Result<Confirmation, Error> {
         // Spec MUST: not confirmed if the block's execution status is not VALID.
         if is_optimistic_or_invalid(block_root, proto_array)? {
-            return Ok(Confirmation::NotConfirmed(Unconfirmed::Optimistic));
+            return Ok(Confirmation::NotConfirmed(NotConfirmedReason::Optimistic));
         }
         let support = get_attestation_score(block_root, attestation_scores)?;
         let safety_threshold = self.compute_safety_threshold::<E>(
@@ -1196,10 +1189,12 @@ impl FastConfirmationRule {
         if support > safety_threshold {
             Ok(Confirmation::Confirmed)
         } else {
-            Ok(Confirmation::NotConfirmed(Unconfirmed::BelowThreshold {
-                support,
-                safety_threshold,
-            }))
+            Ok(Confirmation::NotConfirmed(
+                NotConfirmedReason::BelowThreshold {
+                    support,
+                    safety_threshold,
+                },
+            ))
         }
     }
 }
@@ -1551,7 +1546,7 @@ mod tests {
     /// of the unrealized-checkpoints bug fixed in sigp/lighthouse#9471).
     #[test]
     fn head_balance_source_rebuilt_after_intra_epoch_slashing() {
-        use state_processing::per_slot_processing;
+        use state_processing::{GloasVerificationContext, per_slot_processing};
         use types::MinimalEthSpec;
         type E = MinimalEthSpec;
 
@@ -1582,7 +1577,13 @@ mod tests {
         // rebuild the source regardless, masking the bug.
         let mid_epoch_slot = Slot::new(E::slots_per_epoch() + 4);
         while state.slot() < mid_epoch_slot {
-            per_slot_processing(&mut state, None, &spec).expect("should advance slot");
+            per_slot_processing(
+                &mut state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &spec,
+            )
+            .expect("should advance slot");
         }
         state
             .build_all_committee_caches(&spec)
@@ -1593,9 +1594,17 @@ mod tests {
             root: Hash256::repeat_byte(1),
         };
         let head_root_a = Hash256::repeat_byte(2);
-        let mut fcr =
-            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40, &spec)
-                .expect("fcr initialization");
+        let slot_assignments = SlotAssignments::new(&state, &spec, None).expect("slot assignments");
+        let mut fcr = FastConfirmationRule::new::<E>(
+            head_root_a,
+            &state,
+            slot_assignments.clone(),
+            checkpoint,
+            &state,
+            25,
+            40,
+        )
+        .expect("fcr initialization");
 
         assert!(matches!(
             fcr.head_balance_source.key,
@@ -1618,8 +1627,8 @@ mod tests {
             &checkpoint,
             state.slot(),
             &state,
+            &slot_assignments,
             None,
-            &spec,
         )
         .expect("update variables");
 
@@ -1640,8 +1649,8 @@ mod tests {
             &checkpoint,
             state.slot(),
             &state,
+            &slot_assignments,
             None,
-            &spec,
         )
         .expect("update variables");
         assert_eq!(

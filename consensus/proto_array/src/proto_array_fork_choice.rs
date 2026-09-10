@@ -114,6 +114,7 @@ pub enum ExecutionStatus {
 
 /// Represents the status of an execution payload post-Gloas.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
@@ -950,12 +951,34 @@ impl ProtoArrayForkChoice {
 
     pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
         let block = self.get_proto_node(block_root)?;
+        Some(self.proto_node_to_block(block))
+    }
+
+    /// Returns the blocks of the direct children of the block with `block_root`.
+    ///
+    /// Returns an empty vec if the block is unknown or has no children.
+    pub fn get_children(&self, block_root: &Hash256) -> Vec<Block> {
+        self.proto_array
+            .indices
+            .get(block_root)
+            .and_then(|&index| self.proto_array.children.get(index))
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|&child_index| self.proto_array.nodes.get(child_index))
+                    .map(|child| self.proto_node_to_block(child))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn proto_node_to_block(&self, block: &ProtoNode) -> Block {
         let parent_root = block
             .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root());
 
-        Some(Block {
+        Block {
             slot: block.slot(),
             root: block.root(),
             parent_root,
@@ -974,7 +997,7 @@ impl ProtoArrayForkChoice {
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
             payload_received: block.payload_received().unwrap_or(false),
-        })
+        }
     }
 
     /// Called by the proposer to decide whether to build on the full or empty
@@ -1086,6 +1109,12 @@ impl ProtoArrayForkChoice {
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(ancestor_root, descendant_root)
+    }
+
+    /// See `ProtoArray` documentation.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        self.proto_array
+            .common_ancestor_slot(block_root, other_root)
     }
 
     /// See `ProtoArray` documentation.

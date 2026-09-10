@@ -79,6 +79,10 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
                 verify!(data.index == 0, Invalid::BadCommitteeIndex);
             }
         }
+        AttestationRef::Gloas(_) => {
+            // [Modified in Gloas:EIP7732] `index < 2` indicates the payload status being attested.
+            verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
+        }
     }
 
     // Verify the Casper FFG vote.
