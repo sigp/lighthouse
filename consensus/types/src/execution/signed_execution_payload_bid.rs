@@ -37,6 +37,10 @@ impl<E: EthSpec> SignedExecutionPayloadBid<E> {
             signature: Signature::empty(),
         }
     }
+
+    pub fn num_blobs_expected(&self) -> usize {
+        self.message.blob_kzg_commitments.len()
+    }
 }
 
 #[cfg(test)]

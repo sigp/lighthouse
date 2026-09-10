@@ -1,0 +1,22 @@
+[package]
+name = "fast_confirmation"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+metrics = { workspace = true }
+proto_array = { workspace = true }
+safe_arith = { workspace = true }
+strum = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+ethereum_hashing = { workspace = true }
+fixed_bytes = { workspace = true }
+state_processing = { workspace = true }
+
+[[bench]]
+name = "fcr_bench"
+harness = false

@@ -81,10 +81,14 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::IntoWithIndex;
+use state_processing::per_block_processing::{
+    process_operations::verify_operation_list_lengths, verify_execution_request_list_lengths,
+};
 use state_processing::{
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
+    GloasVerificationContext, SlotProcessingError, VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
+    builder_deposits_cache::OnboardBuildersCache,
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
 };
@@ -97,11 +101,10 @@ use store::{Error as DBError, KeyValueStore};
 use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
-use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -622,6 +625,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// signature in the block is invalid, an `Err` is returned (it is not possible to known _which_
 /// signature was invalid).
 ///
+/// Also performs kzg verification on columns if they exist.
 /// ## Errors
 ///
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
@@ -649,36 +653,27 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &mut parent.pre_state,
         parent.beacon_state_root,
         highest_slot,
+        chain.builder_onboarding_cache.as_deref(),
         &chain.spec,
     )?;
 
-    let mut available_blocks = Vec::with_capacity(chain_segment.len());
-    let mut envelopes = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
-
-        let (available_block, envelope) = block.into_available_block()?;
-        available_blocks.push(available_block.clone());
-        envelopes.push(envelope);
+        // This gets columns from the block for pre-gloas and from the envelope for
+        // post gloas.
+        if let Some(columns) = block.data_columns() {
+            verify_columns_against_block(&chain.kzg, block.as_block(), &columns)?;
+        }
+        let (available_block, _envelope) = block.into_available_block()?;
         signature_verified_blocks.push(SignatureVerifiedBlock {
             block: MaybeAvailableBlock::Available(available_block),
             block_root,
             parent: None,
             consensus_context,
         });
-    }
-
-    chain
-        .data_availability_checker
-        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
-
-    for (available_block, maybe_envelope) in available_blocks.iter().zip(envelopes.iter()) {
-        if let Some(envelope) = maybe_envelope {
-            verify_columns_against_block(&chain.kzg, available_block.block(), &envelope.columns)?;
-        }
     }
 
     // verify signatures
@@ -903,6 +898,23 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                     max_blobs_at_epoch,
                     block: blob_kzg_commitments_len,
                 });
+            }
+        }
+
+        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
+            verify_operation_list_lengths(block.message().body())
+                .map_err(BlockError::PerBlockProcessingError)?;
+            verify_execution_request_list_lengths(parent_execution_requests)
+                .map_err(BlockError::PerBlockProcessingError)?;
+            let deposits_len = block.message().body().deposits().len();
+            if deposits_len > 0 {
+                return Err(BlockError::PerBlockProcessingError(
+                    BlockProcessingError::OperationListTooLong {
+                        kind: "deposits",
+                        length: deposits_len,
+                        max: 0,
+                    },
+                ));
             }
         }
 
@@ -1149,6 +1161,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1220,6 +1233,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1246,8 +1260,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                         AvailableBlock::new(
                             block,
                             AvailableBlockData::NoData,
-                            &chain.data_availability_checker,
-                            chain.spec.clone(),
+                            &chain.custody_context,
                         )
                         .map_err(BlockError::AvailabilityCheck)?,
                     )
@@ -1577,7 +1590,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state_root
             };
 
-            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
+            if let Some(summary) = per_slot_processing(
+                &mut state,
+                Some(state_root),
+                GloasVerificationContext::from_cache(chain.builder_onboarding_cache.as_deref()),
+                &chain.spec,
+            )? {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(
@@ -1922,7 +1940,7 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
 /// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
-    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
+    fork_choice_read_lock: &BeaconForkChoice<T>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
     match fork_choice_read_lock.get_parent_import_status(&block) {
@@ -2110,6 +2128,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     block_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<Cow<'a, BeaconState<E>>, Err> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
@@ -2129,8 +2148,14 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 
         // Advance the state into the same epoch as the block. Use the "partial" method since state
         // roots are not important for proposer/attester shuffling.
-        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(BeaconChainError::from)?;
+        partial_state_advance(
+            &mut state,
+            state_root_opt,
+            target_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)?;
 
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;

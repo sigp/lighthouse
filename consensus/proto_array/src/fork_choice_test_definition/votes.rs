@@ -2,648 +2,622 @@ use super::*;
 
 pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     let mut balances = vec![1; 2];
-    let mut ops = vec![];
-
-    // Ensure that the head starts at the finalized block.
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+    let mut ops = vec![
+        // Ensure that the head starts at the finalized block.
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(0),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Add a block with a hash of 2.
+        //
+        //          0
+        //         /
+        //        2
+        Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(2),
+            parent_root: get_root(0),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(0),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add a block with a hash of 2.
-    //
-    //          0
-    //         /
-    //        2
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(1),
-        root: get_root(2),
-        parent_root: get_root(0),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Ensure that the head is 2
+        //
+        //          0
+        //         /
+        // head-> 2
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Ensure that the head is 2
-    //
-    //          0
-    //         /
-    // head-> 2
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
-    // to the previous block).
-    //
-    //          0
-    //         / \
-    //        2   1
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(1),
-        root: get_root(1),
-        parent_root: get_root(0),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Ensure that the head is still 2
-    //
-    //          0
-    //         / \
-    // head-> 2   1
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add a vote to block 1
-    //
-    //          0
-    //         / \
-    //        2   1 <- +vote
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 0,
-        block_root: get_root(1),
-        attestation_slot: Slot::new(2),
-    });
-
-    // Ensure that the head is now 1, because 1 has a vote.
-    //
-    //          0
-    //         / \
-    //        2   1 <- head
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(1),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add a vote to block 2
-    //
-    //           0
-    //          / \
-    // +vote-> 2   1
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 1,
-        block_root: get_root(2),
-        attestation_slot: Slot::new(2),
-    });
-
-    // Ensure that the head is 2 since 1 and 2 both have a vote
-    //
-    //          0
-    //         / \
-    // head-> 2   1
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add block 3.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(2),
-        root: get_root(3),
-        parent_root: get_root(1),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Ensure that the head is still 2
-    //
-    //          0
-    //         / \
-    // head-> 2   1
-    //            |
-    //            3
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Move validator #0 vote from 1 to 3
-    //
-    //          0
-    //         / \
-    //        2   1 <- -vote
-    //            |
-    //            3 <- +vote
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 0,
-        block_root: get_root(3),
-        attestation_slot: Slot::new(3),
-    });
-
-    // Ensure that the head is still 2
-    //
-    //          0
-    //         / \
-    // head-> 2   1
-    //            |
-    //            3
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Move validator #1 vote from 2 to 1 (this is an equivocation, but fork choice doesn't
-    // care)
-    //
-    //           0
-    //          / \
-    // -vote-> 2   1 <- +vote
-    //             |
-    //             3
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 1,
-        block_root: get_root(1),
-        attestation_slot: Slot::new(3),
-    });
-
-    // Ensure that the head is now 3
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3 <- head
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(3),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add block 4.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(3),
-        root: get_root(4),
-        parent_root: get_root(3),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Ensure that the head is now 4
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4 <- head
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
-        },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(4),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add block 5, which has a justified epoch of 2.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           /
-    //          5 <- justified epoch = 2
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(4),
-        root: get_root(5),
-        parent_root: get_root(4),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
+        // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
+        // to the previous block).
+        //
+        //          0
+        //         / \
+        //        2   1
+        Operation::ProcessBlock {
+            slot: Slot::new(1),
             root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(1),
+        // Ensure that the head is still 2
+        //
+        //          0
+        //         / \
+        // head-> 2   1
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Block 5 has incompatible finalized checkpoint, so `get_filtered_block_tree`
-    // excludes the entire 1->3->4->5 branch (no viable leaf). Head moves to 2.
-    //
-    //          0
-    //         / \
-    // head-> 2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           /
-    //          5 <- incompatible finalized checkpoint
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Add a vote to block 1
+        //
+        //          0
+        //         / \
+        //        2   1 <- +vote
+        Operation::ProcessAttestation {
+            validator_index: 0,
+            block_root: get_root(1),
+            attestation_slot: Slot::new(2),
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Ensure that the head is now 1, because 1 has a vote.
+        //
+        //          0
+        //         / \
+        //        2   1 <- head
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(1),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Add block 6, which has a justified epoch of 0.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6 <- justified epoch = 0
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(0),
-        root: get_root(6),
-        parent_root: get_root(4),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Add a vote to block 2
+        //
+        //           0
+        //          / \
+        // +vote-> 2   1
+        Operation::ProcessAttestation {
+            validator_index: 1,
+            block_root: get_root(2),
+            attestation_slot: Slot::new(2),
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        // Ensure that the head is 2 since 1 and 2 both have a vote
+        //
+        //          0
+        //         / \
+        // head-> 2   1
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Move both votes to 5.
-    //
-    //           0
-    //          / \
-    //         2   1
-    //             |
-    //             3
-    //             |
-    //             4
-    //            / \
-    // +2 vote-> 5   6
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 0,
-        block_root: get_root(5),
-        attestation_slot: Slot::new(4),
-    });
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 1,
-        block_root: get_root(5),
-        attestation_slot: Slot::new(4),
-    });
-
-    // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
-    // functionality.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6
-    //          |
-    //          7
-    //          |
-    //          8
-    //         /
-    //         9
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(0),
-        root: get_root(7),
-        parent_root: get_root(5),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
+        // Add block 3.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        Operation::ProcessBlock {
+            slot: Slot::new(2),
+            root: get_root(3),
+            parent_root: get_root(1),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        },
+        // Ensure that the head is still 2
+        //
+        //          0
+        //         / \
+        // head-> 2   1
+        //            |
+        //            3
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
+        },
+        // Move validator #0 vote from 1 to 3
+        //
+        //          0
+        //         / \
+        //        2   1 <- -vote
+        //            |
+        //            3 <- +vote
+        Operation::ProcessAttestation {
+            validator_index: 0,
+            block_root: get_root(3),
+            attestation_slot: Slot::new(3),
+        },
+        // Ensure that the head is still 2
+        //
+        //          0
+        //         / \
+        // head-> 2   1
+        //            |
+        //            3
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
+        },
+        // Move validator #1 vote from 2 to 1 (this is an equivocation, but fork choice doesn't
+        // care)
+        //
+        //           0
+        //          / \
+        // -vote-> 2   1 <- +vote
+        //             |
+        //             3
+        Operation::ProcessAttestation {
+            validator_index: 1,
+            block_root: get_root(1),
+            attestation_slot: Slot::new(3),
+        },
+        // Ensure that the head is now 3
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3 <- head
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(3),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
+        },
+        // Add block 4.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        Operation::ProcessBlock {
+            slot: Slot::new(3),
+            root: get_root(4),
+            parent_root: get_root(3),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        },
+        // Ensure that the head is now 4
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4 <- head
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(4),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
+        },
+        // Add block 5, which has a justified epoch of 2.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           /
+        //          5 <- justified epoch = 2
+        Operation::ProcessBlock {
+            slot: Slot::new(4),
             root: get_root(5),
+            parent_root: get_root(4),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(1),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(1),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Block 5 has incompatible finalized checkpoint, so `get_filtered_block_tree`
+        // excludes the entire 1->3->4->5 branch (no viable leaf). Head moves to 2.
+        //
+        //          0
+        //         / \
+        // head-> 2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           /
+        //          5 <- incompatible finalized checkpoint
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(0),
-        root: get_root(8),
-        parent_root: get_root(7),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Add block 6, which has a justified epoch of 0.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6 <- justified epoch = 0
+        Operation::ProcessBlock {
+            slot: Slot::new(0),
+            root: get_root(6),
+            parent_root: get_root(4),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Move both votes to 5.
+        //
+        //           0
+        //          / \
+        //         2   1
+        //             |
+        //             3
+        //             |
+        //             4
+        //            / \
+        // +2 vote-> 5   6
+        Operation::ProcessAttestation {
+            validator_index: 0,
+            block_root: get_root(5),
+            attestation_slot: Slot::new(4),
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(0),
-        root: get_root(9),
-        parent_root: get_root(8),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        Operation::ProcessAttestation {
+            validator_index: 1,
+            block_root: get_root(5),
+            attestation_slot: Slot::new(4),
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
+        // functionality.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         /
+        //         9
+        Operation::ProcessBlock {
+            slot: Slot::new(0),
+            root: get_root(7),
+            parent_root: get_root(5),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
-    // that 5 is filtered out due to a differing justified epoch.
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6 <- head
-    //          |
-    //          7
-    //          |
-    //          8
-    //         /
-    //         9
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        Operation::ProcessBlock {
+            slot: Slot::new(0),
+            root: get_root(8),
+            parent_root: get_root(7),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(1),
-            root: get_root(0),
+        Operation::ProcessBlock {
+            slot: Slot::new(0),
+            root: get_root(9),
+            parent_root: get_root(8),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(6),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
-    // the head.
-    //
-    // << Change justified epoch to 1 >>
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6
-    //          |
-    //          7
-    //          |
-    //          8
-    //         /
-    // head-> 9
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
+        // that 5 is filtered out due to a differing justified epoch.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6 <- head
+        //          |
+        //          7
+        //          |
+        //          8
+        //         /
+        //         9
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(0),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(6),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
+        // the head.
+        //
+        // << Change justified epoch to 1 >>
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         /
+        // head-> 9
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(9),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(9),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
-
-    // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
-    // the head.
-    //
-    // << Change justified epoch to 1 >>
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6
-    //          |
-    //          7
-    //          |
-    //          8
-    //         /
-    //        9 <- +2 votes
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 0,
-        block_root: get_root(9),
-        attestation_slot: Slot::new(5),
-    });
-    ops.push(Operation::ProcessAttestation {
-        validator_index: 1,
-        block_root: get_root(9),
-        attestation_slot: Slot::new(5),
-    });
-
-    // Add block 10
-    //
-    //          0
-    //         / \
-    //        2   1
-    //            |
-    //            3
-    //            |
-    //            4
-    //           / \
-    //          5   6
-    //          |
-    //          7
-    //          |
-    //          8
-    //         / \
-    //        9  10
-    ops.push(Operation::ProcessBlock {
-        slot: Slot::new(0),
-        root: get_root(10),
-        parent_root: get_root(8),
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
+        // the head.
+        //
+        // << Change justified epoch to 1 >>
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         /
+        //        9 <- +2 votes
+        Operation::ProcessAttestation {
+            validator_index: 0,
+            block_root: get_root(9),
+            attestation_slot: Slot::new(5),
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        Operation::ProcessAttestation {
+            validator_index: 1,
+            block_root: get_root(9),
+            attestation_slot: Slot::new(5),
         },
-        execution_payload_parent_hash: None,
-        execution_payload_block_hash: None,
-    });
-
-    // Double-check the head is still 9 (no diagram this time)
-    ops.push(Operation::FindHead {
-        justified_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Add block 10
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         / \
+        //        9  10
+        Operation::ProcessBlock {
+            slot: Slot::new(0),
+            root: get_root(10),
+            parent_root: get_root(8),
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
-        finalized_checkpoint: Checkpoint {
-            epoch: Epoch::new(2),
-            root: get_root(5),
+        // Double-check the head is still 9 (no diagram this time)
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: Epoch::new(2),
+                root: get_root(5),
+            },
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(9),
+            current_slot: Slot::new(0),
+            expected_payload_status: None,
         },
-        justified_state_balances: balances.clone(),
-        expected_head: get_root(9),
-        current_slot: Slot::new(0),
-        expected_payload_status: None,
-    });
+    ];
 
     // Introduce 2 more validators into the system
     balances = vec![1; 4];

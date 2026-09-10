@@ -21,26 +21,25 @@
 use super::lookups::SimulateConfig;
 use super::*;
 use crate::status::ToStatusMessage;
-use crate::sync::SyncMessage;
-use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::range_sync::RangeSyncType;
-use lighthouse_network::rpc::RPCError;
-use lighthouse_network::rpc::methods::StatusMessageV2;
-use lighthouse_network::{PeerId, SyncInfo};
+use crate::sync::{
+    SyncMessage, block_sidecar_coupling::CouplingError, manager::SLOT_IMPORT_TOLERANCE,
+    network_context::RpcResponseError, range_sync::RangeSyncType,
+};
+use lighthouse_network::{
+    PeerId, SyncInfo,
+    rpc::{RPCError, methods::StatusMessageV2},
+    service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+        DataColumnsByRangeRequester,
+    },
+};
 use std::collections::HashSet;
-use types::{Epoch, EthSpec, Hash256, MinimalEthSpec as E, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec as E, Slot};
 
 /// MinimalEthSpec has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
 
 impl TestRig {
-    /// Range sync doesn't yet ingest Gloas blocks in these tests: the range harness doesn't serve
-    /// payload envelopes, so a Gloas block never becomes fully available and sync can't complete.
-    /// Skip the affected completion tests under a Gloas genesis. TODO(gloas): support range sync.
-    fn skip_range_sync_under_gloas(&self) -> bool {
-        self.fork_name.gloas_enabled()
-    }
-
     fn add_head_peer(&mut self) -> PeerId {
         let local_info = self.local_info();
         self.add_supernode_peer(SyncInfo {
@@ -257,6 +256,81 @@ impl TestRig {
         })
         .expect("Peer with blacklisted root should receive Goodbye");
     }
+
+    async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
+        self.build_chain(1).await;
+        self.import_blocks_up_to_slot(1).await;
+        let good_peer = self.new_connected_supernode_peer();
+        let bad_peer = self.new_connected_supernode_peer();
+        let columns = self
+            .network_blocks_by_slot
+            .get(&Slot::new(1))
+            .and_then(|block| block.data_columns())
+            .expect("slot 1 should have data columns");
+        let mut columns = columns.iter();
+        let good_column = columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .clone();
+        let good_column_index = *good_column.index();
+        let missing_column_index = *columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .index();
+
+        let batch_request_id = CustodyBackFillBatchRequestId {
+            id: 999,
+            batch_id: CustodyBackfillBatchId {
+                epoch: Epoch::new(0),
+                run_id: 1,
+            },
+        };
+        let good_request_id = DataColumnsByRangeRequestId {
+            id: 1000,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: good_peer,
+        };
+        let bad_request_id = DataColumnsByRangeRequestId {
+            id: 1001,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: bad_peer,
+        };
+
+        let context = self.sync_manager.network_context();
+        context.insert_test_custody_backfill_entry(
+            batch_request_id,
+            vec![
+                (good_request_id, vec![good_column_index]),
+                (bad_request_id, vec![missing_column_index]),
+            ],
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let pending_response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            good_request_id,
+            Ok(vec![good_column]),
+        );
+        assert!(pending_response.is_none());
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            bad_request_id,
+            Ok(vec![]),
+        );
+
+        assert!(
+            matches!(
+                response,
+                Some(Err(RpcResponseError::BlockComponentCouplingError(
+                    CouplingError::DataColumnPeerFailure { .. }
+                )))
+            ),
+            "expected DataColumnPeerFailure, got {response:?}",
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 0);
+    }
 }
 
 // ============================================================================================
@@ -267,9 +341,6 @@ impl TestRig {
 #[tokio::test]
 async fn head_sync_completes() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_head_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_head_sync_completed();
@@ -281,9 +352,6 @@ async fn head_sync_completes() {
 #[tokio::test]
 async fn finalized_to_head_transition() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_and_head_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -295,9 +363,6 @@ async fn finalized_to_head_transition() {
 #[tokio::test]
 async fn finalized_sync_completes() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -309,9 +374,6 @@ async fn finalized_sync_completes() {
 #[tokio::test]
 async fn batch_rpc_error_retries() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
@@ -380,9 +442,6 @@ async fn batch_peer_returns_partial_columns_then_succeeds() {
 #[tokio::test]
 async fn batch_non_faulty_failure_retries() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_range_non_faulty_failures(1))
         .await;
@@ -394,9 +453,6 @@ async fn batch_non_faulty_failure_retries() {
 #[tokio::test]
 async fn batch_faulty_failure_redownloads() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(1))
         .await;
@@ -453,9 +509,6 @@ async fn late_response_for_removed_chain() {
 #[tokio::test]
 async fn ee_offline_then_online_resumes_sync() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_ee_offline_for_n_range_responses(2))
         .await;
@@ -468,9 +521,6 @@ async fn ee_offline_then_online_resumes_sync() {
 #[tokio::test]
 async fn finalized_sync_with_local_head_partial() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     r.setup_finalized_sync_with_local_head(3).await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -481,9 +531,6 @@ async fn finalized_sync_with_local_head_partial() {
 #[tokio::test]
 async fn finalized_sync_with_local_head_near_target() {
     let mut r = TestRig::default();
-    if r.skip_range_sync_under_gloas() {
-        return;
-    }
     let target_epochs = 5;
     let local_slots = (target_epochs * SLOTS_PER_EPOCH) - 1; // all blocks except last
     r.build_chain(target_epochs * SLOTS_PER_EPOCH).await;
@@ -502,7 +549,7 @@ async fn finalized_sync_with_local_head_near_target() {
 #[tokio::test]
 async fn not_enough_custody_peers_then_peers_arrive() {
     let mut r = TestRig::default();
-    if !r.fork_name.fulu_enabled() || r.skip_range_sync_under_gloas() {
+    if !r.fork_name.fulu_enabled() {
         return;
     }
     let remote_info = r.setup_finalized_sync_insufficient_peers().await;
@@ -529,7 +576,7 @@ async fn not_enough_custody_peers_then_peers_arrive() {
 #[tokio::test]
 async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() {
     let mut r = TestRig::default();
-    if !r.fork_name.fulu_enabled() || r.skip_range_sync_under_gloas() {
+    if !r.fork_name.fulu_enabled() {
         return;
     }
 
@@ -583,4 +630,14 @@ async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() 
 
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
+}
+
+#[tokio::test]
+async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_peer_failure_cleans_up_request()
+        .await;
 }

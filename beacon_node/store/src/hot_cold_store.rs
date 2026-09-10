@@ -30,6 +30,7 @@ use state_processing::{
     AllCaches, BlockProcessingError, BlockReplayer, SlotProcessingError,
     block_replayer::PreSlotHook,
 };
+use std::array::TryFromSliceError;
 use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
@@ -866,7 +867,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     ) -> Result<Option<LightClientUpdate<E>>, Error> {
         let res = self.hot_db.get_bytes(
             DBColumn::LightClientUpdate,
-            &sync_committee_period.to_le_bytes(),
+            &sync_committee_period.to_be_bytes(),
         )?;
 
         if let Some(light_client_update_bytes) = res {
@@ -891,12 +892,23 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
         let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
+        let end_period = start_period.safe_add(count)?;
         for res in self
             .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_be_bytes())
         {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
+            let sync_committee_period = u64::from_be_bytes(
+                sync_committee_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|e: TryFromSliceError| Error::InvalidKey(e.to_string()))?,
+            );
+
+            if sync_committee_period >= end_period {
+                break;
+            }
+
             let epoch = sync_committee_period
                 .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
 
@@ -906,10 +918,6 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                 LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
 
             light_client_updates.push(light_client_update);
-
-            if sync_committee_period >= start_period + count {
-                break;
-            }
         }
         Ok(light_client_updates)
     }
@@ -921,7 +929,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     ) -> Result<(), Error> {
         self.hot_db.put_bytes(
             DBColumn::LightClientUpdate,
-            &sync_committee_period.to_le_bytes(),
+            &sync_committee_period.to_be_bytes(),
             &light_client_update.as_ssz_bytes(),
         )?;
 

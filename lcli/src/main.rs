@@ -570,6 +570,24 @@ fn main() {
                                 until Osaka is triggered on mainnet.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("amsterdam-time")
+                        .long("amsterdam-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Amsterdam. No default is provided \
+                                until Amsterdam is triggered on mainnet.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("heze-time")
+                        .long("heze-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Heze. No default is provided \
+                                until Heze is triggered on mainnet.")
+                        .display_order(0)
+                )
         )
         .subcommand(
             Command::new("http-sync")

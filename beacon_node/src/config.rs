@@ -1,6 +1,7 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use axum_utils::tls::TlsConfig;
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, INVALID_HOLESKY_BLOCK_ROOT,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, FastConfirmationMode, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -12,7 +13,6 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use http_api::TlsConfig;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
@@ -108,10 +108,12 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    // Partial columns are enabled by default on all networks except the ones listed here.
+    // This enables them on Hoodi, Sepolia and custom networks.
     let default_partial_columns_enabled = spec
         .config_name
         .as_ref()
-        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+        .is_none_or(|name| !matches!(name.as_str(), "mainnet" | "gnosis" | "chiado" | "holesky"));
     let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
         .unwrap_or(default_partial_columns_enabled);
 
@@ -210,6 +212,10 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("disable-get-blobs") {
         client_config.chain.disable_get_blobs = true;
+    }
+
+    if cli_args.get_flag("enable-fast-confirmation") {
+        client_config.chain.fast_confirmation = FastConfirmationMode::Enabled;
     }
 
     if let Some(sync_tolerance_epochs) =
@@ -327,6 +333,16 @@ pub fn get_config<E: EthSpec>(
             })?;
     } else {
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+    }
+
+    // Parse and set the EIP-8025 proof engine, if any.
+    if let Some(endpoint) = cli_args.get_one::<String>("proof-engine-endpoint") {
+        client_config.proof_engine_endpoint = Some(parse_only_one_value(
+            endpoint,
+            SensitiveUrl::parse,
+            "--proof-engine-endpoint",
+        )?);
+        client_config.network.enable_execution_proof = true;
     }
 
     // Parse and set the payload builder, if any.

@@ -2,6 +2,7 @@
 //! sync committee contributions if we've already seen them.
 
 use crate::sync_committee_verification::SyncCommitteeData;
+use ssz::ProgressiveBitList;
 use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -113,6 +114,14 @@ pub trait SubsetItem {
     fn root(&self) -> Result<Hash256, Error>;
 }
 
+/// Convert a progressive aggregation bitfield (Gloas, EIP-7916) to a bounded `BitList` for subset
+/// comparison. Valid Gloas attestations have at most `MaxValidatorsPerSlot` aggregation bits.
+fn progressive_bits_to_bitlist<E: EthSpec>(
+    bits: &ProgressiveBitList,
+) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz::BitfieldError> {
+    BitList::from_bytes(bits.clone().into_bytes())
+}
+
 impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
     type Item = BitList<E::MaxValidatorsPerSlot>;
     fn is_subset(&self, other: &Self::Item) -> bool {
@@ -124,6 +133,14 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 false
             }
             Self::Electra(att) => att.aggregation_bits.is_subset(other),
+            Self::Gloas(att) => {
+                if let Ok(aggregation_bits) =
+                    progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                {
+                    return aggregation_bits.is_subset(other);
+                }
+                false
+            }
         }
     }
 
@@ -136,6 +153,14 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 false
             }
             Self::Electra(att) => other.is_subset(&att.aggregation_bits),
+            Self::Gloas(att) => {
+                if let Ok(aggregation_bits) =
+                    progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                {
+                    return other.is_subset(&aggregation_bits);
+                }
+                false
+            }
         }
     }
 
@@ -146,6 +171,8 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 .extend_aggregation_bits()
                 .map_err(|_| Error::GetItemError),
             Self::Electra(att) => Ok(att.aggregation_bits.clone()),
+            Self::Gloas(att) => progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                .map_err(|_| Error::GetItemError),
         }
     }
 

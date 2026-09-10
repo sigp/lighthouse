@@ -19,6 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
+use builder_client::{BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -32,6 +33,7 @@ use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use proof_engine::ProofEngine;
 use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
@@ -187,6 +189,38 @@ where
             None
         };
 
+        let proof_engine = config
+            .proof_engine_endpoint
+            .clone()
+            .map(|url| {
+                ProofEngine::new(url)
+                    .map(Arc::new)
+                    .map_err(|e| format!("unable to start proof engine client: {:?}", e))
+            })
+            .transpose()?;
+
+        // Construct the Gloas builder handle (Builder API client) when the Gloas fork is scheduled.
+        // The client is stateless w.r.t. the target builder — each request carries its own URL — but
+        // still honors the same `--builder-user-agent` / `--builder-disable-ssz` flags as the
+        // pre-Gloas builder client.
+        let builders = if spec.gloas_fork_epoch.is_some() {
+            let (user_agent, disable_ssz) = config
+                .execution_layer
+                .as_ref()
+                .map(|el| {
+                    (
+                        el.builder_user_agent.clone(),
+                        el.disable_builder_ssz_requests,
+                    )
+                })
+                .unwrap_or((None, false));
+            let client = BuilderHttpClient::new(user_agent, disable_ssz)
+                .map_err(|e| format!("unable to start builder client: {:?}", e))?;
+            Some(Arc::new(Builders::new(Arc::new(client))))
+        } else {
+            None
+        };
+
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
         let kzg = if spec.is_peer_das_scheduled() {
             Kzg::new_from_trusted_setup(&config.trusted_setup).map_err(kzg_err_msg)?
@@ -210,6 +244,8 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
+            .proof_engine(proof_engine)
+            .builders(builders)
             .node_custody_type(config.chain.node_custody_type)
             .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
@@ -615,7 +651,7 @@ where
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
     #[instrument(name = "build_client", skip_all)]
-    pub fn build(
+    pub async fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
@@ -647,6 +683,7 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_api::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             let http_api_task = async move {
@@ -677,6 +714,7 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context

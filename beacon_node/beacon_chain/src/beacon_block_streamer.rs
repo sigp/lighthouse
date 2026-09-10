@@ -11,7 +11,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze,
 };
 
 #[derive(PartialEq)]
@@ -82,6 +82,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
         ForkName::Gloas => ExecutionPayloadGloas::default().into(),
+        ForkName::Heze => ExecutionPayloadHeze::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -245,31 +246,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         Ok(bodies)
     }
 
-    // used when the execution engine doesn't support the payload bodies methods
-    async fn stream_blocks_fallback(
-        self: Arc<Self>,
-        block_roots: Vec<Hash256>,
-        sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
-    ) {
-        debug!("Using slower fallback method of eth_getBlockByHash()");
-        for root in block_roots {
-            let cached_block = self.check_caches(root);
-            let block_result = if cached_block.is_some() {
-                Ok(cached_block)
-            } else {
-                self.beacon_chain
-                    .get_block(&root)
-                    .await
-                    .map(|opt_block| opt_block.map(Arc::new))
-            };
-
-            if sender.send((root, Arc::new(block_result))).is_err() {
-                break;
-            }
-        }
-    }
-
-    async fn stream_blocks(
+    pub async fn stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
@@ -357,26 +334,6 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         );
     }
 
-    pub async fn stream(
-        self: Arc<Self>,
-        block_roots: Vec<Hash256>,
-        sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
-    ) {
-        match self.execution_layer.get_engine_capabilities(None).await {
-            Ok(capabilities) if capabilities.get_payload_bodies_by_hash_v1 => {
-                self.stream_blocks(block_roots, sender).await;
-            }
-            Ok(_) => {
-                // use the fallback method
-                self.stream_blocks_fallback(block_roots, sender).await;
-            }
-            Err(e) => {
-                let error = BeaconChainError::EngineGetCapabilititesFailed(Box::new(e));
-                send_errors(block_roots, sender, error);
-            }
-        }
-    }
-
     pub fn launch_stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
@@ -389,19 +346,6 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let executor = self.beacon_chain.task_executor.clone();
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
         UnboundedReceiverStream::new(block_rx)
-    }
-}
-
-fn send_errors<E: EthSpec>(
-    block_roots: Vec<Hash256>,
-    sender: UnboundedSender<(Hash256, Arc<BlockResult<E>>)>,
-    beacon_chain_error: BeaconChainError,
-) {
-    let result = Arc::new(Err(beacon_chain_error));
-    for root in block_roots {
-        if sender.send((root, result.clone())).is_err() {
-            break;
-        }
     }
 }
 
@@ -464,6 +408,7 @@ mod tests {
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
         spec.gloas_fork_epoch = None;
+        spec.heze_fork_epoch = None;
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());

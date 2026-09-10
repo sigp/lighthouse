@@ -9,14 +9,19 @@ bls = { workspace = true }
 context_deserialize = { workspace = true }
 eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
+futures = { workspace = true }
 lighthouse_version = { workspace = true }
+parking_lot = { workspace = true }
+pretty_reqwest_error = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
+builder_types = { workspace = true, features = ["arbitrary"] }
 mockito = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }

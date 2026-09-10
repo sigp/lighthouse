@@ -17,9 +17,9 @@ use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
-use lighthouse_network::types::GossipKind;
+use lighthouse_network::types::{GossipKind, PubsubPartialMessage};
 use lighthouse_network::{
-    Context, PeerAction, PubsubMessage, PubsubPartialMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
     rpc::{GoodbyeReason, RpcErrorResponse},
 };
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
@@ -294,10 +294,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (mut libp2p, network_globals) = Network::new(
             executor.clone(),
             service_context,
-            beacon_chain
-                .data_availability_checker
-                .custody_context()
-                .custody_group_count_at_head(&beacon_chain.spec),
+            beacon_chain.custody_context.custody_group_count_at_head(),
             local_keypair,
         )
         .await?;
@@ -779,6 +776,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .is_none()
                 {
                     self.libp2p.update_enr_cgc(new_custody_group_count);
+                }
+                // The CGC increase has moved our `earliest_available_slot` forward. Re-status
+                // all connected peers so they stop requesting data columns from ranges we no
+                // longer serve.
+                let connected_peers = self
+                    .network_globals
+                    .peers
+                    .read()
+                    .connected_peer_ids()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for peer_id in connected_peers {
+                    self.send_to_router(RouterMessage::StatusPeer(peer_id));
                 }
             }
         }

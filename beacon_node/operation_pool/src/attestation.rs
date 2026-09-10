@@ -81,9 +81,19 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let att_data = att.attestation_data();
 
         let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
-        let att_participation_flags =
-            get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
-                .ok()?;
+        let parent_slot = state
+            .latest_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.slot);
+
+        let att_participation_flags = get_attestation_participation_flag_indices(
+            state,
+            &att_data,
+            parent_slot,
+            inclusion_delay,
+            spec,
+        )
+        .ok()?;
 
         let fresh_validators_rewards = att
             .indexed
@@ -186,7 +196,9 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     let mut new_validators = match attestation.indexed {
         CompactIndexedAttestation::Base(indexed_att) => indexed_att.aggregation_bits.clone(),
         // This code path is obsolete post altair fork, so we just return an empty bitlist here.
-        CompactIndexedAttestation::Electra(_) => return BitList::with_capacity(0).unwrap(),
+        CompactIndexedAttestation::Electra(_) | CompactIndexedAttestation::Gloas(_) => {
+            return BitList::with_capacity(0).unwrap();
+        }
     };
 
     let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {

@@ -1,5 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::DEFAULT_SYNC_TOLERANCE_EPOCHS;
+use beacon_node::beacon_chain::chain_config::{
+    DEFAULT_SYNC_TOLERANCE_EPOCHS, FastConfirmationMode,
+};
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2501,6 +2503,31 @@ fn get_blobs_enabled() {
 }
 
 #[test]
+fn fast_confirmation_disabled_by_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Disabled
+            );
+        });
+}
+
+#[test]
+fn fast_confirmation_enabled() {
+    CommandLineTest::new()
+        .flag("enable-fast-confirmation", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Enabled
+            );
+        });
+}
+
+#[test]
 fn light_client_http_server_disabled() {
     CommandLineTest::new()
         .flag("http", None)
@@ -2786,11 +2813,11 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
-fn enable_mplex_default() {
+fn disable_mplex_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.network.enable_mplex);
+            assert!(!config.network.enable_mplex);
         })
 }
 

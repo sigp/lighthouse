@@ -1,18 +1,18 @@
-use crate::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
-use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
-use crate::{BeaconChainTypes, PayloadVerificationOutcome};
+use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
+use crate::{BeaconChainTypes, CustodyContext, PayloadVerificationOutcome};
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
@@ -118,8 +118,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: AvailableBlockData<E>,
-        da_checker: &DataAvailabilityChecker<T>,
-        spec: Arc<ChainSpec>,
+        custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -127,7 +126,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         if block.fork_name_unchecked().gloas_enabled() {
             return Err(AvailabilityCheckError::InvalidVariant);
         }
-        let available_block = AvailableBlock::new(block, block_data, da_checker, spec)?;
+        let available_block = AvailableBlock::new(block, block_data, custody_context)?;
         Ok(Self::Base(available_block))
     }
 
@@ -160,6 +159,18 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 latest_finalized_slot,
             )
             .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
+            // Sync-only check, deliberately not part of gossip validation: needed before
+            // recomputing the execution block hash, which takes this root as input.
+            let parent_beacon_block_root = envelope.message().parent_beacon_block_root;
+            if parent_beacon_block_root != block.message().parent_root() {
+                return Err(format!(
+                    "Inconsistent envelope: {:?}",
+                    EnvelopeError::ParentBeaconBlockRootMismatch {
+                        block: block.message().parent_root(),
+                        envelope: parent_beacon_block_root,
+                    }
+                ));
+            }
         }
 
         Ok(Self::Gloas { block, envelope })
@@ -531,5 +542,35 @@ impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
     }
     fn canonical_root(&self) -> Hash256 {
         self.block_root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::custody_context::NodeCustodyType;
+    use crate::test_utils::test_custody_context;
+    use bls::Signature;
+    use types::{BeaconBlockGloas, ChainSpec, EmptyBlock, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
+    /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
+    #[test]
+    fn range_sync_block_new_rejects_gloas_block() {
+        let spec = Arc::new(ChainSpec::mainnet());
+        let block = Arc::new(SignedBeaconBlock::from_block(
+            BeaconBlockGloas::empty(&spec).into(),
+            Signature::empty(),
+        ));
+        let custody_context = test_custody_context::<E>(NodeCustodyType::Supernode, spec);
+
+        let result = RangeSyncBlock::new(block, AvailableBlockData::NoData, &custody_context);
+
+        assert!(
+            result.is_err(),
+            "RangeSyncBlock::new should reject a gloas block"
+        );
     }
 }

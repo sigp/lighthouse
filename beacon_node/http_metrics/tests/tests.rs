@@ -34,7 +34,7 @@ async fn returns_200_ok() {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).await.unwrap();
 
         tokio::spawn(server);
 

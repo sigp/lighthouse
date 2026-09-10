@@ -1,14 +1,17 @@
 mod attestation_production;
 mod attestation_verification;
 mod blob_verification;
+mod block_production;
 mod block_verification;
 mod column_verification;
+mod envelope_verification;
 mod events;
 mod op_verification;
 mod payload_invalidation;
 mod prepare_payload;
 mod rewards;
 mod schema_stability;
+mod store_fault_tests;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;

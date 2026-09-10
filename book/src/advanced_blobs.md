@@ -15,7 +15,7 @@ Table below summarizes the role of relevant flags in Lighthouse beacon node:
 
 While both `--supernode` and `--semi-supernode` can serve blobs, a supernode will be faster to respond to blobs queries as it skips the blob reconstruction step. Running a supernode also helps the network by serving the data columns to its peers.
 
-Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag.
+Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag. Note that the storage used for blobs will increase significantly as the blobs accumulate over time, in the range of several terabytes.
 
 If you want historical blob data beyond the data availability period (18 days), you can backfill blobs or data columns with the experimental flag `--complete-blob-backfill`. However, do note that this is an experimental feature and it only works when the flag is present during a fresh checkpoint sync when the database is initialised. The flag will not backfill blobs if the node is already running (with an existing database). During blob backfill, the feature may cause some issues, e.g., the node may block most of its peers.
 

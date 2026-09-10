@@ -123,10 +123,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Gloas
-     */
-    type BuilderRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -179,8 +175,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type PtcWindowLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type BuilderPendingWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuildersPerWithdrawalsSweep: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBuilderDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBuilderExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /*
+     * New in Heze
+     */
+    type InclusionListCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -373,11 +375,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::BuilderPendingPaymentsLimit::to_usize()
     }
 
-    /// Returns the `BUILDER_PENDING_WITHDRAWALS_LIMIT` constant for this specification.
-    fn builder_pending_withdrawals_limit() -> usize {
-        Self::BuilderPendingWithdrawalsLimit::to_usize()
-    }
-
     /// Returns the `MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD` constant for this specification.
     fn max_consolidation_requests_per_payload() -> usize {
         Self::MaxConsolidationRequestsPerPayload::to_usize()
@@ -444,6 +441,31 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::MaxBuildersPerWithdrawalsSweep::to_usize()
     }
 
+    /// Returns the `MAX_BUILDER_DEPOSIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_builder_deposit_requests_per_payload() -> usize {
+        Self::MaxBuilderDepositRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_BUILDER_EXIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_builder_exit_requests_per_payload() -> usize {
+        Self::MaxBuilderExitRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE` constant for this specification.
+    fn max_signed_aggregate_and_proof_size() -> usize;
+
+    /// Returns the `MAX_ATTESTER_SLASHING_SIZE` constant for this specification.
+    fn max_attester_slashing_size() -> usize;
+
+    /// Returns the `MAX_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
+    fn max_data_column_sidecar_size() -> usize;
+
+    /// Returns the `MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
+    fn max_partial_data_column_sidecar_size() -> usize;
+
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
+    fn max_signed_execution_payload_bid_size() -> usize;
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -452,6 +474,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `DATA_AVAILABILITY_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn data_availability_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
+    }
+
+    /// Returns the `INCLUSION_LIST_COMMITTEE_SIZE` constant for this specification.
+    fn inclusion_list_committee_size() -> usize {
+        Self::InclusionListCommitteeSize::to_usize()
     }
 }
 
@@ -483,7 +510,6 @@ impl EthSpec for MainnetEthSpec {
     type HistoricalRootsLimit = U16777216;
     type ValidatorRegistryLimit = U1099511627776;
     type BuilderPendingPaymentsLimit = U64; // 2 * SLOTS_PER_EPOCH = 2 * 32 = 64
-    type BuilderPendingWithdrawalsLimit = U1048576;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U2;
     type MaxAttestations = U128;
@@ -510,7 +536,6 @@ impl EthSpec for MainnetEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
-    type BuilderRegistryLimit = U1099511627776;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -529,6 +554,9 @@ impl EthSpec for MainnetEthSpec {
     type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
     type MaxBuildersPerWithdrawalsSweep = U16384;
+    type MaxBuilderDepositRequestsPerPayload = U64;
+    type MaxBuilderExitRequestsPerPayload = U16;
+    type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -536,6 +564,26 @@ impl EthSpec for MainnetEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Mainnet
+    }
+
+    fn max_signed_aggregate_and_proof_size() -> usize {
+        16829
+    }
+
+    fn max_attester_slashing_size() -> usize {
+        2097616
+    }
+
+    fn max_data_column_sidecar_size() -> usize {
+        8585272
+    }
+
+    fn max_partial_data_column_sidecar_size() -> usize {
+        8585741
+    }
+
+    fn max_signed_execution_payload_bid_size() -> usize {
+        196932
     }
 }
 
@@ -584,7 +632,6 @@ impl EthSpec for MinimalEthSpec {
         GenesisEpoch,
         HistoricalRootsLimit,
         ValidatorRegistryLimit,
-        BuilderPendingWithdrawalsLimit,
         MaxProposerSlashings,
         MaxAttesterSlashings,
         MaxAttestations,
@@ -606,7 +653,9 @@ impl EthSpec for MinimalEthSpec {
         MaxDepositRequestsPerPayload,
         MaxWithdrawalRequestsPerPayload,
         MaxPayloadAttestations,
-        BuilderRegistryLimit
+        MaxBuilderDepositRequestsPerPayload,
+        MaxBuilderExitRequestsPerPayload,
+        InclusionListCommitteeSize
     });
 
     fn default_spec() -> ChainSpec {
@@ -615,6 +664,26 @@ impl EthSpec for MinimalEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Minimal
+    }
+
+    fn max_signed_aggregate_and_proof_size() -> usize {
+        1462
+    }
+
+    fn max_attester_slashing_size() -> usize {
+        131536
+    }
+
+    fn max_data_column_sidecar_size() -> usize {
+        8585272
+    }
+
+    fn max_partial_data_column_sidecar_size() -> usize {
+        8585741
+    }
+
+    fn max_signed_execution_payload_bid_size() -> usize {
+        196932
     }
 }
 
@@ -638,7 +707,6 @@ impl EthSpec for GnosisEthSpec {
     type HistoricalRootsLimit = U16777216;
     type ValidatorRegistryLimit = U1099511627776;
     type BuilderPendingPaymentsLimit = U32; // 2 * SLOTS_PER_EPOCH = 2 * 16 = 32
-    type BuilderPendingWithdrawalsLimit = U1048576;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U2;
     type MaxAttestations = U128;
@@ -679,11 +747,13 @@ impl EthSpec for GnosisEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
-    type BuilderRegistryLimit = U1099511627776;
     type PTCSize = U512;
     type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
     type MaxBuildersPerWithdrawalsSweep = U16384;
+    type MaxBuilderDepositRequestsPerPayload = U64;
+    type MaxBuilderExitRequestsPerPayload = U16;
+    type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -691,6 +761,26 @@ impl EthSpec for GnosisEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Gnosis
+    }
+
+    fn max_signed_aggregate_and_proof_size() -> usize {
+        16829
+    }
+
+    fn max_attester_slashing_size() -> usize {
+        2097616
+    }
+
+    fn max_data_column_sidecar_size() -> usize {
+        8585272
+    }
+
+    fn max_partial_data_column_sidecar_size() -> usize {
+        8585741
+    }
+
+    fn max_signed_execution_payload_bid_size() -> usize {
+        196932
     }
 }
 

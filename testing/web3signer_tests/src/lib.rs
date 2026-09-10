@@ -79,7 +79,7 @@ mod tests {
     trait SignedObject: PartialEq + Debug {}
 
     impl SignedObject for Signature {}
-    impl SignedObject for Attestation<E> {}
+    impl SignedObject for SingleAttestation {}
     impl SignedObject for SignedBeaconBlock<E> {}
     impl SignedObject for SignedBlock<E> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
@@ -551,9 +551,7 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<
-                Output = Result<Vec<(u64, Attestation<E>)>, lighthouse_validator_store::Error>,
-            >,
+            R: Future<Output = Result<Vec<SingleAttestation>, lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -590,23 +588,28 @@ mod tests {
         }
     }
 
+    /// Get generic, arbitrary attestation data for signing.
+    fn get_attestation_data() -> AttestationData {
+        AttestationData {
+            slot: <_>::default(),
+            index: <_>::default(),
+            beacon_block_root: <_>::default(),
+            source: Checkpoint {
+                epoch: <_>::default(),
+                root: <_>::default(),
+            },
+            target: Checkpoint {
+                epoch: <_>::default(),
+                root: <_>::default(),
+            },
+        }
+    }
+
     /// Get a generic, arbitrary attestation for signing.
     fn get_attestation() -> Attestation<E> {
         Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
-            data: AttestationData {
-                slot: <_>::default(),
-                index: <_>::default(),
-                beacon_block_root: <_>::default(),
-                source: Checkpoint {
-                    epoch: <_>::default(),
-                    root: <_>::default(),
-                },
-                target: Checkpoint {
-                    epoch: <_>::default(),
-                    root: <_>::default(),
-                },
-            },
+            data: get_attestation_data(),
             signature: AggregateSignature::empty(),
         })
     }
@@ -654,15 +657,14 @@ mod tests {
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-            let attestation = get_attestation();
             let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                validator_index: 0,
+                attester_index: 0,
                 pubkey,
-                validator_committee_index: 0,
-                attestation,
+                committee_index: 0,
+                data: get_attestation_data(),
             }]);
             tokio::pin!(stream);
-            stream.next().await.unwrap().unwrap().pop().unwrap().1
+            stream.next().await.unwrap().unwrap().pop().unwrap()
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
@@ -834,30 +836,30 @@ mod tests {
         let slashable_message_should_sign = !slashing_protection_config.local;
 
         let first_attestation = || {
-            let mut attestation = get_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(1);
-            attestation.data_mut().target.epoch = Epoch::new(4);
-            attestation
+            let mut data = get_attestation_data();
+            data.source.epoch = Epoch::new(1);
+            data.target.epoch = Epoch::new(4);
+            data
         };
 
         let double_vote_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().beacon_block_root = Hash256::from_low_u64_be(1);
-            attestation
+            let mut data = first_attestation();
+            data.beacon_block_root = Hash256::from_low_u64_be(1);
+            data
         };
 
         let surrounding_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(0);
-            attestation.data_mut().target.epoch = Epoch::new(5);
-            attestation
+            let mut data = first_attestation();
+            data.source.epoch = Epoch::new(0);
+            data.target.epoch = Epoch::new(5);
+            data
         };
 
         let surrounded_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(2);
-            attestation.data_mut().target.epoch = Epoch::new(3);
-            attestation
+            let mut data = first_attestation();
+            data.source.epoch = Epoch::new(2);
+            data.target.epoch = Epoch::new(3);
+            data
         };
 
         let first_block = || {
@@ -880,26 +882,24 @@ mod tests {
         )
         .await
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
-            let attestation = first_attestation();
             let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                validator_index: 0,
+                attester_index: 0,
                 pubkey,
-                validator_committee_index: 0,
-                attestation,
+                committee_index: 0,
+                data: first_attestation(),
             }]);
             tokio::pin!(stream);
-            stream.next().await.unwrap().unwrap().pop().unwrap().1
+            stream.next().await.unwrap().unwrap().pop().unwrap()
         })
         .await
         .assert_slashable_attestation_should_sign(
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = double_vote_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: double_vote_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()
@@ -910,12 +910,11 @@ mod tests {
         .assert_slashable_attestation_should_sign(
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = surrounding_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: surrounding_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()
@@ -926,12 +925,11 @@ mod tests {
         .assert_slashable_attestation_should_sign(
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = surrounded_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: surrounded_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()

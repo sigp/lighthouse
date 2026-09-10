@@ -49,7 +49,11 @@ pub static FORK_CHOICE_ON_ATTESTER_SLASHING_TIMES: LazyLock<Result<Histogram>> =
 pub fn scrape_for_metrics<T: ForkChoiceStore<E>, E: EthSpec>(fork_choice: &ForkChoice<T, E>) {
     set_gauge(
         &FORK_CHOICE_QUEUED_ATTESTATIONS,
-        fork_choice.queued_attestations().len() as i64,
+        fork_choice
+            .queued_attestations()
+            .values()
+            .map(Vec::len)
+            .sum::<usize>() as i64,
     );
     set_gauge(
         &FORK_CHOICE_NODES,

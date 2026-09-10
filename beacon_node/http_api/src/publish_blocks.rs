@@ -19,6 +19,7 @@ use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -28,9 +29,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSubnetId, EthSpec,
+    ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
+    KzgProofs, PartialDataColumn, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -73,6 +74,62 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
     }
 }
 
+/// If a direct builder won this block's payload bid, forward the signed block to that builder via
+/// `submitSignedBeaconBlock` so it reveals the execution payload envelope.
+///
+/// The builder's URL is the `Eth-Builder-Url` request header the VC echoed on publish (beacon-APIs
+/// #630), so this works even on a beacon node that did not produce the block. `None` (self-built or
+/// p2p-won), no configured builders, or a malformed URL are all no-ops.
+///
+/// Fire-and-forget: the submission runs in a detached task; a failure is logged at high severity
+/// (the validator has already signed the commitment) but never blocks the publish response. Runs
+/// only once per block since it hangs off the single p2p-publish point.
+fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    builder_url: Option<&str>,
+) {
+    // The VC echoes the winning builder's URL in the `Eth-Builder-Url` request header (beacon-APIs
+    // #630); absent for a self-built block or a p2p-won bid, in which case there's nothing to forward.
+    let Some(builder_url) = builder_url else {
+        return;
+    };
+    let Some(builders) = chain.builders.as_ref() else {
+        return;
+    };
+    let url = match SensitiveUrl::parse(builder_url) {
+        Ok(url) => url,
+        Err(e) => {
+            warn!(error = ?e, "Ignoring malformed Eth-Builder-Url header");
+            return;
+        }
+    };
+
+    let builders = builders.clone();
+    let slot = block.slot();
+    let block_root = block.canonical_root();
+
+    chain.task_executor.spawn(
+        async move {
+            match builders.forward_signed_block(&url, &block).await {
+                Ok(()) => info!(
+                    %slot,
+                    %block_root,
+                    "Forwarded signed block to winning builder"
+                ),
+                Err(e) => error!(
+                    %slot,
+                    %block_root,
+                    builder_url = ?url,
+                    error = ?e,
+                    "Failed to forward signed block to winning builder"
+                ),
+            }
+        },
+        "forward_signed_block_to_builder",
+    );
+}
+
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
@@ -88,6 +145,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    // The `Eth-Builder-Url` request header (beacon-APIs #630): when a direct builder won the block's
+    // payload bid, its URL, so the block is forwarded there for envelope reveal.
+    builder_url: Option<String>,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let block_publishing_delay_for_testing = chain.config.block_publishing_delay;
@@ -140,6 +200,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
             })?;
+
+        // If a direct builder won this block's payload bid, forward the signed block to it so it
+        // reveals the execution payload envelope.
+        forward_signed_block_to_winning_builder(
+            &publish_chain,
+            block.clone(),
+            builder_url.as_deref(),
+        );
 
         Ok(())
     };
@@ -217,7 +285,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
+        let sampling_columns_indices = chain.custody_context.sampling_columns_for_epoch(epoch);
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
@@ -408,19 +476,34 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let mut full_messages = Vec::new();
-    let mut partial_columns = Vec::new();
-    let mut partial_header = None;
+    let mut partial_messages = Vec::new();
 
     for data_col in data_column_sidecars {
-        if chain.config.enable_partial_columns
-            && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref()
-        {
-            match fulu_data_col.to_partial() {
-                Ok(mut partial) => {
-                    if let Some(header) = partial.sidecar.header.take() {
-                        partial_header = Some(header);
+        if chain.config.enable_partial_columns {
+            match data_col.to_partial() {
+                Ok(PartialDataColumn::Fulu(mut fulu)) => {
+                    // All cells are present in a full column, so request all of them.
+                    let request_cells = fulu.sidecar.cells_present_bitmap.clone();
+                    match fulu.sidecar.header.take() {
+                        Some(header) => {
+                            partial_messages.push(PubsubPartialMessage::DataColumnFulu {
+                                column: Arc::new(fulu),
+                                request_cells,
+                                header: Arc::new(header),
+                            })
+                        }
+                        None => {
+                            crit!("Converting from full to partial yielded headerless partial");
+                        }
                     }
-                    partial_columns.push(Arc::new(partial));
+                }
+                Ok(PartialDataColumn::Gloas(gloas)) => {
+                    // All cells are present in a full column, so request all of them.
+                    let request_cells = gloas.sidecar.cells_present_bitmap.clone();
+                    partial_messages.push(PubsubPartialMessage::DataColumnGloas {
+                        column: Arc::new(gloas),
+                        request_cells,
+                    });
                 }
                 Err(err) => {
                     crit!(?err, "Could not convert from full to partial");
@@ -442,31 +525,14 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     }
 
     // Publish partial messages
-    if !partial_columns.is_empty() {
-        if let Some(header) = partial_header {
-            let header = Arc::new(header);
-            let messages = partial_columns
-                .into_iter()
-                .map(|column| {
-                    let mut request_cells = column.sidecar.cells_present_bitmap.clone();
-                    request_cells.not_inplace();
-                    PubsubPartialMessage::DataColumnFulu {
-                        column,
-                        request_cells,
-                        header: header.clone(),
-                    }
-                })
-                .collect();
-            crate::utils::publish_network_message(
-                sender_clone,
-                NetworkMessage::PublishPartialColumns { messages },
-            )
-            .map_err(|_| {
-                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
-            })?;
-        } else {
-            crit!("Unable to extract header from full columns");
-        }
+    if !partial_messages.is_empty() {
+        crate::utils::publish_network_message(
+            sender_clone,
+            NetworkMessage::PublishPartialColumns {
+                messages: partial_messages,
+            },
+        )
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))?;
     }
 
     Ok(())
@@ -572,6 +638,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
             network_tx,
             validation_level,
             duplicate_status_code,
+            // Blinded (mev-boost) publish predates the Gloas builder-URL round-trip.
+            None,
         )
         .await
     } else {
@@ -704,7 +772,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     //
     // Check to see the thresholds are non-zero to avoid logging errors with small
     // slot times (e.g., during testing)
-    let too_late_threshold = chain.spec.get_unaggregated_attestation_due();
+    let too_late_threshold = chain.spec.get_attestation_due::<T::EthSpec>(block.slot());
     let delayed_threshold = too_late_threshold / 2;
     if delay >= too_late_threshold {
         error!(
@@ -728,7 +796,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
 }
 
 /// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
-fn check_slashable<T: BeaconChainTypes>(
+pub(crate) fn check_slashable<T: BeaconChainTypes>(
     chain_clone: &BeaconChain<T>,
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,

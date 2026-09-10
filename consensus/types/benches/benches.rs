@@ -1,6 +1,5 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use fixed_bytes::FixedBytesExtended;
-use milhouse::List;
 use rayon::prelude::*;
 use ssz::Encode;
 use std::hint::black_box;
@@ -27,23 +26,21 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
             .expect("should add balance");
     }
 
-    *state.validators_mut() = List::new(
-        (0..validator_count)
-            .collect::<Vec<_>>()
-            .par_iter()
-            .map(|&i| Validator {
-                pubkey: generate_deterministic_keypair(i).pk.compress(),
-                withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-                effective_balance: spec.max_effective_balance,
-                slashed: false,
-                activation_eligibility_epoch: Epoch::new(0),
-                activation_epoch: Epoch::new(0),
-                exit_epoch: Epoch::from(u64::MAX),
-                withdrawable_epoch: Epoch::from(u64::MAX),
-            })
-            .collect(),
-    )
-    .unwrap();
+    let validators: Vec<Validator> = (0..validator_count)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|&i| Validator {
+            pubkey: generate_deterministic_keypair(i).pk.compress(),
+            withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
+            effective_balance: spec.max_effective_balance,
+            slashed: false,
+            activation_eligibility_epoch: Epoch::new(0),
+            activation_epoch: Epoch::new(0),
+            exit_epoch: Epoch::from(u64::MAX),
+            withdrawable_epoch: Epoch::from(u64::MAX),
+        })
+        .collect();
+    state.set_validators_from_iter(validators).unwrap();
 
     state
 }

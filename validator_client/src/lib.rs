@@ -153,6 +153,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let exit = context.executor.exit();
 
             let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
+                .await
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -622,6 +623,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let exit = self.context.executor.exit();
 
             let (listen_addr, server) = validator_http_api::serve::<_, E>(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context

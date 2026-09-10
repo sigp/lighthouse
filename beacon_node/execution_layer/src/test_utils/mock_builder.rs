@@ -35,11 +35,15 @@ use types::builder::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
-    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ExecutionRequestsElectra, ForkName,
+    ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
-use warp::reply::{self, Reply};
-use warp::{Filter, Rejection};
+use warp::{
+    Filter, Rejection,
+    http::StatusCode,
+    reply::{self, Reply},
+};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
@@ -475,6 +479,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                 return Err("invalid fork".to_string());
             }
+            SignedBlindedBeaconBlock::Heze(_) => {
+                // TODO(heze) Check if this is how we want to do error handling for heze
+                return Err("invalid fork".to_string());
+            }
         };
         let block_hash = block
             .message()
@@ -593,6 +601,10 @@ impl<E: EthSpec> MockBuilder<E> {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                         return Err("invalid fork".to_string());
                     }
+                    ForkName::Heze => {
+                        // TODO(heze) Check if this is how we want to do error handling for heze
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -603,7 +615,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                         header: payload
@@ -615,7 +630,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
+                        execution_requests: match maybe_requests {
+                            Some(ExecutionRequests::Electra(requests)) => requests,
+                            _ => ExecutionRequestsElectra::default(),
+                        },
                     }),
                     ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                         header: payload
@@ -914,7 +932,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
@@ -1063,11 +1081,10 @@ pub fn serve<E: EthSpec>(
                                 .unwrap(),
                         )
                     } else {
-                        Ok(warp::http::Response::builder()
-                            .status(202)
-                            .body(&[] as &'static [u8])
-                            .map(|res| add_consensus_version_header(res, fork_name))
-                            .unwrap())
+                        Ok(add_consensus_version_header(
+                            StatusCode::ACCEPTED.into_response(),
+                            fork_name,
+                        ))
                     }
                 },
             );
@@ -1114,11 +1131,10 @@ pub fn serve<E: EthSpec>(
                             .unwrap(),
                     )
                 } else {
-                    Ok(warp::http::Response::builder()
-                        .status(202)
-                        .body("".to_string())
-                        .map(|res| add_consensus_version_header(res, fork_name))
-                        .unwrap())
+                    Ok(add_consensus_version_header(
+                        StatusCode::ACCEPTED.into_response(),
+                        fork_name,
+                    ))
                 }
             },
         );
@@ -1184,9 +1200,21 @@ pub fn serve<E: EthSpec>(
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
-    let (listening_socket, server) = warp::serve(routes)
-        .try_bind_ephemeral(SocketAddrV4::new(listen_addr, listen_port))
+    // Use a `std::net::TcpListener` here which keeps the parent `serve` function from needing to be async.
+    // Once the mock_builder server has been migrated to Axum, we can use the tokio listener directly
+    // since we will require async anyway.
+    let std_listener = std::net::TcpListener::bind(SocketAddrV4::new(listen_addr, listen_port))
         .expect("mock builder server should start");
+    std_listener
+        .set_nonblocking(true)
+        .expect("mock builder server should set nonblocking");
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .expect("mock builder server should convert to tokio listener");
+    let listening_socket = listener
+        .local_addr()
+        .expect("mock builder server should have a local address");
+
+    let server = warp::serve(routes).incoming(listener).run();
     Ok((listening_socket, server))
 }
 

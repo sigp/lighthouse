@@ -11,7 +11,7 @@ use crate::sync::network_context::{
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::AsBlock;
 use educe::Educe;
-use lighthouse_network::service::api_types::Id;
+use lighthouse_network::service::api_types::{CustodyRequester, Id, SingleLookupReqId};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -355,12 +355,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request.state.is_awaiting_event()
             || match &self.data_request {
-                DataRequest::WaitingForBlock => true,
+                // Not awaiting an event itself; it's blocked on the block request, already covered
+                // by the `block_request` term above. Returning `true` kept a peerless lookup parked
+                // in `AwaitingDownload` from being pruned, so it got stuck.
+                DataRequest::WaitingForBlock => false,
                 DataRequest::Request { state, .. } => state.is_awaiting_event(),
                 DataRequest::NoData => false,
             }
             || match &self.payload_request {
-                PayloadRequest::WaitingForBlock => true,
+                // See `data_request` above: not awaiting an event itself, the block request covers it.
+                PayloadRequest::WaitingForBlock => false,
                 PayloadRequest::Request { state, .. } => state.is_awaiting_event(),
                 PayloadRequest::PreGloas => false,
             }
@@ -375,13 +379,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let _guard = self.span.clone().entered();
 
         // === Block request ===
-        self.block_request.state.maybe_start_downloading(|| {
-            cx.block_lookup_request(self.id, self.peers.clone(), self.block_root)
-        })?;
+        self.block_request
+            .state
+            .maybe_start_downloading(|failed_peers| {
+                cx.block_lookup_request(self.id, self.peers.clone(), failed_peers, self.block_root)
+            })?;
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
-            cx.send_block_for_processing(self.id, self.block_root, data.value, data.seen_timestamp)
+            cx.send_block_for_processing(self.id, self.block_root, data.value)
                 .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 
@@ -390,12 +396,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             match &mut self.data_request {
                 DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
-                        let block_epoch = block
-                            .slot()
-                            .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
-                        self.data_request = if block.num_expected_blobs() == 0 {
-                            DataRequest::NoData
-                        } else if cx.chain.should_fetch_custody_columns(block_epoch) {
+                        self.data_request = if cx
+                            .chain
+                            .custody_context
+                            .data_columns_required_for_block(block)
+                        {
                             DataRequest::Request {
                                 slot: block.slot(),
                                 peers: self.get_data_peers(block.payload_bid_block_hash().ok()),
@@ -409,8 +414,20 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                 }
                 DataRequest::Request { slot, peers, state } => {
-                    state.maybe_start_downloading(|| {
-                        cx.custody_lookup_request(self.id, self.block_root, *slot, peers.clone())
+                    // Custody selects/de-prioritizes peers internally in `ActiveCustodyRequest`.
+                    state.maybe_start_downloading(|_| {
+                        let req_id = cx.next_id();
+                        cx.custody_lookup_request(
+                            CustodyRequester::SingleLookup(SingleLookupReqId {
+                                lookup_id: self.id,
+                                req_id,
+                            }),
+                            &[self.block_root],
+                            slot.epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch()),
+                            // single lookups consult the DA cache to skip gossip-imported columns
+                            false,
+                            peers.clone(),
+                        )
                     })?;
                     // Wait for the current block and parent to be imported, data column processing result handle does
                     // not support `ParentUnknown`.
@@ -422,7 +439,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             self.id,
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SingleCustodyColumn(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -451,8 +467,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                 }
                 PayloadRequest::Request { peers, state } => {
-                    state.maybe_start_downloading(|| {
-                        cx.payload_lookup_request(self.id, peers.clone(), self.block_root)
+                    state.maybe_start_downloading(|failed_peers| {
+                        cx.payload_lookup_request(
+                            self.id,
+                            peers.clone(),
+                            failed_peers,
+                            self.block_root,
+                        )
                     })?;
                     // The envelope can only be verified once the block itself is imported;
                     // otherwise processing returns `BlockRootUnknown` and the lookup burns retries
@@ -463,7 +484,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         cx.send_payload_for_processing(
                             self.block_root,
                             data.value,
-                            data.seen_timestamp,
                             BlockProcessType::SinglePayloadEnvelope(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -609,9 +629,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_block_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: PeerId,
         result: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
+        if result.is_err() {
+            self.block_request.state.record_failed_peer(peer_id);
+        }
         self.block_request
             .state
             .on_download_response(req_id, result)?;
@@ -629,6 +653,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             return Err(LookupRequestError::BadState("no data_request".to_owned()));
         };
 
+        // Custody requests track and de-prioritize failed peers internally in `ActiveCustodyRequest`.
         state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
@@ -637,6 +662,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_payload_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: PeerId,
         result: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
@@ -646,6 +672,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             ));
         };
 
+        if result.is_err() {
+            state.record_failed_peer(peer_id);
+        }
         state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
@@ -711,17 +740,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 #[derive(Debug, Clone)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
-    pub seen_timestamp: Duration,
     pub peer_group: PeerGroup,
 }
 
 impl<T: Clone> DownloadResult<T> {
-    pub fn new(value: T, peer_group: PeerGroup, seen_timestamp: Duration) -> Self {
-        Self {
-            value,
-            seen_timestamp,
-            peer_group,
-        }
+    pub fn new(value: T, peer_group: PeerGroup) -> Self {
+        Self { value, peer_group }
     }
 }
 
@@ -745,6 +769,9 @@ pub struct SingleLookupRequestState<T: Clone> {
     failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
+    /// Peers that have failed to serve this request. Used to de-prioritize them when selecting a
+    /// peer to retry the download from.
+    failed_peers: HashSet<PeerId>,
 }
 
 impl<T: Clone> SingleLookupRequestState<T> {
@@ -753,6 +780,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
             state: State::AwaitingDownload("not started"),
             failed_processing: 0,
             failed_downloading: 0,
+            failed_peers: HashSet::new(),
         }
     }
 
@@ -807,10 +835,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// Drive download: check max attempts, issue request, handle result.
     fn maybe_start_downloading(
         &mut self,
-        request_fn: impl FnOnce() -> Result<LookupRequestResult<T>, RpcRequestSendError>,
+        request_fn: impl FnOnce(&HashSet<PeerId>) -> Result<LookupRequestResult<T>, RpcRequestSendError>,
     ) -> Result<(), LookupRequestError> {
         if self.is_awaiting_download() {
-            match request_fn().map_err(LookupRequestError::SendFailedNetwork)? {
+            match request_fn(&self.failed_peers).map_err(LookupRequestError::SendFailedNetwork)? {
                 LookupRequestResult::RequestSent(req_id) => self.on_download_start(req_id)?,
                 LookupRequestResult::NoRequestNeeded(reason, value) => {
                     self.on_completed_request(reason, value)?
@@ -853,6 +881,11 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 "Bad state on_download_start expected AwaitingDownload got {other}"
             ))),
         }
+    }
+
+    /// Record a peer that failed to serve this request, to be de-prioritized on retry.
+    fn record_failed_peer(&mut self, peer_id: PeerId) {
+        self.failed_peers.insert(peer_id);
     }
 
     pub fn on_download_response(
