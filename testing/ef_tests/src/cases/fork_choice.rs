@@ -711,8 +711,8 @@ impl<E: EthSpec> Tester<E> {
         // The fast confirmation vectors list each slot's attestation steps before the tick that
         // moves the store to the next slot, so strict mode rejects every one of them. Keep the
         // queue path for those until the generator is fixed.
-        // TODO(fcr): remove once https://github.com/eserilev/consensus-specs/pull/1 lands
-        // upstream and the vectors are regenerated.
+        // TODO(fcr): remove once https://github.com/ethereum/consensus-specs/pull/5627 lands
+        // and the vectors are regenerated.
         if !case.fast_confirmation {
             harness
                 .chain
