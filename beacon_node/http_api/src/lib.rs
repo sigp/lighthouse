@@ -1504,6 +1504,10 @@ pub async fn serve<T: BeaconChainTypes>(
         &beacon_pool_path,
     );
 
+    // GET beacon/pool/payload_attestations
+    let get_beacon_pool_payload_attestations =
+        get_beacon_pool_payload_attestations(&beacon_pool_path);
+
     // POST beacon/pool/payload_attestations (SSZ)
     let post_beacon_pool_payload_attestations_ssz = post_beacon_pool_payload_attestations_ssz(
         eth_v1.clone(),
@@ -3406,6 +3410,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_pool_proposer_slashings)
                 .uor(get_beacon_pool_voluntary_exits)
                 .uor(get_beacon_pool_bls_to_execution_changes)
+                .uor(get_beacon_pool_payload_attestations)
                 .uor(get_beacon_rewards_blocks)
                 .uor(get_config_fork_schedule)
                 .uor(get_config_spec)
