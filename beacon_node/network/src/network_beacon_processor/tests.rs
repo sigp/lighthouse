@@ -1403,6 +1403,62 @@ async fn attestation_to_unknown_block_processed_after_rpc_block() {
     attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
 }
 
+#[tokio::test]
+async fn attestation_to_unknown_block_processed_after_engine_blobs() {
+    use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+    use beacon_chain::payload_envelope_verification::EnvelopeSource;
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::block::BlockImportSource;
+
+    // This block/data availability ordering applies only to Fulu.
+    let spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
+    rig.enqueue_next_block_unaggregated_attestation();
+    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
+        .await;
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_items(),
+        initial_attns
+    );
+
+    // Process the block directly, without starting the network processor's concurrent EL fetch.
+    // Withhold the columns so the explicit EL fetch below must finish importing the block.
+    let block_root = rig.next_block.canonical_root();
+    let result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Gossip,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+    assert_matches!(result, AvailabilityProcessingStatus::MissingComponents(..));
+
+    rig.network_beacon_processor
+        .fetch_engine_blobs_and_publish_full(
+            PartialHeaderOrBid::try_from_block(rig.next_block.as_ref()).unwrap(),
+            block_root,
+            false,
+            EnvelopeSource::Gossip,
+        )
+        .await;
+    assert_eq!(rig.head_root(), block_root);
+    rig.assert_event_journal_contains_ordered(&[WorkType::UnknownBlockAttestation])
+        .await;
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_items(),
+        initial_attns + 1
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {

@@ -2,7 +2,7 @@ use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use tracing::debug;
@@ -529,6 +529,41 @@ pub async fn handle_rpc<E: EthSpec>(
             let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
             Ok(serde_json::to_value(response).unwrap())
         }
+        ENGINE_GET_BLOBS_V4 => {
+            let versioned_hashes =
+                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let indices_bitarray = get_param::<CustodyColumnsBitArray>(params, 1)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let requested_indices = indices_bitarray
+                .iter_set_bits()
+                .map(|i| i as usize)
+                .collect::<Vec<_>>();
+
+            let generator = ctx.execution_block_generator.read();
+            let response = versioned_hashes
+                .iter()
+                .map(|hash| {
+                    // Pre-Fulu blobs have no cells and cannot be served over V4.
+                    let Some((cells, cell_proofs)) = generator.get_blob_cells_and_proofs(hash)
+                    else {
+                        return Ok(None);
+                    };
+                    let mut blob_cells = Vec::with_capacity(requested_indices.len());
+                    let mut proofs = Vec::with_capacity(requested_indices.len());
+                    for &index in &requested_indices {
+                        let (cell, proof) =
+                            cells.get(index).zip(cell_proofs.get(index)).ok_or((
+                                format!("cell index {index} out of range"),
+                                BAD_PARAMS_ERROR_CODE,
+                            ))?;
+                        blob_cells.push(Some(JsonCell(cell.clone())));
+                        proofs.push(Some(*proof));
+                    }
+                    Ok(Some(BlobCellsAndProofsV1::<E> { blob_cells, proofs }))
+                })
+                .collect::<Result<Vec<_>, (String, i64)>>()?;
+            Ok(serde_json::to_value(response).unwrap())
+        }
         ENGINE_GET_INCLUSION_LIST_V1 => {
             let transactions = ctx.execution_block_generator.read().get_inclusion_list();
 
@@ -800,58 +835,6 @@ pub async fn handle_rpc<E: EthSpec>(
                             block_access_list: payload.block_access_list().ok().cloned(),
                         };
                         response.push(Some(JsonExecutionPayloadBodyV2::from(payload_body)));
-                    }
-                    None => response.push(None),
-                }
-            }
-
-            Ok(serde_json::to_value(response).unwrap())
-        }
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
-            #[derive(Deserialize)]
-            #[serde(transparent)]
-            struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
-
-            let start = get_param::<Quantity>(params, 0)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-            let count = get_param::<Quantity>(params, 1)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-
-            let mut response = vec![];
-            for block_num in start..(start + count) {
-                let maybe_payload = ctx
-                    .execution_block_generator
-                    .read()
-                    .execution_payload_by_number(block_num);
-
-                match maybe_payload {
-                    Some(payload) => {
-                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
-                            transactions: payload
-                                .transactions()
-                                .iter()
-                                .map(|tx| {
-                                    types::Transaction::<E::MaxBytesPerTransaction>::new(
-                                        tx.to_vec(),
-                                    )
-                                })
-                                .collect::<Result<Vec<_>, _>>()
-                                .and_then(ssz_types::VariableList::new)
-                                .unwrap(),
-                            withdrawals: payload
-                                .withdrawals()
-                                .ok()
-                                .map(|withdrawals| {
-                                    ssz_types::VariableList::new(withdrawals.to_vec())
-                                })
-                                .transpose()
-                                .unwrap(),
-                        };
-                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
-                            payload_body.try_into().unwrap();
-                        response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
                 }
