@@ -6,6 +6,8 @@ use types::{EthSpec, ForkName, Hash256, LightClientHeader, Slot};
 /// Bootstrap initialization inherits the caller's trust in the supplied finalized block root;
 /// the bootstrap does not independently prove finality. Later light-client processing may only
 /// advance this header through verified supermajority finality, never through a force update.
+/// The signing committee must itself be authenticated from the trusted bootstrap; a committee
+/// learned only via force update cannot establish checkpoint finality.
 /// There is deliberately no public constructor or deserialization implementation.
 ///
 /// Transport code cannot promote a decoded header directly:
@@ -30,7 +32,7 @@ impl<E: EthSpec> VerifiedFinalizedHeader<E> {
         Self::new(header, fork)
     }
 
-    /// The caller must have verified the finality proof and a supermajority signature.
+    /// The caller must have verified finality and a supermajority from an authenticated committee.
     pub(crate) fn from_verified_finality(header: LightClientHeader<E>, fork: ForkName) -> Self {
         Self::new(header, fork)
     }
