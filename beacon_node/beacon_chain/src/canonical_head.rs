@@ -54,7 +54,7 @@ use fast_confirmation::{
 };
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
-    ProtoBlock, ResetPayloadStatuses,
+    ProtoBlock,
 };
 use itertools::process_results;
 
@@ -66,6 +66,7 @@ use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::complete_state_advance;
 use std::ops::{Deref, DerefMut};
 use std::panic::Location;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use store::{
@@ -268,7 +269,7 @@ struct FcrOutcome {
     confirmed_root: Hash256,
     confirmed_slot: Slot,
     confirmed_block_hash: ExecutionBlockHash,
-    new_confirmed_root: bool,
+    old_confirmed_root: Hash256,
     new_update_slot: bool,
 }
 
@@ -458,6 +459,8 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
     /// Per-validator committee slot assignments across the last 3 epochs.
     pub slot_assignments: Mutex<SlotAssignments>,
+    /// Set when fork choice has diverged from the store. Poisoned fork choice is never persisted.
+    fork_choice_poisoned: AtomicBool,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -507,89 +510,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             recompute_head_lock: Mutex::new(()),
             fast_confirmation: fcr,
             slot_assignments: Mutex::new(slot_assignments),
+            fork_choice_poisoned: AtomicBool::new(false),
         })
     }
 
-    /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
-    /// state.
-    ///
-    /// This is useful if some database corruption is expected and we wish to go back to our last
-    /// save-point.
-    pub(crate) fn restore_from_store(
-        &self,
-        // We don't actually need this value, however it's always present when we call this function
-        // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
-        // defensive programming.
-        mut fork_choice_write_lock: ForkChoiceWriteGuard<T>,
-        reset_payload_statuses: ResetPayloadStatuses,
-        store: &BeaconStore<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let mut fork_choice =
-            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
-                .ok_or(Error::MissingPersistedForkChoice)?;
-        let current_slot_for_head = fork_choice.fc_store().get_current_slot();
-        let (_, head_payload_status) = fork_choice.get_head(current_slot_for_head, spec)?;
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let beacon_block_root = fork_choice_view.head_block_root;
-        let beacon_block = store
-            .get_full_block(&beacon_block_root)?
-            .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let current_slot = fork_choice.fc_store().get_current_slot();
+    /// Mark fork choice as poisoned so it is never persisted.
+    pub fn poison_fork_choice(&self) {
+        self.fork_choice_poisoned.store(true, Ordering::Relaxed);
+    }
 
-        let (_, beacon_state) = store
-            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
-            .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
-
-        // Load the execution envelope from the store if the head has a Full payload.
-        let execution_envelope = if head_payload_status == PayloadStatus::Full {
-            store
-                .get_payload_envelope(&beacon_block_root)?
-                .map(Arc::new)
-        } else {
-            None
-        };
-
-        let snapshot = Arc::new(BeaconSnapshot {
-            beacon_block_root,
-            execution_envelope,
-            beacon_block: Arc::new(beacon_block),
-            beacon_state,
-        });
-
-        let slot_assignments = SlotAssignments::new(&snapshot.beacon_state, spec, None)
-            .map_err(|e| Error::DBInconsistent(format!("slot assignments reset: {e:?}")))?;
-
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
-        let cached_head = CachedHead {
-            snapshot: snapshot.clone(),
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_payload_status,
-            head_hash: forkchoice_update_params.head_hash,
-            justified_hash: forkchoice_update_params.justified_hash,
-            finalized_hash: forkchoice_update_params.finalized_hash,
-        };
-
-        *fork_choice_write_lock = fork_choice;
-        // Avoid interleaving the fork choice and cached head locks.
-        drop(fork_choice_write_lock);
-        *self.cached_head.write() = cached_head;
-
-        // Reset FCR to the restored finalized checkpoint so it doesn't carry stale state.
-        if let Some(ref fcr_mutex) = self.fast_confirmation {
-            *fcr_mutex.lock() = <BeaconChain<T>>::new_fast_confirmation_rule(
-                fork_choice_view.finalized_checkpoint,
-                &snapshot,
-                slot_assignments.clone(),
-                store,
-                spec,
-            )
-            .map_err(|e| Error::DBInconsistent(format!("fast confirmation rule reset: {e:?}")))?;
-        }
-        *self.slot_assignments.lock() = slot_assignments;
-
-        Ok(())
+    /// Returns `true` if fork choice has diverged from the store.
+    pub fn fork_choice_poisoned(&self) -> bool {
+        self.fork_choice_poisoned.load(Ordering::Relaxed)
     }
 
     /// Returns the execution status of the block at the head of the beacon chain.
@@ -859,6 +791,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
+        if self.canonical_head.fork_choice_poisoned() {
+            debug!("Skipping head recomputation: fork choice is poisoned");
+            return Ok(None);
+        }
+
         let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
         // Take a clone of the current ("old") head.
@@ -971,7 +908,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     confirmed_root,
                     confirmed_slot,
                     confirmed_block_hash,
-                    new_confirmed_root,
+                    old_confirmed_root,
                     new_update_slot,
                 }) => {
                     // FC update params are only updated after successful FCR runs. This is
@@ -982,21 +919,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let delay = current_slot
                         .as_u64()
                         .saturating_sub(confirmed_slot.as_u64());
-                    metrics::set_gauge(&fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
+                    metrics::set_gauge(&fcr_metrics::FAST_CONFIRMATION_DELAY_SLOTS, delay as i64);
                     metrics::set_gauge(
-                        &fcr_metrics::FCR_CONFIRMED_ROOT_SLOT,
+                        &fcr_metrics::FAST_CONFIRMATION_SLOT,
                         confirmed_slot.as_u64() as i64,
                     );
                     // Sample the settled-delay histogram only on the first recompute that advanced
                     // FCR's per-slot update, so intra-slot block-import recomputes don't bias it.
                     if new_update_slot {
                         metrics::observe(
-                            &fcr_metrics::FCR_SETTLED_CONFIRMATION_DELAY_SLOTS,
+                            &fcr_metrics::FAST_CONFIRMATION_SETTLED_DELAY_SLOTS,
                             delay as f64,
                         );
                     }
-                    if new_confirmed_root {
-                        metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                    if confirmed_root != old_confirmed_root {
+                        metrics::inc_counter(&fcr_metrics::FAST_CONFIRMATION_ROOT_CHANGES);
+                    }
+
+                    // Runs every time, not only when the confirmed root moves: the head can reorg
+                    // off a block FCR still confirms. A pruned `old_confirmed_root` is an ancestor
+                    // of finality, which `is_descendant` cannot tell apart from a reorg.
+                    let head_root = new_view.head_block_root;
+                    if let Some(old_confirmed_slot) = fork_choice_read_lock
+                        .get_block(&old_confirmed_root)
+                        .map(|block| block.slot)
+                        && !fork_choice_read_lock.is_descendant(old_confirmed_root, head_root)
+                    {
+                        let fcr_reorg = !fork_choice_read_lock
+                            .is_descendant(old_confirmed_root, confirmed_root);
+                        let reorg_distance = fork_choice_read_lock
+                            .proto_array()
+                            .common_ancestor_slot(old_confirmed_root, head_root)
+                            .map(|ancestor_slot| old_confirmed_slot.saturating_sub(ancestor_slot));
+
+                        if let Some(reorg_distance) = reorg_distance {
+                            metrics::set_gauge(
+                                &fcr_metrics::FAST_CONFIRMATION_REORG_DISTANCE,
+                                reorg_distance.as_u64() as i64,
+                            );
+                        }
+                        metrics::inc_counter(&fcr_metrics::FAST_CONFIRMATION_REORGS);
+                        if fcr_reorg {
+                            metrics::inc_counter(&fcr_metrics::FAST_CONFIRMATION_ROOT_REORGS);
+                        }
+                        warn!(
+                            previous_confirmed = ?old_confirmed_root,
+                            previous_confirmed_slot = %old_confirmed_slot,
+                            head = ?head_root,
+                            confirmed = ?confirmed_root,
+                            fcr_reorg,
+                            slot = %current_slot,
+                            ?reorg_distance,
+                            "FCR confirmed block was reorged out"
+                        );
                     }
 
                     // Emit a `fast_confirmation` event on every FCR run, regardless of
@@ -1015,7 +990,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 Err(e) => {
                     let label: &'static str = (&e).into();
-                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                    metrics::inc_counter_vec(&fcr_metrics::FAST_CONFIRMATION_ERRORS, &[label]);
                     error!("Error running FCR: {e:?}");
                 }
             }
@@ -1328,7 +1303,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_state: &BeaconState<T::EthSpec>,
         slot_assignments: &SlotAssignments,
     ) -> Result<FcrOutcome, FastConfirmationError> {
-        let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
+        let _fcr_timer = metrics::start_timer(&fcr_metrics::FAST_CONFIRMATION_TIMES);
         let old_confirmed_root = fcr.confirmed_root;
 
         let finalized_cp = fork_choice.finalized_checkpoint();
@@ -1377,7 +1352,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_root: fcr.confirmed_root,
             confirmed_slot: confirmed_node.slot,
             confirmed_block_hash,
-            new_confirmed_root: fcr.confirmed_root != old_confirmed_root,
+            old_confirmed_root,
             new_update_slot: fcr.last_update_slot() != old_update_slot,
         })
     }
@@ -1709,8 +1684,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Persist fork choice to disk, writing immediately.
+    ///
+    /// Fails if fork choice is poisoned.
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+
+        if self.canonical_head.fork_choice_poisoned() {
+            crit!(
+                advice = "restarting the node will recover the last consistent fork choice \
+                          from disk",
+                "Refusing to persist poisoned fork choice"
+            );
+            return Err(Error::ForkChoicePoisoned);
+        }
+
         let batch = vec![self.persist_fork_choice_in_batch()?];
         self.store.hot_db.do_atomically(batch)?;
         Ok(())
