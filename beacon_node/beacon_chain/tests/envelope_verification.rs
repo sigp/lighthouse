@@ -1,3 +1,4 @@
+use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
@@ -144,29 +145,23 @@ async fn lookup_imports_gloas_payload_after_restart() {
     let store = harness.chain.store.clone();
     let slot_clock = harness.chain.slot_clock.clone();
     drop(harness);
-    let resume = || {
-        BeaconChainHarness::builder(E::default())
-            .spec(spec.clone())
-            .deterministic_keypairs(64)
-            .resumed_ephemeral_store(store.clone())
-            .mock_execution_layer()
-            .mock_execution_layer_all_payloads_valid()
-            .testing_slot_clock(slot_clock.clone())
-            .build()
-    };
+    let resumed = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(64)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .testing_slot_clock(slot_clock)
+        .build();
+    let chain = &resumed.chain;
+    let cache = &chain.pending_payload_cache;
     let envelope = Arc::new(envelope.expect("Gloas block should produce an envelope"));
 
-    let proof_resumed = resume();
     assert!(
-        proof_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_none(),
+        cache.get_bid(&block_root).is_none(),
         "the pending bid cache should start empty after restart"
     );
-    let proof_status = proof_resumed
-        .chain
+    let proof_status = chain
         .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
             proof: Arc::new(SignedExecutionProof {
                 message: ExecutionProof {
@@ -184,66 +179,27 @@ async fn lookup_imports_gloas_payload_after_restart() {
         })
         .await
         .expect("execution proof should be accepted after restart");
-    assert!(matches!(
-        proof_status,
-        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
-    ));
-    assert!(
-        proof_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_some(),
-        "execution-proof processing should restore the persisted bid"
-    );
-    drop(proof_resumed);
+    assert!(matches!(proof_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
 
-    let column_resumed = resume();
-
-    assert!(
-        column_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_none(),
-        "the pending bid cache should start empty after restart"
-    );
-
-    let column_status = column_resumed
-        .chain
+    // Evict the recovered bid so columns must also handle a cache miss.
+    cache.do_maintenance(Epoch::new(1)).unwrap();
+    assert!(cache.get_bid(&block_root).is_none());
+    let column_status = chain
         .process_rpc_custody_columns(custody_columns.clone())
         .await
-        .expect("custody columns should be accepted after restart");
-    assert!(matches!(
-        column_status,
-        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
-    ));
-    assert!(
-        column_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_some(),
-        "custody-column processing should restore the persisted bid"
-    );
-    drop(column_resumed);
+        .expect("custody columns should be accepted with an empty cache");
+    assert!(matches!(column_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
 
-    let envelope_resumed = resume();
-    assert!(
-        envelope_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_none(),
-        "the pending bid cache should start empty after restart"
-    );
-    let verified_envelope = envelope_resumed
-        .chain
+    // Evict the columns too, so the envelope arrives first.
+    cache.do_maintenance(Epoch::new(1)).unwrap();
+    assert!(cache.get_bid(&block_root).is_none());
+    let verified_envelope = chain
         .verify_envelope_for_gossip(envelope, EnvelopeSource::Rpc)
         .await
         .expect("envelope should verify");
-    let envelope_status = envelope_resumed
-        .chain
+    let envelope_status = chain
         .process_execution_payload_envelope(
             block_root,
             verified_envelope,
@@ -253,27 +209,13 @@ async fn lookup_imports_gloas_payload_after_restart() {
         )
         .await
         .expect("envelope should be accepted after restart");
-    assert!(matches!(
-        envelope_status,
-        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..)
-    ));
-    assert!(
-        envelope_resumed
-            .chain
-            .pending_payload_cache
-            .get_bid(&block_root)
-            .is_some(),
-        "envelope processing should restore the persisted bid"
-    );
-    let import_status = envelope_resumed
-        .chain
+    assert!(matches!(envelope_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
+    let import_status = chain
         .process_rpc_custody_columns(custody_columns)
         .await
         .expect("custody columns should complete the payload import");
-    assert!(matches!(
-        import_status,
-        beacon_chain::AvailabilityProcessingStatus::Imported(..)
-    ));
+    assert!(matches!(import_status, Imported(..)));
 }
 
 /// An envelope whose `execution_requests` don't hash to the bid's committed

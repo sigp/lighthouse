@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, error, instrument};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    PartialDataColumn, PartialDataColumnView,
+    PartialDataColumnRef, PartialDataColumnView,
 };
 
 mod pending_column;
@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
-        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+        partial_data_column: PartialDataColumnRef<'a, T::EthSpec>,
     ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
         let block_root = *partial_data_column.block_root();
         let column_index = *partial_data_column.index();

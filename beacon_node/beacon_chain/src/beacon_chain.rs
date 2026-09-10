@@ -25,10 +25,10 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
-    PartialColumnVerificationResult, VerifiedPartialHeaderOrBid, load_gloas_payload_bid,
-    validate_partial_data_column_sidecar_for_gossip,
+    GossipVerifiedPartialDataColumn, GossipVerifiedPartialDataColumnHeader,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnFulu,
+    KzgVerifiedCustodyPartialDataColumnGloas, PartialColumnVerificationResult,
+    load_gloas_payload_bid, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
@@ -2514,7 +2514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &chain,
                     seen_timestamp,
                 );
-                if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+                if matches!(ret, PartialColumnVerificationResult::Ok(_)) {
                     metrics::inc_counter(
                         &metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
                     );
@@ -3444,43 +3444,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Process a gossip-verified partial data column by attempting to merge it into the appropriate
     /// store for its fork (the Fulu assembler, or the Gloas pending payload cache). Returns the
     /// merge result, which indicates whether any column was completed.
-    ///
-    /// `header_or_bid` must be the source used to verify the partial column.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
-        verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        header_or_bid: VerifiedPartialHeaderOrBid<T::EthSpec>,
-        slot: Slot,
+        verified_partial: GossipVerifiedPartialDataColumn<T::EthSpec>,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
-        let block_root = verified_partial.block_root();
-        let column_index = verified_partial.index();
+        let slot = verified_partial.slot();
+        let column = verified_partial.as_partial_column();
+        let block_root = *column.block_root();
+        let column_index = *column.index();
         let index_str = column_index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
-            verified_partial.sidecar().column().len() as u64,
+            column.sidecar().column().len() as u64,
         );
 
         // Check if we have custody of this column
         let sampling_columns = self
             .custody_context
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        let verified_partial = if sampling_columns.contains(&column_index) {
-            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
-        } else {
+        if !sampling_columns.contains(&column_index) {
             return Ok(None);
-        };
+        }
 
         if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let (merge_result, gloas_availability) = match (verified_partial, header_or_bid) {
-            (
-                KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial),
-                VerifiedPartialHeaderOrBid::PartialHeader(header),
-            ) => {
+        let (merge_result, gloas_availability) = match verified_partial {
+            GossipVerifiedPartialDataColumn::PreGloas { column, header } => {
+                let verified_partial =
+                    KzgVerifiedCustodyPartialDataColumnFulu::from_asserted_custody(column);
                 // Fulu: merge via the partial assembler.
                 let Some(assembler) = self.data_availability_checker.partial_assembler() else {
                     // Partial messages are apparently not activated
@@ -3493,21 +3488,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })?;
                 (merge_result, None)
             }
-            (
-                KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial),
-                VerifiedPartialHeaderOrBid::Bid(bid),
-            ) => {
+            GossipVerifiedPartialDataColumn::PostGloas { column, bid } => {
+                let verified_partial =
+                    KzgVerifiedCustodyPartialDataColumnGloas::from_asserted_custody(column);
                 // Gloas: merge directly into the pending payload cache.
                 let (availability, merge_result) = self
                     .pending_payload_cache
                     .merge_partial_data_columns(block_root, &[verified_partial], &bid)
                     .map_err(BlockError::from)?;
                 (merge_result, Some(availability))
-            }
-            _ => {
-                return Err(BlockError::InternalError(
-                    "Partial data column and commitments source use different forks".to_string(),
-                ));
             }
         };
 
