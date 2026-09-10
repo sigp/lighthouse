@@ -186,11 +186,11 @@ Flags:
           validators-dir. Validators will need to be manually added to the
           validator_definitions.yml file.
       --disable-beacon-head-monitor
-          Disable the beacon head monitor which tries to attest as soon as any
-          of the configured beacon nodes sends a head event. Leaving the service
-          enabled is recommended, but disabling it can lead to reduced bandwidth
-          and more predictable usage of the primary beacon node (rather than the
-          fastest BN).
+          Disable the beacon head monitor which triggers attestations and sync
+          committee messages when a configured beacon node sends a head event.
+          Leaving it enabled is recommended, but disabling it can lead to
+          reduced bandwidth and more predictable usage of the primary beacon
+          node (rather than the fastest BN).
       --disable-latency-measurement-service
           Disables the service that periodically attempts to measure latency to
           BNs.
