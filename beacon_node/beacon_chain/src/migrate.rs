@@ -773,7 +773,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
-                    StoreOp::DeletePayloadEnvelope(block_root),
+                    StoreOp::DeletePayloadWithSummary(block_root),
                     StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })
@@ -814,7 +814,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
             // that payloads are present for slots >= the split slot.
             if *slot < new_finalized_slot {
                 hot_db_ops.push(StoreOp::DeleteExecutionPayload(*block_root));
-                hot_db_ops.push(StoreOp::DeletePayloadEnvelopePayload(*block_root));
+                hot_db_ops.push(StoreOp::DeletePayload(*block_root));
             }
         }
     }

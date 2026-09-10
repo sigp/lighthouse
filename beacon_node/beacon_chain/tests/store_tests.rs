@@ -37,7 +37,7 @@ use rand::rngs::StdRng;
 use rand_xorshift::XorShiftRng;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
@@ -2031,6 +2031,148 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     }
 
     assert!(!rig.knows_head(&stray_head));
+
+    check_db_invariants(&rig);
+}
+
+#[tokio::test]
+async fn prunes_payload_envelopes_from_multiple_pre_finalization_forks() {
+    const CANONICAL_VALIDATOR_COUNT: usize = 32;
+    const FORK_VALIDATOR_COUNT: usize = 16;
+    const VALIDATOR_COUNT: usize = CANONICAL_VALIDATOR_COUNT + 2 * FORK_VALIDATOR_COUNT;
+
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let canonical_validators: Vec<usize> = (0..CANONICAL_VALIDATOR_COUNT).collect();
+    let fork_one_validators: Vec<usize> =
+        (CANONICAL_VALIDATOR_COUNT..CANONICAL_VALIDATOR_COUNT + FORK_VALIDATOR_COUNT).collect();
+    let fork_two_validators: Vec<usize> =
+        (CANONICAL_VALIDATOR_COUNT + FORK_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let rig = get_harness(store.clone(), VALIDATOR_COUNT);
+
+    let common_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
+    let (common_blocks, _, _, common_state) = rig
+        .add_attested_blocks_at_slots(
+            rig.get_current_state(),
+            &common_slots,
+            &canonical_validators,
+        )
+        .await;
+
+    let branch_start = rig.epoch_start_slot(1) + 1;
+    let branch_end = rig.epoch_start_slot(2);
+    let branch_slots = |start| (start..branch_end).map(Slot::new).collect::<Vec<_>>();
+    let mut branches = rig
+        .add_blocks_on_multiple_chains(vec![
+            (
+                common_state.clone(),
+                branch_slots(branch_start),
+                canonical_validators,
+            ),
+            (
+                common_state.clone(),
+                branch_slots(branch_start + 1),
+                fork_one_validators,
+            ),
+            (
+                common_state,
+                branch_slots(branch_start + 2),
+                fork_two_validators,
+            ),
+        ])
+        .await
+        .into_iter();
+
+    let (canonical_branch_blocks, _, canonical_head, canonical_state) = branches.next().unwrap();
+    let (fork_one_blocks, _, fork_one_head, _) = branches.next().unwrap();
+    let (fork_two_blocks, _, fork_two_head, _) = branches.next().unwrap();
+    assert!(branches.next().is_none());
+    assert_ne!(canonical_head, fork_one_head);
+    assert_ne!(canonical_head, fork_two_head);
+    assert_ne!(fork_one_head, fork_two_head);
+    assert_eq!(canonical_state.finalized_checkpoint().epoch, Epoch::new(0));
+
+    // Every block on every branch has a complete envelope prior to finalization.
+    for block_hash in common_blocks
+        .values()
+        .chain(canonical_branch_blocks.values())
+        .chain(fork_one_blocks.values())
+        .chain(fork_two_blocks.values())
+    {
+        let block_root = (*block_hash).into();
+        assert!(
+            store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_some(),
+            "summary for pre-finalization block {block_root:?} should exist"
+        );
+        assert!(
+            store.get_envelope_payload(&block_root).unwrap().is_some(),
+            "payload for pre-finalization block {block_root:?} should exist"
+        );
+    }
+
+    // Extend the canonical branch far enough to finalize every block from the forked region.
+    let finalization_slots: Vec<Slot> = (branch_end..=rig.epoch_start_slot(6))
+        .map(Slot::new)
+        .collect();
+    let (finalization_blocks, _, _, final_state) = rig
+        .add_attested_blocks_at_slots(canonical_state, &finalization_slots, &all_validators)
+        .await;
+    let finalized_slot = final_state
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    assert!(finalized_slot >= Slot::new(branch_end));
+
+    // Canonical summaries remain available, but every payload body before finalization is pruned.
+    for (&slot, block_hash) in common_blocks
+        .iter()
+        .chain(canonical_branch_blocks.iter())
+        .chain(finalization_blocks.iter())
+    {
+        if slot >= finalized_slot {
+            continue;
+        }
+
+        let block_root = (*block_hash).into();
+        assert!(rig.block_exists(*block_hash));
+        assert!(
+            store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_some(),
+            "summary for finalized canonical block {block_root:?} should be retained"
+        );
+        assert!(
+            store.get_envelope_payload(&block_root).unwrap().is_none(),
+            "payload for finalized canonical block {block_root:?} should be pruned"
+        );
+        assert!(store.get_payload_envelope(&block_root).unwrap().is_none());
+    }
+
+    // Abandoned branches are removed completely, including their summaries and payload bodies.
+    for block_hash in fork_one_blocks.values().chain(fork_two_blocks.values()) {
+        let block_root = (*block_hash).into();
+        assert!(!rig.block_exists(*block_hash));
+        assert!(
+            store
+                .get_payload_envelope_summary(&block_root)
+                .unwrap()
+                .is_none(),
+            "summary for abandoned block {block_root:?} should be pruned"
+        );
+        assert!(store.get_envelope_payload(&block_root).unwrap().is_none());
+        assert!(store.get_payload_envelope(&block_root).unwrap().is_none());
+    }
 
     check_db_invariants(&rig);
 }
@@ -4382,6 +4524,9 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    let has_reached_gloas = spec
+        .fork_name_at_slot::<E>(Slot::new(num_blocks_produced))
+        .gloas_enabled();
 
     let chain_config = ChainConfig {
         archive,
@@ -4416,9 +4561,14 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
     // Re-open the store.
     let store = get_store_generic(&db_path, store_config, spec);
 
-    // Downgrade.
-    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version)
-        .expect("schema downgrade to minimum version should work");
+    // Downgrade. This is unsupported once the chain has reached Gloas.
+    let downgrade_result =
+        migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version);
+    if has_reached_gloas {
+        downgrade_result.expect_err("schema downgrade after Gloas should fail");
+        return;
+    }
+    downgrade_result.expect("schema downgrade to minimum version should work");
 
     // Upgrade back.
     migrate_schema::<DiskHarnessType<E>>(store.clone(), min_version, CURRENT_SCHEMA_VERSION)
@@ -4648,22 +4798,26 @@ async fn payload_envelope_schema_v31_migration() {
     );
 
     migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(31), SchemaVersion(30))
-        .expect("schema downgrade to v30 should succeed");
+        .expect_err("schema downgrade after Gloas should fail");
     assert!(
         store
             .get_payload_envelope_summary(&block_root)
             .unwrap()
-            .is_none()
+            .is_some()
     );
-    let envelope_bytes = store
-        .hot_db
-        .get_bytes(DBColumn::PayloadEnvelope, block_root.as_slice())
-        .unwrap()
-        .expect("v30 envelope should exist");
     assert_eq!(
-        SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(&envelope_bytes).unwrap(),
-        envelope
+        store.get_payload_envelope(&block_root).unwrap(),
+        Some(envelope)
     );
+}
+
+#[tokio::test]
+async fn payload_envelope_schema_v31_downgrade_before_gloas() {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
+
+    migrate_schema::<DiskHarnessType<E>>(store, SchemaVersion(31), SchemaVersion(30))
+        .expect("schema downgrade before Gloas should succeed");
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.

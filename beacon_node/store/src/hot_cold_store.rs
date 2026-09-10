@@ -1387,7 +1387,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     }
                 }
 
-                StoreOp::DeletePayloadEnvelope(block_root) => {
+                StoreOp::DeletePayloadWithSummary(block_root) => {
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         DBColumn::PayloadSummary,
                         block_root.as_slice().to_vec(),
@@ -1399,7 +1399,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     ))
                 }
 
-                StoreOp::DeletePayloadEnvelopePayload(block_root) => {
+                StoreOp::DeletePayload(block_root) => {
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         DBColumn::PayloadEnvelope,
                         block_root.as_slice().to_vec(),
@@ -1647,9 +1647,9 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                         guard.delete_block(&block_root);
                     }
 
-                    StoreOp::DeletePayloadEnvelope(_) => (),
+                    StoreOp::DeletePayloadWithSummary(_) => (),
 
-                    StoreOp::DeletePayloadEnvelopePayload(_) => (),
+                    StoreOp::DeletePayload(_) => (),
 
                     StoreOp::DeleteState(_, _) => (),
 
@@ -3312,7 +3312,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
                 if self.get_envelope_payload(&block_root)?.is_some() {
                     debug!(%slot, ?block_root, "Pruning payload envelope body");
-                    ops.push(StoreOp::DeletePayloadEnvelopePayload(block_root));
+                    ops.push(StoreOp::DeletePayload(block_root));
                 }
 
                 last_pruned_block_root = Some(block_root);
@@ -4243,9 +4243,7 @@ mod tests {
         );
 
         store
-            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
-                full_block_root,
-            )])
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(full_block_root)])
             .expect("envelope payload should be pruned");
 
         assert!(

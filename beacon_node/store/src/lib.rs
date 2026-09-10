@@ -236,8 +236,8 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
-    DeletePayloadEnvelope(Hash256),
-    DeletePayloadEnvelopePayload(Hash256),
+    DeletePayloadWithSummary(Hash256),
+    DeletePayload(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -598,9 +598,7 @@ mod tests {
         assert!(store.get_payload_envelope(&block_root).unwrap().is_some());
 
         store
-            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
-                block_root,
-            )])
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(block_root)])
             .unwrap();
         assert!(
             store
@@ -613,7 +611,7 @@ mod tests {
         assert!(store.payload_envelope_exists(&block_root).unwrap());
 
         store
-            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelope(
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadWithSummary(
                 block_root,
             )])
             .unwrap();

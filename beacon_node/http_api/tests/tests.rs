@@ -5126,9 +5126,7 @@ impl ApiTester {
         // envelope from the retained summary and the payload body returned by the mock EL.
         self.chain
             .store
-            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelopePayload(
-                block_root,
-            )])
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(block_root)])
             .unwrap();
         assert!(
             self.chain

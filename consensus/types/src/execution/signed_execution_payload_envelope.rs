@@ -286,26 +286,11 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
         withdrawals: ProgressiveWithdrawals,
         block_access_list: BlockAccessList,
     ) -> SignedExecutionPayloadEnvelope<E> {
-        let Self {
-            payload_header,
-            execution_requests,
-            builder_index,
-            beacon_block_root,
-            parent_beacon_block_root,
-            signature,
-        } = self;
-        let payload = payload_header.into_payload(transactions, withdrawals, block_access_list);
-
-        SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
-                payload,
-                execution_requests,
-                builder_index,
-                beacon_block_root,
-                parent_beacon_block_root,
-            },
-            signature,
-        }
+        let payload =
+            self.payload_header
+                .clone()
+                .into_payload(transactions, withdrawals, block_access_list);
+        self.into_envelope(payload)
     }
 }
 #[cfg(test)]
