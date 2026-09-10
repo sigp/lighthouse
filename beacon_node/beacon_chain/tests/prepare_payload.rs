@@ -13,7 +13,7 @@ use bls::Keypair;
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
-use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
+use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use ssz_types::ProgressiveVariableList;
@@ -486,21 +486,24 @@ async fn prepare_payload_generic(
         carried_withdrawals
     };
 
+    let expected_attributes = PayloadAttributes::new(
+        compute_timestamp_at_slot(&advanced_empty_state, prepare_slot, &spec).unwrap(),
+        *advanced_empty_state
+            .get_randao_mix(advanced_empty_state.current_epoch())
+            .unwrap(),
+        suggested_fee_recipient,
+        Some(expected_withdrawals),
+        Some(advanced_empty_state.latest_block_header().canonical_root()),
+        Some(prepare_slot.as_u64()),
+        Some(target_gas_limit),
+        spec.fork_name_at_slot::<E>(prepare_slot)
+            .heze_enabled()
+            .then(ProgressiveTransactions::default),
+    );
+
     assert_eq!(
-        attributes,
-        PayloadAttributes::V4(PayloadAttributesV4 {
-            timestamp: compute_timestamp_at_slot(&advanced_empty_state, prepare_slot, &spec)
-                .unwrap(),
-            prev_randao: *advanced_empty_state
-                .get_randao_mix(advanced_empty_state.current_epoch())
-                .unwrap(),
-            suggested_fee_recipient,
-            withdrawals: expected_withdrawals,
-            parent_beacon_block_root: advanced_empty_state.latest_block_header().canonical_root(),
-            slot_number: prepare_slot.as_u64(),
-            target_gas_limit,
-        }),
-        "prepare_beacon_proposer should cache the expected V4 payload attributes for the \
+        attributes, expected_attributes,
+        "prepare_beacon_proposer should cache the expected payload attributes for the \
          {parent_payload_status:?} parent"
     );
 
