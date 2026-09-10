@@ -39,7 +39,7 @@ pub struct Inner<S, T> {
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
     payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>,
-    latest_voted_slot: Mutex<Slot>,
+    latest_voted_slot: Mutex<Option<Slot>>,
 }
 
 pub struct PayloadAttestationService<S, T> {
@@ -85,7 +85,7 @@ where
                 executor,
                 chain_spec,
                 payload_available_rx,
-                latest_voted_slot: Mutex::new(Slot::default()),
+                latest_voted_slot: Mutex::new(None),
             }),
         }
     }
@@ -161,11 +161,11 @@ where
 
         let mut last_slot = self.latest_voted_slot.lock().await;
 
-        if attestation_slot <= *last_slot {
+        if last_slot.is_some_and(|last_slot| attestation_slot <= last_slot) {
             debug!(%attestation_slot, "Payload attestation already produced for this slot");
             return Ok(());
         }
-        *last_slot = attestation_slot;
+        *last_slot = Some(attestation_slot);
         drop(last_slot);
 
         let triggered_early = matches!(trigger, PayloadAttestationTrigger::PayloadAvailable(_));
@@ -1215,6 +1215,67 @@ mod tests {
             "Should have skipped stale slot 0 event and returned slot 1 event"
         );
         assert_eq!(event.block_root, Hash256::from_low_u64_be(2));
+    }
+
+    #[tokio::test]
+    async fn early_event_at_slot_zero_produces_attestation() {
+        let (payload_tx, payload_rx) = mpsc::channel::<PayloadAvailableEvent>(10);
+        let mut test_harness = TestHarness::new_with_validators(1, Some(payload_rx)).await;
+        let attestation_slot = Slot::new(0);
+        test_harness.insert_ptc_duties(attestation_slot);
+        assert_eq!(
+            test_harness.service.slot_clock.now().unwrap(),
+            attestation_slot
+        );
+
+        let block_root = Hash256::from_low_u64_be(42);
+        let payload_attestation = PayloadAttestationData {
+            beacon_block_root: block_root,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let mock_get = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
+            );
+        let _mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        let service = &test_harness.service;
+        payload_tx
+            .send(PayloadAvailableEvent {
+                beacon_node_index: 0,
+                slot: attestation_slot,
+                block_root,
+            })
+            .await
+            .unwrap();
+        service.spawn_payload_attestation_tasks().await.unwrap();
+        assert_eq!(
+            *service.latest_voted_slot.lock().await,
+            Some(attestation_slot),
+            "slot 0 must not be treated as already voted"
+        );
+        let mock_get = mock_get.expect(1);
+        mock_get.assert();
+
+        payload_tx
+            .send(PayloadAvailableEvent {
+                beacon_node_index: 0,
+                slot: attestation_slot,
+                block_root,
+            })
+            .await
+            .unwrap();
+        service.spawn_payload_attestation_tasks().await.unwrap();
+        mock_get.expect(1).assert();
     }
 
     #[tokio::test]
