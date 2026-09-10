@@ -5,7 +5,7 @@ use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::data::{BlobsList, ColumnIndex};
+use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
     BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
     DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
@@ -1096,6 +1096,26 @@ impl TryFrom<&[ColumnIndex]> for CustodyColumnsBitArray {
         Ok(Self(buf))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", transparent)]
+pub struct JsonCell<E: EthSpec>(
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")] pub Cell<E>,
+);
+
+/// `blob_cells` is the partial column matrix slice for one blob, indexed
+/// positionally over the bits set in the request's `indices_bitarray`
+/// (lowest set bit first). An entry is `null` when the EL doesn't have
+/// that cell. `proofs[i]` is the KZG cell proof for `blob_cells[i]` and
+/// is only meaningful when the matching cell is `Some`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlobCellsAndProofsV1<E: EthSpec> {
+    pub blob_cells: Vec<Option<JsonCell<E>>>,
+    pub proofs: Vec<Option<KzgProof>>,
+}
+
+pub type GetBlobsV4List<E> = Vec<Option<BlobCellsAndProofsV1<E>>>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
