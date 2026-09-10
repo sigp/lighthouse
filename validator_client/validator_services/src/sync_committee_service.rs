@@ -9,7 +9,7 @@ use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
@@ -51,6 +51,10 @@ pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
     ///
     /// This acts as a latch that fires once upon start-up, and then never again.
     first_subscription_done: AtomicBool,
+    /// Last slot for which a sync-message attempt was made. `u64::MAX` means none.
+    ///
+    /// Prevents a zero wait from spinning or double-publishing the same slot.
+    latest_attempted_slot: AtomicU64,
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S, T> {
@@ -69,6 +73,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 beacon_nodes,
                 executor,
                 first_subscription_done: AtomicBool::new(false),
+                latest_attempted_slot: AtomicU64::new(u64::MAX),
             }),
         }
     }
@@ -109,11 +114,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let interval_fut = async move {
             loop {
                 if let Some(now_duration) = self.slot_clock.now_duration() {
-                    let (_, Some(duration_to_sync_message_deadline)) = sync_message_deadline::<S::E>(
-                        &self.slot_clock,
-                        &self.duties_service.spec,
-                        now_duration,
-                    ) else {
+                    let last = self.latest_attempted_slot.load(Ordering::SeqCst);
+                    let after = (last != u64::MAX).then(|| Slot::new(last));
+                    let Some((sync_slot, duration_to_sync_message_deadline)) =
+                        sync_message_deadline::<S::E>(
+                            &self.slot_clock,
+                            &self.duties_service.spec,
+                            now_duration,
+                            after,
+                        )
+                    else {
                         error!("Failed to determine sync message deadline");
                         sleep(slot_duration).await;
                         continue;
@@ -122,12 +132,30 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     // Wait for the fork-appropriate sync message due time.
                     sleep(duration_to_sync_message_deadline).await;
 
+                    // Sleep can overshoot into a later slot. Consume the target and skip so we
+                    // never produce a late sync message.
+                    let now_slot = self.slot_clock.now();
+                    if now_slot != Some(sync_slot) {
+                        warn!(
+                            %sync_slot,
+                            ?now_slot,
+                            "Missed sync committee slot due to lag"
+                        );
+                        self.latest_attempted_slot
+                            .store(sync_slot.as_u64(), Ordering::SeqCst);
+                        continue;
+                    }
+
+                    // Consume the slot after any attempt so a zero wait cannot spin the loop.
+                    self.latest_attempted_slot
+                        .store(sync_slot.as_u64(), Ordering::SeqCst);
+
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks().await {
+                    if let Err(e) = self.spawn_contribution_tasks(sync_slot).await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -150,12 +178,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self, slot: Slot) -> Result<(), String> {
         let spec = &self.duties_service.spec;
-        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
+        // Bound contribution timing to `slot`, not a later wall-clock slot.
         let duration_to_next_slot = self
             .slot_clock
-            .duration_to_next_slot()
+            .duration_to_slot(slot + 1)
             .ok_or("Unable to determine duration to next slot")?;
 
         // If a validator needs to publish a sync aggregate, trigger it at the
@@ -560,17 +588,13 @@ fn sync_message_deadline<E: EthSpec>(
     slot_clock: &impl SlotClock,
     chain_spec: &ChainSpec,
     now: Duration,
-) -> (Slot, Option<Duration>) {
-    let sync_message_slot = slot_clock
-        .slot_of(now)
-        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
-    let duration_to_sync_message_deadline = slot_clock
-        .start_of(sync_message_slot)
-        .and_then(|slot_start| {
-            slot_start.checked_add(chain_spec.get_sync_message_due::<E>(sync_message_slot))
-        })
-        .and_then(|deadline| deadline.checked_sub(now));
-    (sync_message_slot, duration_to_sync_message_deadline)
+    after: Option<Slot>,
+) -> Option<(Slot, Duration)> {
+    slot_clock.duration_to_deadline_after(
+        now,
+        |slot| chain_spec.get_sync_message_due::<E>(slot),
+        after,
+    )
 }
 
 fn sync_period_of_slot<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, String> {
@@ -622,25 +646,57 @@ mod tests {
                 Duration::from_millis(4999),
             ),
             (
-                "pre-Gloas",
-                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                "pre-Gloas slot start",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
                 last_pre_gloas_slot,
-                Duration::from_millis(15999),
+                spec.get_sync_message_due::<E>(last_pre_gloas_slot),
             ),
             (
-                "post-Gloas",
-                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                "first Gloas slot start",
+                slot_clock.start_of(first_gloas_slot).unwrap(),
                 first_gloas_slot,
-                Duration::from_millis(15000),
+                spec.get_sync_message_due::<E>(first_gloas_slot),
+            ),
+            (
+                "1ms past current-slot due",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap()
+                    + spec.get_sync_message_due::<E>(last_pre_gloas_slot)
+                    + Duration::from_millis(1),
+                first_gloas_slot,
+                slot_duration
+                    - spec.get_sync_message_due::<E>(last_pre_gloas_slot)
+                    - Duration::from_millis(1)
+                    + spec.get_sync_message_due::<E>(first_gloas_slot),
             ),
         ];
 
         for (case, now, expected_slot, expected_duration) in test_cases {
             assert_eq!(
-                sync_message_deadline::<E>(&slot_clock, &spec, now),
-                (expected_slot, Some(expected_duration)),
+                sync_message_deadline::<E>(&slot_clock, &spec, now, None),
+                Some((expected_slot, expected_duration)),
                 "{case}"
             );
         }
+    }
+
+    #[test]
+    fn duration_to_sync_message_deadline_after_skips_attempted_slot() {
+        type E = MainnetEthSpec;
+
+        let spec = E::default_spec();
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let slot = Slot::new(0);
+        let due = spec.get_sync_message_due::<E>(slot);
+        let now = slot_clock.start_of(slot).unwrap() + due;
+
+        assert_eq!(
+            sync_message_deadline::<E>(&slot_clock, &spec, now, Some(slot)),
+            Some((
+                Slot::new(1),
+                slot_duration - due + spec.get_sync_message_due::<E>(Slot::new(1))
+            ))
+        );
     }
 }
