@@ -4,7 +4,9 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List,
+};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -155,7 +157,7 @@ pub enum Error {
     },
     ZeroLengthTransaction,
     PayloadBodiesByHashV2NotSupported,
-    PayloadBodiesByRangeNotSupported,
+    PayloadBodiesByHashNotSupported,
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),
@@ -1694,34 +1696,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_bodies_by_range(
-        &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
-        self.engine()
-            .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
     /// Fetch a full payload from the execution node.
     ///
-    /// This will fail if the payload is not from the finalized portion of the chain.
+    /// Returns `Ok(None)` if the execution engine does not have the body.
     pub async fn get_payload_for_header(
         &self,
         header: &ExecutionPayloadHeader<E>,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        let block_number = header.block_number();
-
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
             let payload = match fork {
@@ -1743,10 +1725,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             return Ok(Some(payload));
         }
 
-        // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
-            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+        if capabilities.get_payload_bodies_by_hash_v1 {
+            let mut payload_bodies = self
+                .get_payload_bodies_by_hash(vec![header.block_hash()])
+                .await?;
 
             if payload_bodies.len() != 1 {
                 return Ok(None);
@@ -1760,7 +1743,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 })
                 .transpose()
         } else {
-            Err(Error::PayloadBodiesByRangeNotSupported)
+            Err(Error::PayloadBodiesByHashNotSupported)
         }
     }
 
@@ -1790,6 +1773,26 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if capabilities.get_blobs_v3 {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v4(
+        &self,
+        query: Vec<Hash256>,
+        custody_columns: CustodyColumnsBitArray,
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v4 {
+            self.engine()
+                .request(
+                    |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
+                )
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)

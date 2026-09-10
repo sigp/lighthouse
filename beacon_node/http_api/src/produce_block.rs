@@ -1,10 +1,10 @@
 use crate::{
     build_block_contents,
     version::{
-        ResponseIncludesVersion, add_consensus_block_value_header, add_consensus_version_header,
-        add_execution_payload_blinded_header, add_execution_payload_included_header,
-        add_execution_payload_value_header, add_ssz_content_type_header, beacon_response,
-        inconsistent_fork_rejection,
+        ResponseIncludesVersion, add_builder_url_header, add_consensus_block_value_header,
+        add_consensus_version_header, add_execution_payload_blinded_header,
+        add_execution_payload_included_header, add_execution_payload_value_header,
+        add_ssz_content_type_header, beacon_response, inconsistent_fork_rejection,
     },
 };
 use beacon_chain::graffiti_calculator::GraffitiSettings;
@@ -17,9 +17,10 @@ use eth2::{
     beacon_response::ForkVersionedResponse,
     types::{BlockAndEnvelope, ProduceBlockV4Metadata},
 };
+use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::sync::Arc;
-use tracing::instrument;
+use tracing::{debug, instrument};
 use types::{execution::BlockProductionVersion, *};
 use warp::{
     http::response::Builder,
@@ -58,12 +59,29 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
+    builder_config: api_types::BuilderConfig,
 ) -> Result<Response, warp::Rejection> {
+    // `produceBlockV4` is the Gloas block-production endpoint.
+    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+    if !fork_name.gloas_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(
+            "produceBlockV4 is only valid for Gloas and later".to_string(),
+        ));
+    }
+
     let include_payload = query.include_payload.ok_or_else(|| {
         warp_utils::reject::custom_bad_request(
             "include_payload query parameter is required".to_string(),
         )
     })?;
+
+    // The resolved builder config is threaded into block production, where it drives direct-builder
+    // bid requests and the gossip/direct bid policy (see `produce_block_on_state_gloas`).
+    debug!(
+        %slot,
+        builders = builder_config.builders.len(),
+        "Received produceBlockV4 request"
+    );
 
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
@@ -73,14 +91,9 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
-    // The GET route carries only a boost factor; direct builders arrive with the `BuilderConfig`
-    // body once this route is converted to POST (later in this PR stack). Until then the winning
-    // bid's builder URL is unused (`Eth-Builder-Url` also lands with the POST conversion).
-    let builder_config = api_types::BuilderConfig {
-        builder_boost_factor: query.builder_boost_factor.unwrap_or(DEFAULT_BOOST_FACTOR),
-        ..api_types::BuilderConfig::empty()
-    };
 
+    // Gloas takes its bid boost policy from `builder_config` (global for gossip, per-builder for
+    // direct), so the V3-style `builder_boost_factor` query param is not used on this path.
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let (
@@ -89,7 +102,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
         consensus_block_value,
         execution_payload_value,
         payload_contents,
-        _builder_url,
+        builder_url,
     ) = chain
         .produce_block_with_verification_gloas(
             randao_reveal,
@@ -110,6 +123,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
         consensus_block_value,
         execution_payload_value,
         payload_contents,
+        builder_url,
         accept_header,
         &chain.spec,
     )
@@ -164,9 +178,13 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     consensus_block_value: u64,
     execution_payload_value: Uint256,
     payload_contents: Option<PayloadEnvelopeContents<T::EthSpec>>,
+    builder_url: Option<SensitiveUrl>,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
 ) -> Result<Response, warp::Rejection> {
+    // Stringify the winning builder's URL only here, at the `Eth-Builder-Url` header boundary; it is
+    // kept as a redacted `SensitiveUrl` everywhere upstream.
+    let builder_url = builder_url.map(|url| url.expose_full().to_string());
     let fork_name = block
         .to_ref()
         .fork_name(spec)
@@ -180,14 +198,15 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         consensus_block_value: consensus_block_value_wei,
         execution_payload_value,
         execution_payload_included,
-        builder_url: None,
+        builder_url: builder_url.clone(),
     };
 
     let add_v4_headers = |res: Response| {
         let res = add_consensus_version_header(res, fork_name);
         let res = add_consensus_block_value_header(res, consensus_block_value_wei);
         let res = add_execution_payload_value_header(res, execution_payload_value);
-        add_execution_payload_included_header(res, execution_payload_included)
+        let res = add_execution_payload_included_header(res, execution_payload_included);
+        add_builder_url_header(res, builder_url.as_deref())
     };
 
     // When the payload is included, bundle the block with the execution payload envelope, blobs and
