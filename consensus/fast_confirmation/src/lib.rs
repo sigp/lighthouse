@@ -153,7 +153,9 @@ pub struct FastConfirmationRule {
     /// the `get_latest_confirmed` call. The spec test runner runs FCR implicitly
     /// at the start of each slot; the Lighthouse test harness mirrors that by
     /// calling `get_latest_confirmed` explicitly per check, so the auto-run is
-    /// disabled here. Always `false` in production.
+    /// disabled here. Only exists with the `test-utils` feature, so it can never be set in
+    /// production.
+    #[cfg(feature = "test-utils")]
     spec_test_mode: bool,
 }
 
@@ -199,6 +201,7 @@ impl FastConfirmationRule {
             slot_assignments,
             head_balance_source: BalanceSourceData::new(head_state, head_root)?,
             last_update_slot: None,
+            #[cfg(feature = "test-utils")]
             spec_test_mode: false,
         })
     }
@@ -206,8 +209,19 @@ impl FastConfirmationRule {
     /// Enable spec test mode: `on_fast_confirmation` still tracks variables but
     /// does not update `confirmed_root`. Call `get_latest_confirmed` explicitly
     /// when the test needs the confirmation result.
+    #[cfg(feature = "test-utils")]
     pub fn set_spec_test_mode(&mut self, enabled: bool) {
         self.spec_test_mode = enabled;
+    }
+
+    #[cfg(feature = "test-utils")]
+    fn spec_test_mode(&self) -> bool {
+        self.spec_test_mode
+    }
+
+    #[cfg(not(feature = "test-utils"))]
+    fn spec_test_mode(&self) -> bool {
+        false
     }
 
     /// Directly set head balances for synthetic-data benchmarks; not used in production.
@@ -249,7 +263,7 @@ impl FastConfirmationRule {
             checkpoint_state,
         )?;
 
-        if !self.spec_test_mode {
+        if !self.spec_test_mode() {
             let _span = debug_span!("fcr_get_latest_confirmed").entered();
             self.confirmed_root = self.get_latest_confirmed::<E>(
                 head_root,
