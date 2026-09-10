@@ -134,8 +134,8 @@ where
                 }
             }
         }
-        // No event sourced, or the channel died. This enures we never resolve so that payload attestation
-        // duties are always performed at the deadline.
+        // No event sourced, or the channel died. This ensures we never resolve so that payload
+        // attestation duties are always performed at the deadline.
         std::future::pending().await
     }
 
@@ -1276,6 +1276,90 @@ mod tests {
             .unwrap();
         service.spawn_payload_attestation_tasks().await.unwrap();
         mock_get.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn early_event_failure_retries_at_deadline() {
+        tokio::time::pause();
+
+        let (payload_tx, payload_rx) = mpsc::channel::<PayloadAvailableEvent>(10);
+        let mut test_harness = TestHarness::new_with_validators(1, Some(payload_rx)).await;
+        let attestation_slot = Slot::new(1);
+        test_harness.insert_ptc_duties(attestation_slot);
+
+        let slot_duration = test_harness.service.chain_spec.get_slot_duration();
+        let payload_attestation_due = test_harness
+            .service
+            .chain_spec
+            .get_payload_attestation_due();
+        advance_time(&test_harness.service.slot_clock, slot_duration).await;
+        assert_eq!(
+            test_harness.service.slot_clock.now().unwrap(),
+            attestation_slot
+        );
+
+        let block_root = Hash256::from_low_u64_be(42);
+        let payload_attestation = PayloadAttestationData {
+            beacon_block_root: block_root,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let mock_get = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
+            );
+        let _mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+
+        // The event names a beacon node index that does not exist, so the early attempt fails
+        // before any HTTP request is made.
+        payload_tx
+            .send(PayloadAvailableEvent {
+                beacon_node_index: 99,
+                slot: attestation_slot,
+                block_root,
+            })
+            .await
+            .unwrap();
+
+        let service = &test_harness.service;
+        let task = service.spawn_payload_attestation_tasks();
+        tokio::pin!(task);
+
+        assert!(
+            task.as_mut().now_or_never().is_none(),
+            "a failed early attempt must wait for the deadline"
+        );
+        let mock_get = mock_get.expect(0);
+        mock_get.assert();
+
+        advance_time(
+            &service.slot_clock,
+            payload_attestation_due - Duration::from_secs(1),
+        )
+        .await;
+        assert!(
+            task.as_mut().now_or_never().is_none(),
+            "the retry must not run before the deadline"
+        );
+        mock_get.assert();
+
+        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        tokio::time::resume();
+        task.await.unwrap();
+
+        mock_get.expect(1).assert();
+        assert_eq!(
+            *service.latest_voted_slot.lock().await,
+            Some(attestation_slot)
+        );
     }
 
     #[tokio::test]
