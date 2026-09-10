@@ -1003,6 +1003,61 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
     }
 }
 
+/// When the justified checkpoint has no viable descendants, `get_head` must still
+/// resolve the PENDING seed to EMPTY or FULL.
+pub fn get_pending_head_resolves_when_justified_subtree_non_viable_test_definition()
+-> ForkChoiceTestDefinition {
+    let ops = vec![
+        // Justified block at slot 32.
+        Operation::ProcessBlock {
+            slot: Slot::new(32),
+            root: get_root(2),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        },
+        // Child with stale voting source (below viability horizon).
+        Operation::ProcessBlock {
+            slot: Slot::new(64),
+            root: get_root(3),
+            parent_root: get_root(2),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(99)),
+            execution_payload_block_hash: Some(get_hash(3)),
+        },
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(2),
+            },
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: vec![1],
+            expected_head: get_root(2),
+            current_slot: Slot::new(128),
+            expected_payload_status: Some(PayloadStatus::Empty),
+        },
+        Operation::AssertShouldBuildOnFull {
+            block_root: get_root(2),
+            parent_payload_status: PayloadStatus::Empty,
+            proposal_slot: Slot::new(129),
+            expected: false,
+        },
+    ];
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1196,6 +1251,11 @@ mod tests {
     fn should_build_on_full_slot_check() {
         let test = get_gloas_should_build_on_full_test_definition();
         test.run();
+    }
+
+    #[test]
+    fn pending_head_resolves_when_justified_subtree_non_viable() {
+        get_pending_head_resolves_when_justified_subtree_non_viable_test_definition().run();
     }
 
     /// Test that execution payload invalidation propagates across the V17→V29 fork
