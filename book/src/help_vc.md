@@ -285,6 +285,10 @@ Flags:
       --prefer-builder-proposals
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
+      --stateless-block-production
+          Request the execution payload with each Gloas block and publish the
+          self-built payload envelope from that response, so it can be published
+          via any beacon node rather than only the one that built the block.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport

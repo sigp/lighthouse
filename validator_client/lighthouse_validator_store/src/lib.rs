@@ -975,6 +975,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         block: UnsignedBlock<E>,
         current_slot: Slot,
+        _local_payload_root: Option<Hash256>,
     ) -> Result<SignedBlock<E>, Error> {
         match block {
             UnsignedBlock::Full(block) => {
