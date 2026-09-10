@@ -512,32 +512,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if *valid {
                         result?
                     } else if result.is_ok() {
-                        // The spec's `on_attestation` rejects attestations from future slots.
-                        // Lighthouse doesn't reject these, instead we queue them for later processing.
-                        // So `process_attestation` returns `Ok` for future slot attestations, while
-                        // the test vectors expect a failure. If the attestation is for a future slot
-                        // and has been queued for processing, then we consider this test to have passed.
-                        let data = attestation.data();
-                        let fork_choice =
-                            tester.harness.chain.canonical_head.fork_choice_read_lock();
-                        let future_attestation =
-                            data.slot >= fork_choice.fc_store().get_current_slot();
-                        let queued = fork_choice
-                            .queued_attestations()
-                            .get(&data.slot)
-                            .is_some_and(|queued| {
-                                queued.iter().any(|a| {
-                                    a.block_root == data.beacon_block_root
-                                        && a.target_epoch == data.target.epoch
-                                })
-                            });
-                        drop(fork_choice);
-
-                        if !(future_attestation && queued) {
-                            return Err(Error::DidntFail(format!(
-                                "attestation marked valid=false was accepted; is_future_slot={future_attestation}, queued={queued}"
-                            )));
-                        }
+                        return Err(Error::DidntFail(format!(
+                            "attestation for slot {} marked valid=false was accepted",
+                            attestation.data().slot
+                        )));
                     }
                 }
                 Step::AttesterSlashing {
@@ -765,6 +743,14 @@ impl<E: EthSpec> Tester<E> {
             harness.chain.slot_clock.genesis_duration().as_secs(),
             genesis_time
         );
+
+        // Reject rather than queue attestations from the current or a future slot, so the
+        // store matches the spec's `on_attestation`.
+        harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .set_spec_test_mode(true);
 
         // Disable FCR auto-confirmation for spec tests. The spec only calls
         // `on_fast_confirmation` at explicit `with_fast_confirmation` points,

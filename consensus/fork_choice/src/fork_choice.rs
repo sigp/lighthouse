@@ -186,6 +186,8 @@ pub enum InvalidAttestation {
     /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
+    /// The attestation is for the current or a future slot. Only returned in spec test mode.
+    AttestationFromFutureSlot { attestation: Slot, current: Slot },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,6 +381,11 @@ pub struct ForkChoice<T, E> {
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
+    /// When `true`, `on_attestation` rejects an attestation from the current or a future slot
+    /// rather than queueing it, as the spec's `validate_on_attestation` assert does. Queueing
+    /// applies the vote on a later tick, which the spec store never counts. Always `false` in
+    /// production.
+    spec_test_mode: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -474,6 +481,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            spec_test_mode: false,
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1366,6 +1374,14 @@ where
             // Attestations can only affect the fork choice of subsequent slots.
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
+            if self.spec_test_mode {
+                return Err(Error::InvalidAttestation(
+                    InvalidAttestation::AttestationFromFutureSlot {
+                        attestation: attestation.data().slot,
+                        current: self.fc_store.get_current_slot(),
+                    },
+                ));
+            }
             let queued_attestation = QueuedAttestation::from(attestation);
             self.queued_attestations
                 .entry(queued_attestation.slot)
@@ -1836,6 +1852,11 @@ where
         &self.queued_attestations
     }
 
+    /// Enable spec test mode. See `spec_test_mode`. Never call this in production.
+    pub fn set_spec_test_mode(&mut self, enabled: bool) {
+        self.spec_test_mode = enabled;
+    }
+
     /// Returns the store's `proposer_boost_root`.
     pub fn proposer_boost_root(&self) -> Hash256 {
         self.fc_store.proposer_boost_root()
@@ -1918,6 +1939,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            spec_test_mode: false,
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
