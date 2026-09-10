@@ -88,6 +88,8 @@ pub struct Config {
     pub validator_registration_batch_size: usize,
     /// Whether we are running with distributed network support.
     pub distributed: bool,
+    /// Publish self-built Gloas payload envelopes from the produce response (see `BlockService`).
+    pub stateless_block_production: bool,
     /// Configuration for the initialized validators
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
@@ -139,6 +141,7 @@ impl Default for Config {
             enable_beacon_head_monitor: true,
             validator_registration_batch_size: 500,
             distributed: false,
+            stateless_block_production: false,
             initialized_validators: <_>::default(),
             disable_attesting: false,
             disable_proposer_duties_v2: false,
@@ -257,6 +260,7 @@ impl Config {
         }
 
         config.distributed = validator_client_config.distributed;
+        config.stateless_block_production = validator_client_config.stateless_block_production;
 
         if let Some(mut broadcast_topics) = validator_client_config.broadcast.clone() {
             broadcast_topics.retain(|topic| *topic != ApiTopic::None);
