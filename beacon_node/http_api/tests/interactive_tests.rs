@@ -1535,6 +1535,32 @@ async fn get_validator_inclusion_list_empty_transaction() {
     }
 }
 
+// Test that the validator inclusion list endpoint rejects a list containing a blob transaction
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_blob_transaction() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // An EIP-4844 transaction is identified by its EIP-2718 type byte(`0x03`)
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![
+            ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()),
+            ProgressiveVariableList::new(vec![0x03, 0xaa]),
+        ]),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("blob transaction should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
 // Test that the validator inclusion list endpoint returns a server error when the EL call fails.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_inclusion_list_el_failure() {

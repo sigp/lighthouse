@@ -1,10 +1,15 @@
 use strum::AsRefStr;
 use types::{ChainSpec, ProgressiveTransactions};
 
+/// EIP-2718 transaction type of blob transaction
+const BLOB_TX_TYPE_ID: u8 = 0x03;
+
 #[derive(Debug, PartialEq, Eq, AsRefStr)]
 pub enum InclusionListTransactionsError {
     /// A transaction in the inclusion list has zero length
     EmptyTransaction { index: usize },
+    /// A transaction in the inclusion list is a blob transaction
+    BlobTransaction { index: usize },
     /// The inclusion list exceeds the maximum allowed size
     ListExceedsSizeLimit { size: u64, max: u64 },
 }
@@ -25,6 +30,20 @@ pub fn verify_inclusion_list_transactions_bounds(
 
     if let Some(index) = transactions.iter().position(|tx| tx.is_empty()) {
         return Err(InclusionListTransactionsError::EmptyTransaction { index });
+    }
+
+    Ok(())
+}
+
+/// Verify the inclusion list contains no blob transactions
+pub fn verify_no_blob_transactions(
+    transactions: &ProgressiveTransactions,
+) -> Result<(), InclusionListTransactionsError> {
+    if let Some(index) = transactions
+        .iter()
+        .position(|tx| tx.first() == Some(&BLOB_TX_TYPE_ID))
+    {
+        return Err(InclusionListTransactionsError::BlobTransaction { index });
     }
 
     Ok(())
@@ -105,5 +124,23 @@ mod tests {
             verify_inclusion_list_transactions_bounds(&transactions(txs), &spec),
             Ok(())
         );
+    }
+
+    #[test]
+    fn inclusion_list_with_blob_transaction_is_rejected() {
+        let blob_tx = ProgressiveVariableList::new(vec![BLOB_TX_TYPE_ID, 0xaa]);
+        let txs = vec![tx(10), blob_tx, tx(10)];
+
+        assert_eq!(
+            verify_no_blob_transactions(&transactions(txs)),
+            Err(InclusionListTransactionsError::BlobTransaction { index: 1 })
+        );
+    }
+
+    #[test]
+    fn inclusion_list_without_blob_transactions_is_accepted() {
+        let txs = vec![tx(10); 3];
+
+        assert_eq!(verify_no_blob_transactions(&transactions(txs)), Ok(()));
     }
 }

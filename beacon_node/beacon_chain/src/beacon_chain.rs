@@ -37,7 +37,9 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
-use crate::inclusion_list_verification::verify_inclusion_list_transactions_bounds;
+use crate::inclusion_list_verification::{
+    verify_inclusion_list_transactions_bounds, verify_no_blob_transactions,
+};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -2254,8 +2256,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Produce the inclusion list transactions for `request_slot`.
     ///
     /// The transactions are requested from the execution layer via `getInclusionListV1`.
-    /// An empty list is a valid answer (nothing to include) and is returned as such,
-    /// a list that violates the spec's bounds is an execution layer fault and is rejected
+    /// An empty list is a valid answer (nothing to include) and is returned as such, while a
+    /// list that violates the rules the engine API places on it (size bounds, no blob
+    /// transactions) is an execution layer fault and is rejected
     pub async fn produce_inclusion_list(
         &self,
         request_slot: Slot,
@@ -2278,6 +2281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 
         verify_inclusion_list_transactions_bounds(&inclusion_list_transactions, &self.spec)
+            .and_then(|()| verify_no_blob_transactions(&inclusion_list_transactions))
             .inspect_err(|e| {
                 warn!(
                     error = ?e,
