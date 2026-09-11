@@ -844,3 +844,21 @@ fn head_monitor_disabled() {
             assert!(!config.enable_beacon_head_monitor);
         });
 }
+
+// Payload monitor is enabled by default.
+#[test]
+fn payload_available_monitor_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_payload_available_monitor);
+    });
+}
+
+#[test]
+fn payload_available_monitor_disabled() {
+    CommandLineTest::new()
+        .flag("disable-payload-available-monitor", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_payload_available_monitor);
+        });
+}
