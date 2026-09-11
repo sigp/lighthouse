@@ -41,10 +41,11 @@ async fn gloas_pending_payload_cache_serves_block_before_store_import() {
     let ((signed_block, _), _) = harness.make_block(head_state, slot).await;
     let block_root = signed_block.canonical_root();
 
-    harness
-        .chain
-        .pending_payload_cache
-        .insert_block(block_root, signed_block.clone(), BlockImportSource::Gossip);
+    harness.chain.pending_payload_cache.insert_block(
+        block_root,
+        signed_block.clone(),
+        BlockImportSource::Gossip,
+    );
 
     match harness.chain.get_block_process_status(&block_root) {
         BlockProcessStatus::NotValidated(cached_block, _) => {
