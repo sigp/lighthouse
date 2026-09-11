@@ -102,6 +102,8 @@ struct MessageMeta {
     subnet_id: Option<u64>,
     #[serde(default)]
     offset_ms: Option<u64>,
+    #[serde(default)]
+    current_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -231,6 +233,10 @@ impl<E: EthSpec> GossipTester<E> {
         // advanced state, then import the historical block through the normal path below.
         let initial_block_index =
             (!case.meta.blocks.is_empty() && !case.is_advanced_timing_ignore()).then_some(0);
+        let spec_synthetic_anchor = match initial_block_index {
+            Some(index) => case.has_spec_synthetic_anchor(index, blocks)?,
+            None => false,
+        };
 
         let harness_builder = || {
             BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
@@ -243,7 +249,9 @@ impl<E: EthSpec> GossipTester<E> {
                 .mock_execution_layer_all_payloads_valid()
         };
 
-        let harness = if let Some(initial_block_index) = initial_block_index {
+        let harness = if let Some(initial_block_index) = initial_block_index
+            && !spec_synthetic_anchor
+        {
             let initial_setup_block = &case.meta.blocks[initial_block_index];
             // The first setup block's post-state is `state.ssz_snappy`. Other setup blocks are
             // imported below through Lighthouse's normal block import path.
@@ -261,7 +269,7 @@ impl<E: EthSpec> GossipTester<E> {
                     finalized_checkpoint,
                 )
                 .build()
-        } else if case.meta.topic.requires_synthetic_anchor() {
+        } else if spec_synthetic_anchor || case.meta.topic.requires_synthetic_anchor() {
             let (state, block) = synthetic_anchor(case.state.clone(), &spec)?;
             let slot_clock = TestingSlotClock::new(
                 spec.genesis_slot,
@@ -431,10 +439,7 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let block = Arc::new(load_beacon_block(path, &message_meta.message, &self.spec)?);
-        let time_ms = self
-            .current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
+        let time_ms = self.message_time_ms(message_meta)?;
         let seen_duration = self.set_time_ms(time_ms)?;
 
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
@@ -582,11 +587,18 @@ impl<E: EthSpec> GossipTester<E> {
     }
 
     fn set_message_time(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
-        let time_ms = self
-            .current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
+        let time_ms = self.message_time_ms(message_meta)?;
         self.set_time_ms(time_ms)
+    }
+
+    fn message_time_ms(&self, message_meta: &MessageMeta) -> Result<u64, Error> {
+        if let Some(current_time_ms) = message_meta.current_time_ms {
+            return Ok(current_time_ms);
+        }
+
+        self.current_time_ms
+            .checked_add(message_meta.offset_ms.unwrap_or_default())
+            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))
     }
 
     fn validation_result(
@@ -799,6 +811,29 @@ impl<E: EthSpec> GossipValidation<E> {
             }
             _ => false,
         }
+    }
+
+    /// The tests advance the state to the anchor block's slot without applying the block, so the
+    /// state's `latest_block_header` still points to an earlier block.
+    fn has_spec_synthetic_anchor(
+        &self,
+        index: usize,
+        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+    ) -> Result<bool, Error> {
+        let Some(block) = self
+            .meta
+            .blocks
+            .get(index)
+            .and_then(|setup_block| blocks.get(&setup_block.block))
+        else {
+            return Ok(false);
+        };
+        let mut state = self.state.clone();
+        let state_root = state
+            .update_tree_hash_cache()
+            .map_err(|error| Error::InternalError(format!("unable to hash state: {error:?}")))?;
+        Ok(block.slot() == state.slot()
+            && block.canonical_root() != state.get_latest_block_root(state_root))
     }
 
     fn is_advanced_timing_ignore(&self) -> bool {

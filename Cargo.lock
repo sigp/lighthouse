@@ -1304,6 +1304,7 @@ dependencies = [
  "beacon_chain",
  "bitvec",
  "bls",
+ "builder_client",
  "criterion",
  "educe",
  "eth2",
@@ -1694,16 +1695,42 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "eth2",
  "ethereum_ssz",
+ "futures",
  "lighthouse_version",
  "mockito",
+ "parking_lot",
+ "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "types",
+]
+
+[[package]]
+name = "builder_types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bls",
+ "builder_types",
+ "context_deserialize",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
+ "typenum",
  "types",
 ]
 
@@ -1990,6 +2017,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "beacon_processor",
+ "builder_client",
  "directory",
  "dirs",
  "environment",
@@ -3217,6 +3245,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bls",
+ "builder_types",
  "context_deserialize",
  "educe",
  "eip_3076",
@@ -3363,9 +3392,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_serde_utils"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dc1355dbb41fbbd34ec28d4fb2a57d9a70c67ac3c19f6a5ca4d4a176b9e997a"
+checksum = "38df44a7a271ab43835678f9215b53cc2523e4714a215da6643d83dc110245da"
 dependencies = [
  "alloy-primitives",
  "hex",
@@ -8706,9 +8735,11 @@ dependencies = [
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.14.0",
+ "lru",
  "merkle_proof",
  "metrics",
  "milhouse",
+ "parking_lot",
  "rand 0.9.2",
  "rayon",
  "safe_arith",
@@ -9985,6 +10016,7 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_ssz",
+ "futures",
  "initialized_validators",
  "lighthouse_validator_store",
  "mockito",

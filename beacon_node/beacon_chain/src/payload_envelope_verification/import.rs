@@ -300,6 +300,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
 
+        self.observed_execution_payloads.insert(
+            signed_envelope.message.payload.block_hash,
+            signed_envelope.message.payload.gas_limit,
+        );
+
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.
         let envelope_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);

@@ -9,6 +9,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::execution::SignedExecutionProof;
@@ -21,6 +22,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
     pub store: &'a BeaconStore<T>,
     pub proof_engine: &'a Option<Arc<ProofEngine>>,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub spec: &'a ChainSpec,
     pub genesis_validators_root: Hash256,
 }
@@ -87,6 +89,7 @@ impl GossipVerifiedExecutionProof {
             ctx.canonical_head,
             ctx.shuffling_cache,
             ctx.store,
+            ctx.builder_onboarding_cache,
             ctx.spec,
             block_root,
             block_epoch,
@@ -170,6 +173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             shuffling_cache: &self.shuffling_cache,
             store: &self.store,
             proof_engine: &self.proof_engine,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             spec: &self.spec,
             genesis_validators_root: self.genesis_validators_root,
         }
