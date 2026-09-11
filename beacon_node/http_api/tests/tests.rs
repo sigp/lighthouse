@@ -3153,6 +3153,32 @@ impl ApiTester {
         self
     }
 
+    /// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because
+    /// aggregation on insert means a second attester voting the same `data` sets a bit in the
+    /// existing aggregate instead of adding a new one.
+    fn pooled_payload_attestation_bits(&self, data: &PayloadAttestationData) -> usize {
+        self.chain
+            .op_pool
+            .get_payload_attestations(data.slot, data.beacon_block_root)
+            .iter()
+            .filter(|attestation| &attestation.data == data)
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
+    }
+
+    /// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+    fn ptc_seats(&self, slot: Slot, validator_index: u64) -> usize {
+        self.chain
+            .head_snapshot()
+            .beacon_state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC")
+            .0
+            .iter()
+            .filter(|index| **index as u64 == validator_index)
+            .count()
+    }
+
     fn make_valid_payload_attestation_message(
         &self,
         ptc_offset: usize,
@@ -3212,10 +3238,11 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestations();
+        let bits_before = self.pooled_payload_attestation_bits(&message.data);
+        let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[message], fork_name)
+            .post_beacon_pool_payload_attestations(&[message.clone()], fork_name)
             .await
             .unwrap();
 
@@ -3225,8 +3252,8 @@ impl ApiTester {
         );
 
         assert_eq!(
-            self.chain.op_pool.num_payload_attestations(),
-            pool_count_before + 1,
+            self.pooled_payload_attestation_bits(&message.data),
+            bits_before + expected_bits,
             "payload attestation should be added to op pool"
         );
 
@@ -3237,10 +3264,11 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(1);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestations();
+        let bits_before = self.pooled_payload_attestation_bits(&message.data);
+        let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
 
         self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
+            .post_beacon_pool_payload_attestations_ssz(&[message.clone()], fork_name)
             .await
             .unwrap();
 
@@ -3250,8 +3278,8 @@ impl ApiTester {
         );
 
         assert_eq!(
-            self.chain.op_pool.num_payload_attestations(),
-            pool_count_before + 1,
+            self.pooled_payload_attestation_bits(&message.data),
+            bits_before + expected_bits,
             "payload attestation should be added to op pool"
         );
 
