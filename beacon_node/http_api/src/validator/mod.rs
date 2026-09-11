@@ -501,6 +501,16 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
         .boxed()
 }
 
+/// Does the request's `Content-Type` header select SSZ?
+///
+/// Tolerates media-type parameters (`application/octet-stream; ...`) and surrounding whitespace;
+/// anything else (including an absent header) selects JSON.
+fn is_ssz_content_type(content_type: Option<&str>) -> bool {
+    content_type
+        .and_then(|header| header.split(';').next())
+        .is_some_and(|media_type| media_type.trim() == SSZ_CONTENT_TYPE_HEADER)
+}
+
 // POST v4/validator/blocks/{slot}
 //
 // The Gloas block-production endpoint. Carries the validator's resolved `BuilderConfig` as the
@@ -531,17 +541,18 @@ pub fn post_validator_blocks_v4<T: BeaconChainTypes>(
             warp::header::optional::<String>(CONTENT_TYPE_HEADER)
                 .and(warp::body::bytes())
                 .and_then(|content_type: Option<String>, body: Bytes| async move {
-                    let builder_config: BuilderConfig = if content_type.as_deref()
-                        == Some(SSZ_CONTENT_TYPE_HEADER)
-                    {
-                        BuilderConfig::from_ssz_bytes(&body).map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                        })?
-                    } else {
-                        serde_json::from_slice(&body).map_err(|e| {
-                            warp_utils::reject::custom_deserialize_error(format!("{e:?}"))
-                        })?
-                    };
+                    let builder_config: BuilderConfig =
+                        if is_ssz_content_type(content_type.as_deref()) {
+                            BuilderConfig::from_ssz_bytes(&body).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            })?
+                        } else {
+                            serde_json::from_slice(&body).map_err(|e| {
+                                warp_utils::reject::custom_deserialize_error(format!("{e:?}"))
+                            })?
+                        };
                     // A zero-length `url` or auth `data` makes the body itself invalid (beacon-APIs
                     // #630) — a 400, unlike per-entry bid failures, which are isolated.
                     for entry in builder_config.builders.iter() {
@@ -875,17 +886,18 @@ pub fn post_validator_builder_preferences<T: BeaconChainTypes>(
             warp::header::optional::<String>(CONTENT_TYPE_HEADER)
                 .and(warp::body::bytes())
                 .and_then(|content_type: Option<String>, body: Bytes| async move {
-                    let entries: Vec<BuilderPreferenceEntry> = if content_type.as_deref()
-                        == Some(SSZ_CONTENT_TYPE_HEADER)
-                    {
-                        Vec::from_ssz_bytes(&body).map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                        })?
-                    } else {
-                        serde_json::from_slice(&body).map_err(|e| {
-                            warp_utils::reject::custom_deserialize_error(format!("{e:?}"))
-                        })?
-                    };
+                    let entries: Vec<BuilderPreferenceEntry> =
+                        if is_ssz_content_type(content_type.as_deref()) {
+                            Vec::from_ssz_bytes(&body).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            })?
+                        } else {
+                            serde_json::from_slice(&body).map_err(|e| {
+                                warp_utils::reject::custom_deserialize_error(format!("{e:?}"))
+                            })?
+                        };
                     // The submission list is bounded (SSZ `List[BuilderPreferencesEntry, 4096]`,
                     // JSON `maxItems: 4096`, per beacon-APIs #630); a longer body is invalid.
                     if entries.len() > MAX_SUBMITTED_BUILDER_PREFERENCES {
@@ -916,12 +928,19 @@ pub fn post_validator_builder_preferences<T: BeaconChainTypes>(
 
                 let initial_result = task_spawner
                     .spawn_async_with_rejection_no_conversion(Priority::P0, async move {
-                        // The builder service is only present when the Gloas fork is scheduled.
+                        // The builder service is only present when the Gloas fork is scheduled; a
+                        // node without one can't submit preferences anywhere, which is the
+                        // caller's misconfiguration (not a server fault), so reject with a 400.
                         let builders = chain
                             .builders
                             .as_ref()
-                            .ok_or(BeaconChainError::BuilderMissing)
-                            .map_err(warp_utils::reject::unhandled_error)?
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_bad_request(
+                                    "this beacon node has no builder service (the Gloas fork is \
+                                     not scheduled on its network)"
+                                        .to_string(),
+                                )
+                            })?
                             .clone();
 
                         debug!(
