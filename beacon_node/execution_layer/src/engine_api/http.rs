@@ -1397,7 +1397,7 @@ impl HttpJsonRpc {
                 .get_execution_requests_list(),
             JsonInclusionListV1(new_payload_request_heze.inclusion_list_transactions),
         ]);
-        let response: JsonPayloadStatusV1 = self
+        let response: JsonPayloadStatusV2 = self
             .rpc_request(
                 ENGINE_NEW_PAYLOAD_V6,
                 params,

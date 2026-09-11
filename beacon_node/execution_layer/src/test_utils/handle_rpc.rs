@@ -249,13 +249,16 @@ pub async fn handle_rpc<E: EthSpec>(
 
             let mut response = static_response.or(dynamic_response).unwrap();
 
-            // TODO(heze): make this configurable so enforcement tests can exercise an
-            // unsatisfied payload.
-            if method == ENGINE_NEW_PAYLOAD_V6 && response.status == PayloadStatusV1Status::Valid {
-                response.inclusion_list_satisfied = Some(true);
+            if method == ENGINE_NEW_PAYLOAD_V6 {
+                // TODO(heze): make this configurable so enforcement tests can exercise an
+                // unsatisfied payload.
+                if response.status == PayloadStatusV1Status::Valid {
+                    response.inclusion_list_satisfied = Some(true);
+                }
+                Ok(serde_json::to_value(JsonPayloadStatusV2::from(response)).unwrap())
+            } else {
+                Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
             }
-
-            Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
