@@ -14,14 +14,14 @@ use ssz_derive::{Decode, Encode};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
-    Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256,
-    Withdrawal, Withdrawals,
+    Address, BeaconBlockRef, BlockAccessList, ConsolidationRequest, EthSpec, ExecutionBlockHash,
+    ExecutionPayload, ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions,
+    Uint256, Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequests, KzgProofs,
+    ExecutionRequests, KzgProofs, ProgressiveTransactions, ProgressiveWithdrawals,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -475,6 +475,14 @@ pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub withdrawals: Option<Withdrawals<E>>,
 }
 
+/// The execution payload body returned by `engine_getPayloadBodiesByHashV2`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExecutionPayloadBodyV2 {
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveWithdrawals>,
+    pub block_access_list: Option<BlockAccessList>,
+}
+
 impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     pub fn to_payload(
         self,
@@ -647,32 +655,31 @@ impl EngineCapabilities {
         }
     }
 
-    pub fn get_payload_bodies_by_range(&self, fork: ForkName) -> bool {
+    pub fn get_payload_bodies_by_hash_v1(&self, fork: ForkName) -> bool {
         match self {
-            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
+            Self::JsonRpc(capabilities) => {
+                if fork.gloas_enabled() {
+                    false
+                } else {
+                    capabilities.get_payload_bodies_by_hash_v1
+                }
+            }
             Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
         }
     }
 
-    pub fn get_payload_bodies_by_hash(&self, fork: ForkName) -> bool {
+    pub fn get_payload_bodies_by_hash_v2(&self, fork: ForkName) -> bool {
         match self {
-            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v2,
             Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
         }
     }
 
-    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
+    pub fn get_inclusion_list_v1(&self) -> bool {
         match self {
-            Self::JsonRpc(capabilities) => capabilities.get_inclusion_list_v1(fork),
+            Self::JsonRpc(capabilities) => capabilities.get_inclusion_list_v1,
             // Heze fork REST-SSZ spec does not exist yet
             Self::Ssz(_) => false,
-        }
-    }
-
-    pub fn supports_payload_bodies_endpoint(&self) -> bool {
-        match self {
-            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_range_v1,
-            Self::Ssz(capabilities) => capabilities.bodies,
         }
     }
 
@@ -687,6 +694,13 @@ impl EngineCapabilities {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_blobs_v3,
             Self::Ssz(capabilities) => capabilities.get_blobs_v3(),
+        }
+    }
+
+    pub fn get_blobs_v4(&self) -> bool {
+        match self {
+            Self::JsonRpc(capabilities) => capabilities.get_blobs_v4,
+            Self::Ssz(capabilities) => capabilities.get_blobs_v4(),
         }
     }
 

@@ -737,14 +737,13 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 
     assert!(
         // if the engine doesn't have these capabilities, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash(TEST_FORK)
-            && capabilities.get_payload_bodies_by_range(TEST_FORK),
-        "Testing engine does not support payload bodies methods"
+        capabilities.get_payload_bodies_by_hash_v1(TEST_FORK),
+        "Testing engine does not support payload bodies by hash"
     );
 
     let mut bodies = ee
         .execution_layer
-        .get_payload_bodies_by_hash(TEST_FORK, vec![payload.block_hash()])
+        .get_payload_bodies_by_hash_v1(TEST_FORK, vec![payload.block_hash()])
         .await
         .unwrap();
     assert_eq!(bodies.len(), 1);

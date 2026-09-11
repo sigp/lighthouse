@@ -23,9 +23,9 @@ pub const DIRECTION_REQUEST: &str = "request";
 pub const DIRECTION_RESPONSE: &str = "response";
 
 pub const GET_PAYLOAD_BODIES_BY_HASH: &str = "get_payload_bodies_by_hash";
-pub const GET_PAYLOAD_BODIES_BY_RANGE: &str = "get_payload_bodies_by_range";
 pub const GET_BLOBS_V2: &str = "get_blobs_v2";
 pub const GET_BLOBS_V3: &str = "get_blobs_v3";
+pub const GET_BLOBS_V4: &str = "get_blobs_v4";
 
 pub static EXECUTION_LAYER_PROPOSER_INSERTED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
@@ -89,13 +89,6 @@ pub static EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID: LazyLock<Result<IntCounterVe
         )
     },
 );
-pub static EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "execution_layer_get_payload_bodies_by_range_time",
-            "Time to fetch a range of payload bodies from the EE",
-        )
-    });
 pub static EXECUTION_LAYER_VERIFY_BLOCK_HASH: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "execution_layer_verify_block_hash_time",
@@ -164,9 +157,9 @@ pub fn engine_method_label(jsonrpc_method: &str) -> Option<&'static str> {
         m if m.starts_with("engine_newPayload") => Some(NEW_PAYLOAD),
         m if m.starts_with("engine_forkchoiceUpdated") => Some(FORKCHOICE_UPDATED),
         m if m.starts_with("engine_getPayloadBodiesByHash") => Some(GET_PAYLOAD_BODIES_BY_HASH),
-        m if m.starts_with("engine_getPayloadBodiesByRange") => Some(GET_PAYLOAD_BODIES_BY_RANGE),
         "engine_getBlobsV2" => Some(GET_BLOBS_V2),
         "engine_getBlobsV3" => Some(GET_BLOBS_V3),
+        "engine_getBlobsV4" => Some(GET_BLOBS_V4),
         m if m.starts_with("engine_getPayload") => Some(GET_PAYLOAD),
         _ => None,
     }

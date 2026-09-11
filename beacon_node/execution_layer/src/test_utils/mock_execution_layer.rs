@@ -30,9 +30,9 @@ pub fn mock_rest_ssz_enabled() -> bool {
         Ok(value) => match value.trim().to_ascii_uppercase().as_str() {
             "SSZ" => true,
             "" | "JSON" => false,
-            other => panic!(
-                "invalid {ENGINE_TRANSPORT_ENV_VAR}={other:?}; expected \"JSON\" or \"SSZ\""
-            ),
+            other => {
+                panic!("invalid {ENGINE_TRANSPORT_ENV_VAR}={other:?}; expected \"JSON\" or \"SSZ\"")
+            }
         },
         Err(_) => false,
     }

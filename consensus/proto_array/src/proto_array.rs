@@ -1262,11 +1262,15 @@ impl ProtoArray {
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
-            let children: Vec<_> = self
-                .get_node_children(&head)?
-                .into_iter()
-                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
-                .collect();
+            let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
+                // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
+                self.get_node_children(&head)?
+            } else {
+                self.get_node_children(&head)?
+                    .into_iter()
+                    .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 return Ok(head);
@@ -1830,6 +1834,23 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    /// Slot at which the chains of `block_root` and `other_root` last agree. `None` if either
+    /// root is unknown.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        let mut chain = self.iter_nodes(&block_root).peekable();
+        let mut other = self.iter_nodes(&other_root).peekable();
+        loop {
+            let (node, other_node) = (chain.peek()?, other.peek()?);
+            if node.root() == other_node.root() {
+                return Some(node.slot());
+            } else if node.slot() >= other_node.slot() {
+                chain.next();
+            } else {
+                other.next();
+            }
+        }
     }
 
     pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {

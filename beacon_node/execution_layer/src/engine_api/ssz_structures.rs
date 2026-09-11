@@ -1,6 +1,8 @@
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 
-use super::json_structures::RequestsError;
+use super::json_structures::{
+    BlobCellsAndProofsV1, CustodyColumnsBitArray, GetBlobsV4List, JsonCell, RequestsError,
+};
 use super::*;
 use serde::Deserialize;
 use ssz::{Decode, DecodeError};
@@ -9,11 +11,12 @@ use ssz_types::{BitVector, VariableList};
 use std::collections::HashSet;
 use superstruct::superstruct;
 use typenum::{U1, U32};
+use types::data::Cell;
 use types::execution::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
     ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
 };
-use types::{EthSpec, Transactions};
+use types::{EthSpec, KzgProof, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
@@ -89,7 +92,7 @@ impl<E: EthSpec> From<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV1<E
     }
 }
 
-//ExecutionPayloadBodyV1 <-> SszExecutionPayloadBodyV3 conversion support to be impl once block_access_list is added to ExecutionPayloadBodyV1
+//ExecutionPayloadBodyV2 <-> SszExecutionPayloadBodyV3 conversion support to be impl once the REST-SSZ spec adopts progressive containers for the Amsterdam body
 
 type SszExecutionRequests<E> = VariableList<
     VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>,
@@ -813,27 +816,103 @@ impl<E: EthSpec> SszBlobsRequest<E> {
 
     pub fn new_blobs_request_v2(
         versioned_hashes: Vec<Hash256>,
-        indices_bitarray: BitVector<E::CellsPerExtBlob>,
+        indices_bitarray: CustodyColumnsBitArray,
     ) -> Result<SszBlobsRequestV2<E>, ssz_types::Error> {
+        // Re-encode the custody bitarray as an SSZ `Bitvector[CELLS_PER_EXT_BLOB]`. Both are 128
+        // bits wide, so `set` is always in bounds; the error is mapped, not `unwrap`ped, to avoid
+        // a panic.
+        let mut indices = BitVector::<E::CellsPerExtBlob>::new();
+        let len = indices.len();
+        for column in indices_bitarray.iter_set_bits() {
+            let column = column as usize;
+            indices
+                .set(column, true)
+                .map_err(|_| ssz_types::Error::OutOfBounds { i: column, len })?;
+        }
         Ok(SszBlobsRequestV2 {
             versioned_hashes: VariableList::new(versioned_hashes)?,
-            indices_bitarray,
+            indices_bitarray: indices,
         })
     }
 }
 
+#[superstruct(
+    variants(V2, V4),
+    variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BlobsEntry<E: EthSpec> {
+    #[superstruct(only(V2, V4))]
     pub available: bool,
+    #[superstruct(only(V2), partial_getter(rename = "contents_v2"))]
     pub contents: BlobAndProofV2<E>,
+    #[superstruct(only(V4), partial_getter(rename = "contents_v4"))]
+    pub contents: SszBlobCellsAndProofs<E>,
 }
 
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
-pub struct SszBlobsResponse<E: EthSpec> {
-    pub entries: VariableList<BlobsEntry<E>, E::MaxVersionedHashesPerRequest>,
+pub struct SszBlobCellsAndProofs<E: EthSpec> {
+    pub blob_cells: VariableList<VariableList<Cell<E>, U1>, E::CellsPerExtBlob>,
+    pub proofs: VariableList<VariableList<KzgProof, U1>, E::CellsPerExtBlob>,
 }
 
-impl<E: EthSpec> SszBlobsResponse<E> {
+impl<E: EthSpec> From<SszBlobCellsAndProofs<E>> for BlobCellsAndProofsV1<E> {
+    fn from(value: SszBlobCellsAndProofs<E>) -> Self {
+        Self {
+            blob_cells: value
+                .blob_cells
+                .into_iter()
+                .map(|cell| cell.into_iter().next().map(JsonCell))
+                .collect(),
+            proofs: value
+                .proofs
+                .into_iter()
+                .map(|proof| proof.into_iter().next())
+                .collect(),
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<BlobCellsAndProofsV1<E>> for SszBlobCellsAndProofs<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: BlobCellsAndProofsV1<E>) -> Result<Self, ssz_types::Error> {
+        let blob_cells = value
+            .blob_cells
+            .into_iter()
+            .map(|cell| VariableList::new(cell.map(|json_cell| json_cell.0).into_iter().collect()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let proofs = value
+            .proofs
+            .into_iter()
+            .map(|proof| VariableList::new(proof.into_iter().collect()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            blob_cells: VariableList::new(blob_cells)?,
+            proofs: VariableList::new(proofs)?,
+        })
+    }
+}
+
+#[superstruct(
+    variants(V2, V4),
+    variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
+pub struct SszBlobsResponse<E: EthSpec> {
+    #[superstruct(only(V2), partial_getter(rename = "entries_v2"))]
+    pub entries: VariableList<BlobsEntryV2<E>, E::MaxVersionedHashesPerRequest>,
+    #[superstruct(only(V4), partial_getter(rename = "entries_v4"))]
+    pub entries: VariableList<BlobsEntryV4<E>, E::MaxVersionedHashesPerRequest>,
+}
+
+impl<E: EthSpec> SszBlobsResponseV2<E> {
     /// `/blobs/v2` (all-or-nothing): a miss is a `204`, so every entry in a `200` body is present.
     pub fn into_v2(self) -> Vec<BlobAndProofV2<E>> {
         self.entries
@@ -847,6 +926,17 @@ impl<E: EthSpec> SszBlobsResponse<E> {
         self.entries
             .into_iter()
             .map(|entry| entry.available.then_some(entry.contents))
+            .collect()
+    }
+}
+
+impl<E: EthSpec> SszBlobsResponseV4<E> {
+    /// `/blobs/v4` (partial): `available == false` → `None`; else the cell/proof contents,
+    /// converted to the transport-neutral `BlobCellsAndProofsV1`.
+    pub fn into_v4(self) -> GetBlobsV4List<E> {
+        self.entries
+            .into_iter()
+            .map(|entry| entry.available.then(|| entry.contents.into()))
             .collect()
     }
 }
@@ -884,7 +974,7 @@ pub struct SszBodyEntry<E: EthSpec> {
     pub body: SszExecutionPayloadBodyV3<E>,
 }
 
-/// SSZ `BodiesResponse` for `engine_getPayloadBodiesBy{Hash,Range}`.
+/// SSZ `BodiesResponse` for `engine_getPayloadBodiesByHash`.
 ///
 /// The response is fork-homogeneous: every entry is serialised against the fork
 /// named by the `Eth-Execution-Version` request header, so the variant is known
@@ -1000,6 +1090,10 @@ impl SszCapabilities {
 
     pub fn get_blobs_v3(&self) -> bool {
         self.blobs_v3
+    }
+
+    pub fn get_blobs_v4(&self) -> bool {
+        self.blobs_v4
     }
 
     pub fn get_client_version_v1(&self) -> bool {

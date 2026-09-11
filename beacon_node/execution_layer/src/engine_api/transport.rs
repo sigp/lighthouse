@@ -2,11 +2,13 @@
 
 use crate::engine_api::{
     BlockByNumberQuery, EngineCapabilities, Error as EngineApiError, ExecutionBlock,
-    ExecutionPayloadBodyV1, ForkchoiceUpdatedResponse, GetPayloadResponse, NewPayloadRequest,
-    PayloadAttributes, PayloadId, PayloadStatusV1,
+    ExecutionPayloadBodyV1, ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, GetPayloadResponse,
+    NewPayloadRequest, PayloadAttributes, PayloadId, PayloadStatusV1,
 };
 use crate::engines::ForkchoiceState;
-use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List,
+};
 use crate::metrics;
 use crate::rest::HttpRestSsz;
 use crate::{ClientVersionV1, HttpJsonRpc};
@@ -134,7 +136,7 @@ impl EngineApi {
         result
     }
 
-    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
@@ -143,7 +145,7 @@ impl EngineApi {
         let (transport, result) = match self.active_rest() {
             Some(rest) => (
                 metrics::TRANSPORT_REST,
-                rest.get_payload_bodies_by_hash::<E>(fork, block_hashes)
+                rest.get_payload_bodies_by_hash_v1::<E>(fork, block_hashes)
                     .await,
             ),
             None => (
@@ -161,29 +163,22 @@ impl EngineApi {
         result
     }
 
-    pub async fn get_payload_bodies_by_range<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash_v2(
         &self,
-        fork: ForkName,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, EngineApiError> {
+        _fork: ForkName,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, EngineApiError> {
         let start_time = Instant::now();
-        let (transport, result) = match self.active_rest() {
-            Some(rest) => (
-                metrics::TRANSPORT_REST,
-                rest.get_payload_bodies_by_range::<E>(fork, start, count)
-                    .await,
-            ),
-            None => (
-                metrics::TRANSPORT_JSON_RPC,
-                self.json_rpc
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await,
-            ),
-        };
+        let (transport, result) = (
+            metrics::TRANSPORT_JSON_RPC,
+            self.json_rpc
+                .get_payload_bodies_by_hash_v2(block_hashes)
+                .await,
+        );
+
         metrics::observe_timer_vec(
             &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
-            &[metrics::GET_PAYLOAD_BODIES_BY_RANGE, transport],
+            &[metrics::GET_PAYLOAD_BODIES_BY_HASH, transport],
             start_time.elapsed(),
         );
         result
@@ -241,6 +236,32 @@ impl EngineApi {
         metrics::observe_timer_vec(
             &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
             &[metrics::GET_BLOBS_V3, transport],
+            start_time.elapsed(),
+        );
+        result
+    }
+
+    pub async fn get_blobs_v4<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+        indices_bitarray: CustodyColumnsBitArray,
+    ) -> Result<Option<GetBlobsV4List<E>>, EngineApiError> {
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_blobs_v4(versioned_hashes, indices_bitarray).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc
+                    .get_blobs_v4(versioned_hashes, indices_bitarray)
+                    .await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_BLOBS_V4, transport],
             start_time.elapsed(),
         );
         result

@@ -271,7 +271,7 @@ pub fn electra_get_payload(
 }
 
 pub struct BlobsFixture {
-    pub ssz: SszBlobsResponse<E>,
+    pub ssz: SszBlobsResponseV2<E>,
     pub json_v2: Vec<BlobAndProofV2<E>>,
     pub json_v3: Vec<BlobAndProofV3<E>>,
 }
@@ -298,12 +298,12 @@ pub fn fulu_blobs(n_blobs: usize) -> BlobsFixture {
     let entries = contents
         .iter()
         .cloned()
-        .map(|contents| BlobsEntry {
+        .map(|contents| BlobsEntryV2 {
             available: true,
             contents,
         })
         .collect::<Vec<_>>();
-    let ssz = SszBlobsResponse {
+    let ssz = SszBlobsResponseV2 {
         entries: VariableList::new(entries).expect("entries within cap"),
     };
 

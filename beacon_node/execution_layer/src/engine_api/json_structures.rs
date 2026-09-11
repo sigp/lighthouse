@@ -1,12 +1,12 @@
 use super::*;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_BLOBS_V3, ENGINE_GET_BLOBS_V4,
+    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_INCLUSION_LIST_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::data::BlobsList;
+use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
     BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
     DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
@@ -36,7 +36,7 @@ pub struct JsonRpcCapabilities {
     pub forkchoice_updated_v3: bool,
     pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
-    pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_bodies_by_hash_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
@@ -46,6 +46,7 @@ pub struct JsonRpcCapabilities {
     pub get_client_version_v1: bool,
     pub get_blobs_v2: bool,
     pub get_blobs_v3: bool,
+    pub get_blobs_v4: bool,
     pub get_inclusion_list_v1: bool,
 }
 
@@ -86,13 +87,6 @@ impl JsonRpcCapabilities {
         }
     }
 
-    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
-        match fork {
-            ForkName::Heze => self.get_inclusion_list_v1,
-            _ => false,
-        }
-    }
-
     pub fn to_response(&self) -> Vec<&str> {
         let mut response = Vec::new();
         if self.new_payload_v1 {
@@ -125,8 +119,8 @@ impl JsonRpcCapabilities {
         if self.get_payload_bodies_by_hash_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
         }
-        if self.get_payload_bodies_by_range_v1 {
-            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        if self.get_payload_bodies_by_hash_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);
@@ -151,6 +145,12 @@ impl JsonRpcCapabilities {
         }
         if self.get_blobs_v2 {
             response.push(ENGINE_GET_BLOBS_V2);
+        }
+        if self.get_blobs_v3 {
+            response.push(ENGINE_GET_BLOBS_V3);
+        }
+        if self.get_blobs_v4 {
+            response.push(ENGINE_GET_BLOBS_V4);
         }
         if self.get_inclusion_list_v1 {
             response.push(ENGINE_GET_INCLUSION_LIST_V1);
@@ -1263,6 +1263,72 @@ pub struct BlobAndProof<E: EthSpec> {
 /// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
 pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
 
+/// CELLS_PER_EXT_BLOB per EIP-7594; the `custodyColumns` and `indices_bitarray`
+/// EIP-8070 parameters are 128-bit bitarrays (=16 bytes).
+pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
+
+/// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
+/// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
+/// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4`.
+///  The TryFrom impl safeguards against invalid input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CustodyColumnsBitArray(
+    #[serde(with = "serde_utils::fixed_bytes_hex::bytes_16_hex")]
+    [u8; CUSTODY_COLUMNS_BITARRAY_BYTES],
+);
+
+impl CustodyColumnsBitArray {
+    pub fn iter_set_bits(&self) -> impl Iterator<Item = ColumnIndex> + '_ {
+        (0..CUSTODY_COLUMNS_BITARRAY_BYTES * 8).filter_map(move |i| {
+            let byte = self.0[i / 8];
+            ((byte >> (i % 8)) & 1 == 1).then_some(i as ColumnIndex)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnIndexTooHighError(pub ColumnIndex);
+
+impl TryFrom<&[ColumnIndex]> for CustodyColumnsBitArray {
+    type Error = ColumnIndexTooHighError;
+
+    fn try_from(indices: &[ColumnIndex]) -> Result<Self, ColumnIndexTooHighError> {
+        let mut buf = [0u8; CUSTODY_COLUMNS_BITARRAY_BYTES];
+        for i in indices {
+            let byte_idx = *i as usize / 8;
+            let bit_idx = i % 8;
+            if byte_idx < CUSTODY_COLUMNS_BITARRAY_BYTES {
+                buf[byte_idx] |= 1u8 << bit_idx;
+            } else {
+                return Err(ColumnIndexTooHighError(*i));
+            }
+        }
+        Ok(Self(buf))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", transparent)]
+pub struct JsonCell<E: EthSpec>(
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")] pub Cell<E>,
+);
+
+/// `blob_cells` is the partial column matrix slice for one blob, indexed
+/// positionally over the bits set in the request's `indices_bitarray`
+/// (lowest set bit first). An entry is `null` when the EL doesn't have
+/// that cell. `proofs[i]` is the KZG cell proof for `blob_cells[i]` and
+/// is only meaningful when the matching cell is `Some`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlobCellsAndProofsV1<E: EthSpec> {
+    pub blob_cells: Vec<Option<JsonCell<E>>>,
+    pub proofs: Vec<Option<KzgProof>>,
+}
+
+pub type GetBlobsV4List<E> = Vec<Option<BlobCellsAndProofsV1<E>>>;
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
@@ -1420,11 +1486,51 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonBlockAccessList(
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")] pub BlockAccessList,
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2 {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
+    #[serde(default)]
+    pub block_access_list: Option<JsonBlockAccessList>,
+}
+
+impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
+    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(|list| list.0),
+        }
+    }
+}
+
+impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
+    fn from(value: ExecutionPayloadBodyV2) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+            block_access_list: value.block_access_list.map(JsonBlockAccessList),
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1862,5 +1968,48 @@ mod tests {
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));
+    }
+
+    #[test]
+    fn payload_body_block_access_list_round_trip() {
+        use serde_json::json;
+
+        // Present `blockAccessList` -> `Some`.
+        let with_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": "0x010203",
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(
+            internal.block_access_list,
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
+
+        // Explicit `null` -> `None`, retained as `null` on re-serialize.
+        let null_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": null,
+        });
+        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        assert_eq!(internal.block_access_list, None);
+        assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
+
+        // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
+        let body: JsonExecutionPayloadBodyV2 =
+            serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
+        assert!(body.block_access_list.is_none());
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({
+                "transactions": [],
+                "withdrawals": null,
+                "blockAccessList": null,
+            })
+        );
     }
 }

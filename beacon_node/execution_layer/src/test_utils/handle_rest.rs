@@ -8,7 +8,7 @@ use warp::http::Response;
 use crate::engine_api::rest::header_to_fork;
 use crate::engine_api::{ExecutionPayloadBodyV1, ForkchoiceUpdatedResponse, PayloadAttributes};
 use crate::engines::ForkchoiceState;
-use crate::json_structures::{BlobAndProof, BlobAndProofV2};
+use crate::json_structures::{BlobAndProof, BlobAndProofV2, BlobCellsAndProofsV1, JsonCell};
 use crate::ssz_structures::*;
 
 use super::handle_rpc::UNKNOWN_PAYLOAD_ERROR_CODE;
@@ -115,6 +115,7 @@ pub(crate) fn handle_rest<E: EthSpec>(
         }
         ("POST", "/engine/v1/blobs/v2") => handle_get_blobs(ctx, body, true),
         ("POST", "/engine/v1/blobs/v3") => handle_get_blobs(ctx, body, false),
+        ("POST", "/engine/v1/blobs/v4") => handle_get_blobs_v4(ctx, body),
         ("POST", "/engine/v1/bodies/hash") => {
             let Some(fork) = eth_execution_version.and_then(header_to_fork) else {
                 return problem_response(
@@ -332,13 +333,13 @@ fn handle_get_blobs<E: EthSpec>(
     let mut all_present = true;
     for hash in &versioned_hashes {
         match generator.get_blob_and_proof(hash) {
-            Some(BlobAndProof::V2(contents)) => entries.push(BlobsEntry {
+            Some(BlobAndProof::V2(contents)) => entries.push(BlobsEntryV2 {
                 available: true,
                 contents,
             }),
             _ => {
                 all_present = false;
-                entries.push(BlobsEntry {
+                entries.push(BlobsEntryV2 {
                     available: false,
                     contents: BlobAndProofV2 {
                         blob: Default::default(),
@@ -357,7 +358,70 @@ fn handle_get_blobs<E: EthSpec>(
         Ok(entries) => entries,
         Err(e) => return problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
     };
-    ssz_response(Bytes::from(SszBlobsResponse { entries }.as_ssz_bytes()))
+    ssz_response(Bytes::from(SszBlobsResponseV2 { entries }.as_ssz_bytes()))
+}
+
+/// `/blobs/v4` serves each blob's requested-column cells + proofs, with a blob the mock
+/// doesn't have marked `available = false`.
+fn handle_get_blobs_v4<E: EthSpec>(ctx: &Context<E>, body: &[u8]) -> Response<Bytes> {
+    let Ok(request) = SszBlobsRequestV2::<E>::from_ssz_bytes(body) else {
+        return problem_response(RestProblemKind::SszDecodeError, None);
+    };
+    let versioned_hashes = request.versioned_hashes.to_vec();
+    let requested_indices: Vec<usize> = request
+        .indices_bitarray
+        .iter()
+        .enumerate()
+        .filter_map(|(index, set)| set.then_some(index))
+        .collect();
+
+    let generator = ctx.execution_block_generator.read();
+    let mut entries = Vec::with_capacity(versioned_hashes.len());
+    for hash in &versioned_hashes {
+        let entry = match generator.get_blob_cells_and_proofs(hash) {
+            Some((cells, cell_proofs)) => {
+                let mut blob_cells = Vec::with_capacity(requested_indices.len());
+                let mut proofs = Vec::with_capacity(requested_indices.len());
+                for &index in &requested_indices {
+                    let Some((cell, proof)) = cells.get(index).zip(cell_proofs.get(index)) else {
+                        return problem_response(
+                            RestProblemKind::Internal,
+                            Some(format!("cell index {index} out of range")),
+                        );
+                    };
+                    blob_cells.push(Some(JsonCell(cell.clone())));
+                    proofs.push(Some(*proof));
+                }
+                let contents = match SszBlobCellsAndProofs::try_from(BlobCellsAndProofsV1::<E> {
+                    blob_cells,
+                    proofs,
+                }) {
+                    Ok(contents) => contents,
+                    Err(e) => {
+                        return problem_response(RestProblemKind::Internal, Some(format!("{e:?}")));
+                    }
+                };
+                BlobsEntryV4 {
+                    available: true,
+                    contents,
+                }
+            }
+            None => BlobsEntryV4 {
+                available: false,
+                contents: SszBlobCellsAndProofs {
+                    blob_cells: VariableList::empty(),
+                    proofs: VariableList::empty(),
+                },
+            },
+        };
+        entries.push(entry);
+    }
+
+    let entries = match VariableList::new(entries) {
+        Ok(entries) => entries,
+        Err(e) => return problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
+    };
+    ssz_response(Bytes::from(SszBlobsResponseV4 { entries }.as_ssz_bytes()))
 }
 
 fn encode_bodies_response<E: EthSpec>(

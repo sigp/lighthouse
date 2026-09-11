@@ -261,7 +261,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                 let hashes = chunk.iter().map(|&i| blocks[i].0).collect::<Vec<_>>();
                 let chunk_bodies = self
                     .execution_layer
-                    .get_payload_bodies_by_hash(fork, hashes)
+                    .get_payload_bodies_by_hash_v1(fork, hashes)
                     .await
                     .map_err(|e| Error::BlocksByHashFailure(Box::new(e)))?;
 

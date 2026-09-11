@@ -8,7 +8,9 @@ use crate::engine_api::{
 };
 use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
-use crate::json_structures::{BlobAndProofV2, BlobAndProofV3, JsonClientVersionV1};
+use crate::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List, JsonClientVersionV1,
+};
 use crate::metrics;
 use crate::ssz_structures::*;
 use bytes::Bytes;
@@ -459,7 +461,7 @@ impl HttpRestSsz {
             return Ok(None);
         };
         let response =
-            SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+            SszBlobsResponseV2::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         Ok(Some(response.into_v2()))
     }
 
@@ -482,11 +484,36 @@ impl HttpRestSsz {
             return Ok(None);
         };
         let response =
-            SszBlobsResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+            SszBlobsResponseV2::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         Ok(Some(response.into_v3()))
     }
 
-    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
+    pub async fn get_blobs_v4<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+        indices_bitarray: CustodyColumnsBitArray,
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
+        let body = SszBlobsRequest::<E>::new_blobs_request_v2(versioned_hashes, indices_bitarray)?
+            .as_ssz_bytes();
+        let Some(response) = self
+            .rest_request(
+                Method::POST,
+                "blobs/v4",
+                None,
+                Some(body),
+                OCTET_STREAM,
+                Some(metrics::GET_BLOBS_V4),
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let response =
+            SszBlobsResponseV4::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        Ok(Some(response.into_v4()))
+    }
+
+    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
@@ -507,31 +534,6 @@ impl HttpRestSsz {
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies/hash".to_string()))?;
-
-        SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
-            .map_err(Error::SszDecode)?
-            .into_bodies()
-            .map_err(Error::BadResponse)
-    }
-
-    pub async fn get_payload_bodies_by_range<E: EthSpec>(
-        &self,
-        fork: ForkName,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let path = format!("bodies?from={start}&count={count}");
-        let response = self
-            .rest_request(
-                Method::GET,
-                &path,
-                Some(fork),
-                None,
-                OCTET_STREAM,
-                Some(metrics::GET_PAYLOAD_BODIES_BY_RANGE),
-            )
-            .await?
-            .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies".to_string()))?;
 
         SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
             .map_err(Error::SszDecode)?
@@ -872,19 +874,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_payload_bodies_by_range_request_conformance() {
+    async fn get_blobs_v4_request_conformance() {
+        let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
+        let indices_bitarray = CustodyColumnsBitArray::try_from([0u64, 1, 2].as_slice()).unwrap();
+        let expected_body = Bytes::from(
+            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v2(
+                versioned_hashes.clone(),
+                indices_bitarray,
+            )
+            .unwrap()
+            .as_ssz_bytes(),
+        );
         RestTester::new(true)
             .assert_ssz_request_equals(
-                |client| async move {
-                    let _ = client
-                        .get_payload_bodies_by_range::<MainnetEthSpec>(ForkName::Electra, 10, 5)
-                        .await;
+                move |client| {
+                    let versioned_hashes = versioned_hashes.clone();
+                    async move {
+                        let _ = client
+                            .get_blobs_v4::<MainnetEthSpec>(versioned_hashes, indices_bitarray)
+                            .await;
+                    }
                 },
                 ExpectedRest {
-                    method: "GET",
-                    path: "/engine/v1/bodies?from=10&count=5".to_string(),
-                    fork_header: Some("prague".to_string()),
-                    body: Bytes::new(),
+                    method: "POST",
+                    path: "/engine/v1/blobs/v4".to_string(),
+                    fork_header: None,
+                    body: expected_body,
                 },
             )
             .await;
@@ -908,7 +923,7 @@ mod tests {
                     let block_hashes = block_hashes.clone();
                     async move {
                         let _ = client
-                            .get_payload_bodies_by_hash::<MainnetEthSpec>(
+                            .get_payload_bodies_by_hash_v1::<MainnetEthSpec>(
                                 ForkName::Fulu,
                                 block_hashes,
                             )
