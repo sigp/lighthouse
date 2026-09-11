@@ -175,6 +175,12 @@ async fn bits_and_transactions_read_back_through_the_chain() {
             .is_inclusion_list_bits_inclusive(block_root, slot, &timely_bits, false)
             .unwrap()
     );
+    assert!(
+        harness
+            .chain
+            .is_inclusion_list_bits_inclusive(block_root, slot, &timely_bits, true)
+            .unwrap()
+    );
 
     // The spec does not require transaction order to be preserved.
     let transactions = harness
