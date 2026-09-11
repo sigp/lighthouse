@@ -1180,6 +1180,15 @@ pub struct JsonPayloadStatusV1 {
     pub validation_error: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonPayloadStatusV2 {
+    pub status: JsonPayloadStatusV1Status,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
+    pub validation_error: Option<String>,
+    pub inclusion_list_satisfied: Option<bool>,
+}
+
 impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
     fn from(e: PayloadStatusV1Status) -> Self {
         match e {
@@ -1210,12 +1219,33 @@ impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
+            // Deliberately dropped because the V1 wire format cannot carry it.
+            inclusion_list_satisfied: _,
         } = p;
 
         Self {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+        }
+    }
+}
+
+impl From<PayloadStatusV1> for JsonPayloadStatusV2 {
+    fn from(p: PayloadStatusV1) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let PayloadStatusV1 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = p;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1233,6 +1263,27 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+            // The V1 wire format carries no inclusion list information.
+            inclusion_list_satisfied: None,
+        }
+    }
+}
+
+impl From<JsonPayloadStatusV2> for PayloadStatusV1 {
+    fn from(j: JsonPayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonPayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = j;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1798,6 +1849,74 @@ mod tests {
                 "withdrawals": null,
                 "blockAccessList": null,
             })
+        );
+    }
+}
+
+#[cfg(test)]
+mod payload_status_tests {
+    use super::*;
+
+    /// Engine responses before `engine_newPayloadV6` do not carry `inclusionListSatisfied`.
+    #[test]
+    fn v1_response_carries_no_inclusion_list_information() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(PayloadStatusV1::from(status).inclusion_list_satisfied, None);
+    }
+
+    #[test]
+    fn v1_response_does_not_serialize_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap();
+
+        assert!(json.get("inclusionListSatisfied").is_none());
+    }
+
+    #[test]
+    fn v2_response_serializes_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap();
+
+        assert_eq!(
+            json.get("inclusionListSatisfied"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn v2_response_round_trips_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+            "inclusionListSatisfied": true,
+        });
+
+        let status: JsonPayloadStatusV2 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, Some(true));
+        assert_eq!(
+            PayloadStatusV1::from(status).inclusion_list_satisfied,
+            Some(true)
         );
     }
 }
