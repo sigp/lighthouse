@@ -50,6 +50,21 @@ pub enum LightClientSyncError {
         store_schema: LightClientStoreSchema,
     },
 
+    #[error("cannot downgrade light-client data from {current} to {requested}")]
+    DataForkDowngrade {
+        current: ForkName,
+        requested: ForkName,
+    },
+
+    #[error("cannot downgrade light-client store schema from {current:?} to {requested:?}")]
+    StoreSchemaDowngrade {
+        current: LightClientStoreSchema,
+        requested: LightClientStoreSchema,
+    },
+
+    #[error("cannot normalize light-client branch of length {actual} to length {expected}")]
+    InvalidUpgradeBranchLength { actual: usize, expected: usize },
+
     #[error("sync committee has {actual} participants, requires at least {minimum}")]
     InsufficientParticipants { actual: usize, minimum: u64 },
 

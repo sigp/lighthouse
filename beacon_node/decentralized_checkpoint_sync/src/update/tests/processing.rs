@@ -3,6 +3,7 @@ use crate::process_light_client_update;
 
 mod force_update;
 mod partial_update;
+mod upgrade;
 
 impl Fixture {
     fn process(&mut self) -> Result<(), LightClientSyncError> {

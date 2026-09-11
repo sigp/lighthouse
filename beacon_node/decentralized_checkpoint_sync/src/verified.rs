@@ -1,4 +1,4 @@
-use crate::beacon_header;
+use crate::{LightClientSyncError, beacon_header, upgrade::upgrade_light_client_header};
 use types::{EthSpec, ForkName, Hash256, LightClientHeader, Slot};
 
 /// A checkpoint header anchored in an externally trusted finalized root or verified finality.
@@ -27,6 +27,15 @@ pub struct VerifiedFinalizedHeader<E: EthSpec> {
 }
 
 impl<E: EthSpec> VerifiedFinalizedHeader<E> {
+    /// Change representation only; do not derive new trust or replace the slot-derived fork.
+    pub(crate) fn upgrade(&self, target_fork: ForkName) -> Result<Self, LightClientSyncError> {
+        Ok(Self {
+            header: upgrade_light_client_header(&self.header, target_fork)?,
+            beacon_block_root: self.beacon_block_root,
+            fork: self.fork,
+        })
+    }
+
     /// The caller must have validated the header, its trusted root and the bootstrap committee.
     pub(crate) fn from_trusted_bootstrap(header: LightClientHeader<E>, fork: ForkName) -> Self {
         Self::new(header, fork)
