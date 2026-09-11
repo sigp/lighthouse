@@ -384,7 +384,7 @@ impl<E: EthSpec> PeerManager<E> {
 
         // The heartbeat will attempt new discovery queries every N seconds if the node needs more
         // peers. As an optimization, this function can recursively trigger new discovery queries
-        // immediatelly if we don't fulfill our peers needs after completing a query. This
+        // immediately if we don't fulfill our peers needs after completing a query. This
         // recursiveness results in an infinite loop in networks where there not enough peers to
         // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
         // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
