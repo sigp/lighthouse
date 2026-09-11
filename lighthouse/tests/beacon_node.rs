@@ -8,6 +8,7 @@ use beacon_node::{
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::PeerId;
 use network_utils::unused_port::{
     unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
@@ -1258,7 +1259,12 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 17;
+    let number_of_boot_nodes = Eth2NetworkConfig::constant("mainnet")
+        .unwrap()
+        .unwrap()
+        .boot_enr
+        .unwrap()
+        .len();
 
     CommandLineTest::new()
         .run_with_zero_port()
