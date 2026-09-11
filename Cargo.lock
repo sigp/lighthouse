@@ -2986,6 +2986,7 @@ dependencies = [
  "bls",
  "compare_fields",
  "context_deserialize",
+ "decentralized_checkpoint_sync",
  "educe",
  "eth2_network_config",
  "ethereum_ssz",

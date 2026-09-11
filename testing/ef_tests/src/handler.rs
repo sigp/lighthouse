@@ -1288,6 +1288,26 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
 #[derive(Educe)]
 #[educe(Default)]
+pub struct LightClientSyncHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for LightClientSyncHandler<E> {
+    type Case = cases::LightClientSync<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "sync".into()
+    }
+}
+
+#[derive(Educe)]
+#[educe(Default)]
 pub struct LightClientUpdateHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {

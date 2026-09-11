@@ -27,8 +27,9 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/PowBlock/",
     # We no longer implement merge logic.
     "tests/.*/bellatrix/fork_choice/on_merge_block",
-    # Light client sync is not implemented
-    "tests/.*/.*/light_client/sync",
+    # Cross-fork sync cases targeting Gloas are also emitted in pre-Gloas directories.
+    # Keep synchronized with LightClientSync's unsupported-store-version check.
+    "tests/minimal/.*/light_client/sync/pyspec_tests/(gloas_store_with_legacy_data|gloas_fork|deneb_gloas_fork|electra_gloas_fork)/",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
